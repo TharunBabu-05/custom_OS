@@ -14,6 +14,8 @@ The header candidate has been corrected to use that address. The earlier
 header image used `0x1f00030000` and must be replaced for this firmware mapping.
 The subsequent capture confirms the OurOS banner, EL2-to-EL1 transition,
 working command input/output and advancing uptime with the corrected address.
+The new [RAM/page allocator revision](memory.md) has separate host/QEMU tests;
+its physical Pi memory test remains pending. Older proof captures predate it.
 
 ## Wiring
 
@@ -79,8 +81,9 @@ Kernel monitor ready. Type help.
 
 The reported entry EL can differ; save the actual value. Run `help`, `info`,
 `cpuinfo`, `echo pi5-ok`, and `uptime`. Repeat `uptime` after ten seconds and
-check that it advances. Repeat the boot to check consistency. `meminfo`
-reports RAM discovery unavailable; HDMI is blank, and USB keyboards/networking
+check that it advances. Repeat the boot to check consistency. In the new memory
+revision, also run `meminfo`, `memmap` and `pagetest`; see the memory guide.
+HDMI is blank, and USB keyboards/networking
 are unsupported. Capture the complete log, image hash and EEPROM version if
 known. These results establish a kernel boot milestone, not a complete OS.
 

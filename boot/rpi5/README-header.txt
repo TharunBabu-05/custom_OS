@@ -21,7 +21,11 @@ The dedicated 3-pin UART connector is not this build's kernel console.
 
 Expected: OurOS: AArch64 kernel booted; Board=rpi5-header; running EL1.
 Type help, info, cpuinfo, echo pi5-ok, and uptime (twice, 10 seconds apart).
-No HDMI/GUI, USB keyboard, networking, filesystem, RAM allocator or processes.
+New memory commands: meminfo, memmap, pagealloc, pagefree <slot>, pagetest.
+Memory discovery/reservations and 4 KiB pages are host/QEMU-tested. Their physical
+Pi test is pending; the earlier UART/monitor baseline has hardware proof.
+Dynamic reservation windows are conservatively excluded in full.
+No HDMI/GUI, USB keyboard, networking, filesystem, heap, MMU or processes.
 See docs/rpi5-header-uart.md. No Linux kernel or EEPROM update is included.
 
 DTB and notices come unchanged from raspberrypi/firmware at the manifest

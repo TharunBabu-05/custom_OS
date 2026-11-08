@@ -69,8 +69,10 @@ For each board's validated deployment:
    partition table/FAT contents and manifest before proposing any physical write.
 
 The Pi 5 candidate now covers build-time checks, boot-file packaging and a
-[partitioned experimental SD image](disk-image.md). Device-tree parsing for Pi memory,
-full Pi device-tree support and broader firmware compatibility remain unfinished.
+[partitioned experimental SD image](disk-image.md). A shared [memory-only DTB
+reader and physical page allocator](memory.md) now pass host/QEMU tests and await
+a physical Pi memory capture. Full Pi device-tree support and broader firmware
+compatibility remain unfinished.
 Firmware entry and bidirectional header UART operation were observed on the
 tested Pi 5 setup, as recorded in the hardware results.
 The Zero 2 W boot package is not implemented.

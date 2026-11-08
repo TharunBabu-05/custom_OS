@@ -20,7 +20,7 @@ bool board_init(struct board_info *info, uintptr_t dtb)
         .uart_clock=0,
         .ram_known=false
     };
-    /* The QEMU-only DTB parser is not used on the BCM2712 device tree.
-     * Keep RAM unknown until a real Pi memory/reservation parser is added. */
+    /* UART attachment remains separate from shared DTB memory discovery.
+     * memory_boot_init parses RAM and reservations after the console is live. */
     return uart_attach_firmware(info->uart_base);
 }

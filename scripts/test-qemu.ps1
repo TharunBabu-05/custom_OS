@@ -45,16 +45,30 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
             if (!$text.Contains($fragment)) { throw "$Name missing expected output: $fragment (see $out/$Name.log)" }
         }
         if ($Name -notlike 'fault*' -and $text.Contains('FATAL')) { throw 'Unexpected exception' }
+        if ($Name -notlike 'fault*') {
+            $snapshots=[regex]::Matches($text,'managed_pages=(\d+) free_pages=(\d+) allocated_pages=(\d+)')
+            if ($snapshots.Count -ne 3 -or $snapshots[0].Groups[3].Value -ne '0' -or
+                $snapshots[1].Groups[3].Value -ne '2' -or $snapshots[2].Groups[3].Value -ne '0' -or
+                $snapshots[0].Groups[2].Value -ne $snapshots[2].Groups[2].Value -or
+                ([long]$snapshots[0].Groups[2].Value-2) -ne [long]$snapshots[1].Groups[2].Value) {
+                throw "$Name physical page counters did not balance (see $out/$Name.log)"
+            }
+        }
         Write-Output "PASS: $Name"
     } finally {
         if ($started -and !$process.HasExited) { $process.Kill(); $process.WaitForExit() }
         $process.Dispose()
     }
 }
-$commands=@('help','info','cpuinfo','meminfo','echo native-windows-ok',"echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
+$commands=@('help','info','cpuinfo','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
+    'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo','echo native-windows-ok',
+    "echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
 $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt | EL1',
     'help info cpuinfo meminfo uptime','timer_hz=',"`r`nnative-windows-ok`r`n", "`r`nbackspace`r`n",'uptime_seconds=',
-    'Unknown command. Type help.','Input too long; command discarded.',"`r`nrecovered`r`n",'CPU halted.')
+    'Unknown command. Type help.','Input too long; command discarded.',"`r`nrecovered`r`n",'CPU halted.',
+    'Memory: ready','reason=kernel/BSS/stack/bitmap','reason=DTB',
+    'PASS: four distinct pages written/read/freed; counters restored.',
+    'Allocated slot=0','Allocated slot=1','Freed slot=0','Freed slot=1','Invalid or unallocated page slot.')
 if ($Handoff) {
     Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1'))
     Run-Case 'handoff-el2' 'cortex-a76' 128 $commands ($expected+@('entered EL2 running EL1')) $true

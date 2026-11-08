@@ -30,8 +30,10 @@ itself has no filesystem driver yet. Only the dedicated UART10 console is used.
 Requires Pi 5, working EEPROM firmware and a 3.3 V serial adapter/cable at the
 3-pin UART connector between the HDMI ports. Terminal: 115200 8N1, no flow control.
 Expected message: OurOS: AArch64 kernel booted
-Commands: help info cpuinfo meminfo uptime echo clear halt fault
-No Pi RAM allocator exists; meminfo reports discovery unavailable.
+Commands: help info cpuinfo meminfo memmap uptime echo clear halt fault
+Memory commands: pagealloc, pagefree <slot>, pagetest.
+DTB memory discovery and 4 KiB pages are host/QEMU-tested; physical Pi test pending.
+Dynamic reserved-memory alloc-ranges windows are conservatively excluded in full.
 
 OUROS.IMG is the kernel. PI5.DTB is the official board device tree (renamed only).
 CONFIG.TXT selects those filenames. COPYING.TXT and LICENSE.TXT retain upstream

@@ -33,7 +33,9 @@
 > **Hardware milestone · 08 November 2026**
 > The Pi 5 header-console build reaches EL1 from EL2, accepts monitor commands,
 > reads CPU identification, and reports advancing uptime. This is an early kernel:
-> memory allocation, processes, filesystems, USB, networking and a desktop are still ahead.
+> A new revision adds RAM discovery and physical page allocation, tested on the host
+> and QEMU and awaiting its own Pi test. Processes, filesystems, USB, networking
+> and a desktop are still ahead.
 
 ## The hardware receipts
 
@@ -90,12 +92,14 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 | Serial console | Polling PL011; firmware-preserved RP1 UART setup on the tested Pi |
 | Device-tree subset | Bounded UART/clock/RAM discovery for **QEMU virt** |
 | Time and CPU | Architectural counter reads, uptime and MIDR inspection |
+| Physical memory | DTB RAM/reservation discovery and 4 KiB pages; host/QEMU-tested, Pi validation pending |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
 
 The FAT32 boot partition is read by the Pi firmware; a kernel filesystem driver
-has not been implemented. Pi RAM discovery and allocation are also unfinished.
+has not been implemented. [Memory discovery and physical pages](docs/memory.md)
+now have emulator/host verification; MMU, heap and the new Pi memory test remain.
 
 <details>
 <summary><strong>Explore the source map</strong></summary>
@@ -106,6 +110,7 @@ boards/            Raspberry Pi 5 and QEMU board initialization
 boot/rpi5/         Firmware config, asset pins and boot-file notes
 drivers/           PL011 UART and architectural timer
 kernel/core/       Monitor, console and QEMU device-tree reader
+kernel/memory/     RAM/reservations and physical page allocation
 include/           Internal interfaces
 lib/               Freestanding memory helpers
 linker/            Board memory layouts
@@ -177,6 +182,7 @@ carefully when flashing because writing an image replaces its existing contents.
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-qemu.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-gdb.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-fdt.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-memory.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Target handoff-test
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-qemu.ps1 -Handoff
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-rpi5-image.ps1 -Console header
@@ -203,7 +209,8 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] Firmware-style EL1/EL2 handoff tests
 - [x] Whole-card experimental Pi 5 image generation
 - [x] Real Pi 5 header UART boot, CPU information, echo and advancing uptime
-- [ ] Pi memory discovery, reserved-region handling and physical page allocation
+- [x] Memory discovery, reservations and physical pages: host/QEMU tests
+- [ ] Physical Pi validation of the new memory code
 - [ ] Interrupt controller, timer interrupts and virtual memory
 - [ ] Scheduling, EL0 processes and a syscall interface
 - [ ] VFS, storage and persistent filesystems
@@ -222,6 +229,8 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [First kernel implementation](docs/first-kernel.md)
 - [Pi board and firmware integration](docs/boards.md)
 - [Hardware verification](docs/pi5-hardware-verification.md)
+- [Memory subsystem and commands](docs/memory.md)
+- [OS, CPU architectures and portability explained](docs/os-and-cpu-architectures.md)
 - [Asset sources and regeneration](docs/assets/README.md)
 
 The original kernel and artwork do not yet have a selected public license.

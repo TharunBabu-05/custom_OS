@@ -15,6 +15,8 @@ file, unlike `ouros-rpi5.img`, which contains only the kernel.
 
 **This is not a completed operating system, and hardware boot is untested.**
 It contains the original kernel monitor and a Pi 5 firmware/UART boot candidate.
+The new kernel has DTB RAM/reservation discovery and physical page allocation,
+verified on the host/QEMU but awaiting its own Pi test; see [memory.md](memory.md).
 There is no HDMI/GUI, keyboard/USB support, scheduling, virtual memory, storage
 driver, networking or user applications. The FAT32 partition is for the Pi's
 boot firmware to read; it does not imply an OurOS filesystem implementation.

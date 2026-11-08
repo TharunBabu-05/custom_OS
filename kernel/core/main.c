@@ -1,11 +1,14 @@
 #include "board.h"
 #include "console.h"
 #include "cpu.h"
+#include "memory.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
 static unsigned long entry_el;
 static uintptr_t firmware_dtb;
+static uint64_t monitor_pages[16];
+static bool monitor_owned[16];
 void kernel_main(uintptr_t dtb, unsigned long boot_el);
 void exception_fatal(unsigned long vector, unsigned long esr, unsigned long elr, unsigned long far);
 static bool equal(const char *a, const char *b)
@@ -28,6 +31,7 @@ static void command(const char *line)
 {
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
+        console_write("memmap pagealloc pagefree <slot> pagetest\n");
     } else if (equal(line,"info")) {
         console_write("OurOS development kernel | board="); console_write(board.name);
         console_write(" | EL"); console_u64(cpu_el());
@@ -40,13 +44,31 @@ static void command(const char *line)
         console_write("MIDR="); console_hex(midr);
         console_write(" timer_hz="); console_u64(timer_frequency()); console_write("\n");
     } else if (equal(line,"meminfo")) {
-        if (!board.ram_known) {
-            console_write("RAM discovery not implemented for this board; no allocator active.\n");
-            return;
+        memory_print_info();
+    } else if (equal(line,"memmap")) {
+        memory_print_map();
+    } else if (equal(line,"pagetest")) {
+        (void)memory_page_test();
+    } else if (equal(line,"pagealloc")) {
+        unsigned slot=0;
+        while (slot<16 && monitor_owned[slot]) { ++slot; }
+        if (slot == 16) { console_write("Monitor page slots full; use pagefree <slot>.\n"); }
+        else if (!page_alloc(&monitor_pages[slot])) { console_write("Allocation unavailable or out of physical pages.\n"); }
+        else {
+            monitor_owned[slot]=true;
+            console_write("Allocated slot="); console_u64(slot);
+            console_write(" physical="); console_hex(monitor_pages[slot]); console_write(" bytes=4096\n");
         }
-        console_write("DTB RAM base="); console_hex(board.ram_base);
-        console_write(" bytes="); console_u64(board.ram_size);
-        console_write(" (installed region; allocator not implemented)\n");
+    } else if (line[0]=='p' && line[1]=='a' && line[2]=='g' && line[3]=='e' &&
+               line[4]=='f' && line[5]=='r' && line[6]=='e' && line[7]=='e' && line[8]==' ') {
+        const char *p=line+9; unsigned slot=0; bool valid=*p != '\0';
+        while (*p && valid) {
+            if (*p<'0' || *p>'9' || slot>15) { valid=false; break; }
+            slot=slot*10+(unsigned)(*p++-'0');
+        }
+        if (!valid || slot>=16 || !monitor_owned[slot]) { console_write("Invalid or unallocated page slot.\n"); }
+        else if (!page_free(monitor_pages[slot])) { console_write("Page release rejected.\n"); }
+        else { monitor_owned[slot]=false; console_write("Freed slot="); console_u64(slot); console_write("\n"); }
     } else if (equal(line,"uptime")) {
         uint64_t hz=timer_frequency();
         console_write("uptime_seconds=");
@@ -80,6 +102,9 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     console_write("\nBoard="); console_write(board.name);
     console_write(" entered EL"); console_u64(entry_el);
     console_write(" running EL"); console_u64(cpu_el()); console_write("\n");
+    memory_boot_init(dtb);
+    console_write(pages_stats().ready ? "Physical page allocator ready; type meminfo or memmap.\n" :
+        "Physical page allocator disabled; type meminfo for the reason.\n");
     console_write("Kernel monitor ready. Type help.\n> ");
     char line[128];
     unsigned length=0;

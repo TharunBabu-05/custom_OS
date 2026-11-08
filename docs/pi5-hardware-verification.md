@@ -75,6 +75,10 @@ are preserved in [proofs/](../proofs/).
   creation before this hardware observation and do not encode per-board test
   history. The kernel/image bytes were not changed to record this milestone.
 
+A subsequent revision adds [RAM discovery and physical pages](memory.md).
+That revision has host/QEMU tests and requires a new physical capture; this
+document's successful baseline remains the older 8,105-byte monitor kernel.
+
 The default embedded firmware Arm stub is sufficient for this observed boot;
 the missing custom armstub and cmdline messages did not prevent the monitor
 from starting in this captured run.

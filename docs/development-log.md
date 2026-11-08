@@ -228,3 +228,48 @@ Independent kernel work can proceed on QEMU while that hardware is unavailable.
 - Publication requested to `TharunBabu-05/custom_OS`, with the exact commit
   message `OS working perfectly on raspberry pi-5`. That user-selected message
   does not change the documented limits of this early kernel.
+
+## RAM discovery and physical page allocator (2026-11-08)
+
+- User requested further OS implementation starting at meminfo, alongside an
+  explanation of Arm, open hardware/ISA, Linux origins and multi-platform images.
+  Added `docs/os-and-cpu-architectures.md` with primary references and a diagram.
+- Added a separate bounded v17 memory DTB reader: root reg banks/tuples with
+  1/2 address/size cells, overflow checks, normalization, memreserve, fixed
+  reserved-memory and paired initrd bounds. Invalid/unsupported maps preserve
+  output and leave allocation disabled rather than guessing capacity.
+- Examined the pinned Pi DTB: its dynamic CMA request has an alloc-ranges
+  window. The initial implementation conservatively excludes the entire window.
+  Unbounded dynamic requests, translated/nested reservation layouts and kexec
+  usable-memory restrictions fail closed. This can leave small boards with no
+  available pages; memmap documents the excluded region.
+- Added single-core 4 KiB physical pages with a static 1 MiB bitmap covering
+  addresses below 32 GiB. Protects all parsed reservations plus kernel/BSS/stack/
+  bitmap, complete DTB and a first-2-MiB boot guard. Rejects reserved, unaligned,
+  out-of-range and already free pages. No heap, virtual memory or processes yet.
+- Added memmap, pagealloc, pagefree <slot> and pagetest; meminfo now reports
+  described RAM and managed/free/allocated pages. Monitor handles prevent
+  arbitrary-address frees. pagetest touches only its own four pages and restores
+  its counters. Added the freestanding memcpy helper required by struct copies.
+- Host tests passed cell widths, multiple/high banks, overlaps, fixed/dynamic
+  reservations, initrd, arithmetic/capacity rejection, all truncations, 5000
+  guard-page mutations, allocation exhaustion/reuse/double-free and the 32 GiB
+  cap. Parsed the QEMU DTB and pinned Pi template (not an actual RAM measurement).
+  A synthetic 16 GiB map excludes its low 1 GiB dynamic window and allocates only
+  above it, with kernel/DTB reservations also recorded.
+- Updated QEMU suites passed A53/128 MiB and A76/512 MiB monitors, balanced
+  allocation counters, four-page pattern tests, invalid frees, EL1 and EL2 raw
+  Image handoff, and fatal exceptions. Native GDB stack/BSS and the original
+  5000-mutation QEMU UART-DTB tests also passed during this change.
+- On QEMU A53/128 MiB the final ELF reports 31,976 managed/free pages before
+  monitor allocations (130,973,696 bytes); reserved/alignment bytes are excluded.
+- Preserved the older hardware-observed whole-card image as
+  `build/rpi5-header/OurOS-Pi5-header-boot-verified.img` with its existing hash
+  and manifest. New header image: 134,217,728 bytes at the existing experimental
+  path; SHA256 `06cf730bab6a4b3c43f712061c43390417ee126ec911442b18745e5d52b3671b`.
+  New kernel file is 20,488 bytes; its full BSS/stack footprint still passes
+  the linker/Image boundary below the DTB window.
+- Package/MBR/FAT32/extraction/hash checks and MBR/FAT/kernel/profile corruption
+  tests passed. No physical card was written. This revision's physical Pi memory
+  validation is pending; the previous UART/monitor hardware proof remains scoped
+  to its older kernel. Changes are local; no new GitHub publication was performed.

@@ -7,6 +7,9 @@ now builds/packages and its EL1/EL2 entry assembly is emulator-tested. The RP1
 header-console kernel has booted on the user's Pi 5 with working commands,
 CPU information and advancing uptime; see [hardware evidence](pi5-hardware-verification.md).
 Directory placeholders do not imply driver support.
+The new [RAM/reservation discovery and physical page allocator](memory.md) pass
+host/QEMU tests; their real-Pi test is pending. The MMU, heap and scheduling are
+separate later milestones.
 
 ## Design
 

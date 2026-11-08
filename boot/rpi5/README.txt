@@ -13,8 +13,10 @@ Requires the dedicated 3-pin UART connector between the HDMI ports, a suitable
 This port does not use the 40-pin header UART. No HDMI output is implemented.
 
 Expected first kernel message: OurOS: AArch64 kernel booted
-Type info to record the entry EL and current EL. meminfo intentionally reports
-RAM discovery unavailable on this board; no Pi RAM allocator is implemented.
+Type info to record the entry EL and current EL. New memory commands: meminfo,
+memmap, pagealloc, pagefree <slot>, pagetest. DTB memory/reservation discovery and
+4 KiB physical pages are host/QEMU-tested; the new Pi memory path awaits hardware
+verification. Dynamic reservation windows are conservatively excluded in full.
 
 Consult docs/rpi5-boot.md in the source repository before deployment. Creating
 or writing a physical boot partition requires separate identification of the
