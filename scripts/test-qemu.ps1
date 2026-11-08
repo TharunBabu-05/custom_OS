@@ -1,14 +1,20 @@
 [CmdletBinding()]
-param([switch]$Handoff)
+param([switch]$Handoff,[string]$StorageImage)
 . "$PSScriptRoot/windows-tools.ps1"
 $out=Join-Path $ProjectRoot $(if ($Handoff) { 'build/handoff-test' } else { 'build/qemu_virt' })
 $kernel=Join-Path $out $(if ($Handoff) { 'kernel.bin' } else { 'kernel.elf' })
+$storageOptions=''
+if ($StorageImage) {
+    $storagePath=(Resolve-Path -LiteralPath $StorageImage).Path
+    $storageHash=(Get-FileHash -LiteralPath $storagePath -Algorithm SHA256).Hash
+    $storageOptions=" -global virtio-mmio.force-legacy=false -drive file=`"$storagePath`",if=none,format=raw,readonly=on,id=bootdisk -device virtio-blk-device,drive=bootdisk"
+}
 if (!(Test-Path -LiteralPath $kernel)) { throw 'Build the kernel first.' }
 function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,[string[]]$Expected,[bool]$Virtualization=$false) {
     $start=New-Object System.Diagnostics.ProcessStartInfo
     $start.FileName=$QemuExe
     $virt=if ($Virtualization) { 'on' } else { 'off' }
-    $start.Arguments="-machine virt-9.2,virtualization=$virt,secure=off -cpu $Cpu -accel tcg -smp 1 -m $MemoryMB -display none -monitor none -serial stdio -net none -kernel `"$kernel`""
+    $start.Arguments="-machine virt-9.2,virtualization=$virt,secure=off -cpu $Cpu -accel tcg -smp 1 -m $MemoryMB -display none -monitor none -serial stdio -net none -kernel `"$kernel`"$storageOptions"
     $start.UseShellExecute=$false
     $start.CreateNoWindow=$true
     $start.RedirectStandardInput=$true
@@ -57,7 +63,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
             }
             $filesystems=[regex]::Matches($text,'files=(\d+) directories=(\d+) data_pages=(\d+) data_bytes=(\d+)')
             if ($filesystems.Count -ne 2 -or $filesystems[0].Value -ne $filesystems[1].Value -or
-                $filesystems[0].Groups[1].Value -ne '3' -or $filesystems[0].Groups[2].Value -ne '5' -or
+                $filesystems[0].Groups[1].Value -ne '3' -or $filesystems[0].Groups[2].Value -ne '12' -or
                 $filesystems[0].Groups[3].Value -ne '3') { throw "$Name filesystem counters did not balance" }
         }
         Write-Output "PASS: $Name"
@@ -83,6 +89,14 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
     '/tmp/work',"`r`nfilesystem-ok`r`n",'Welcome to OurOS. This root filesystem lives in RAM.',
     'fs: directory not empty','fs: path not found','fs: not a directory',
     'fs: root or current directory is busy','fs: is a directory')
+if ($StorageImage) {
+    $commands=$commands[0..($commands.Count-2)]+@('storageinit','storageinfo','ls /boot','cd /boot',
+        'pwd','cat CONFIG.TXT','cat SOURCE.TXT','write CONFIG.TXT blocked','touch new.txt',
+        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifiinfo','wifiprobe','halt')
+    $expected+=@('/boot: FAT32 read-only','device=qemu-virtio-blk','CONFIG.TXT','kernel=OUROS.IMG',
+        'Official DTB and notices:','fs: read-only filesystem','Wi-Fi state: no transport/firmware driver',
+        'No Pi Wi-Fi SDIO device on QEMU virt.')
+}
 if ($Handoff) {
     Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1','Reported RAM: 134.217 MB (128.000 MiB)'))
     Run-Case 'handoff-el2' 'cortex-a76' 128 $commands ($expected+@('entered EL2 running EL1','Reported RAM: 134.217 MB (128.000 MiB)')) $true
@@ -92,3 +106,7 @@ if ($Handoff) {
     Run-Case 'monitor-a76' 'cortex-a76' 512 $commands ($expected+@('bytes=536870912','MIDR=0x00000000414fd0b1','Reported RAM: 536.870 MB (512.000 MiB)'))
     Run-Case 'fault-a53' 'cortex-a53' 128 @('fault') @('FATAL exception vector=4','ESR=0x00000000f2000042','CPU halted.')
 }
+if ($StorageImage -and (Get-FileHash -LiteralPath $storagePath -Algorithm SHA256).Hash -ne $storageHash) {
+    throw 'Storage image changed during read-only QEMU tests'
+}
+if ($StorageImage) { Write-Output 'PASS: read-only test image hash unchanged' }

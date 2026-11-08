@@ -23,9 +23,9 @@ $config=$config.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace('dev
 $readme=@'
 OurOS experimental Raspberry Pi 5 UART boot image
 HARDWARE BOOT UNTESTED. This is an early kernel, not a complete operating system.
-No GUI/HDMI, USB keyboard, multitasking, virtual memory, storage driver, networking
+No GUI/HDMI, USB keyboard, multitasking, virtual memory, storage writes, networking
 or user-space applications. Boot firmware reads FAT; the kernel creates a
-separate volatile RAMFS root and does not read SD-card files yet.
+separate volatile RAMFS root. Run storageinit to attempt a read-only FAT32 mount.
 Only the dedicated UART10 console is used.
 
 Requires Pi 5, working EEPROM firmware and a 3.3 V serial adapter/cable at the
@@ -34,10 +34,17 @@ Expected message: OurOS: AArch64 kernel booted
 Commands: help info cpuinfo meminfo memmap uptime echo clear halt fault
 Memory commands: pagealloc, pagefree <slot>, pagetest.
 Earlier DTB memory discovery and 4 KiB pages have Pi hardware evidence.
-New MB/MiB summaries and RAMFS commands are host/QEMU-tested; Pi capture pending.
+MB/MiB summaries and RAMFS commands now have physical Pi evidence.
+New storage/SDIO paths require a new physical capture; host/QEMU checks passed.
 Dynamic reserved-memory alloc-ranges windows are conservatively excluded in full.
 File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
 Files disappear after reboot. See docs/ramfs.md. Seed files own 3 physical pages.
+Storage: storageinfo, storageinit, ls /boot, cat /boot/CONFIG.TXT.
+Pi driver inherits an active SDHC/SDXC card from firmware; no full init yet.
+/boot is read-only; no card write commands exist in this revision.
+Wi-Fi: wifiinfo, wifiprobe (diagnostics only; no scan/connect/IP).
+Root dirs: /boot /dev /etc /home /mnt /proc /sys /tmp /var/log.
+See docs/storage.md and docs/wifi.md for limits and test instructions.
 
 OUROS.IMG is the kernel. PI5.DTB is the official board device tree (renamed only).
 CONFIG.TXT selects those filenames. COPYING.TXT and LICENSE.TXT retain upstream

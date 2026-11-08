@@ -8,8 +8,11 @@ header-console kernel has booted on the user's Pi 5 with working commands,
 CPU information and advancing uptime; see [hardware evidence](pi5-hardware-verification.md).
 Directory placeholders do not imply driver support.
 The [RAM/reservation discovery and physical page allocator](memory.md) pass
-host/QEMU tests and now have physical Pi evidence. The new bounded [RAMFS root
-filesystem](ramfs.md) passes host/QEMU tests and awaits its own hardware capture.
+host/QEMU tests and now have physical Pi evidence. The bounded [RAMFS root
+filesystem](ramfs.md) also has physical evidence. The new [read-only storage
+and FAT32 mount](storage.md) pass real QEMU I/O tests; Pi SD handoff and the
+[Wi-Fi SDIO diagnostic](wifi.md) await hardware capture. Wi-Fi connections and
+storage writes remain future stages.
 MMU, heap and scheduling are separate later milestones.
 
 ## Design

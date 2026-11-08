@@ -4,6 +4,9 @@ For the Pi 5 candidate and firmware-handoff tests, see [rpi5-boot.md](rpi5-boot.
 The commands below continue to run the generic QEMU board.
 The new [RAM root filesystem](ramfs.md) adds file commands to that monitor;
 `scripts/test-ramfs.ps1` runs its native host tests (including MB/MiB formatting).
+For read-only block I/O and FAT32, see [storage.md](storage.md) and run
+`scripts/test-storage.ps1`. `scripts/run-qemu.ps1 -StorageImage <image-path>`
+attaches a regular image read-only through virtio; `storageinit` mounts it.
 
 WSL is **not required**. Run these commands in Windows PowerShell at
 `C:\Users\tharu\operating_system`. Do not run the Ubuntu installer here.

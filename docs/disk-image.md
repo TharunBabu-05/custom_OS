@@ -16,12 +16,14 @@ file, unlike `ouros-rpi5.img`, which contains only the kernel.
 **This is not a completed operating system, and hardware boot is untested.**
 It contains the original kernel monitor and a Pi 5 firmware/UART boot candidate.
 The header build's DTB RAM/reservations and physical pages now have Pi evidence;
-see [memory.md](memory.md). The latest MB/MiB display and [RAMFS root](ramfs.md)
-are host/QEMU-tested and awaiting a new physical capture.
-There is no HDMI/GUI, keyboard/USB support, scheduling, virtual memory, storage
-driver, networking or user applications. The FAT32 partition is for the Pi's
-boot firmware to read. OurOS creates its own volatile RAMFS root separately;
-it does not mount or access the SD-card FAT filesystem.
+see [memory.md](memory.md). MB/MiB display and the [RAMFS root](ramfs.md) now
+also have physical Pi evidence. The latest [storage revision](storage.md) adds
+read-only block I/O, FAT32 and `/boot` mount routing, tested on host/QEMU;
+the Pi SD-handoff driver awaits its own capture. No storage writes, HDMI/GUI,
+keyboard/USB support, scheduling, virtual memory, networking or user applications
+are implemented. [Wi-Fi diagnostics](wifi.md) do not implement association/IP.
+RAMFS remains the volatile root; `storageinit` attempts a separate read-only
+mount of the SD boot FAT32 partition at `/boot`.
 The current Pi port uses the dedicated 3-pin UART10 connector. Without a serial
 adapter, you cannot observe or interact with this kernel on the board.
 

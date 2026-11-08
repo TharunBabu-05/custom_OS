@@ -15,8 +15,9 @@ header image used `0x1f00030000` and must be replaced for this firmware mapping.
 The subsequent capture confirms the OurOS banner, EL2-to-EL1 transition,
 working command input/output and advancing uptime with the corrected address.
 The [RAM/page allocator revision](memory.md) also passed the physical Pi test.
-The latest [RAMFS root and commands](ramfs.md) pass host/QEMU tests and await
-their own physical capture. Older proof captures predate these revisions.
+The [RAMFS root and commands](ramfs.md) also passed the physical test. The new
+[storage](storage.md) and [SDIO query](wifi.md) need their own Pi captures.
+Older proof captures predate these revisions.
 
 ## Wiring
 

@@ -310,3 +310,55 @@ Independent kernel work can proceed on QEMU while that hardware is unavailable.
 - Package, FAT/MBR, independent extraction, hashes and corruption/profile
   rejection checks passed. New RAMFS/MB display still needs physical Pi capture.
   No physical card or EEPROM was written; no new GitHub publication performed.
+
+## Read-only storage mount and Wi-Fi groundwork (2026-11-08)
+
+- User supplied the original memory/RAMFS screenshots under proofs/ and a new
+  PuTTY capture. The RAMFS/MB display milestone is now physically observed:
+  /home/user/notes/hello.txt can be created/listed/read, cwd navigation works,
+  and fsinfo/page counters reflect the additional file. Updated scoped evidence.
+- Expanded RAM root layout with /boot, /dev, /proc, /sys, /var/log and /mnt.
+  Empty namespace directories do not implement device nodes/procfs/sysfs.
+  Initial state is 12 directories and three data-page-backed files.
+- Added a 512-byte read-only block API and a modern virtio-mmio block driver
+  for real QEMU I/O. Split queue, one outstanding request, reserved static DMA
+  buffers and bounded waits; no write request path. Failed requests disable
+  attachment; buffers are not reused after timeout.
+- Added an original read-only FAT32 subset: one MBR FAT32 partition, bounded
+  geometry, short names, subdirectories, fragmented chains, FAT mirror checks,
+  exact file-chain termination and traversal limits. Two-route VFS maps writable
+  RAM root and the protected /boot mount, with correct file-versus-directory
+  traversal and read-only mutation rejection. cat streams small FAT files and
+  sanitizes non-text bytes; no FAT writes or general mount/fd layer yet.
+- Pi SD candidate uses mmc0 at 0x1000fff000, confirmed against the pinned DT's
+  register/ranges/aliases. It attempts only firmware-handoff SDHC/SDXC CMD17 PIO
+  reads. Preserves bus width, power/voltage, clock and tuning; rejects absent,
+  inhibited, unclocked or CQE-enabled state. No full card initialization, card
+  capacity/CSD discovery, writes/erase, hotplug, USB storage or NVMe. Physical
+  handoff remains untested and can legitimately fail with current firmware.
+- Added storageinfo/storageinit (manual, never automatic on boot), and FAT32
+  ls/cd/cat via /boot. An attachment failure leaves the kernel monitor available.
+- Wi-Fi: actual bounded DT alias/compatible/MAC inventory via wifiinfo, plus an
+  opt-in zero-argument CMD5/R4 query on separate SDIO host 0x1001100000. Native
+  tests cover the query and unclocked rejection. No power/clock setup, CMD52/53,
+  runtime chip ID, firmware loading, association, scan or IP networking is
+  implemented; no credentials requested or firmware blobs downloaded. Physical
+  wifiprobe is pending. Documented the remaining sequence in docs/wifi.md.
+- Host tests passed actual-image FAT reads, nested fragmented files, FAT/chain
+  corruption and I/O failures, VFS mount boundaries, read-only writes, exact
+  SDHCI register engine/error/timeouts/CQE handling, SDIO CMD5 and actual Pi DT
+  Wi-Fi alias lookup with 2000 mutations. Updated RAMFS and prior memory tests
+  also passed. Host mutation tests use only an in-memory image copy.
+- Real QEMU virtio reads passed A53/128 MiB, A76/512 MiB and raw Image EL1/EL2
+  handoff: mounted the FAT image, listed actual files, read CONFIG.TXT/SOURCE.TXT,
+  crossed mount boundaries, rejected writes and preserved the input image hash.
+  Monitor/page/RAMFS/fatal exception tests and native GDB startup also passed.
+- Preserved previous hardware-observed RAMFS image as
+  `build/rpi5-header/OurOS-Pi5-header-ramfs-verified.img` with its hash/manifest.
+  New header whole-card image: 134,217,728 bytes; SHA256
+  `7d65349b28968020d80e07e5b3707c5db1a5d1099342814639ce2dc5a636120c`.
+  Raw kernel: 45,376 bytes; full BSS/stack footprint passes the DTB-window bound.
+  Package/FAT/MBR/extraction/hash and corruption/profile rejection checks passed.
+- Updated docs/storage.md with the physical capture procedure, exact driver
+  contract and limitations. No physical card or EEPROM was written, and no
+  new commit/push was performed. Pi SD/FAT and SDIO tests remain pending.

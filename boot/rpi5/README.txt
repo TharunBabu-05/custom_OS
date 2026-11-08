@@ -16,9 +16,12 @@ Expected first kernel message: OurOS: AArch64 kernel booted
 Type info to record the entry EL and current EL. New memory commands: meminfo,
 memmap, pagealloc, pagefree <slot>, pagetest. DTB memory/reservation discovery and
 4 KiB physical pages have evidence on the separate header-console Pi build.
-New MB/MiB displays and RAMFS commands are host/QEMU-tested; Pi capture pending.
+MB/MiB displays and RAMFS commands also have physical header-console evidence.
+New storage/SDIO paths are host/QEMU-tested; their physical tests are pending.
 File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
-Files are volatile and disappear after reboot; no SD filesystem driver exists.
+RAM files disappear after reboot. storageinit attempts a read-only SD/FAT32 mount
+at /boot using a firmware-selected SDHC/SDXC card; no full card init or writes.
+wifiinfo and wifiprobe provide DT/SDIO diagnostics only, not scan/connect/IP.
 Dynamic reservation windows are conservatively excluded in full.
 
 Consult docs/rpi5-boot.md in the source repository before deployment. Creating

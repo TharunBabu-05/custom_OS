@@ -34,9 +34,10 @@
 > The Pi 5 header-console build reaches EL1 from EL2, accepts monitor commands,
 > reads CPU identification, and reports advancing uptime. This is an early kernel:
 > RAM discovery and physical page allocation have also passed the real-Pi test.
-> The newest revision adds readable MB/MiB memory summaries and a writable root
-> filesystem in RAM, tested on the host/QEMU and awaiting its Pi capture.
-> Processes, persistent storage, USB, networking and a desktop are still ahead.
+> Readable MB/MiB summaries and a writable RAM root also work on the physical Pi.
+> The latest revision adds read-only FAT32 storage mounting and initial Wi-Fi
+> diagnostics. Storage reads pass real QEMU block-I/O tests; Pi SD/SDIO tests
+> are pending. Persistent writes, Wi-Fi connections and a desktop remain ahead.
 
 ## The hardware receipts
 
@@ -76,6 +77,17 @@
 
 [Hardware verification record](docs/pi5-hardware-verification.md) · [Original proofs](proofs/) · [Development log](docs/development-log.md)
 
+<details>
+<summary><strong>Later hardware milestones: memory and writable RAM files</strong></summary>
+
+![Physical memory allocator tests](proofs/Screenshot%202026-11-08%20174124.png)
+![RAM root filesystem and MB/MiB memory details](proofs/Screenshot%202026-11-08%20181454.png)
+
+These captures verify the earlier memory and RAMFS revisions. They do not
+establish that the new Pi SD-card handoff or Wi-Fi query has passed.
+
+</details>
+
 ## Inside the kernel
 
 <p align="center">
@@ -94,15 +106,18 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 | Device-tree subset | Bounded UART/clock/RAM discovery for **QEMU virt** |
 | Time and CPU | Architectural counter reads, uptime and MIDR inspection |
 | Physical memory | DTB RAM/reservations and 4 KiB pages, also observed on the real Pi |
-| Root filesystem | Writable RAMFS with paths and monitor commands; host/QEMU-tested, Pi capture pending |
+| Root filesystem | Writable RAMFS with paths and monitor commands, also observed on the real Pi |
+| Storage | Read-only block layer, FAT32 and `/boot` routing; real QEMU I/O tested, Pi handoff candidate pending |
+| Wi-Fi groundwork | Firmware DT inventory and opt-in SDIO CMD5 query; no scan/connect/IP support |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
 
 The FAT32 boot partition is read by the Pi firmware. Our kernel creates a
-separate [RAM root filesystem](docs/ramfs.md); it does not yet access SD-card
-files. [Physical memory](docs/memory.md) is hardware-observed; the RAMFS revision
-still needs its own Pi test. MMU, heap and user processes remain unfinished.
+separate [RAM root filesystem](docs/ramfs.md). `storageinit` attempts a read-only
+[FAT32 mount at /boot](docs/storage.md). [Physical memory](docs/memory.md) and RAMFS
+have hardware evidence; Pi SD reads still need their own test. MMU, heap and user
+processes remain unfinished. [Wi-Fi diagnostics](docs/wifi.md) do not provide a connection.
 
 <details>
 <summary><strong>Explore the source map</strong></summary>
@@ -189,6 +204,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-gdb.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-fdt.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-memory.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-ramfs.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-storage.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Target handoff-test
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-qemu.ps1 -Handoff
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-rpi5-image.ps1 -Console header
@@ -218,7 +234,9 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] Memory discovery, reservations and physical pages: host/QEMU tests
 - [x] Physical Pi memory validation: pattern tests, allocation and release
 - [x] RAM root filesystem and file commands: host/QEMU tests
-- [ ] Physical Pi validation of the RAMFS revision
+- [x] Physical Pi validation of the RAMFS and MB/MiB revision
+- [x] Read-only FAT32, mount routing and QEMU block reads
+- [ ] Physical Pi SD-card handoff and SDIO query capture
 - [ ] Interrupt controller, timer interrupts and virtual memory
 - [ ] Scheduling, EL0 processes and a syscall interface
 - [ ] VFS, storage and persistent filesystems
@@ -239,6 +257,8 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [Hardware verification](docs/pi5-hardware-verification.md)
 - [Memory subsystem and commands](docs/memory.md)
 - [RAM root filesystem and commands](docs/ramfs.md)
+- [Storage reads and the FAT32 mount](docs/storage.md)
+- [Wi-Fi bring-up status](docs/wifi.md)
 - [OS, CPU architectures and portability explained](docs/os-and-cpu-architectures.md)
 - [Asset sources and regeneration](docs/assets/README.md)
 

@@ -1,14 +1,16 @@
 # First root filesystem: RAMFS
 
 The kernel now builds a small root filesystem in RAM and exposes it through
-the serial monitor. The new RAMFS revision passes host and QEMU tests;
-**its physical Pi test is pending**. The previous physical page allocator was
-confirmed by the user's Pi screenshot before this filesystem was added.
+the serial monitor. **The original RAMFS revision now has physical Pi evidence**:
+the user's screenshot shows file creation, cat, cwd navigation and MB/MiB memory
+details. The new [storage/mount revision](storage.md) has separate tests and
+awaits a physical capture.
 
 The root `/` is a logical directory. It does not have to be an SD partition.
 Our boot firmware reads the FAT32 SD partition to load the kernel and DTB;
-the kernel then creates this separate RAM filesystem. It does not yet mount
-or read that FAT32 partition itself. No SD files are modified by RAMFS commands.
+the kernel then creates this separate RAM filesystem. The new storage revision
+can attempt a read-only FAT32 mount at `/boot` through `storageinit`. RAMFS
+commands still do not write SD files. See [storage.md](storage.md) for that path.
 
 ## Initial tree
 
@@ -23,7 +25,11 @@ or read that FAT32 partition itself. No SD files are modified by RAMFS commands.
 └── tmp/
 ```
 
-Five directories (including root) and three nonempty files are created at boot.
+That tree describes the physically tested RAMFS baseline. The new storage
+revision additionally creates `/boot`, `/dev`, `/proc`, `/sys`, `/var/log` and
+`/mnt`, for twelve directories total including root. The empty `/dev`, `/proc`
+and `/sys` directories reserve names; device nodes and pseudo-files are not yet
+implemented. Three nonempty files are still created at boot.
 Each nonempty file owns one allocated 4 KiB physical page. Therefore `meminfo`
 initially shows **three allocated pages**, before any manual page allocations.
 The allocator bitmap, stack and kernel metadata are separately reserved memory.

@@ -4,7 +4,8 @@ OurOS has shared firmware-DTB RAM discovery and a single-core 4 KiB physical
 page allocator. The user's Pi screenshot confirms memory discovery, page
 patterns, allocation/release counters and double-free rejection on hardware;
 see [hardware evidence](pi5-hardware-verification.md). The subsequent
-[RAM filesystem revision](ramfs.md) has its own pending physical test.
+[RAM filesystem revision](ramfs.md) also has a physical capture, including the
+MB/MiB display. The latest [storage/mount revision](storage.md) awaits its own test.
 
 ## Monitor commands
 

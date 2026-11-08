@@ -16,8 +16,10 @@ CP2102**, including working commands and advancing uptime. See the
 described here still needs its own physical test and matching connector cable.
 The new [physical-memory subsystem](memory.md) adds RAM/reservation discovery
 and page allocation, with physical evidence on the header-console build. The
-new [RAM filesystem](ramfs.md) passes host/QEMU tests and awaits its Pi test. No HDMI,
-USB keyboard, storage driver, heap or MMU is implemented.
+new [RAM filesystem](ramfs.md) also has physical evidence. The latest
+[storage/mount](storage.md) and [SDIO diagnostic](wifi.md) paths await Pi tests. No HDMI,
+USB keyboard, persistent storage writes, heap or MMU is implemented. The new
+read-only storage driver is a separate hardware-pending candidate.
 
 ## Build and package on Windows
 

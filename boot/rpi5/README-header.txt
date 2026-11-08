@@ -23,11 +23,16 @@ Expected: OurOS: AArch64 kernel booted; Board=rpi5-header; running EL1.
 Type help, info, cpuinfo, echo pi5-ok, and uptime (twice, 10 seconds apart).
 New memory commands: meminfo, memmap, pagealloc, pagefree <slot>, pagetest.
 Memory discovery/reservations and 4 KiB pages now have physical Pi evidence.
-New MB/MiB displays and RAMFS are host/QEMU-tested; their physical test is pending.
+MB/MiB displays and RAMFS also have physical Pi evidence.
+New storage/SDIO paths are host/QEMU-tested; their physical tests are pending.
 File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
 The root filesystem is volatile; changes disappear after reboot. See docs/ramfs.md.
 Dynamic reservation windows are conservatively excluded in full.
-No HDMI/GUI, USB keyboard, networking, SD filesystem driver, heap, MMU or processes.
+storageinfo: SD host diagnostics; storageinit: firmware-handoff SDHC/SDXC reads
+and a read-only FAT32 mount at /boot. No full card initialization or writes yet.
+wifiinfo: actual DT inventory; wifiprobe: optional SDIO CMD5 query only.
+No Wi-Fi scan/connect/IP, HDMI/GUI, USB keyboard, heap, MMU or processes.
+See docs/storage.md and docs/wifi.md.
 See docs/rpi5-header-uart.md. No Linux kernel or EEPROM update is included.
 
 DTB and notices come unchanged from raspberrypi/firmware at the manifest

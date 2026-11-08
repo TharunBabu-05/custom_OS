@@ -118,15 +118,16 @@ producing different native binaries. The AArch64 startup and CPU-register
 instructions need architecture-specific replacements in another CPU port.
 
 Firmware-described RAM discovery and physical pages now have Pi evidence.
-A first RAM root filesystem and file commands pass host/QEMU tests, awaiting
-their physical capture. The remaining dependencies are:
+A first RAM root filesystem and file commands now also have physical evidence.
+The new read-only SD/FAT32 stage and Wi-Fi SDIO diagnostics await separate
+physical captures. The remaining dependencies are:
 
-1. Validate the new RAMFS commands on the Pi and retain its memory/boot evidence.
+1. Validate the Pi SD handoff/FAT mount and the separate SDIO diagnostic.
 2. Add virtual-memory mappings, device-memory attributes, protection and a heap.
 3. Add interrupt-controller support and timer interrupts.
 4. Add context switching and scheduling, then EL0 processes and system calls.
-5. Extend the bounded RAMFS into a general VFS, executable loading and applications;
-   then persistent storage through a block/filesystem driver.
+5. Extend the two-route RAMFS/FAT mount layer into a general VFS, executable
+   loading and applications; add storage writes with metadata/recovery tests.
 6. Add board-specific GPIO/display/USB/networking support and later SMP.
 
 Memory allocation alone is not process isolation or a complete OS. Every new

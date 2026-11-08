@@ -227,7 +227,7 @@ enum fs_result ramfs_init(const char *board)
     enum fs_result r=reset(); if (r!=FS_OK) { return r; }
     if (!board) { return FS_BAD_ARGUMENT; }
     make_node(0,0,"",true); ready=true;
-    const char *directories[]={"/etc","/home","/home/user","/tmp"};
+    const char *directories[]={"/etc","/home","/home/user","/tmp","/boot","/dev","/proc","/sys","/var","/var/log","/mnt"};
     for (unsigned i=0;i<sizeof(directories)/sizeof(directories[0]);++i) {
         r=ramfs_mkdir(0,directories[i]); if (r!=FS_OK) { goto failed; }
     }
@@ -235,7 +235,7 @@ enum fs_result ramfs_init(const char *board)
         "Welcome to OurOS. This root filesystem lives in RAM.\n"
         "Commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.\n"
         "Try these commands on separate lines:\nmkdir /tmp/demo\nwrite /tmp/demo/note.txt hello\n"
-        "All changes disappear after reset. No SD-card filesystem driver exists yet.\n";
+        "RAM files disappear after reset. Run storageinit to attach read-only FAT32 at /boot.\n";
     r=ramfs_write(0,"/README.txt",readme,sizeof(readme)-1); if (r!=FS_OK) { goto failed; }
     r=ramfs_write(0,"/etc/hostname","ouros\n",6); if (r!=FS_OK) { goto failed; }
     char board_text[64]; size_t n=0;
@@ -251,7 +251,8 @@ const char *ramfs_error(enum fs_result result)
 {
     static const char *const messages[]={"ok","path not found","not a directory","is a directory","already exists",
         "invalid path","name too long","path too long","node table full","out of physical pages",
-        "file exceeds 4096 bytes","directory not empty","root or current directory is busy","RAM filesystem unavailable","invalid argument"};
+        "file too large for this operation","directory not empty","root or current directory is busy","RAM filesystem unavailable","invalid argument",
+        "read-only filesystem","storage I/O error","corrupt FAT32 filesystem","unsupported filesystem format"};
     if ((unsigned)result>=sizeof(messages)/sizeof(messages[0])) { return "unknown filesystem error"; }
     return messages[result];
 }

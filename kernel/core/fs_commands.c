@@ -1,6 +1,7 @@
 #include "ramfs.h"
 #include "console.h"
-static int cwd;
+#include "vfs.h"
+static char cwd[RAMFS_PATH_MAX]="/";
 static bool same(const char *a,const char *b)
 { while (*a && *a==*b) { ++a; ++b; } return *a==*b; }
 static void spaces(const char **p) { while (**p==' ') { ++*p; } }
@@ -37,13 +38,13 @@ bool filesystem_command(const char *line)
     if (same(verb,"pwd") || same(verb,"fsinfo")) {
         if (*p) { console_write("Usage: pwd | fsinfo (no arguments)\n"); return true; }
         if (same(verb,"pwd")) {
-            char path[RAMFS_PATH_MAX]; enum fs_result r=ramfs_pwd(cwd,path,sizeof(path));
-            if (r==FS_OK) { console_write(path); console_write("\n"); } else { report(r); }
+            console_write(cwd); console_write("\n");
         } else {
             console_write("rootfs=ramfs (volatile; files disappear after reboot)\n");
             console_write("files="); console_u64(stats.files); console_write(" directories="); console_u64(stats.directories);
             console_write(" data_pages="); console_u64(stats.pages); console_write(" data_bytes="); console_u64(stats.bytes);
             console_write("\nlimits: nodes=64 file_bytes=4096 name_bytes=31 path_bytes=255\n");
+            vfs_boot_info();
         }
         return true;
     }
@@ -53,22 +54,42 @@ bool filesystem_command(const char *line)
     }
     if (!argument) { path[0]=same(verb,"cd") ? '/' : '.'; path[1]='\0'; }
     spaces(&p);
+    char absolute[RAMFS_PATH_MAX];
+    bool dir=false;
+    bool mutating=same(verb,"write") || same(verb,"mkdir") || same(verb,"touch");
+    enum fs_result resolved=mutating ? vfs_prepare_write(cwd,path,absolute) : vfs_resolve(cwd,path,absolute,&dir);
+    if (resolved!=FS_OK) { report(resolved); return true; }
     if (same(verb,"write")) {
+        size_t path_length=0; while (path[path_length]) { ++path_length; }
+        if (path[path_length-1]=='/') { report(FS_NOT_DIR); return true; }
         size_t length=0; while (p[length]) { ++length; }
-        report(ramfs_write(cwd,path,p,length)); return true;
+        report(ramfs_write(0,absolute,p,length)); return true;
     }
     if (*p) { console_write("fs: only one path argument is supported\n"); return true; }
-    if (same(verb,"ls")) { report(ramfs_list(cwd,path,entry,NULL));
-    } else if (same(verb,"cd")) { report(ramfs_chdir(cwd,path,&cwd));
+    if (same(verb,"ls")) { report(vfs_list(absolute,entry,NULL));
+    } else if (same(verb,"cd")) {
+        if (!dir) { report(FS_NOT_DIR); }
+        else { size_t i=0; do { cwd[i]=absolute[i]; } while (absolute[i++]); }
     } else if (same(verb,"cat")) {
-        const char *data; size_t length; enum fs_result r=ramfs_read(cwd,path,&data,&length);
-        if (r!=FS_OK) { report(r); }
-        else {
-            for (size_t i=0;i<length;++i) { console_putc(data[i]); }
-            if (length && data[length-1]!='\n') { console_write("\n"); }
+        unsigned char data[512]; uint32_t offset=0; unsigned char last='\n';
+        for (;;) {
+            size_t length=0; enum fs_result r=vfs_read(absolute,offset,data,sizeof(data),&length);
+            if (r!=FS_OK) { report(r); break; } if (!length) { break; }
+            for (size_t i=0;i<length;++i) {
+                unsigned char c=data[i];
+                console_putc((c>=32 && c<=126) || c=='\n' || c=='\r' || c=='\t' ? (char)c : '.');
+            }
+            last=data[length-1]; offset+=(uint32_t)length;
         }
-    } else if (same(verb,"mkdir")) { report(ramfs_mkdir(cwd,path));
-    } else if (same(verb,"touch")) { report(ramfs_touch(cwd,path));
-    } else { report(ramfs_remove(cwd,path,same(verb,"rmdir"))); }
+        if (last!='\n') { console_write("\n"); }
+    } else if (same(verb,"mkdir")) { report(ramfs_mkdir(0,absolute));
+    } else if (same(verb,"touch")) {
+        size_t n=0; while (path[n]) { ++n; }
+        report(path[n-1]=='/' ? FS_NOT_DIR : ramfs_touch(0,absolute));
+    } else {
+        if (same(absolute,cwd) || same(absolute,"/")) { report(FS_BUSY); }
+        else if (vfs_read_only(absolute)) { report(FS_READ_ONLY); }
+        else { report(ramfs_remove(0,absolute,same(verb,"rmdir"))); }
+    }
     return true;
 }

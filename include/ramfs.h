@@ -6,7 +6,8 @@ enum { RAMFS_NODES=64, RAMFS_NAME_MAX=31, RAMFS_PATH_MAX=256, RAMFS_FILE_MAX=409
 enum fs_result {
     FS_OK, FS_NOT_FOUND, FS_NOT_DIR, FS_IS_DIR, FS_EXISTS, FS_INVALID_PATH,
     FS_NAME_TOO_LONG, FS_PATH_TOO_LONG, FS_NO_NODES, FS_NO_MEMORY,
-    FS_FILE_TOO_LARGE, FS_NOT_EMPTY, FS_BUSY, FS_NOT_READY, FS_BAD_ARGUMENT
+    FS_FILE_TOO_LARGE, FS_NOT_EMPTY, FS_BUSY, FS_NOT_READY, FS_BAD_ARGUMENT,
+    FS_READ_ONLY, FS_IO, FS_CORRUPT, FS_UNSUPPORTED
 };
 struct ramfs_stats { unsigned files, directories, pages; size_t bytes; bool ready; };
 typedef void (*ramfs_emit)(const char *name, bool directory, size_t bytes, void *context);

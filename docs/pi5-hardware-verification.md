@@ -101,8 +101,29 @@ Associated local memory image SHA256:
 No independent readback hash was supplied. This baseline is preserved locally
 as `build/rpi5-header/OurOS-Pi5-header-memory-verified.img`.
 
-The new MB/MiB display and [RAM filesystem](ramfs.md) are a subsequent revision
-tested on the host/QEMU and still awaiting their own physical capture.
+## RAMFS and MB/MiB milestone observed
+
+The author's [18:14:54 screenshot](../proofs/Screenshot%202026-11-08%20181454.png)
+confirms the subsequent RAMFS and readable-memory revision. It shows:
+
+- Reported 8585.740 MB (8188.000 MiB), managed 7516.192 MB (7168.000 MiB).
+- `/README.txt` content and the initial three data-page allocations.
+- Navigation to `/home/user/notes`, writing `hello.txt`, listing its 16-byte
+  content, and `cat` returning `hello from OurOS`.
+- `pwd` returning `/home/user/notes`, and fsinfo showing four files/seven
+  directories/four data pages after the user's additions.
+- Expected invalid-path rejection for a backslash-suffixed path.
+
+Associated build image SHA256:
+`62574b624ebebf2b363aca6be50467694d01364326f3509c3e112f5f0c726ea6`.
+The local baseline is preserved as
+`build/rpi5-header/OurOS-Pi5-header-ramfs-verified.img`.
+The [17:41:24 screenshot](../proofs/Screenshot%202026-11-08%20174124.png)
+also preserves the earlier memory-test evidence. Filenames provide author
+timestamps, not independently verified measurement times or readback hashes.
+
+The new read-only SD/FAT32 mount and Wi-Fi SDIO query are a later revision;
+they have host/QEMU tests and still require separate physical captures.
 
 The default embedded firmware Arm stub is sufficient for this observed boot;
 the missing custom armstub and cmdline messages did not prevent the monitor
