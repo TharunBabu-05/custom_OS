@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "OS: build QEMU kernel",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/build.ps1", "-Target", "virt"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "group": {"kind": "build", "isDefault": true},
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "OS: run QEMU kernel",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/run-qemu.ps1"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "dependsOn": "OS: build QEMU kernel",
+      "problemMatcher": []
+    },
+    {
+      "label": "OS: test QEMU kernel",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/test-qemu.ps1"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "dependsOn": "OS: build QEMU kernel",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

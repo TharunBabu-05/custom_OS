@@ -1,0 +1,13 @@
+# OurOS Pi 5 bring-up only: dedicated 3-pin UART10, 115200 8N1.
+[pi5]
+kernel=ouros-rpi5.img
+kernel_address=0x80000
+device_tree=bcm2712-rpi-5-b.dtb
+device_tree_address=0x200000
+device_tree_end=0x300000
+uart_2ndstage=1
+init_uart_baud=115200
+enable_rp1_uart=0
+auto_initramfs=0
+kernel_watchdog_timeout=0
+bootloader_update=0

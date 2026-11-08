@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="148" viewBox="0 0 1280 148" role="img" aria-labelledby="title desc"><title id="title">Next: memory management</title><desc id="desc">The next planned milestone is RAM discovery and a physical page allocator. Keep building, one verified boundary at a time.</desc>
+<defs><linearGradient id="f"><stop stop-color="#102b2c"/><stop offset="1" stop-color="#101b2d"/></linearGradient></defs>
+<rect width="1280" height="148" rx="18" fill="url(#f)"/>
+<path d="M36 112H1244" stroke="#31545b"/><path d="M36 112H1244" stroke="#65e6bb" stroke-dasharray="35 300"><animate attributeName="stroke-dashoffset" from="670" to="0" dur="10s" repeatCount="indefinite"/></path>
+<text x="40" y="48" font-family="monospace" font-size="13" fill="#65e6bb" letter-spacing="3">NEXT FRONTIER / MEMORY</text>
+<text x="40" y="85" font-family="Arial,sans-serif" font-size="26" fill="#e0edf7" font-weight="600">One verified boundary at a time.</text>
+<text x="1228" y="80" text-anchor="end" font-family="monospace" font-size="15" fill="#96b4c5">DISCOVER → RESERVE → ALLOCATE</text></svg>

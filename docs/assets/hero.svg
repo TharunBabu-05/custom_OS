@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="570" viewBox="0 0 1280 570" role="img" aria-labelledby="title desc"><title id="title">OurOS — from first instruction to real silicon</title><desc id="desc">An original AArch64 kernel. Physical Raspberry Pi 5 boot observed over a CP2102 serial console. Animated circuit artwork.</desc>
+<defs>
+ <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#08101d"/><stop offset="1" stop-color="#101c2c"/></linearGradient>
+ <linearGradient id="ink"><stop stop-color="#72f2c8"/><stop offset="1" stop-color="#62c1f1"/></linearGradient>
+ <radialGradient id="halo"><stop stop-color="#24726b" stop-opacity=".38"/><stop offset="1" stop-color="#0b1421" stop-opacity="0"/></radialGradient>
+ <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#23354a" stroke-width=".6"/></pattern>
+ <filter id="glow"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+<rect width="1280" height="570" rx="24" fill="url(#bg)"/>
+<rect x="640" width="640" height="500" fill="url(#grid)" opacity=".5"/>
+<ellipse cx="975" cy="272" rx="310" ry="260" fill="url(#halo)"/>
+<path d="M40 38h38m-38 0v38M1240 38h-38m38 0v38" stroke="#355468" fill="none"/>
+<text x="64" y="77" fill="#82a2b5" font-family="monospace" font-size="15" letter-spacing="4">INDEPENDENT KERNEL / REAL HARDWARE</text>
+<text x="58" y="213" font-family="Arial,Helvetica,sans-serif" font-size="128" font-weight="800" letter-spacing="-8" fill="#eef5ff">Our<tspan fill="url(#ink)">OS</tspan><tspan fill="#ffd17d" font-size="75">.</tspan></text>
+<text x="65" y="275" font-family="Arial,Helvetica,sans-serif" font-size="34" font-weight="600" fill="#d7e5f5">From first instruction</text>
+<text x="65" y="320" font-family="Arial,Helvetica,sans-serif" font-size="34" font-weight="600" fill="#d7e5f5">to real silicon.</text>
+<text x="66" y="365" font-family="monospace" font-size="16" fill="#8299b3">C + AArch64 assembly. Built from the ground up.</text>
+<rect x="65" y="402" width="330" height="41" rx="20" fill="#112d2b" stroke="#28564e"/>
+<circle cx="85" cy="423" r="5" fill="#72f2c8"><animate attributeName="opacity" values="1;.35;1" dur="2.8s" repeatCount="indefinite"/></circle>
+<text x="102" y="428" fill="#8ff4cf" font-family="monospace" font-size="13" letter-spacing="1">PI 5 / KERNEL BOOT OBSERVED</text>
+<g stroke="#244452" stroke-width="2" fill="none"><path d="M852 199H773L735 161H666"/><path d="M850 243H739L695 287H605"/><path d="M850 332H783L732 383H676"/><path d="M1100 199H1170L1200 169H1250"/><path d="M1100 287H1200L1240 327H1270"/><path d="M998 164V100L1043 55H1208"/><path d="M932 409V439L901 470"/><path d="M1042 410V450H1160"/></g>
+<g stroke="#63e6c1" stroke-width="2" fill="none" stroke-dasharray="8 100" opacity=".8"><path d="M852 199H773L735 161H666"><animate attributeName="stroke-dashoffset" from="216" to="0" dur="4s" repeatCount="indefinite"/></path><path d="M850 243H739L695 287H605"><animate attributeName="stroke-dashoffset" from="216" to="0" dur="4.35s" repeatCount="indefinite"/></path><path d="M850 332H783L732 383H676"><animate attributeName="stroke-dashoffset" from="216" to="0" dur="4.7s" repeatCount="indefinite"/></path><path d="M1100 199H1170L1200 169H1250"><animate attributeName="stroke-dashoffset" from="216" to="0" dur="5.05s" repeatCount="indefinite"/></path><path d="M1100 287H1200L1240 327H1270"><animate attributeName="stroke-dashoffset" from="216" to="0" dur="5.4s" repeatCount="indefinite"/></path><path d="M998 164V100L1043 55H1208"><animate attributeName="stroke-dashoffset" from="216" to="0" dur="5.75s" repeatCount="indefinite"/></path><path d="M932 409V439L901 470"><animate attributeName="stroke-dashoffset" from="216" to="0" dur="6.1s" repeatCount="indefinite"/></path><path d="M1042 410V450H1160"><animate attributeName="stroke-dashoffset" from="216" to="0" dur="6.449999999999999s" repeatCount="indefinite"/></path></g>
+<g fill="none" stroke="#396a70" stroke-width="8"><path d="M880 163v-20m0 264v20"/><path d="M849 184h-20m274 0h20"/><path d="M902 163v-20m0 264v20"/><path d="M849 206h-20m274 0h20"/><path d="M924 163v-20m0 264v20"/><path d="M849 228h-20m274 0h20"/><path d="M946 163v-20m0 264v20"/><path d="M849 250h-20m274 0h20"/><path d="M968 163v-20m0 264v20"/><path d="M849 272h-20m274 0h20"/><path d="M990 163v-20m0 264v20"/><path d="M849 294h-20m274 0h20"/><path d="M1012 163v-20m0 264v20"/><path d="M849 316h-20m274 0h20"/><path d="M1034 163v-20m0 264v20"/><path d="M849 338h-20m274 0h20"/><path d="M1056 163v-20m0 264v20"/><path d="M849 360h-20m274 0h20"/></g>
+<rect x="847" y="162" width="257" height="249" rx="20" fill="#10272d" stroke="#4ca498" stroke-width="2"/>
+<rect x="868" y="182" width="214" height="208" rx="12" fill="#0b1623" stroke="#29414f"/>
+<path d="M882 200h33m-33 0v33M1067 376h-33m33 0v-33" stroke="#63e6c1" fill="none"/>
+<text x="975" y="252" text-anchor="middle" font-family="monospace" font-size="14" fill="#6a8f9f" letter-spacing="3">ARMV8.2-A</text>
+<text x="975" y="306" text-anchor="middle" font-family="Arial,sans-serif" font-weight="700" font-size="43" fill="#e5f3fa">A76</text>
+<text x="975" y="340" text-anchor="middle" font-family="monospace" font-size="14" fill="#72f2c8">EL2 → EL1</text>
+<circle cx="1065" cy="199" r="4" fill="#ffd17d"/>
+<path d="M66 482H1214" stroke="#273b4c"/>
+<g font-family="monospace"><text x="66" y="518" font-size="18" fill="#eef5ff">64-BIT</text><text x="66" y="541" font-size="12" fill="#7e98af" letter-spacing="2">AARCH64</text>
+<text x="366" y="518" font-size="18" fill="#eef5ff">BARE METAL</text><text x="366" y="541" font-size="12" fill="#7e98af" letter-spacing="2">ORIGINAL KERNEL</text>
+<text x="718" y="518" font-size="18" fill="#eef5ff">WINDOWS NATIVE</text><text x="718" y="541" font-size="12" fill="#7e98af" letter-spacing="2">NO WSL REQUIRED</text>
+<text x="1070" y="518" font-size="18" fill="#72f2c8">08 NOV 2026</text><text x="1070" y="541" font-size="12" fill="#7e98af" letter-spacing="2">HARDWARE MILESTONE</text></g>
+</svg>
