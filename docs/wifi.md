@@ -5,6 +5,12 @@ This phase provides actual firmware-DTB inventory plus an opt-in SDIO CMD5
 diagnostic. Neither a device-tree entry nor an SDIO response establishes a
 working Wi-Fi network interface.
 
+The user's physical USB-boot capture confirms `wifiinfo` reads the firmware
+node, family binding and MAC address. It does not show `wifiprobe` or a Wi-Fi
+connection. Booting from a pendrive does not change the on-board Wi-Fi SDIO
+transport. The active next phase is [USB controller discovery](usb.md) for the
+user's actual boot device; Wi-Fi association remains a later milestone.
+
 ## Available commands
 
 `wifiinfo` reports:

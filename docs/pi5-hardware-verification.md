@@ -122,8 +122,19 @@ The [17:41:24 screenshot](../proofs/Screenshot%202026-11-08%20174124.png)
 also preserves the earlier memory-test evidence. Filenames provide author
 timestamps, not independently verified measurement times or readback hashes.
 
-The new read-only SD/FAT32 mount and Wi-Fi SDIO query are a later revision;
-they have host/QEMU tests and still require separate physical captures.
+The user subsequently supplied a physical text capture for the storage revision:
+the expanded RAM root boots and lists /boot, /dev, /proc, /sys, /var/log and /mnt;
+navigation and /etc/board reads work. wifiinfo reads the actual firmware node,
+compatible family binding and MAC. The user confirms **all these boots used a
+32 GB USB pendrive, with no microSD card installed**. Firmware USB boot is thus
+observed, while kernel USB storage is not implemented.
+
+In that capture storageinit returns unsupported controller/card state from
+SDHCI 0x1000fff000 with control1=0, last_irq=0 and last_response=0. This is an
+expected failed SD-handoff attempt in the USB-only setup, not a successful SD
+or FAT32 mount. /boot stays empty and CONFIG.TXT is unavailable. The SD/FAT read
+path and Wi-Fi CMD5 query still need their own applicable physical tests.
+The new usbinfo/usbprobe revision requires a new physical capture; see [USB](usb.md).
 
 The default embedded firmware Arm stub is sufficient for this observed boot;
 the missing custom armstub and cmdline messages did not prevent the monitor

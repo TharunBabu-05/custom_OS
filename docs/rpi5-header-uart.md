@@ -143,3 +143,9 @@ Build/package/image checks distinguish the console profiles and compare the
 selected config, kernel marker and extracted file hashes. Negative tests
 reject corruption and a mismatched console manifest. No physical card is
 written by any build or verification script.
+
+The user boots this header-console image from a 32 GB USB pendrive, without a
+microSD card. The `-sd.img` suffix is a retained disk-image filename, not a
+restriction to SD media. New [USB discovery commands](usb.md) reuse the working
+firmware RP1 window without resetting PCIe or the console. Kernel pendrive
+reads are not implemented yet; `storageinit` still targets the microSD host.

@@ -21,6 +21,10 @@ New storage/SDIO paths are host/QEMU-tested; their physical tests are pending.
 File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
 RAM files disappear after reboot. storageinit attempts a read-only SD/FAT32 mount
 at /boot using a firmware-selected SDHC/SDXC card; no full card init or writes.
+Firmware can load this disk image from USB, but kernel USB disk I/O is pending.
+usbinfo inventories DT hosts. usbprobe requires the separate header-console
+build's known RP1 window; register probing is disabled with this UART10 build.
+See docs/usb.md. No USB enumeration or pendrive mounting is implemented yet.
 wifiinfo and wifiprobe provide DT/SDIO diagnostics only, not scan/connect/IP.
 Dynamic reservation windows are conservatively excluded in full.
 

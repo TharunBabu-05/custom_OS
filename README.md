@@ -35,9 +35,11 @@
 > reads CPU identification, and reports advancing uptime. This is an early kernel:
 > RAM discovery and physical page allocation have also passed the real-Pi test.
 > Readable MB/MiB summaries and a writable RAM root also work on the physical Pi.
-> The latest revision adds read-only FAT32 storage mounting and initial Wi-Fi
-> diagnostics. Storage reads pass real QEMU block-I/O tests; Pi SD/SDIO tests
-> are pending. Persistent writes, Wi-Fi connections and a desktop remain ahead.
+> The hardware boots from a **32 GB USB pendrive**, without a microSD card.
+> Firmware loads the kernel; kernel USB disk reads are still pending. The latest
+> phase adds `usbinfo` / `usbprobe` for USB controller and port discovery.
+> FAT32 reads pass real QEMU block-I/O tests. Pi `storageinit` targets microSD,
+> so its failure in the USB-only setup is expected. Wi-Fi connections remain ahead.
 
 ## The hardware receipts
 
@@ -108,6 +110,7 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 | Physical memory | DTB RAM/reservations and 4 KiB pages, also observed on the real Pi |
 | Root filesystem | Writable RAMFS with paths and monitor commands, also observed on the real Pi |
 | Storage | Read-only block layer, FAT32 and `/boot` routing; real QEMU I/O tested, Pi handoff candidate pending |
+| USB groundwork | DT host discovery and read-only xHCI port snapshots; hardware capture pending, no pendrive I/O yet |
 | Wi-Fi groundwork | Firmware DT inventory and opt-in SDIO CMD5 query; no scan/connect/IP support |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
@@ -115,7 +118,9 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 
 The FAT32 boot partition is read by the Pi firmware. Our kernel creates a
 separate [RAM root filesystem](docs/ramfs.md). `storageinit` attempts a read-only
-[FAT32 mount at /boot](docs/storage.md). [Physical memory](docs/memory.md) and RAMFS
+[FAT32 mount at /boot](docs/storage.md) from microSD on Pi or virtio on QEMU.
+It does not mount the user's USB pendrive; see [USB discovery](docs/usb.md).
+[Physical memory](docs/memory.md) and RAMFS
 have hardware evidence; Pi SD reads still need their own test. MMU, heap and user
 processes remain unfinished. [Wi-Fi diagnostics](docs/wifi.md) do not provide a connection.
 
@@ -205,6 +210,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-fdt.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-memory.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-ramfs.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-storage.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-usb.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Target handoff-test
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-qemu.ps1 -Handoff
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-rpi5-image.ps1 -Console header
@@ -258,6 +264,7 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [Memory subsystem and commands](docs/memory.md)
 - [RAM root filesystem and commands](docs/ramfs.md)
 - [Storage reads and the FAT32 mount](docs/storage.md)
+- [USB pendrive roadmap and controller discovery](docs/usb.md)
 - [Wi-Fi bring-up status](docs/wifi.md)
 - [OS, CPU architectures and portability explained](docs/os-and-cpu-architectures.md)
 - [Asset sources and regeneration](docs/assets/README.md)

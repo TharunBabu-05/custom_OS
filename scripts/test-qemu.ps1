@@ -76,7 +76,7 @@ $commands=@('help','info','cpuinfo','meminfo','memmap','pagetest','pagealloc','p
     'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo',
     'fsinfo','pwd','ls /','cat /etc/board','cat /README.txt','cd /tmp','mkdir work','cd work','pwd',
     'touch empty.txt','write note.txt filesystem-ok','cat ./note.txt','ls .','cd ..','rmdir work',
-    'rm work/note.txt','rm work/empty.txt','rmdir work','cd /','cat /tmp/work/note.txt',
+    'rm work/note.txt','rm work/empty.txt','rmdir work','cd /','cat /tmp/work/note.txt','usbinfo','usbprobe',
     'cd /etc/hostname','rmdir /','rm /tmp','fsinfo','meminfo','echo native-windows-ok',
     "echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
 $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt | EL1',
@@ -88,7 +88,9 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
     'Root filesystem ready: RAMFS at / (volatile).','rootfs=ramfs (volatile; files disappear after reboot)',
     '/tmp/work',"`r`nfilesystem-ok`r`n",'Welcome to OurOS. This root filesystem lives in RAM.',
     'fs: directory not empty','fs: path not found','fs: not a directory',
-    'fs: root or current directory is busy','fs: is a directory')
+    'fs: root or current directory is busy','fs: is a directory',
+    'USB stage: controller discovery only; no USB disk reads or writes.',
+    'No Pi RP1 USB controller on QEMU virt; no MMIO attempted.')
 if ($StorageImage) {
     $commands=$commands[0..($commands.Count-2)]+@('storageinit','storageinfo','ls /boot','cd /boot',
         'pwd','cat CONFIG.TXT','cat SOURCE.TXT','write CONFIG.TXT blocked','touch new.txt',

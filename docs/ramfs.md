@@ -3,11 +3,13 @@
 The kernel now builds a small root filesystem in RAM and exposes it through
 the serial monitor. **The original RAMFS revision now has physical Pi evidence**:
 the user's screenshot shows file creation, cat, cwd navigation and MB/MiB memory
-details. The new [storage/mount revision](storage.md) has separate tests and
-awaits a physical capture.
+details. A later physical USB-boot capture also confirms the expanded root
+directories. Its SD attachment fails as expected without an SD card; that
+capture does not verify mounting the pendrive. See [storage](storage.md) and
+the next [USB discovery phase](usb.md).
 
 The root `/` is a logical directory. It does not have to be an SD partition.
-Our boot firmware reads the FAT32 SD partition to load the kernel and DTB;
+Our boot firmware reads the FAT32 boot partition (USB in the user's setup) to load the kernel and DTB;
 the kernel then creates this separate RAM filesystem. The new storage revision
 can attempt a read-only FAT32 mount at `/boot` through `storageinit`. RAMFS
 commands still do not write SD files. See [storage.md](storage.md) for that path.

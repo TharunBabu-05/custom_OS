@@ -30,6 +30,10 @@ The root filesystem is volatile; changes disappear after reboot. See docs/ramfs.
 Dynamic reservation windows are conservatively excluded in full.
 storageinfo: SD host diagnostics; storageinit: firmware-handoff SDHC/SDXC reads
 and a read-only FAT32 mount at /boot. No full card initialization or writes yet.
+The user's hardware boots from a 32 GB USB pendrive with no microSD card.
+Firmware USB loading works; storageinit cannot access that pendrive yet.
+usbinfo: DT USB host inventory. usbprobe: read-only xHCI controller/port snapshot.
+These new USB commands need a physical capture. No USB enumeration or disk I/O.
 wifiinfo: actual DT inventory; wifiprobe: optional SDIO CMD5 query only.
 No Wi-Fi scan/connect/IP, HDMI/GUI, USB keyboard, heap, MMU or processes.
 See docs/storage.md and docs/wifi.md.

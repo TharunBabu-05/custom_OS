@@ -28,10 +28,14 @@ bool storage_command(const char *line)
 {
     if (same(line,"wifiprobe")) { platform_wifi_probe(); return true; }
     if (same(line,"storageinit")) {
+        if (board_name && board_name[0]=='r') {
+            console_write("Pi storageinit targets the microSD slot, not USB storage.\n");
+            console_write("For a USB boot pendrive, use usbinfo/usbprobe; USB disk I/O is pending.\n");
+        }
         if (!ramfs_get_stats().ready) { console_write("Storage mount requires an available RAM root.\n"); return true; }
         if (!attached) { attached=platform_storage_attach(&disk); }
         if (!attached) {
-            console_write("Storage attachment failed; capture storageinfo. No card writes were issued.\n");
+            console_write("Storage attachment failed; /boot stays unmounted. No disk writes were issued.\n");
             platform_storage_info(); return true;
         }
         if (!vfs_boot_mounted()) {

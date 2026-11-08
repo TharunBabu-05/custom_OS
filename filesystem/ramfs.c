@@ -235,7 +235,8 @@ enum fs_result ramfs_init(const char *board)
         "Welcome to OurOS. This root filesystem lives in RAM.\n"
         "Commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.\n"
         "Try these commands on separate lines:\nmkdir /tmp/demo\nwrite /tmp/demo/note.txt hello\n"
-        "RAM files disappear after reset. Run storageinit to attach read-only FAT32 at /boot.\n";
+        "RAM files disappear after reset. storageinit tries SD/FAT32 on Pi or virtio on QEMU.\n"
+        "USB boot uses firmware; USB disk I/O is pending. Try usbinfo and usbprobe.\n";
     r=ramfs_write(0,"/README.txt",readme,sizeof(readme)-1); if (r!=FS_OK) { goto failed; }
     r=ramfs_write(0,"/etc/hostname","ouros\n",6); if (r!=FS_OK) { goto failed; }
     char board_text[64]; size_t n=0;

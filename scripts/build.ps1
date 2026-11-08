@@ -51,7 +51,7 @@ try {
             $entrySource='arch/aarch64/boot/firmware.S'
             $linker='linker/rpi5.ld'
             $cpu='cortex-a76'
-            if ($Target -eq 'rpi5') { $boardSource='boards/rpi5/board.c' }
+            if ($Target -eq 'rpi5') { $boardSource='boards/rpi5/board.c'; $common+='-DOUROS_PI5=1' }
             else { $linkOptions=@('--defsym=BOOT_TEST_BASE=0x40080000') }
         }
         if ($Target -eq 'rpi5' -and $Console -eq 'header') {
@@ -65,7 +65,8 @@ try {
             'kernel/memory/map.c','kernel/memory/fdt_memory.c','kernel/memory/pages.c',
             'kernel/memory/boot_memory.c','filesystem/ramfs.c','kernel/core/fs_commands.c',
             'drivers/storage/block.c','filesystem/fat32.c','filesystem/vfs.c','kernel/core/storage_commands.c',
-            'kernel/core/dt_property.c')
+            'kernel/core/dt_property.c','drivers/usb/xhci_observe.c','drivers/usb/pi5_usb_dt.c',
+            'kernel/core/usb_commands.c')
         if ($Target -eq 'rpi5') { $sources+=@('drivers/storage/sdhci.c','drivers/storage/pi5_sd.c','drivers/storage/pi5_wifi_probe.c') }
         else { $sources+='drivers/storage/virtio_blk.c' }
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }

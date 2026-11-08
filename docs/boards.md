@@ -74,6 +74,10 @@ reader and physical page allocator](memory.md) pass host/QEMU tests and have a
 physical Pi memory capture. The [RAMFS root](ramfs.md) also has a physical capture.
 The latest [storage](storage.md) and [Wi-Fi diagnostic](wifi.md) paths need new
 Pi testing; the QEMU block/FAT32 path is tested against a read-only image.
+The user boots from a 32 GB USB pendrive, with no microSD card: the SD handoff
+fails as expected and `/boot` remains unmounted. [USB discovery](usb.md) now
+provides DT inventory and opt-in read-only xHCI observations, awaiting a physical
+capture. Kernel USB mass-storage reads and Wi-Fi connections remain pending.
 Full Pi device-tree support and broader firmware
 compatibility remain unfinished.
 Firmware entry and bidirectional header UART operation were observed on the

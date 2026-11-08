@@ -4,6 +4,7 @@
 #include "memory.h"
 #include "ramfs.h"
 #include "block.h"
+#include "usb.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -33,12 +34,14 @@ static void command(const char *line)
 {
     if (filesystem_command(line)) { return; }
     if (storage_command(line)) { return; }
+    if (usb_command(line)) { return; }
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("pwd ls [path] cd [path] cat <path> mkdir <path> touch <path>\n");
         console_write("write <path> <text> rm <path> rmdir <path> fsinfo\n");
         console_write("storageinit storageinfo wifiinfo wifiprobe\n");
+        console_write("usbinfo usbprobe (discovery only; USB disk I/O pending)\n");
     } else if (equal(line,"info")) {
         console_write("OurOS development kernel | board="); console_write(board.name);
         console_write(" | EL"); console_u64(cpu_el());
@@ -117,7 +120,12 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     if (fs==FS_OK) { console_write("Root filesystem ready: RAMFS at / (volatile).\n"); }
     else { console_write("Root filesystem unavailable: "); console_write(ramfs_error(fs)); console_write("\n"); }
     storage_setup(board.name,dtb);
-    console_write("Storage is opt-in: storageinit mounts read-only FAT32 at /boot.\n");
+    usb_setup(board.name,dtb,board.uart_base);
+    console_write("Storage is opt-in: storageinit attempts read-only FAT32 at /boot.\n");
+#ifdef OUROS_PI5
+    console_write("Pi storageinit supports SD handoff only; USB pendrive I/O is pending.\n");
+    console_write("USB discovery: usbinfo (DT), usbprobe (read-only controller registers).\n");
+#endif
     console_write("Kernel monitor ready. Type help.\n> ");
     char line[128];
     unsigned length=0;

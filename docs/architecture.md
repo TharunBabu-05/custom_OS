@@ -113,6 +113,13 @@ RP1 peripherals match BCM2710A1 peripherals.
 Each stage records: implemented behavior, build result, emulation result, hardware
 result, observed failures, and exact next acceptance criterion.
 
+Current hardware priority is USB storage because the user boots from a pendrive
+and has no microSD card. [The USB milestone](usb.md) starts with DT host discovery
+and bounded read-only xHCI capability/port snapshots. Controller ownership and
+RP1 DMA mapping must precede enumeration and mass-storage commands; these are
+still pending. Firmware USB boot is already observed and is separate from the
+kernel's ability to access the boot device.
+
 ## Build and deployment pipeline (future)
 
 C / `.S` -> per-board objects -> linker script -> debug ELF -> raw boot image ->

@@ -362,3 +362,50 @@ Independent kernel work can proceed on QEMU while that hardware is unavailable.
 - Updated docs/storage.md with the physical capture procedure, exact driver
   contract and limitations. No physical card or EEPROM was written, and no
   new commit/push was performed. Pi SD/FAT and SDIO tests remain pending.
+
+## USB boot clarification and USB controller discovery (2026-11-08)
+
+- User confirms every Pi hardware test used a 32 GB USB pendrive, with no
+  microSD card. New supplied text capture verifies startup, expanded RAM root
+  navigation and firmware Wi-Fi inventory. It shows SD attachment failing with
+  control1=0 and no response/interrupt. This is expected without an active SD
+  card; it is not a failed kernel boot or evidence of USB disk access. /boot
+  remains unmounted and CONFIG.TXT is unavailable. Wi-Fi association is absent.
+- Clarified boot/README/storage messages: firmware USB loading and kernel USB
+  storage are separate. Pi storageinit still targets microSD; the commands no
+  longer promise a mount. Added USB boot/discovery instructions in docs/usb.md
+  and updated the current hardware priorities/evidence in related documents.
+- Added usbinfo: bounded DT inventory of the two RP1 snps,dwc3 host aliases,
+  strict Pi 5/reg/cell checks, DT state and CPU-window candidates derived from
+  the already working header UART. It performs no USB MMIO.
+- Added opt-in usbprobe: an original callback-based read-only xHCI observer
+  for capability, command/status/page-size and root-port snapshots. Bounds ports
+  to 32 and forward extended capabilities to 64; rejects malformed offsets,
+  protocol ranges, all-ones/error reads and unsupported layouts. No write
+  callback, controller/port reset, DMA allocation, pointer following, USB/SCSI
+  commands or disk I/O. Disabled DT nodes and unconfirmed UART mappings are
+  skipped. QEMU refuses Pi MMIO. Bare-metal bus faults still use fatal vectors.
+- Native USB tests pass actual DT aliases/registers, malformed descriptions,
+  truncations and 2000 DT mutations; mocked xHCI capabilities/ports/protocols,
+  unchanged registers, read errors, bounded malformed chains and 10000 register
+  mutations. Command tests verify QEMU refusal, UART mapping guard, DT-only
+  inventory and CPU candidates 0x1c00200000 / 0x1c00300000.
+- RAMFS host tests, existing real-image FAT/SDHCI/SDIO host tests, QEMU A53/A76
+  monitor/fault suites and raw Image EL1/EL2 handoff/fault suites pass. QEMU uses
+  virtio for storage; its USB command tests exercise platform refusal, not RP1.
+  Both QEMU storage runs preserve the image hash. Package/MBR/FAT/extraction/hash
+  and corruption/profile rejection tests pass. USB hardware capture is pending.
+- Preserved previous whole image as
+  build/rpi5-header/OurOS-Pi5-header-usb-boot-observed.img with manifest/checksum.
+  Its hash remains 7d65349b...; this is the local build associated with the
+  user's capture, not an independently supplied physical-drive readback hash.
+- New header image: build/rpi5-header/OurOS-Pi5-header-experimental-sd.img,
+  134,217,728 bytes. SHA256:
+  80d84ba2e22f1b38e1d5471ff6dacf4322f6267b5f9f1d0fbb4feeb672b55bbe.
+  Kernel file: 53,568 bytes; full BSS/stack footprint still fits before the DTB.
+  The retained -sd.img filename also works as a firmware USB boot disk image.
+- Next USB work: establish hardware controller state, then ownership, RP1 DMA
+  translation and command/event rings, enumeration, mass-storage/SCSI reads,
+  and reuse the existing read-only FAT/VFS layer. Persistent writes and Wi-Fi
+  connections remain later work. No physical device, EEPROM, or Git remote
+  was modified by this phase.

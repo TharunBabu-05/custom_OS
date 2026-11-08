@@ -41,10 +41,16 @@ File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
 Files disappear after reboot. See docs/ramfs.md. Seed files own 3 physical pages.
 Storage: storageinfo, storageinit, ls /boot, cat /boot/CONFIG.TXT.
 Pi driver inherits an active SDHC/SDXC card from firmware; no full init yet.
+Firmware USB boot works on the user's header build with a 32 GB pendrive.
+The retained -sd.img filename does not limit the disk image to SD media.
+storageinit cannot mount USB: kernel USB disk I/O remains pending.
+usbinfo: DT USB hosts. usbprobe: read-only xHCI controller/port observation.
+USB MMIO probe requires the header UART's known firmware RP1 window.
+These USB commands are a new hardware-untested milestone; no enumeration yet.
 /boot is read-only; no card write commands exist in this revision.
 Wi-Fi: wifiinfo, wifiprobe (diagnostics only; no scan/connect/IP).
 Root dirs: /boot /dev /etc /home /mnt /proc /sys /tmp /var/log.
-See docs/storage.md and docs/wifi.md for limits and test instructions.
+See docs/storage.md, docs/usb.md and docs/wifi.md for limits and test instructions.
 
 OUROS.IMG is the kernel. PI5.DTB is the official board device tree (renamed only).
 CONFIG.TXT selects those filenames. COPYING.TXT and LICENSE.TXT retain upstream

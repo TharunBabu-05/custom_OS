@@ -1,4 +1,10 @@
-# Experimental Pi 5 SD image
+# Experimental Pi 5 disk image
+
+The user has successfully booted the header-console image from a **32 GB USB
+pendrive**, without a microSD card. The retained `-sd.img` filename does not
+restrict the disk image to SD media. Firmware can load it from USB; kernel
+USB disk access is a separate feature. `storageinit` currently selects only
+the Pi microSD host. See [USB discovery and test instructions](usb.md).
 
 For a CP2102 connected with ordinary jumper wires to the **40-pin header**,
 use the separate [header-console image and wiring guide](rpi5-header-uart.md):

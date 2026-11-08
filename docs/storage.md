@@ -1,5 +1,14 @@
 # Storage phase: block reads and a FAT32 boot mount
 
+**Current hardware: the user boots from a 32 GB USB pendrive, with no microSD
+card.** The posted physical capture confirms kernel/RAMFS startup, root layout
+and firmware Wi-Fi inventory. `storageinit` cannot mount that pendrive: it selects
+the empty/unclocked microSD host (`control1=0` in the capture) and returns an
+unsupported handoff state. That does not invalidate the USB boot or RAMFS test.
+`/boot` is unmounted, so CONFIG.TXT is unavailable there. Firmware USB loading
+and kernel USB storage are separate. The next [USB phase](usb.md) adds `usbinfo`
+and an opt-in read-only `usbprobe`; USB mass-storage reads remain pending.
+
 This revision adds a read-only block API, a bounded FAT32 reader, and routing
 between the RAM root and `/boot`. Real QEMU virtio block I/O and native tests
 pass. **Pi SD reads and the new SDIO query still require physical captures.**
@@ -30,7 +39,11 @@ partition there; file commands then cross the mount boundary. This does not
 copy all card files into RAM or turn the RAM root into persistent storage.
 Three seeded files still own three physical pages; directories use static nodes.
 
-## Test on the Pi 5
+## Test SD attachment on the Pi 5 (requires a microSD card)
+
+This procedure is only for a firmware-selected card in the built-in microSD
+slot. The user currently has no such card; use the [USB procedure](usb.md)
+instead. Booting from a USB reader or pendrive does not initialize this SD host.
 
 Use the new experimental header image, retaining the existing CP2102 wiring
 and 115200 8N1/no-flow-control terminal settings. Initialization is opt-in so a
