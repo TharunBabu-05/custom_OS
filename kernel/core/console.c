@@ -23,3 +23,17 @@ void console_u64(uint64_t value)
     do { digits[count++] = (char)('0' + value % 10); value /= 10; } while (value);
     while (count) { console_putc(digits[--count]); }
 }
+static void size_fraction(uint64_t bytes, uint64_t unit)
+{
+    console_u64(bytes/unit);
+    console_putc('.');
+    uint64_t fraction=(bytes%unit)*1000/unit;
+    console_putc((char)('0'+fraction/100));
+    console_putc((char)('0'+fraction/10%10));
+    console_putc((char)('0'+fraction%10));
+}
+void console_memory_size(uint64_t bytes)
+{
+    size_fraction(bytes,1000000); console_write(" MB (");
+    size_fraction(bytes,1048576); console_write(" MiB)");
+}

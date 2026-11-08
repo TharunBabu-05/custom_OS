@@ -70,14 +70,39 @@ are preserved in [proofs/](../proofs/).
 - Missing D0 overlay remains a device-tree packaging gap; the current polling
   console does not consume its GPIO/interrupt/DMA descriptions. This successful
   boot does not validate those peripheral descriptions.
-- No MMU, allocator, scheduler, target filesystem, HDMI, USB keyboard, networking
-  or user processes are implemented. Build-time artifact labels reflect their
+- At this original monitor milestone, no MMU, allocator, scheduler, target
+  filesystem, HDMI, USB keyboard, networking or user processes were implemented.
+  Build-time artifact labels reflect their
   creation before this hardware observation and do not encode per-board test
   history. The kernel/image bytes were not changed to record this milestone.
 
-A subsequent revision adds [RAM discovery and physical pages](memory.md).
-That revision has host/QEMU tests and requires a new physical capture; this
-document's successful baseline remains the older 8,105-byte monitor kernel.
+A subsequent revision added [RAM discovery and physical pages](memory.md).
+The user's later screenshot confirms that revision on the physical Pi, as
+recorded below. The verbatim text earlier in this document remains the original
+8,105-byte monitor kernel's output.
+
+## Physical memory milestone observed
+
+The user supplied a PuTTY screenshot showing the following memory test results:
+
+| Item | Observed value |
+| --- | --- |
+| Firmware-described RAM | 2 banks, 8,585,740,288 bytes (8188 MiB) |
+| Managed RAM | 1,835,008 pages, 7,516,192,768 bytes (7168 MiB) |
+| Reservations | 6, including the conservative low 1 GiB dynamic window |
+| Four-page pattern test | PASS, pages written/read/freed and counters restored |
+| First monitor allocation | Slot 0 at `0x40000000` |
+| Second monitor allocation | Slot 1 at `0x40001000` |
+| Allocated/free counters | 0 / 1,835,008, then 2 / 1,835,006, then restored |
+| Repeated free | Rejected as an invalid or unallocated slot |
+
+Associated local memory image SHA256:
+`06cf730bab6a4b3c43f712061c43390417ee126ec911442b18745e5d52b3671b`.
+No independent readback hash was supplied. This baseline is preserved locally
+as `build/rpi5-header/OurOS-Pi5-header-memory-verified.img`.
+
+The new MB/MiB display and [RAM filesystem](ramfs.md) are a subsequent revision
+tested on the host/QEMU and still awaiting their own physical capture.
 
 The default embedded firmware Arm stub is sufficient for this observed boot;
 the missing custom armstub and cmdline messages did not prevent the monitor

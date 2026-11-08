@@ -117,14 +117,16 @@ Windows host test executable. That is an actual example of reusable source
 producing different native binaries. The AArch64 startup and CPU-register
 instructions need architecture-specific replacements in another CPU port.
 
-The current milestone adds firmware-described RAM discovery and physical pages.
-The remaining dependencies are:
+Firmware-described RAM discovery and physical pages now have Pi evidence.
+A first RAM root filesystem and file commands pass host/QEMU tests, awaiting
+their physical capture. The remaining dependencies are:
 
-1. Validate physical RAM and all reservations on the real Pi.
+1. Validate the new RAMFS commands on the Pi and retain its memory/boot evidence.
 2. Add virtual-memory mappings, device-memory attributes, protection and a heap.
 3. Add interrupt-controller support and timer interrupts.
 4. Add context switching and scheduling, then EL0 processes and system calls.
-5. Add VFS/RAM files, executable loading and applications; then persistent storage.
+5. Extend the bounded RAMFS into a general VFS, executable loading and applications;
+   then persistent storage through a block/filesystem driver.
 6. Add board-specific GPIO/display/USB/networking support and later SMP.
 
 Memory allocation alone is not process isolation or a complete OS. Every new

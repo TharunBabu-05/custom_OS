@@ -29,6 +29,12 @@ void memory_print_info(void)
     console_write("Memory: "); console_write(status); console_write("\n");
     if (!map_valid) { return; }
     struct page_stats s=pages_stats();
+    console_write("Reported RAM: "); console_memory_size(boot_map.ram_bytes);
+    console_write("\nManaged RAM:  "); console_memory_size(s.managed_pages*PAGE_SIZE);
+    console_write("\nFree RAM:     "); console_memory_size(s.free_pages*PAGE_SIZE);
+    console_write("\nAllocated:    "); console_memory_size(s.allocated_pages*PAGE_SIZE);
+    console_write("\nUnavailable:  "); console_memory_size(boot_map.ram_bytes-s.managed_pages*PAGE_SIZE);
+    console_write("\nMB=1,000,000 bytes; MiB=1,048,576 bytes (fractions truncated).\n");
     console_write("DTB RAM banks="); console_u64(boot_map.ram_count);
     console_write(" bytes="); console_u64(boot_map.ram_bytes);
     console_write(" (firmware-described, not free memory)\n");

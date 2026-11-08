@@ -15,7 +15,8 @@ CP2102**, including working commands and advancing uptime. See the
 [hardware evidence](pi5-hardware-verification.md). The default UART10 build
 described here still needs its own physical test and matching connector cable.
 The new [physical-memory subsystem](memory.md) adds RAM/reservation discovery
-and page allocation, tested on the host/QEMU; its Pi test is pending. No HDMI,
+and page allocation, with physical evidence on the header-console build. The
+new [RAM filesystem](ramfs.md) passes host/QEMU tests and awaits its Pi test. No HDMI,
 USB keyboard, storage driver, heap or MMU is implemented.
 
 ## Build and package on Windows
@@ -84,7 +85,7 @@ The image header advertises the full in-memory footprint, including BSS/stack.
 The new memory reader discovers root RAM banks and reservations independently
 of the QEMU UART parser. It protects kernel/BSS/stack/bitmap, DTB, boot guard and
 firmware regions before offering 4 KiB pages below 32 GiB. See [memory.md](memory.md)
-for conservative dynamic-window handling and the pending real-Pi test.
+for conservative dynamic-window handling and the recorded real-Pi memory test.
 
 `arch/aarch64/boot/firmware.S` preserves x0, masks exceptions, parks unexpected
 secondary cores, and accepts EL1 or EL2. It rejects entry with the MMU or data

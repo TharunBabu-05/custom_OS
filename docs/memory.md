@@ -1,9 +1,10 @@
 # Physical memory discovery and pages
 
-The next OurOS kernel now has shared firmware-DTB RAM discovery and a single-core
-4 KiB physical page allocator. This revision is tested on the host and QEMU;
-**its new memory code still needs a captured test on the physical Pi 5**.
-The older header UART/monitor boot is the hardware-verified baseline.
+OurOS has shared firmware-DTB RAM discovery and a single-core 4 KiB physical
+page allocator. The user's Pi screenshot confirms memory discovery, page
+patterns, allocation/release counters and double-free rejection on hardware;
+see [hardware evidence](pi5-hardware-verification.md). The subsequent
+[RAM filesystem revision](ramfs.md) has its own pending physical test.
 
 ## Monitor commands
 
@@ -14,6 +15,13 @@ The older header UART/monitor boot is the hardware-verified baseline.
 | `pagealloc` | Allocate one physical page into the first free monitor slot (0..15) |
 | `pagefree <slot>` | Release a page owned by that slot; reject invalid or already freed slots |
 | `pagetest` | Allocate four pages, write/read distinct full-page patterns, release them and check counts |
+
+`meminfo` now shows reported, managed, free, allocated and unavailable memory in
+decimal **MB** (1,000,000 bytes) and binary **MiB** (1,048,576 bytes), to three
+truncated decimal places. Exact byte/page counters remain below those summaries.
+The captured board describes 8,585,740,288 bytes: **8585.740 MB (8188.000 MiB)**,
+with **7516.192 MB (7168.000 MiB)** initially managed. The conservative reservation
+window explains the difference; it is not all missing or consumed application RAM.
 
 `pagealloc` returns a physical address and does not zero the page. The monitor
 does not allow arbitrary addresses to be freed. `pagetest` touches only pages
@@ -34,8 +42,10 @@ pagefree 1
 meminfo
 ```
 
-Expect `Memory: ready`, two allocated pages after the allocations, rejection of
-the repeated free, and the original free-page count after both pages are released.
+Expect `Memory: ready`, two additional allocated pages after the allocations,
+rejection of the repeated free, and the original free-page count after both pages
+are released. The new RAMFS boot files already own three pages at startup, so the
+allocated count now changes from 3 to 5 and returns to 3 in an otherwise idle boot.
 `pagetest` should print `PASS: four distinct pages written/read/freed; counters restored.`
 Save the complete serial log, especially the map if allocation is disabled.
 

@@ -24,16 +24,20 @@ $readme=@'
 OurOS experimental Raspberry Pi 5 UART boot image
 HARDWARE BOOT UNTESTED. This is an early kernel, not a complete operating system.
 No GUI/HDMI, USB keyboard, multitasking, virtual memory, storage driver, networking
-or user-space applications. The FAT filesystem is read by boot firmware; OurOS
-itself has no filesystem driver yet. Only the dedicated UART10 console is used.
+or user-space applications. Boot firmware reads FAT; the kernel creates a
+separate volatile RAMFS root and does not read SD-card files yet.
+Only the dedicated UART10 console is used.
 
 Requires Pi 5, working EEPROM firmware and a 3.3 V serial adapter/cable at the
 3-pin UART connector between the HDMI ports. Terminal: 115200 8N1, no flow control.
 Expected message: OurOS: AArch64 kernel booted
 Commands: help info cpuinfo meminfo memmap uptime echo clear halt fault
 Memory commands: pagealloc, pagefree <slot>, pagetest.
-DTB memory discovery and 4 KiB pages are host/QEMU-tested; physical Pi test pending.
+Earlier DTB memory discovery and 4 KiB pages have Pi hardware evidence.
+New MB/MiB summaries and RAMFS commands are host/QEMU-tested; Pi capture pending.
 Dynamic reserved-memory alloc-ranges windows are conservatively excluded in full.
+File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
+Files disappear after reboot. See docs/ramfs.md. Seed files own 3 physical pages.
 
 OUROS.IMG is the kernel. PI5.DTB is the official board device tree (renamed only).
 CONFIG.TXT selects those filenames. COPYING.TXT and LICENSE.TXT retain upstream

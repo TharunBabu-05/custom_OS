@@ -70,8 +70,9 @@ For each board's validated deployment:
 
 The Pi 5 candidate now covers build-time checks, boot-file packaging and a
 [partitioned experimental SD image](disk-image.md). A shared [memory-only DTB
-reader and physical page allocator](memory.md) now pass host/QEMU tests and await
-a physical Pi memory capture. Full Pi device-tree support and broader firmware
+reader and physical page allocator](memory.md) pass host/QEMU tests and have a
+physical Pi memory capture. The new [RAMFS root](ramfs.md) awaits its own capture.
+Full Pi device-tree support and broader firmware
 compatibility remain unfinished.
 Firmware entry and bidirectional header UART operation were observed on the
 tested Pi 5 setup, as recorded in the hardware results.

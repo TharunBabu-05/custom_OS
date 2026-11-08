@@ -2,6 +2,7 @@
 #include "console.h"
 #include "cpu.h"
 #include "memory.h"
+#include "ramfs.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -29,15 +30,19 @@ void exception_fatal(unsigned long vector, unsigned long esr, unsigned long elr,
 }
 static void command(const char *line)
 {
+    if (filesystem_command(line)) { return; }
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
+        console_write("pwd ls [path] cd [path] cat <path> mkdir <path> touch <path>\n");
+        console_write("write <path> <text> rm <path> rmdir <path> fsinfo\n");
     } else if (equal(line,"info")) {
         console_write("OurOS development kernel | board="); console_write(board.name);
         console_write(" | EL"); console_u64(cpu_el());
         console_write(" | entered EL"); console_u64(entry_el);
         console_write("\nFirmware DTB pointer="); console_hex(firmware_dtb);
-        console_write("\nSingle core; polling UART; MMU off; no user processes or filesystem.\n");
+        console_write("\nSingle core; polling UART; MMU off; no user processes.\n");
+        console_write(ramfs_get_stats().ready ? "Root filesystem: RAMFS (volatile).\n" : "Root filesystem unavailable.\n");
     } else if (equal(line,"cpuinfo")) {
         uint64_t midr;
         __asm__ volatile ("mrs %0, midr_el1" : "=r"(midr));
@@ -105,6 +110,9 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     memory_boot_init(dtb);
     console_write(pages_stats().ready ? "Physical page allocator ready; type meminfo or memmap.\n" :
         "Physical page allocator disabled; type meminfo for the reason.\n");
+    enum fs_result fs=ramfs_init(board.name);
+    if (fs==FS_OK) { console_write("Root filesystem ready: RAMFS at / (volatile).\n"); }
+    else { console_write("Root filesystem unavailable: "); console_write(ramfs_error(fs)); console_write("\n"); }
     console_write("Kernel monitor ready. Type help.\n> ");
     char line[128];
     unsigned length=0;

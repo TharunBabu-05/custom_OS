@@ -63,7 +63,7 @@ try {
             $boardSource,'drivers/uart/pl011.c','drivers/timer/arch_timer.c',
             'kernel/core/console.c','kernel/core/main.c','lib/memory.c',
             'kernel/memory/map.c','kernel/memory/fdt_memory.c','kernel/memory/pages.c',
-            'kernel/memory/boot_memory.c')
+            'kernel/memory/boot_memory.c','filesystem/ramfs.c','kernel/core/fs_commands.c')
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }
         $objects = @()
         foreach ($source in $sources) {

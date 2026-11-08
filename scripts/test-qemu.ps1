@@ -47,12 +47,18 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
         if ($Name -notlike 'fault*' -and $text.Contains('FATAL')) { throw 'Unexpected exception' }
         if ($Name -notlike 'fault*') {
             $snapshots=[regex]::Matches($text,'managed_pages=(\d+) free_pages=(\d+) allocated_pages=(\d+)')
-            if ($snapshots.Count -ne 3 -or $snapshots[0].Groups[3].Value -ne '0' -or
-                $snapshots[1].Groups[3].Value -ne '2' -or $snapshots[2].Groups[3].Value -ne '0' -or
+            if ($snapshots.Count -ne 4 -or $snapshots[0].Groups[3].Value -ne '3' -or
+                $snapshots[1].Groups[3].Value -ne '5' -or $snapshots[2].Groups[3].Value -ne '3' -or
+                $snapshots[3].Groups[3].Value -ne '3' -or
                 $snapshots[0].Groups[2].Value -ne $snapshots[2].Groups[2].Value -or
+                $snapshots[0].Groups[2].Value -ne $snapshots[3].Groups[2].Value -or
                 ([long]$snapshots[0].Groups[2].Value-2) -ne [long]$snapshots[1].Groups[2].Value) {
                 throw "$Name physical page counters did not balance (see $out/$Name.log)"
             }
+            $filesystems=[regex]::Matches($text,'files=(\d+) directories=(\d+) data_pages=(\d+) data_bytes=(\d+)')
+            if ($filesystems.Count -ne 2 -or $filesystems[0].Value -ne $filesystems[1].Value -or
+                $filesystems[0].Groups[1].Value -ne '3' -or $filesystems[0].Groups[2].Value -ne '5' -or
+                $filesystems[0].Groups[3].Value -ne '3') { throw "$Name filesystem counters did not balance" }
         }
         Write-Output "PASS: $Name"
     } finally {
@@ -61,20 +67,28 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
     }
 }
 $commands=@('help','info','cpuinfo','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
-    'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo','echo native-windows-ok',
+    'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo',
+    'fsinfo','pwd','ls /','cat /etc/board','cat /README.txt','cd /tmp','mkdir work','cd work','pwd',
+    'touch empty.txt','write note.txt filesystem-ok','cat ./note.txt','ls .','cd ..','rmdir work',
+    'rm work/note.txt','rm work/empty.txt','rmdir work','cd /','cat /tmp/work/note.txt',
+    'cd /etc/hostname','rmdir /','rm /tmp','fsinfo','meminfo','echo native-windows-ok',
     "echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
 $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt | EL1',
     'help info cpuinfo meminfo uptime','timer_hz=',"`r`nnative-windows-ok`r`n", "`r`nbackspace`r`n",'uptime_seconds=',
     'Unknown command. Type help.','Input too long; command discarded.',"`r`nrecovered`r`n",'CPU halted.',
     'Memory: ready','reason=kernel/BSS/stack/bitmap','reason=DTB',
     'PASS: four distinct pages written/read/freed; counters restored.',
-    'Allocated slot=0','Allocated slot=1','Freed slot=0','Freed slot=1','Invalid or unallocated page slot.')
+    'Allocated slot=0','Allocated slot=1','Freed slot=0','Freed slot=1','Invalid or unallocated page slot.',
+    'Root filesystem ready: RAMFS at / (volatile).','rootfs=ramfs (volatile; files disappear after reboot)',
+    '/tmp/work',"`r`nfilesystem-ok`r`n",'Welcome to OurOS. This root filesystem lives in RAM.',
+    'fs: directory not empty','fs: path not found','fs: not a directory',
+    'fs: root or current directory is busy','fs: is a directory')
 if ($Handoff) {
-    Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1'))
-    Run-Case 'handoff-el2' 'cortex-a76' 128 $commands ($expected+@('entered EL2 running EL1')) $true
+    Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1','Reported RAM: 134.217 MB (128.000 MiB)'))
+    Run-Case 'handoff-el2' 'cortex-a76' 128 $commands ($expected+@('entered EL2 running EL1','Reported RAM: 134.217 MB (128.000 MiB)')) $true
     Run-Case 'fault-el2' 'cortex-a76' 128 @('fault') @('entered EL2 running EL1','FATAL exception vector=4','ESR=0x00000000f2000042') $true
 } else {
-    Run-Case 'monitor-a53' 'cortex-a53' 128 $commands ($expected+@('bytes=134217728','MIDR=0x00000000410fd034'))
-    Run-Case 'monitor-a76' 'cortex-a76' 512 $commands ($expected+@('bytes=536870912','MIDR=0x00000000414fd0b1'))
+    Run-Case 'monitor-a53' 'cortex-a53' 128 $commands ($expected+@('bytes=134217728','MIDR=0x00000000410fd034','Reported RAM: 134.217 MB (128.000 MiB)'))
+    Run-Case 'monitor-a76' 'cortex-a76' 512 $commands ($expected+@('bytes=536870912','MIDR=0x00000000414fd0b1','Reported RAM: 536.870 MB (512.000 MiB)'))
     Run-Case 'fault-a53' 'cortex-a53' 128 @('fault') @('FATAL exception vector=4','ESR=0x00000000f2000042','CPU halted.')
 }

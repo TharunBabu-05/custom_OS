@@ -7,9 +7,10 @@ now builds/packages and its EL1/EL2 entry assembly is emulator-tested. The RP1
 header-console kernel has booted on the user's Pi 5 with working commands,
 CPU information and advancing uptime; see [hardware evidence](pi5-hardware-verification.md).
 Directory placeholders do not imply driver support.
-The new [RAM/reservation discovery and physical page allocator](memory.md) pass
-host/QEMU tests; their real-Pi test is pending. The MMU, heap and scheduling are
-separate later milestones.
+The [RAM/reservation discovery and physical page allocator](memory.md) pass
+host/QEMU tests and now have physical Pi evidence. The new bounded [RAMFS root
+filesystem](ramfs.md) passes host/QEMU tests and awaits its own hardware capture.
+MMU, heap and scheduling are separate later milestones.
 
 ## Design
 
@@ -95,9 +96,11 @@ RP1 peripherals match BCM2710A1 peripherals.
 3. **Core:** exception diagnostics, timer IRQs, physical pages, heap and MMU.
    Exercise a deliberate fault, allocation boundaries and mapping permissions.
 4. **Tasks:** kernel context switches and scheduling, then EL0, syscall validation,
-   executable loading and VFS/RAM filesystem. Demonstrate isolation and two tasks.
+   executable loading and a general VFS. A bounded RAMFS already works in the
+   kernel monitor; it does not implement process isolation or executable loading.
+   Demonstrate isolation and two tasks before claiming user-space support.
 5. **CLI:** implement commands only as their underlying services work. `help`,
-   `echo`, `info` first; `ls`/`mkdir` need a filesystem; `reboot`/`shutdown` need
+   `echo`, `info` first; `ls`/`mkdir` now use the bounded RAMFS; `reboot`/`shutdown` need
    documented board mechanisms. Clearly state RAM-only persistence limits.
 6. **Zero 2 W board port:** share AArch64 code, adapt firmware/UART/interrupts,
    verify actual UART boot and memory behavior on its 512 MB platform.

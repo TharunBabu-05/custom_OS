@@ -15,8 +15,11 @@ This port does not use the 40-pin header UART. No HDMI output is implemented.
 Expected first kernel message: OurOS: AArch64 kernel booted
 Type info to record the entry EL and current EL. New memory commands: meminfo,
 memmap, pagealloc, pagefree <slot>, pagetest. DTB memory/reservation discovery and
-4 KiB physical pages are host/QEMU-tested; the new Pi memory path awaits hardware
-verification. Dynamic reservation windows are conservatively excluded in full.
+4 KiB physical pages have evidence on the separate header-console Pi build.
+New MB/MiB displays and RAMFS commands are host/QEMU-tested; Pi capture pending.
+File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
+Files are volatile and disappear after reboot; no SD filesystem driver exists.
+Dynamic reservation windows are conservatively excluded in full.
 
 Consult docs/rpi5-boot.md in the source repository before deployment. Creating
 or writing a physical boot partition requires separate identification of the

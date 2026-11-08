@@ -10,4 +10,5 @@ void console_putc(char c);
 void console_write(const char *text);
 void console_hex(uint64_t value);
 void console_u64(uint64_t value);
+void console_memory_size(uint64_t bytes);
 #endif

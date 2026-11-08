@@ -273,3 +273,40 @@ Independent kernel work can proceed on QEMU while that hardware is unavailable.
   tests passed. No physical card was written. This revision's physical Pi memory
   validation is pending; the previous UART/monitor hardware proof remains scoped
   to its older kernel. Changes are local; no new GitHub publication was performed.
+
+## Memory hardware evidence, readable sizes and RAMFS (2026-11-08)
+
+- User supplied a physical Pi screenshot confirming the memory revision: two
+  firmware RAM banks totaling 8,585,740,288 bytes, 1,835,008 managed pages
+  (7,516,192,768 bytes), six reservations and a passing four-page pattern test.
+  Allocations at 0x40000000/0x40001000 reduced free pages by two; invalid repeated
+  free was rejected and both releases restored the original counters.
+- Added shared console formatting for decimal MB and binary MiB, with three
+  truncated fractional digits and overflow-safe 64-bit arithmetic. meminfo shows
+  reported/managed/free/allocated/unavailable summaries and retains exact counts.
+  For the screenshot, reported RAM is 8585.740 MB (8188.000 MiB) and managed RAM
+  is 7516.192 MB (7168.000 MiB).
+- Implemented a real, bounded RAM root filesystem with static node metadata and
+  physical-page-backed file contents. Initial tree: /etc, /home/user, /tmp,
+  /README.txt, /etc/hostname and /etc/board. Its three nonempty files own three
+  pages, reflected in meminfo. No heap, general VFS, EL0 shell or SD driver added.
+- Added pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir and fsinfo to the kernel
+  monitor. Supports absolute/relative paths, dot/dot-dot and directory traversal
+  checks. Limits: 64 nodes, 31-byte names, 255-byte paths and 4096-byte files.
+  Node/allocator exhaustion and invalid writes preserve existing contents;
+  failed initialization releases acquired pages. Files are lost on reset.
+- Host tests passed decimal/binary size formatting through UINT64_MAX, initial
+  contents, full-page binary writes, overwrite/truncate, path errors and exact
+  boundary paths, page ownership, out-of-memory rollback, node exhaustion/reuse
+  and 5000 guard-page path mutations. Existing memory tests still pass.
+- QEMU A53/A76 and raw Image EL1/EL2 handoff suites passed filesystem command
+  sequences, expected failures, cleanup and balanced page/node/file counters.
+  Fatal exception checks and native GDB stack/BSS startup check also passed.
+- Preserved the hardware-observed memory image as
+  `build/rpi5-header/OurOS-Pi5-header-memory-verified.img` (SHA256 06cf730b...).
+  New whole-card image at the usual experimental path: 134,217,728 bytes;
+  SHA256 `62574b624ebebf2b363aca6be50467694d01364326f3509c3e112f5f0c726ea6`.
+  New kernel file: 28,680 bytes; full BSS/stack footprint remains below the DTB.
+- Package, FAT/MBR, independent extraction, hashes and corruption/profile
+  rejection checks passed. New RAMFS/MB display still needs physical Pi capture.
+  No physical card or EEPROM was written; no new GitHub publication performed.
