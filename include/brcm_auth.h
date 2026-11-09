@@ -22,7 +22,7 @@ struct brcm_auth_probe_io {
     enum block_result (*iovar)(void *,bool,const char *,const void *,size_t,void *,size_t,size_t *,uint32_t *);
 };
 struct brcm_auth_probe {
-    bool attempted,changed,verified,restored;enum block_result error,restore_error;
+    bool attempted,changed,verified,restored,mask_compatibility,mask_legacy_verified,mask_snapshot_stable;enum block_result error,restore_error;
     unsigned phase,property,mask_bytes,observed_mask,mask_reply_bytes;uint32_t firmware_status,restore_status;
     uint32_t saved[4],observed[4];unsigned char mask[BRCM_AUTH_MASK_MAX],mask_header[4];
 };

@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <string.h>
 #include "brcm_control.h"
+#include "brcm_auth.h"
 #include "host_assert.h"
 static struct brcm_control_state state;
-static struct { unsigned calls,mode,position,bytes,tx,sequence;bool pending,echo_set;unsigned char response[2048]; } m;
+static struct { unsigned calls,mode,position,bytes,tx,sequence,sets;bool pending,echo_set,auth_model;uint32_t policy[4];unsigned char mask[24],response[2048]; } m;
 static uint32_t get32(const unsigned char *p) { return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24; }
 static void put32(unsigned char *p,uint32_t v) { for (unsigned i=0;i<4;++i) { p[i]=(unsigned char)(v>>(i*8)); } }
 static enum block_result read32(void *ctx,uint32_t at,uint32_t *v)
@@ -25,9 +26,10 @@ static enum block_result packet(void *ctx,bool write,void *buffer,size_t n)
         else if (!strcmp((char *)p+28,"mfp")) { assert(payload==8); }
         else if (!strcmp((char *)p+28,"auth") || !strcmp((char *)p+28,"wpa_auth") || !strcmp((char *)p+28,"wsec")) { assert(payload==namelen+4); }
         else if (!strcmp((char *)p+28,"event_msgs_ext")) {
-            assert(payload==(set ? 44u : 274u) && p[28+namelen]==1);
+            assert(payload==(set ? namelen+4u+p[30+namelen] : 274u) && p[28+namelen]==1);
             if (!set) { assert(p[29+namelen]==0 && p[30+namelen]==255 && p[31+namelen]==255); }
         }
+        else if (!strcmp((char *)p+28,"event_msgs")) { assert(!set && payload==27); }
         else if (!strcmp((char *)p+28,"mgmt_frame")) { assert(set && payload==147 && p[28+namelen+10]==0xb0 && get32(p+28+namelen+28)==0x12345678); }
         else { assert(!strcmp((char *)p+28,"clmload") && set && payload==1420 && n==1448);for (unsigned i=0;i<1412;++i) { assert(p[28+namelen+i]==(unsigned char)(i*19)); } }
         unsigned out=set ? 0 : payload,len=28+out;memset(m.response,0,sizeof(m.response));
@@ -36,6 +38,21 @@ static enum block_result packet(void *ctx,bool write,void *buffer,size_t n)
         put32(m.response+20,(flags&0xffff0000u)|(m.echo_set && set ? 2u : 0u)|(m.mode==1 ? 1u : m.mode==5 ? 2u : 0u));
         put32(m.response+24,m.mode==1 ? 0xffffffe9u : 0);
         for (unsigned i=0;i<out;++i) { m.response[28+i]=(unsigned char)(i*7); }
+        if (m.auth_model) {
+            static const char *const properties[]={"auth","wpa_auth","wsec","mfp"};unsigned index=4;
+            for (unsigned i=0;i<4;++i) { if (!strcmp((char *)p+28,properties[i])) { index=i; } }
+            if (index<4) {
+                if (set) { ++m.sets;m.policy[index]=get32(p+28+namelen);if (index==2) { m.policy[3]=0; } }
+                else { put32(m.response+28,m.policy[index]); }
+            } else if (!strcmp((char *)p+28,"event_msgs_ext")) {
+                if (set) { assert(payload==43 && p[29+namelen]==3 && p[30+namelen]==24 && !p[31+namelen]);memcpy(m.mask,p+32+namelen,24);++m.sets; }
+                else {
+                    /* Model the captured 274-byte padded CDC reply: the name's
+                     * e/v bytes survive, len/maxgetsize are 24, mask is @4. */
+                    memcpy(m.response+28,p+28,out);m.response[30]=24;m.response[31]=24;memcpy(m.response+32,m.mask,24);
+                }
+            } else { assert(!set && !strcmp((char *)p+28,"event_msgs"));memcpy(m.response+28,m.mask,16); }
+        }
         m.bytes=(len+3)&~3u;m.position=0;m.pending=true;++m.tx;
     } else {
         assert(n<=512 && !(n&3));memset(p,0,n);
@@ -47,6 +64,8 @@ static enum block_result packet(void *ctx,bool write,void *buffer,size_t n)
 }
 static void seed(void)
 { memset(&m,0,sizeof(m));state=(struct brcm_control_state){.ready=true,.f2_ready=true,.device_ready=true,.error=BLOCK_OK,.phase=CONTROL_READY,.tx_seq=2,.tx_max=22,.request_id=2}; }
+static enum block_result auth_iovar(void *ctx,bool set,const char *name,const void *input,size_t bytes,void *output,size_t capacity,size_t *actual,uint32_t *status)
+{ return brcm_control_iovar(ctx,&state,set,name,input,bytes,output,capacity,actual,status); }
 int main(void)
 {
     struct brcm_control_io io={.read32=read32,.write32=write32,.packet=packet,.delay_us=delay};
@@ -81,5 +100,11 @@ int main(void)
     assert(brcm_control_iovar(&io,&state,true,"mgmt_frame",auth,136,NULL,0,&n,&status)==BLOCK_OK);
     puts("PASS: extended-mask GET input header, policy IOVARs and management-frame SET transported through actual CDC/SDPCM framing");
     puts("PASS: restricted IOVAR GET/SET framing, 1448-byte CLM TX, 800-byte multi-part RX, padded results/copy bounds, SET reply variants and ID/sequence wrap");
-    puts("PASS: rejected firmware request preserves transport, later I/O failure poisons it; no access after failure and no arbitrary SET interface");return 0;
+    puts("PASS: rejected firmware request preserves transport, later I/O failure poisons it; no access after failure and no arbitrary SET interface");
+    seed();m.auth_model=true;m.policy[3]=1;m.mask[0]=0xa5;m.mask[23]=0x80;
+    const struct brcm_auth_probe_io auth_io={&io,auth_iovar};struct brcm_auth_probe probe={0};
+    assert(brcm_auth_probe_run(&auth_io,true,&probe)==BLOCK_OK && probe.verified && probe.restored && probe.mask_compatibility && probe.mask_legacy_verified && probe.mask_snapshot_stable);
+    assert(probe.mask_reply_bytes==259 && probe.mask_header[0]==101 && probe.mask_header[1]==118 && probe.mask_bytes==24 && m.sets==10 && m.tx==30);
+    assert(!m.policy[0] && !m.policy[1] && !m.policy[2] && m.policy[3]==1 && m.mask[0]==0xa5 && m.mask[23]==0x80 && state.ready);
+    puts("PASS: captured e/v padded GET header through real CDC/SDPCM transport, legacy/stable checks, SAE/PMF/event readback and exact full restoration");return 0;
 }

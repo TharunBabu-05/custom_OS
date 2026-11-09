@@ -402,14 +402,17 @@ void platform_wifi_target(const char *ssid)
 }
 static void auth_probe_status(void)
 {
-    static const char *const properties[]={"none","auth","wpa_auth","wsec","mfp","event_msgs_ext"};
+    static const char *const properties[]={"none","auth","wpa_auth","wsec","mfp","event_msgs_ext","event_msgs"};
     console_write("Firmware auth-policy check: ");console_write(block_error(auth_probe.error));console_write(" phase=");console_u64(auth_probe.phase);
-    console_write(" operation=");console_write(auth_probe.property<6 ? properties[auth_probe.property] : "unknown");console_write("\n");
+    console_write(" operation=");console_write(auth_probe.property<7 ? properties[auth_probe.property] : "unknown");console_write("\n");
     console_write(auth_probe.verified ? "Temporary SAE/AES/required-PMF and extended events verified.\n" : "Temporary policy/event verification incomplete.\n");
     console_write("event_mask_bytes=");console_u64(auth_probe.mask_bytes);console_write(" external-auth event IDs=187,188,189,190\n");
     console_write("Extended mask reply_bytes=");console_u64(auth_probe.mask_reply_bytes);
     console_write(" version=");console_u64(auth_probe.mask_header[0]);console_write(" command=");console_u64(auth_probe.mask_header[1]);
     console_write(" length=");console_u64(auth_probe.mask_header[2]);console_write(" maxgetsize=");console_u64(auth_probe.mask_header[3]);console_write("\n");
+    console_write("Mask header compatibility=");console_write(auth_probe.mask_compatibility ? "captured ev/24/24" : "v1 or rejected");
+    console_write(" legacy_crosscheck=");console_write(auth_probe.mask_legacy_verified ? "verified" : "not-verified");
+    console_write(" initial_snapshot=");console_write(auth_probe.mask_snapshot_stable ? "stable" : "not-verified");console_write("\n");
     for (unsigned i=0;i<4;++i) {
         console_write(properties[i+1]);console_putc('=');
         if (auth_probe.observed_mask&(1u<<i)) { console_hex(auth_probe.observed[i]); }else { console_write("not-read"); }console_putc(' ');

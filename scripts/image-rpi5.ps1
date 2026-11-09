@@ -107,9 +107,12 @@ wifiauthprep <SSID> temporarily sets/readbacks SAE auth, AES, required PMF and
 the extended event mask (187..190), then restores the entire saved configuration.
 Run it after wifiscan/wifitarget; it never raises the interface or joins a network.
 If restoration is unconfirmed, control access is blocked until reboot.
-The latest hardware check stopped before SET at the extended-mask snapshot.
-This revision requests up to 255 mask bytes and prints reply-header diagnostics;
-physical verification is pending. Do not assume an oversized mask was the cause.
+The latest hardware GET reports a 24-byte mask with e/v in its first two bytes,
+consistent with request-name residue; our version-echo check rejected it.
+This revision handles exactly that header as well as normal v1 replies, checks
+the low 128 mask bits through legacy event_msgs and requires two identical
+complete snapshots before SET. Every SET constructs a fresh v1 header.
+Compatibility remains hardware-untested; no live authentication is performed.
 The new management-frame/event codec has native tests; no live frame TX/RX yet.
 The backend accepts only fixed group-19 bodies without optional IEs. No complete
 radio SAE state machine, EAPOL/key installation or IP stack is implemented yet.

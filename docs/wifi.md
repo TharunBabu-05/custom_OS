@@ -15,11 +15,12 @@ also passes on the Pi: CCMP-128, ordinary SAE, required PMF and H2E advertisemen
 pass on the Pi, as does the [in-memory SAE exchange](wifi-sae.md). The next
 [external-auth transport stage](wifi-auth-transport.md) adds a frame/event codec
 and a reversible firmware SAE/PMF/event-mask check before live authentication.
-The [new UART capture](../proofs/pi5-auth-mask-blocked-2026-11-09.txt) stops
-before any policy SET at the extended-mask snapshot. This revision accepts
-the full one-byte mask length (up to 255 bytes) and prints the reply header
-to distinguish an oversized mask from an incompatible or truncated reply.
-The previous 32-byte limit is a possible cause, not yet a measured diagnosis.
+The [new UART capture](../proofs/pi5-auth-mask-header-2026-11-09.txt) shows a
+24-byte mask with `e/v` in the returned version/command positions. Capacity
+was not the blocker: our version-echo check rejected this response before SET.
+This revision adds compatibility for exactly that captured header, checks its
+low 128 bits against legacy `event_msgs`, and requires two identical complete
+snapshots before policy changes. Physical confirmation is pending.
 Repeat the short radio sequence in [the transport guide](wifi-auth-transport.md);
 the long crypto self-tests are optional for this check.
 It does not provide a complete FullMAC network

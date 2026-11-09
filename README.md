@@ -70,10 +70,11 @@ Builds preserve previous versions before cleaning stale output. See
 [Pi 5 header-console disk ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip).
 Extract the `.img` before flashing your pendrive. Every completed disk-image
 build now creates a verified ZIP for GitHub; raw 128 MiB images stay local.
-The [latest UART capture](proofs/pi5-auth-mask-blocked-2026-11-09.txt) passes the
-crypto tests and scan but stops at the extended event-mask snapshot, before
-any security settings change. This revision widens the mask buffer and adds
-reply-header diagnostics; its physical auth-policy result is pending.
+The [latest UART capture](proofs/pi5-auth-mask-header-2026-11-09.txt) passes
+storage and scanning, but reveals an unusual `e/v` header in the firmware's
+24-byte event-mask reply. This revision accepts that captured format with a
+legacy-mask cross-check and two matching snapshots before changing settings.
+Its physical auth-policy result is pending; association/IP remain unfinished.
 
 <p align="center">
   <img src="docs/assets/boot-replay.gif" width="100%" alt="Animated illustration replaying captured OurOS startup, CPU information, uptime and echo commands." />

@@ -44,7 +44,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi control test compilation failed' }
     & ./build/wifi-tests/test-control.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi control tests failed' }
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_iovar_host.c drivers/storage/brcm_control.c -o build/wifi-tests/test-iovar.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_iovar_host.c drivers/storage/brcm_control.c drivers/storage/brcm_auth_probe.c -o build/wifi-tests/test-iovar.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi IOVAR test compilation failed' }
     & ./build/wifi-tests/test-iovar.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi IOVAR tests failed' }

@@ -17,13 +17,27 @@ static enum block_result set(const struct brcm_auth_probe_io *io,unsigned i,uint
 static enum block_result mask_get(const struct brcm_auth_probe_io *io,unsigned char mask[BRCM_AUTH_MASK_MAX],unsigned *bytes,uint32_t *status,struct brcm_auth_probe *s)
 {
     unsigned char request[4+BRCM_AUTH_MASK_MAX]={1,0,BRCM_AUTH_MASK_MAX,BRCM_AUTH_MASK_MAX},data[4+BRCM_AUTH_MASK_MAX]={0};size_t n=0;
+    s->property=5;s->mask_legacy_verified=false;
     enum block_result r=io->iovar(io->context,false,"event_msgs_ext",request,sizeof(request),data,sizeof(data),&n,status);
     s->mask_reply_bytes=(unsigned)n;
     for (unsigned i=0;i<4;++i) { s->mask_header[i]=i<n ? data[i] : 0; }
     if (r!=BLOCK_OK) { return r; }
     /* Never set a partial snapshot: preserve every bit advertised by firmware,
      * including events beyond those this kernel currently understands. */
-    if (n>sizeof(data) || n<4 || data[0]!=1 || data[2]<24 || n<4u+data[2]) { return BLOCK_UNSUPPORTED; }
+    if (n>sizeof(data) || n<4 || data[2]<24 || n<4u+data[2]) { return BLOCK_UNSUPPORTED; }
+    /* The pinned 7.45.265 firmware was observed returning {'e','v',24,24}:
+     * consistent with retained IOVAR-name bytes in its GET buffer. Reference
+     * DHD GET callers use len/mask and construct a fresh v1 header for SET.
+     * Accept only this captured non-v1 form, never arbitrary unknown versions.
+     * Cross-check the overlapping 128 bits using the independently proven API. */
+    bool compatibility=data[0]=='e' && data[1]=='v' && data[2]==24 && data[3]==24;
+    if (data[0]!=1 && !compatibility) { return BLOCK_UNSUPPORTED; }
+    s->mask_compatibility|=compatibility;
+    unsigned char legacy[16];size_t legacy_bytes=0;s->property=6;
+    r=io->iovar(io->context,false,"event_msgs",NULL,0,legacy,sizeof(legacy),&legacy_bytes,status);
+    if (r!=BLOCK_OK) { return r; }
+    if (legacy_bytes!=sizeof(legacy) || !equal(legacy,data+4,sizeof(legacy))) { return BLOCK_IO; }
+    s->mask_legacy_verified=true;s->property=5;
     *bytes=data[2];for (unsigned i=0;i<*bytes;++i) { mask[i]=data[4+i]; }return BLOCK_OK;
 }
 static enum block_result mask_set(const struct brcm_auth_probe_io *io,const unsigned char mask[BRCM_AUTH_MASK_MAX],unsigned bytes,uint32_t *status)
@@ -39,6 +53,10 @@ enum block_result brcm_auth_probe_run(const struct brcm_auth_probe_io *io,bool p
     *s=(struct brcm_auth_probe){.attempted=true,.phase=1,.error=BLOCK_NOT_READY};enum block_result r=BLOCK_OK;
     for (unsigned i=0;i<4;++i) { s->property=i+1;r=get(io,i,&s->saved[i],&s->firmware_status);if (r!=BLOCK_OK) { goto done; } }
     s->phase=2;s->property=5;r=mask_get(io,s->mask,&s->mask_bytes,&s->firmware_status,s);if (r!=BLOCK_OK) { goto done; }
+    unsigned char current[BRCM_AUTH_MASK_MAX];unsigned bytes;
+    r=mask_get(io,current,&bytes,&s->firmware_status,s);if (r!=BLOCK_OK) { goto done; }
+    if (bytes!=s->mask_bytes || !equal(current,s->mask,bytes)) { r=BLOCK_IO;goto done; }
+    s->mask_snapshot_stable=true;
     s->phase=3;s->changed=true;
     for (unsigned i=0;i<4;++i) { s->property=i+1;r=set(io,i,requested[i],&s->firmware_status);if (r!=BLOCK_OK) { goto restore; } }
     unsigned char enabled[BRCM_AUTH_MASK_MAX];for (unsigned i=0;i<BRCM_AUTH_MASK_MAX;++i) { enabled[i]=s->mask[i]; }enabled[23]|=0x78;
@@ -49,7 +67,6 @@ enum block_result brcm_auth_probe_run(const struct brcm_auth_probe_io *io,bool p
         s->observed_mask|=1u<<i;
         if (s->observed[i]!=requested[i]) { r=BLOCK_IO;goto restore; }
     }
-    unsigned char current[BRCM_AUTH_MASK_MAX];unsigned bytes;
     s->property=5;r=mask_get(io,current,&bytes,&s->firmware_status,s);if (r!=BLOCK_OK) { goto restore; }
     if (bytes!=s->mask_bytes || !equal(enabled,current,bytes)) { r=BLOCK_IO;goto restore; }
     s->verified=true;s->phase=5;
