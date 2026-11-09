@@ -75,3 +75,5 @@ void platform_storage_info(void)
     console_write("\nMMIO base="); console_hex(base); console_write("\n");
 }
 void platform_wifi_probe(void) { console_write("No Pi Wi-Fi SDIO device on QEMU virt.\n"); }
+void platform_wifi_init(void) { console_write("No Pi Wi-Fi SDIO device on QEMU virt; WPA3 association unavailable.\n"); }
+void platform_wifi_status(void) { console_write("No live Pi SDIO transport on QEMU virt.\n"); }

@@ -1,4 +1,4 @@
-# USB pendrive support: controller discovery
+# USB bring-up: discovery and command DMA
 
 The user's Pi 5 boots OurOS from a **32 GB USB pendrive**, with no microSD card
 installed. That boot method is valid. Pi firmware reads the FAT partition and
@@ -6,8 +6,11 @@ loads the kernel and DTB into RAM before OurOS starts. OurOS then uses its own
 UART, timer, page allocator and RAM filesystem. Firmware loading the kernel does
 not supply a kernel USB block driver.
 
-The current USB milestone provides host discovery and read-only xHCI register
-observation. **Pendrive file reads, device enumeration and persistent writes are
+The discovery milestone is now observed on the user's Pi: both xHCI windows
+respond, and usb0 port 1 is connected/enabled. See the
+[capture](../proofs/pi5-usb-discovery-2026-11-08.txt). This revision adds a manual
+command/event DMA test, verified against QEMU's real xHCI emulator.
+**Pendrive file reads, device enumeration and persistent writes are
 not implemented.** The existing `storageinit` still targets microSD on the Pi;
 it cannot mount a USB pendrive. `/boot` stays empty after that attachment fails.
 
@@ -58,7 +61,41 @@ fatal exception handler. Capture that output and reboot if it happens.
 
 On the dedicated-UART build the RP1 mapping has no live header-UART evidence,
 so register probing is disabled. QEMU virt reports that no Pi RP1 host exists
-and performs no Pi MMIO. USB hardware observation still needs a physical Pi log.
+and performs no Pi MMIO. The newer DMA test still needs a physical Pi log.
+
+## New command: usbtest
+
+After recording `usbprobe`, run `usbtest` once. This takes control of **usb0
+only**, stops and resets that xHCI controller, installs OurOS-owned DMA buffers,
+starts it, submits four No-op commands, checks their completion codes and exact
+command pointers, then halts the controller. It changes firmware USB device
+state; **reboot before trying it again or expecting firmware's USB setup**.
+The serial console and RAMFS are independent of that USB controller. The test
+does not reset the RP1 PCIe link, reconfigure the UART, reset individual ports,
+enumerate devices or issue USB transfer/storage commands. usb1 is left alone.
+
+The test first validates the known header mapping, MMU/data-cache-off state,
+RP1 DMA description, live BCM2712 PCIe BAR2/UBUS inbound mapping and little-endian
+mode. It refuses unsupported mappings before changing xHCI. It does not program
+PCIe DMA windows or assume CPU physical pointers are device addresses. All rings,
+DCBAA and up to 16 scratchpad pages are aligned static kernel memory protected by
+the existing kernel reservation. Buffers stay reserved on failure, even if the
+controller cannot halt. No firmware DMA pointer is dereferenced. Legacy BIOS
+ownership is rejected rather than bypassed.
+
+Expected success:
+
+```text
+PASS: four xHCI No-op completions matched; controller halted.
+phase=7 completed=4 ... controller_changed=yes halted=yes
+```
+
+Capture all output, including BAR2/UBUS values, on refusal or timeout. A successful
+No-op tests controller DMA, not USB transfers or pendrive reads. This is one shot
+per boot; initialization failures also forbid reuse once a controller write was
+attempted. All controller waits have timer deadlines and loop bounds. The event
+test intentionally stops before ring wrap; general command queue lifecycle,
+device/transfer contexts, recovery and enumeration are later milestones.
 
 ## Addressing and bounds
 
@@ -82,10 +119,9 @@ bus faults are handled by the kernel's fatal vectors, not recovered locally.
 
 ## Next USB milestones
 
-1. Confirm accessible controller/port state from the physical capture.
-2. Implement host ownership, reset/start, DMA address translation and reserved
-   command/event/context rings. RP1 DMA addresses require their own mapping;
-   CPU physical addresses must not be blindly placed into USB descriptors.
+1. Controller discovery: observed on physical Pi in the supplied capture.
+2. Host takeover, reset/start, mapped command/event rings and No-op completions:
+   native and real QEMU xHCI tests pass; Pi usbtest capture is pending.
 3. Enumerate a directly connected device, configure endpoint zero, read USB
    descriptors, and select a configuration. Add hub handling separately.
 4. Support USB mass-storage Bulk-Only Transport and bounded SCSI INQUIRY,
@@ -99,6 +135,10 @@ bus faults are handled by the kernel's fatal vectors, not recovered locally.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-usb.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Target virt
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-usb-qemu.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Target handoff-test
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-usb-qemu.ps1 -Handoff
 ```
 
 Native tests exercise actual pinned Pi DT USB aliases/registers, malformed and
@@ -106,7 +146,13 @@ truncated descriptions, 2000 DT mutations, mocked xHCI capabilities/ports/
 protocols, read failures, bounds/chain rejection and 10000 register mutations.
 The callback has no write operation, and tests check that mock registers remain
 unchanged. QEMU monitor tests verify both commands refuse Pi MMIO on QEMU virt.
-These checks do not emulate RP1 hardware or prove USB disk reads.
+The new native tests also exercise the exact halt/reset/ring engine, scratchpad
+and DMA mapping, completion pointer/code errors, timeouts/cleanup, BIOS ownership
+and one-shot refusal. Real `qemu-xhci` runs from EL1 and EL2 receive four matching
+No-op completions and return to a working UART monitor. The QEMU-only PCI bootstrap
+configures only the known qemu-xhci device; it is not a Pi PCIe driver. These
+checks do not emulate RP1 hardware or prove USB disk reads. The controller model
+also exposed and fixed valid extended capabilities located before CAPLENGTH.
 
 References: [RP1 peripheral manual](https://datasheets.raspberrypi.com/rp1/rp1-peripherals.pdf),
 [RP1 USB nodes](https://github.com/raspberrypi/linux/blob/rpi-6.12.y/arch/arm64/boot/dts/broadcom/rp1.dtsi),

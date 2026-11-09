@@ -1,0 +1,44 @@
+User-supplied serial capture, Raspberry Pi 5, CP2102 header UART.
+Boot device reported by user: 32 GB USB pendrive; no microSD card.
+Excerpt preserves USB register output. No independent drive readback hash supplied.
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit supports SD handoff only; USB pendrive I/O is pending.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> usbprobe
+usb0: /axi/pcie@1000120000/rp1/usb@200000
+DT status=okay RP1 bus=0x000000c040200000 span=0x0000000000100000
+Firmware CPU window candidate=0x0000001c00200000
+Reading controller registers now.
+controller registers observed
+xHCI version=0x0000000000000110 slots=64 interrupters=4 ports=3 address_bits=64 context_bytes=64
+USBCMD=0x000000000000000d USBSTS=0x0000000000000018 PAGESIZE=0x0000000000000001
+Controller not halted.
+port=1 PORTSC=0x0000000000200e03 connected=yes enabled=yes powered=yes speed_id=3 link_state=0 protocol_revision=0x0000000000000200
+port=2 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000200
+port=3 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000300
+usb1: /axi/pcie@1000120000/rp1/usb@300000
+DT status=okay RP1 bus=0x000000c040300000 span=0x0000000000100000
+Firmware CPU window candidate=0x0000001c00300000
+Reading controller registers now.
+controller registers observed
+xHCI version=0x0000000000000110 slots=64 interrupters=4 ports=3 address_bits=64 context_bytes=64
+USBCMD=0x000000000000000d USBSTS=0x0000000000000000 PAGESIZE=0x0000000000000001
+Controller not halted.
+port=1 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000200
+port=2 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000200
+port=3 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000300
+> uptime
+uptime_seconds=12
+> uptime
+uptime_seconds=14
+
+The full chat capture also repeats wifiinfo's DT inventory and explicitly
+reports scan/connect/IP unavailable. It does not contain wifiinit, usbtest,
+device enumeration, storage reads, Wi-Fi association or network traffic.

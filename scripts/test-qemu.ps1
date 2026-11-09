@@ -94,10 +94,11 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
 if ($StorageImage) {
     $commands=$commands[0..($commands.Count-2)]+@('storageinit','storageinfo','ls /boot','cd /boot',
         'pwd','cat CONFIG.TXT','cat SOURCE.TXT','write CONFIG.TXT blocked','touch new.txt',
-        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifiinfo','wifiprobe','halt')
+        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','halt')
     $expected+=@('/boot: FAT32 read-only','device=qemu-virtio-blk','CONFIG.TXT','kernel=OUROS.IMG',
-        'Official DTB and notices:','fs: read-only filesystem','Wi-Fi state: no transport/firmware driver',
-        'No Pi Wi-Fi SDIO device on QEMU virt.')
+        'Official DTB and notices:','fs: read-only filesystem','Wi-Fi state: no FullMAC/firmware driver',
+        'Requested network security: WPA3-Personal','No Pi Wi-Fi SDIO device on QEMU virt.',
+        'No Pi Wi-Fi SDIO device on QEMU virt; WPA3 association unavailable.')
 }
 if ($Handoff) {
     Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1','Reported RAM: 134.217 MB (128.000 MiB)'))

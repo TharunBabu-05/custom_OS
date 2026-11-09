@@ -25,7 +25,11 @@ Firmware can load this disk image from USB, but kernel USB disk I/O is pending.
 usbinfo inventories DT hosts. usbprobe requires the separate header-console
 build's known RP1 window; register probing is disabled with this UART10 build.
 See docs/usb.md. No USB enumeration or pendrive mounting is implemented yet.
+usbtest is available with the header-console profile's known RP1 mapping only;
+it takes over usb0 for four No-op command completions and then halts it.
 wifiinfo and wifiprobe provide DT/SDIO diagnostics only, not scan/connect/IP.
+wifiinit adds guarded SDIO device selection and CCCR/CIS/CMD53 reads on an
+already powered/clocked legacy host. WPA3-Personal connection remains unfinished.
 Dynamic reservation windows are conservatively excluded in full.
 
 Consult docs/rpi5-boot.md in the source repository before deployment. Creating

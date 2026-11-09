@@ -37,7 +37,10 @@
 > Readable MB/MiB summaries and a writable RAM root also work on the physical Pi.
 > The hardware boots from a **32 GB USB pendrive**, without a microSD card.
 > Firmware loads the kernel; kernel USB disk reads are still pending. The latest
-> phase adds `usbinfo` / `usbprobe` for USB controller and port discovery.
+> discovery capture confirms both USB controllers and a connected root port.
+> This phase adds `usbtest` for controller DMA and `wifiinit` for guarded SDIO
+> device identification. WPA3-Personal is the requested connection target;
+> association and external-network access are still unfinished.
 > FAT32 reads pass real QEMU block-I/O tests. Pi `storageinit` targets microSD,
 > so its failure in the USB-only setup is expected. Wi-Fi connections remain ahead.
 
@@ -110,8 +113,8 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 | Physical memory | DTB RAM/reservations and 4 KiB pages, also observed on the real Pi |
 | Root filesystem | Writable RAMFS with paths and monitor commands, also observed on the real Pi |
 | Storage | Read-only block layer, FAT32 and `/boot` routing; real QEMU I/O tested, Pi handoff candidate pending |
-| USB groundwork | DT host discovery and read-only xHCI port snapshots; hardware capture pending, no pendrive I/O yet |
-| Wi-Fi groundwork | Firmware DT inventory and opt-in SDIO CMD5 query; no scan/connect/IP support |
+| USB groundwork | Physical controller discovery; command/event DMA passes real QEMU xHCI tests; Pi usbtest pending, no pendrive I/O yet |
+| Wi-Fi groundwork | DT inventory, CMD5 query and guarded SDIO identification/read transport; WPA3 connection not implemented |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
@@ -211,6 +214,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-memory.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-ramfs.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-storage.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-usb.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-wifi.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-usb-qemu.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Target handoff-test
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-qemu.ps1 -Handoff
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-rpi5-image.ps1 -Console header

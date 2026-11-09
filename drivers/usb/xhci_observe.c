@@ -31,9 +31,11 @@ enum usb_probe_result xhci_observe(const struct xhci_observer *io,struct xhci_sn
     uint32_t at=(hcc>>16)*4; unsigned count=0;
     while (at) {
         /* Forward-only links and a hard count bound prevent malformed chains. */
-        if (at<length || at>limit-4 || ++count>64) { return USB_PROBE_LAYOUT; }
+        /* Extended capabilities may occupy reserved bytes before CAPLENGTH. */
+        if (at<0x20 || at>limit-4 || ++count>64) { return USB_PROBE_LAYOUT; }
         uint32_t header;
         if (!read32(io,at,&header)) { return USB_PROBE_IO; }
+        if (!(header&255)) { return USB_PROBE_LAYOUT; }
         unsigned next=(header>>8)&255;
         if ((header&255)==2) { /* Supported Protocol extended capability. */
             uint32_t name,range;

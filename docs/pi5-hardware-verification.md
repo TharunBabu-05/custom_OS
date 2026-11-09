@@ -134,7 +134,20 @@ SDHCI 0x1000fff000 with control1=0, last_irq=0 and last_response=0. This is an
 expected failed SD-handoff attempt in the USB-only setup, not a successful SD
 or FAT32 mount. /boot stays empty and CONFIG.TXT is unavailable. The SD/FAT read
 path and Wi-Fi CMD5 query still need their own applicable physical tests.
-The new usbinfo/usbprobe revision requires a new physical capture; see [USB](usb.md).
+The subsequent [USB discovery text capture](../proofs/pi5-usb-discovery-2026-11-08.txt)
+confirms both RP1 host windows are readable at 0x1c00200000 and 0x1c00300000.
+Each reports xHCI 1.10, 64 slots, 4 interrupters, 3 root ports, 64-bit addresses
+and 64-byte contexts. Both controllers are running; usb0 port 1 is connected,
+enabled and powered (PORTSC 0x200e03, speed ID 3, protocol 0x0200); other ports
+are disconnected. Uptime advances from 12 to 14 after probing. No USB device
+descriptor, capacity or file read is present in this capture.
+
+The associated local discovery image hash is
+80d84ba2e22f1b38e1d5471ff6dacf4322f6267b5f9f1d0fbb4feeb672b55bbe;
+the local baseline is OurOS-Pi5-header-usb-discovery-observed.img. This is not
+an independently measured hash of the physical pendrive. The new usbtest DMA
+and wifiinit SDIO paths still require physical captures. WPA3-Personal was
+selected as the network target; no Wi-Fi association has been observed.
 
 The default embedded firmware Arm stub is sufficient for this observed boot;
 the missing custom armstub and cmdline messages did not prevent the monitor

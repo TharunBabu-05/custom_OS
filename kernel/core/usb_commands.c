@@ -1,5 +1,6 @@
 #include "usb.h"
 #include "console.h"
+#include "xhci_test.h"
 static uintptr_t firmware_dtb,console_base;
 static bool pi_board;
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a; ++b; } return *a==*b; }
@@ -45,6 +46,7 @@ static void print_snapshot(const struct xhci_snapshot *s)
 #endif
 bool usb_command(const char *line)
 {
+    if (same(line,"usbtest")) { platform_usb_test(firmware_dtb,console_base); return true; }
     bool probe=same(line,"usbprobe"); if (!probe && !same(line,"usbinfo")) { return false; }
     console_write("USB stage: controller discovery only; no USB disk reads or writes.\n");
     if (!pi_board) { console_write("No Pi RP1 USB controller on QEMU virt; no MMIO attempted.\n"); return true; }
@@ -77,6 +79,6 @@ bool usb_command(const char *line)
 #endif
     }
     console_write("A connected port does not identify the pendrive or mount /boot.\n");
-    console_write("Next: xHCI ownership/DMA rings, enumeration, USB mass storage and SCSI reads.\n");
+    console_write("usbtest checks command/event DMA; enumeration and USB disk reads are pending.\n");
     return true;
 }

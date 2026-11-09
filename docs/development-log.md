@@ -409,3 +409,62 @@ Independent kernel work can proceed on QEMU while that hardware is unavailable.
   and reuse the existing read-only FAT/VFS layer. Persistent writes and Wi-Fi
   connections remain later work. No physical device, EEPROM, or Git remote
   was modified by this phase.
+
+## USB command DMA and Wi-Fi SDIO prerequisites (2026-11-08)
+
+- Recorded the user's physical discovery capture in
+  proofs/pi5-usb-discovery-2026-11-08.txt. Both firmware RP1 windows respond with
+  xHCI 1.10, 64 slots, 4 interrupters, 3 ports, 64-bit DMA and 64-byte contexts.
+  usb0 port 1 is connected/enabled/powered; other ports are disconnected.
+  Both controllers were running, and uptime advanced after probing. This proves
+  register access, not device identity, USB storage or Wi-Fi association.
+- Preserved the associated local discovery build as
+  build/rpi5-header/OurOS-Pi5-header-usb-discovery-observed.img, SHA256
+  80d84ba2e22f1b38e1d5471ff6dacf4322f6267b5f9f1d0fbb4feeb672b55bbe.
+  No physical-drive readback hash was supplied.
+- Added manual usbtest: validate the live BCM2712 BAR2/UBUS DMA window and RP1
+  DMA description, stop/reset usb0, install aligned reserved DCBAA/scratchpad/
+  command/event/ERST buffers, start the controller and submit four No-ops.
+  Check each event's exact pointer and completion code, then halt the controller.
+  No PCIe reset/window changes, port resets, USB transfers or disk commands.
+  BIOS ownership, unsupported maps, MMU/cache-on and unsupported layouts are
+  refused. All waits are bounded. Buffers remain pinned even after a timeout;
+  once controller changes start, reboot before reuse. usb1 and UART are untouched.
+- Added a QEMU-only known-device PCI bootstrap for qemu-xhci, allowing real
+  command/event DMA tests instead of just mocks. EL1 and raw Image EL2 cases
+  pass four completions, halt, repeat refusal, uptime, seeded RAMFS reads,
+  physical-page test and filesystem counters after DMA. This does not emulate
+  RP1 or prove the live Pi DMA mapping. Also fixed the observer to allow valid
+  extended capabilities in reserved bytes before CAPLENGTH, exposed by QEMU.
+- Native USB tests pass the actual ring engine, mapped scratchpad/DCBAA/ERST
+  wiring, command-pointer/code errors, timeout/cleanup, BIOS ownership, one-shot
+  refusal, live BAR2/remap decoding, endian and mapping-bound rejection, plus
+  existing DT/register mutation tests.
+- User selected WPA3-Personal for external-network connections. Actual WPA3
+  association remains unimplemented. Added wifiinit for guarded SDIO transport:
+  require an already powered/clocked 3.3V legacy host, reset the SDIO device,
+  select 1-bit host width, negotiate OCR, obtain/select RCA, read CCCR/CIS with
+  CMD52, and exercise read-only byte-mode CMD53. No GPIO/regulator/clock-source
+  setup, function enablement, backplane chip ID, radio firmware, FullMAC or IP.
+  Failure diagnostics record phase and raw host/response/interrupt values.
+  The D0 GPIO/pin-description packaging gap still needs resolution before
+  adding board power/pin setup. The next physical capture must establish state.
+- wifi now aliases wifiinfo; wifiinfo reports DT and cached transport status
+  without new MMIO. wifiprobe/wifiinit are manual hardware operations. No
+  credentials, RF association, transmit frames or false connect command added.
+  Documented SAE offload versus external authentication, PMF, secure entropy,
+  firmware capabilities, country configuration and IP/DHCP/DNS dependencies.
+- Native Wi-Fi tests pass exact CMD0/5/3/7, CCCR/CIS identity, CMD52 reads,
+  1/64/512-byte CMD53 reads, bounds, timeout/CRC/R5 failures and power/clock/CQE
+  rejection. These mocks do not demonstrate real radio operation. Existing
+  storage/FAT tests and QEMU A53/A76 plus EL1/EL2 monitor/fault/virtio-FAT
+  regressions pass. Test disk hashes stay unchanged. Final package/MBR/FAT/
+  independent extraction/hash checks pass; corruption/profile tests reject
+  bad images. The final rebuild only clarifies packaged README wording.
+- New header whole-disk image: 134,217,728 bytes; kernel 61,840 bytes. Full
+  BSS/stack footprint passes the DTB-window assertion. Final image SHA256:
+  23f8f40caab0fa78bc07e1e5aa5fc8055e21f2f0efc7ebbd86068bc50e1682c9.
+  Path: build/rpi5-header/OurOS-Pi5-header-experimental-sd.img (USB boot usable).
+  Pi usbtest/wifiinit captures, USB enumeration/storage and WPA3 connectivity
+  remain outstanding. No physical drive, EEPROM or Git remote was written by
+  the agent. No WPA2 fallback or assumed firmware SAE support was introduced.

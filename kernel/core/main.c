@@ -40,8 +40,9 @@ static void command(const char *line)
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("pwd ls [path] cd [path] cat <path> mkdir <path> touch <path>\n");
         console_write("write <path> <text> rm <path> rmdir <path> fsinfo\n");
-        console_write("storageinit storageinfo wifiinfo wifiprobe\n");
+        console_write("storageinit storageinfo wifi wifiinfo wifiprobe wifiinit\n");
         console_write("usbinfo usbprobe (discovery only; USB disk I/O pending)\n");
+        console_write("usbtest (takes over usb0, tests DMA rings, then halts it; reboot to repeat)\n");
     } else if (equal(line,"info")) {
         console_write("OurOS development kernel | board="); console_write(board.name);
         console_write(" | EL"); console_u64(cpu_el());

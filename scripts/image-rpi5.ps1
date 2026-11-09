@@ -46,9 +46,16 @@ The retained -sd.img filename does not limit the disk image to SD media.
 storageinit cannot mount USB: kernel USB disk I/O remains pending.
 usbinfo: DT USB hosts. usbprobe: read-only xHCI controller/port observation.
 USB MMIO probe requires the header UART's known firmware RP1 window.
-These USB commands are a new hardware-untested milestone; no enumeration yet.
+USB enumeration and pendrive I/O remain unimplemented.
+USB controller discovery now has physical evidence. New usbtest takes over usb0,
+tests four No-op command/event DMA completions, then halts it. Reboot to repeat.
+It leaves PCIe/UART setup intact and issues no USB transfers or disk commands.
 /boot is read-only; no card write commands exist in this revision.
 Wi-Fi: wifiinfo, wifiprobe (diagnostics only; no scan/connect/IP).
+wifi is an alias of wifiinfo. wifiinit selects/identifies an SDIO device and
+reads its CIS with CMD52/53 only if the legacy host is powered and clocked.
+WPA3-Personal is the requested target. No association or external network yet.
+Capture wifiinfo, wifiprobe, wifiinit, wifiinfo before the separate usbtest.
 Root dirs: /boot /dev /etc /home /mnt /proc /sys /tmp /var/log.
 See docs/storage.md, docs/usb.md and docs/wifi.md for limits and test instructions.
 

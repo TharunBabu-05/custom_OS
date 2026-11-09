@@ -33,8 +33,14 @@ and a read-only FAT32 mount at /boot. No full card initialization or writes yet.
 The user's hardware boots from a 32 GB USB pendrive with no microSD card.
 Firmware USB loading works; storageinit cannot access that pendrive yet.
 usbinfo: DT USB host inventory. usbprobe: read-only xHCI controller/port snapshot.
-These new USB commands need a physical capture. No USB enumeration or disk I/O.
+No USB enumeration or disk I/O is implemented yet.
+Controller discovery is now physically observed. New usbtest takes over usb0,
+tests four No-op DMA completions, and halts it. Reboot before repeating.
+Does not reset PCIe/UART, issue USB transfers, or read/write the pendrive.
 wifiinfo: actual DT inventory; wifiprobe: optional SDIO CMD5 query only.
+wifi is an alias of wifiinfo. wifiinit: guarded SDIO selection/CCCR/CIS reads
+on an already powered/clocked legacy host. No board GPIO/clock setup yet.
+WPA3-Personal is the requested target. No Wi-Fi association or IP connection.
 No Wi-Fi scan/connect/IP, HDMI/GUI, USB keyboard, heap, MMU or processes.
 See docs/storage.md and docs/wifi.md.
 See docs/rpi5-header-uart.md. No Linux kernel or EEPROM update is included.

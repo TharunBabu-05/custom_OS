@@ -5,6 +5,9 @@
 #include "usb.h"
 #include "dt_property.h"
 #include "console.h"
+#include "xhci_test.h"
+void ring_tests(void);
+void platform_usb_test(uintptr_t dtb,uintptr_t uart_base) { (void)dtb; (void)uart_base; }
 static char output[16384]; static size_t output_length;
 void console_write(const char *text)
 {
@@ -61,6 +64,10 @@ static void observer_tests(void)
     seed(); registers[0x408/4]|=1u<<28; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
     seed(); registers[0x404/4]=0; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
     seed(); registers[4]=0; assert(xhci_observe(&io,&out)==USB_PROBE_OK && !out.port[0].protocol_major);
+    seed(); registers[4]=(8u<<16)|1; registers[0x20/4]=0x02000402;
+    registers[0x24/4]=0x20425355; registers[0x28/4]=0x0201;
+    registers[0x30/4]=0x03000002; registers[0x34/4]=0x20425355; registers[0x38/4]=0x0203;
+    assert(xhci_observe(&io,&out)==USB_PROBE_OK && out.port[0].protocol_major==2 && out.port[2].protocol_major==3);
     seed(); registers[0x44/4]=1|(1u<<11); assert(xhci_observe(&io,&out)==USB_PROBE_OK && (out.status&1));
     seed(); io.span=0x450; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
     io.span=sizeof(registers);
@@ -122,4 +129,4 @@ static void dt_tests(void)
     free(data); puts("PASS: both actual Pi DT USB hosts, alias/reg validation, truncation and 2000 DT mutations");
     puts("PASS: command routing, QEMU refusal, UART mapping guard and DT-only USB inventory with correct CPU candidates");
 }
-int main(void) { observer_tests(); dt_tests(); return 0; }
+int main(void) { observer_tests(); dt_tests(); ring_tests(); return 0; }

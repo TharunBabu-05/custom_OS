@@ -26,6 +26,7 @@ void storage_setup(const char *board,uintptr_t dtb)
 }
 bool storage_command(const char *line)
 {
+    if (same(line,"wifiinit")) { platform_wifi_init(); return true; }
     if (same(line,"wifiprobe")) { platform_wifi_probe(); return true; }
     if (same(line,"storageinit")) {
         if (board_name && board_name[0]=='r') {
@@ -53,8 +54,8 @@ bool storage_command(const char *line)
         }
         vfs_boot_info(); return true;
     }
-    if (same(line,"wifiinfo")) {
-        console_write("Wi-Fi state: no transport/firmware driver; scan/connect/IP unavailable.\n");
+    if (same(line,"wifiinfo") || same(line,"wifi")) {
+        console_write("Wi-Fi state: no FullMAC/firmware driver; scan/connect/IP unavailable.\n");
         if (wifi_path[0]) {
             console_write("Firmware DT Wi-Fi node: "); console_write(wifi_path);
             console_write("\nDT compatible: "); console_write(wifi_compatible); console_write("\n");
@@ -70,8 +71,11 @@ bool storage_command(const char *line)
             console_write("Pi 5 platform plan: BCM43455-class FullMAC over separate SDIO host 0x1001100000.\n");
             console_write("DT compatible brcm,bcm4329-fmac is a family binding, not a measured chip ID.\n");
         } else { console_write("QEMU virt has no emulated Pi Wi-Fi adapter.\n"); }
-        console_write("Required next: SDIO CMD5/52/53, power/clock control, chip identification,\n");
-        console_write("licensed board firmware/NVRAM/CLM, FullMAC protocol, WPA and IP networking.\n"); return true;
+        console_write("Requested network security: WPA3-Personal (SAE + protected management frames).\n");
+        console_write("Commands: wifiinfo, wifiprobe, wifiinit. No scan/connect command is available yet.\n");
+        platform_wifi_status();
+        console_write("Required next: powered SDIO CMD52/53, chip identification, board firmware,\n");
+        console_write("FullMAC protocol, SAE/PMF authentication, IP/DHCP/DNS; no network connection yet.\n"); return true;
     }
     return false;
 }
