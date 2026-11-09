@@ -17,6 +17,8 @@ New-Item -ItemType Directory -Path $files | Out-Null
 $map=[ordered]@{'OUROS.IMG'='ouros-rpi5.img';'PI5.DTB'='bcm2712-rpi-5-b.dtb';
     'COPYING.TXT'='COPYING.linux';'LICENSE.TXT'='LICENCE.broadcom'}
 foreach ($name in $map.Keys) { Copy-Item -LiteralPath (Join-Path $bundle $map[$name]) -Destination (Join-Path $files $name) }
+. "$PSScriptRoot/wifi-assets.ps1"
+foreach ($asset in $WifiAssets.files) { Copy-Item -LiteralPath (Join-Path $WifiCache $asset.name) -Destination (Join-Path $files $asset.name) }
 $config=Get-Content -Raw -LiteralPath (Join-Path $bundle 'config.txt')
 $config=$config.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace('device_tree=bcm2712-rpi-5-b.dtb','device_tree=PI5.DTB')
 [IO.File]::WriteAllText((Join-Path $files 'CONFIG.TXT'),$config,[Text.Encoding]::ASCII)
@@ -35,7 +37,8 @@ Commands: help info cpuinfo meminfo memmap uptime echo clear halt fault
 Memory commands: pagealloc, pagefree <slot>, pagetest.
 Earlier DTB memory discovery and 4 KiB pages have Pi hardware evidence.
 MB/MiB summaries and RAMFS commands now have physical Pi evidence.
-New storage/SDIO paths require a new physical capture; host/QEMU checks passed.
+SDIO and chip 0x4345 revision 6 have physical header-console evidence.
+USB block/FAT reads and ring cycling now have physical header-console Pi evidence.
 Dynamic reserved-memory alloc-ranges windows are conservatively excluded in full.
 File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
 Files disappear after reboot. See docs/ramfs.md. Seed files own 3 physical pages.
@@ -43,25 +46,69 @@ Storage: storageinfo, storageinit, ls /boot, cat /boot/CONFIG.TXT.
 Pi driver inherits an active SDHC/SDXC card from firmware; no full init yet.
 Firmware USB boot works on the user's header build with a 32 GB pendrive.
 The retained -sd.img filename does not limit the disk image to SD media.
-storageinit cannot mount USB: kernel USB disk I/O remains pending.
+Header build: storageinit uses USB2 BOT if the SD host is absent/unclocked.
+On a fresh boot use storageinit BEFORE usbtest/usbenum; it includes enumeration.
+Then ls /boot, cat /boot/CONFIG.TXT, storagetest, storageinfo, cat again.
 usbinfo: DT USB hosts. usbprobe: read-only xHCI controller/port observation.
 USB MMIO probe requires the header UART's known firmware RP1 window.
-USB enumeration and pendrive I/O remain unimplemented.
-USB controller discovery now has physical evidence. New usbtest takes over usb0,
+usbenum reads direct USB2 device/configuration descriptors and BOT endpoints.
+This descriptor path now passes on the physical header-console Pi.
+It runs No-ops, resets a port, assigns an address, then reads descriptors.
+storageinit selects configuration/bulk endpoints for read-only SCSI LUN 0.
+USB capacity, sectors, FAT reads and bulk/event ring cycling pass QEMU and Pi.
+Only direct USB2 BOT disks with 512-byte sectors; no hubs/USB3/UAS/hotplug.
+USB discovery has physical evidence. usbtest selects a connected controller,
 tests four No-op command/event DMA completions, then halts it. Reboot to repeat.
 It leaves PCIe/UART setup intact and issues no USB transfers or disk commands.
 /boot is read-only; no card write commands exist in this revision.
 Wi-Fi: wifiinfo, wifiprobe (diagnostics only; no scan/connect/IP).
 wifi is an alias of wifiinfo. wifiinit selects/identifies an SDIO device and
-reads its CIS with CMD52/53 only if the legacy host is powered and clocked.
+reads its CIS with CMD52 after guarded C0/C1/D0 WLAN cold preparation.
+It now enables function 1, requests ALP and reads the ChipCommon ID via CMD53.
+The function-0 CMD53 CIS probe rejected on the Pi has been removed.
+Cold preparation powers WLAN and configures the SDIO pins and 400 kHz clock.
+WLAN cold preparation, chip 0x4345 revision 6 and USB BOT descriptors have Pi evidence.
+wificores (after wifiinit): AI core table and CR4 RAM-bank sizing.
+Five cores, 800 KiB TCM and selector restoration now have physical Pi evidence.
+wififiles verifies SHA256 pins for FW43455.BIN, WIFINV.TXT and WIFICLM.BIN.
+wifiload (after storageinit, wifiinit, wificores) uploads and reads back code
+and packed board settings. It requires the observed chip/core/RAM profile,
+keeps the radio CPU halted and holds D11 in reset. Full upload/readback now
+passes on the physical Pi (609309 code bytes and packed NVRAM).
+F1 block size=64, host block counting and <=64-byte RAM requests are verified.
+wifistart is separate: install vector, release CR4 and check HT/shared memory.
+Startup now passes on the physical header-console Pi: shared memory ready.
+wificontrol (after wifistart) enables F2, checks protocol/credits and queries
+the ioctl ABI and actual firmware version. Physical control now passes:
+ioctl ABI 2, firmware 7.45.265. wificaps reads features/MAC/PMF/supplicant.
+wifiprepare IN verifies/loads the pinned CLM, checks status/version and sets
+and reads country IN. Physical preparation now passes for IN revision 0:
+sae_ext, PMF value 1, CLM status 0; sup_wpa reports unsupported.
+wifiscan enables result events/interface, requests passive discovery, displays
+SSID/BSSID/channel/RSSI/security, then DOWN/restores the mask on success.
+Physical scanning now passes including Jack's / SAE / required PMF.
+cryptotest runs HMAC/HKDF published known-answer tests.
+rngtest manually checks the DT-gated RNG200 source and erases its samples.
+No random bytes are printed, and no timer/MAC fallback is allowed.
+Native crypto/RNG tests pass; physical RNG remains UNTESTED. No authentication/IP.
+The first failing SDIO command/R5/IRQ/FIFO snapshot is retained for diagnosis.
+It can take a minute or more at 400 kHz SDIO; wait for progress and the prompt.
+WIFILIC.TXT retains vendor asset notices; SOURCE.TXT records the pinned source.
+CLM is verified/staged on disk for later FullMAC use, not loaded by wifiload.
 WPA3-Personal is the requested target. No association or external network yet.
-Capture wifiinfo, wifiprobe, wifiinit, wifiinfo before the separate usbtest.
+First capture cryptotest and rngtest; no password is accepted or embedded.
+Then storageinit, wififiles, wifiinit, wificores, wifiload, wifistart,
+wificontrol, wificaps, wifiprepare IN, wifiscan, wifiinfo.
+See docs/wifi-auth-foundation.md. These are prerequisites, not an SAE connection.
+Reboot before retrying a partial CLM/country operation.
+Then storagetest, storageinfo, pagetest and uptime to check continued operation.
 Root dirs: /boot /dev /etc /home /mnt /proc /sys /tmp /var/log.
 See docs/storage.md, docs/usb.md and docs/wifi.md for limits and test instructions.
 
 OUROS.IMG is the kernel. PI5.DTB is the official board device tree (renamed only).
-CONFIG.TXT selects those filenames. COPYING.TXT and LICENSE.TXT retain upstream
-notices. SOURCE.TXT records provenance. No Linux kernel or EEPROM update is here.
+CONFIG.TXT selects those filenames. COPYING.TXT and LICENSE.TXT retain boot-asset
+notices. WIFILIC.TXT retains radio firmware notices. SOURCE.TXT records provenance.
+No Linux kernel or EEPROM update is here.
 
 See docs/rpi5-boot.md and docs/disk-image.md in the source repository.
 Do not infer hardware success from filesystem validation. Record a UART boot log.
@@ -74,7 +121,7 @@ if ($Console -eq 'header') {
 }
 [IO.File]::WriteAllText((Join-Path $files 'README.TXT'),$readme,[Text.Encoding]::ASCII)
 $assets=Get-Content -Raw (Join-Path $ProjectRoot 'boot/rpi5/assets.json') | ConvertFrom-Json
-$source="Official DTB and notices: $($assets.repository)/tree/$($assets.revision)/boot`r`nKernel: original OurOS local source, no Linux kernel linked.`r`nDTB redistribution: retain GPL notices and provide corresponding source before public distribution.`r`nOriginal OurOS source license remains undecided. This is a local test artifact.`r`n"
+$source="Official DTB and notices: $($assets.repository)/tree/$($assets.revision)/boot`r`nWi-Fi vendor assets: $($WifiAssets.repository)/tree/$($WifiAssets.revision)/debian/config/brcm80211`r`nRetain WIFILIC.TXT. FW43455.BIN is the standard Cypress radio firmware, not an OS kernel.`r`nKernel: original OurOS local source, no Linux kernel linked.`r`nDTB redistribution: retain GPL notices and provide corresponding source before public distribution.`r`nOriginal OurOS source license remains undecided. This is a local test artifact.`r`n"
 [IO.File]::WriteAllText((Join-Path $files 'SOURCE.TXT'),$source,[Text.Encoding]::ASCII)
 $entries=@(Get-ChildItem -LiteralPath $files -File | Sort-Object Name)
 if ($entries.Count -gt 14) { throw 'Root directory capacity exceeded' }
@@ -159,7 +206,7 @@ try {
 } finally { $stream.Dispose() }
 $manifest=[ordered]@{board='Raspberry Pi 5 Model B';status='EXPERIMENTAL-HARDWARE-UNTESTED';
     bytes=134217728;partition_lba=$start;partition_sectors=$total;fat='FAT32';
-    asset_revision=$assets.revision;console=$Console;files=$records}
+    asset_revision=$assets.revision;wifi_revision=$WifiAssets.revision;console=$Console;files=$records}
 $manifestPath=Join-Path $work 'image-manifest.json'
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding ASCII $manifestPath
 & "$PSScriptRoot/verify-rpi5-image.ps1" -Image $temporary -Manifest $manifestPath

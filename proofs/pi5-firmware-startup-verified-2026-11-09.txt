@@ -1,0 +1,182 @@
+RP1_UART 0000001c00030000
+ 17.81 MESS:00:00:17.818502:0: board: boardrev d04171 otp d04171
+ 17.23 Read /config.txt bytes      395 hnd 0x3
+ 17.83 MESS:00:00:17.830876:0: Initial voltage 800000 temp 33983
+ 18.03 MESS:00:00:18.031341:0: avs_2712: AVS pred 8699 869900 temp 35082
+ 18.03 MESS:00:00:18.034932:0: vpred 869 mV +0
+ 18.03 MESS:00:00:18.039138:0: over-voltage idle: 0 avs: 109900 delta: 0 (0x00000000)
+ 18.05 MESS:00:00:18.052842:0: FB framebuffer_swap 1
+ 18.05 MESS:00:00:18.054697:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+ 18.06 MESS:00:00:18.061626:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+ 18.06 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+ 18.76 Read PI5.DTB bytes    78770 hnd 0x5c4
+ 18.89  /overlays/overlay_map.dtb
+ 18.89  /overlays/bcm2712d0.dtbo
+ 18.11 PCIEx1: PWR 0 DET_WAKE 0
+ 18.19 Read /config.txt bytes      395 hnd 0x3
+ 18.15 [MSD [01:00] 2.00 000000:01] /cmdline.txt not found
+ 18.58  /cmdline.txt
+ 18.16 MESS:00:00:18.160329:0: Failed to open command line file 'cmdline.txt'
+ 18.26 MESS:00:00:18.266238:0: RPM 0, max RPM 0
+ 18.28 BMD "armstub8-2712.bin" not found
+ 18.84 fs_open: 'armstub8-2712.bin'
+ 18.28 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+ 18.99 Read OUROS.IMG bytes   122852 hnd 0x4d4
+ 18.30 MESS:00:00:18.300449:0: Device tree loaded to 0x200000 (size 0x13ade)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+/boot: FAT32 read-only start_lba=2048 sectors=260096 clusters=255968
+> wififiles
+Verifying pinned Wi-Fi files from /boot; no radio access.
+Wi-Fi firmware files: SHA256 pins verified
+FW43455.BIN bytes=609309 SHA256=D608F866582519C0A28D86DB43040F4F1B98DD1D153E72E9752586546B4A36C3
+WIFINV.TXT bytes=2074 SHA256=CA709BE81A78BDB6932936374F39943ACBD7AF07FAE6151011127599A3CE9E3D
+WIFICLM.BIN bytes=2676 SHA256=9823842CAE9FB9A5DD1E5FB31F595516EC7DEEE341354BEF30BB3026EEE29CC1
+Vendor firmware is separate from the OurOS kernel. WIFILIC.TXT retains its notices.
+> wifiinit
+Wi-Fi init: SDIO enumeration only; no RF association or network packets.
+Cold Wi-Fi host: preparing WLAN power, pins and 400 kHz clock.
+Board preparation: ok
+SDIO initialization: ok
+Function-1 backplane identify: ok
+Wi-Fi SDIO host=0x0000001001100000 CONTROL0=0x0000000000800f00 CONTROL1=0x00000000000efa07
+PRESENT=0x0000000001f70000 CAPS=0x0000000015eac832 CQE=0x0000000000000000
+Current host IRQ=0x0000000000000000
+Board power phase=6 result=ok stepping=0x0000000027120030 SD_clock_hz=400000
+SDIO init phase=7 result=ok selected=yes
+R4=0x00000000b0ffff00 RCA=0x0000000000000001 functions=3 CCCR=3 SDIO_revision=4
+last_irq=0x0000000000000002 last_response=0x0000000000001000
+SDIO CIS vendor=0x00000000000002d0 device=0x0000000000004345 (SDIO identity; not backplane chip/revision)
+Broadcom phase=4 result=ok clock_csr=0x0000000000000061
+Function-1 block size=64 bytes; RAM wire requests <=64 bytes
+ChipCommon ID word=0x0000000015264345 chip=0x0000000000004345 revision=6
+WPA3-Personal requested; not connected. Remaining: core discovery/upload,
+board firmware, FullMAC, SAE/PMF authentication and an IP stack.
+> wificores
+Reading AI core table and CR4 RAM banks; no CPU/D11 reset, firmware upload or RF packets.
+Wi-Fi core discovery: ok core_map=valid RAM=measured
+EROM=0x000000001810a000 words=88 cores=5
+core=0x0000000000000800 ChipCommon rev=51 base=0x0000000018000000 wrapper=0x0000000018100000
+core=0x0000000000000812 D11 WLAN rev=54 base=0x0000000018001000 wrapper=0x0000000018101000
+core=0x000000000000083e ARM CR4 rev=9 base=0x0000000018002000 wrapper=0x0000000018102000
+core=0x000000000000083c PCIe Gen2 rev=14 base=0x0000000018003000 wrapper=0x0000000018103000
+core=0x0000000000000829 SDIO device rev=21 base=0x0000000018004000 wrapper=0x0000000018104000
+CR4 ioctl=0x0000000000000021 reset=0x0000000000000000 capability=0x0000000000000b44 banks=8
+CR4 bank selector restored and verified.
+Wi-Fi RAM base (chip map)=0x0000000000198000 bytes=819200 KiB=800
+bank=0 bytes=131072
+bank=1 bytes=131072
+bank=2 bytes=131072
+bank=3 bytes=32768
+bank=4 bytes=131072
+bank=5 bytes=65536
+bank=6 bytes=131072
+bank=7 bytes=65536
+> wifiload
+wifiload: verify files, keep CR4 halted, reset D11, upload and compare every byte.
+Wait for the prompt; at 400 kHz SDIO this can take a minute or more.
+Firmware readback verified 65536/609309 bytes
+Firmware readback verified 131072/609309 bytes
+Firmware readback verified 196608/609309 bytes
+Firmware readback verified 262144/609309 bytes
+Firmware readback verified 327680/609309 bytes
+Firmware readback verified 393216/609309 bytes
+Firmware readback verified 458752/609309 bytes
+Firmware readback verified 524288/609309 bytes
+Firmware readback verified 589824/609309 bytes
+Firmware readback verified 609309/609309 bytes
+Wi-Fi firmware files: SHA256 pins verified
+FW43455.BIN bytes=609309 SHA256=D608F866582519C0A28D86DB43040F4F1B98DD1D153E72E9752586546B4A36C3
+WIFINV.TXT bytes=2074 SHA256=CA709BE81A78BDB6932936374F39943ACBD7AF07FAE6151011127599A3CE9E3D
+WIFICLM.BIN bytes=2676 SHA256=9823842CAE9FB9A5DD1E5FB31F595516EC7DEEE341354BEF30BB3026EEE29CC1
+Vendor firmware is separate from the OurOS kernel. WIFILIC.TXT retains its notices.
+Wi-Fi firmware staging: ok phase=6 upload/readback=verified
+CR4 last-confirmed halted=yes D11 held in reset=yes
+code_bytes=609309 verified_bytes=609309 NVRAM_bytes=1748 NVRAM_address=0x000000000025f92c
+Initial NVRAM token clear/readback succeeded.
+Firmware is not executing. Next: controlled startup and FullMAC; no Wi-Fi connection.
+> wifistart
+wifistart: verified staging required; install CR4 vector, release CPU, check HT/shared memory.
+No scan, association or network requests are issued. Wait for the prompt.
+Wi-Fi firmware startup: ok phase=7 shared_memory=ready
+CR4 may be executing; halt is not asserted by this status.
+reset_vector=0x00000000b83ef198 clock_csr=0x00000000000000d0 shared=0x0000000000201cc0 polls=1
+shared_flags=0x0000000000000001 console=0x000000000025debc trap=0x0000000000000000 assert_line=0 mailbox=0x0000000000000000
+Function 2 / FullMAC control not started; scan/connect/WPA3/IP unavailable.
+> wifiinfo
+Wi-Fi state: manual firmware staging/startup; no FullMAC; scan/connect/IP unavailable.
+Firmware DT Wi-Fi node: /axi/mmc@1100000/wifi@1
+DT compatible: brcm,bcm4329-fmac
+Firmware-described MAC: 2c:cf:67:f4:99:75
+Pi 5 platform plan: BCM43455-class FullMAC over separate SDIO host 0x1001100000.
+DT compatible brcm,bcm4329-fmac is a family binding, not a measured chip ID.
+Requested network security: WPA3-Personal (SAE + protected management frames).
+Commands: wifiinfo, wifiprobe, wifiinit, wificores, wififiles, wifiload, wifistart.
+Board power phase=6 result=ok stepping=0x0000000027120030 SD_clock_hz=400000
+SDIO init phase=7 result=ok selected=yes
+R4=0x00000000b0ffff00 RCA=0x0000000000000001 functions=3 CCCR=3 SDIO_revision=4
+last_irq=0x0000000000000002 last_response=0x0000000000001000
+SDIO CIS vendor=0x00000000000002d0 device=0x0000000000004345 (SDIO identity; not backplane chip/revision)
+Broadcom phase=4 result=ok clock_csr=0x00000000000000d0
+Function-1 block size=64 bytes; RAM wire requests <=64 bytes
+ChipCommon ID word=0x0000000015264345 chip=0x0000000000004345 revision=6
+Wi-Fi core discovery: ok core_map=valid RAM=measured
+EROM=0x000000001810a000 words=88 cores=5
+core=0x0000000000000800 ChipCommon rev=51 base=0x0000000018000000 wrapper=0x0000000018100000
+core=0x0000000000000812 D11 WLAN rev=54 base=0x0000000018001000 wrapper=0x0000000018101000
+core=0x000000000000083e ARM CR4 rev=9 base=0x0000000018002000 wrapper=0x0000000018102000
+core=0x000000000000083c PCIe Gen2 rev=14 base=0x0000000018003000 wrapper=0x0000000018103000
+core=0x0000000000000829 SDIO device rev=21 base=0x0000000018004000 wrapper=0x0000000018104000
+CR4 ioctl=0x0000000000000021 reset=0x0000000000000000 capability=0x0000000000000b44 banks=8
+CR4 bank selector restored and verified.
+Wi-Fi RAM base (chip map)=0x0000000000198000 bytes=819200 KiB=800
+bank=0 bytes=131072
+bank=1 bytes=131072
+bank=2 bytes=131072
+bank=3 bytes=32768
+bank=4 bytes=131072
+bank=5 bytes=65536
+bank=6 bytes=131072
+bank=7 bytes=65536
+Wi-Fi firmware staging: ok phase=6 upload/readback=verified
+CR4 halt not confirmed D11 reset not confirmed
+code_bytes=609309 verified_bytes=609309 NVRAM_bytes=1748 NVRAM_address=0x000000000025f92c
+Initial NVRAM token clear/readback succeeded.
+CR4 release attempted; passive upload status is historical, not current CPU/D11 state.
+Wi-Fi firmware startup: ok phase=7 shared_memory=ready
+CR4 may be executing; halt is not asserted by this status.
+reset_vector=0x00000000b83ef198 clock_csr=0x00000000000000d0 shared=0x0000000000201cc0 polls=1
+shared_flags=0x0000000000000001 console=0x000000000025debc trap=0x0000000000000000 assert_line=0 mailbox=0x0000000000000000
+Function 2 / FullMAC control not started; scan/connect/WPA3/IP unavailable.
+Next stages: verify firmware staging/startup, FullMAC protocol,
+SAE/PMF authentication, IP/DHCP/DNS; no network connection yet.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x000000006a004021
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> uptime
+uptime_seconds=144
+>

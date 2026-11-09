@@ -1,4 +1,5 @@
-/* Polling, one-shot command-ring test. No USB transfer or storage commands. */
+/* Polling one-shot controller setup and No-op check, optionally followed by
+ * descriptor diagnostics or a persistent read-only storage session. */
 #include "xhci_test.h"
 static bool rd(const struct xhci_test_io *io,uint32_t offset,uint32_t *value)
 {
@@ -27,7 +28,7 @@ static bool map(const struct xhci_test_io *io,const void *p,size_t n,uint64_t al
     return !((uintptr_t)p&(alignment-1)) && io->map_dma(io->observer.context,p,n,dma) &&
         !(*dma&(alignment-1)) && n && n-1<=UINT64_MAX-*dma;
 }
-enum xhci_test_result xhci_ring_test(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s)
+static enum xhci_test_result run(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,struct usb_device_info *info,struct block_device *storage)
 {
     if (!io || !m || !s || !io->observer.read32 || !io->write32 || !io->map_dma ||
         !io->barrier || !io->ticks || !io->hz || io->hz>UINT64_MAX/2 || ((uintptr_t)m&4095)) { return XHCI_TEST_ARGUMENT; }
@@ -111,6 +112,8 @@ enum xhci_test_result xhci_ring_test(const struct xhci_test_io *io,struct xhci_t
         if (io->ticks(io->observer.context)-start>=io->hz*2) { break; }
     }
     r=s->completed==4 ? XHCI_TEST_OK : XHCI_TEST_TIMEOUT;
+    if (r==XHCI_TEST_OK && info) { r=xhci_enumerate(io,m,s,&snapshot,&consumed,info,storage); }
+    if (r==XHCI_TEST_OK && storage) { s->phase=XHCI_STORAGE_READY; return r; }
 stop:
     /* Never release or reuse memory, even if a failed controller will not halt. */
     if (r==XHCI_TEST_OK) { s->phase=XHCI_STOP; }
@@ -124,17 +127,29 @@ stop:
     if (r==XHCI_TEST_OK) { s->phase=XHCI_DONE; }
     return r;
 }
+enum xhci_test_result xhci_ring_test(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s)
+{ return run(io,m,s,NULL,NULL); }
+enum xhci_test_result xhci_device_test(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,struct usb_device_info *info)
+{
+    if (!info) { return XHCI_TEST_ARGUMENT; } *info=(struct usb_device_info){0}; return run(io,m,s,info,NULL);
+}
+enum xhci_test_result xhci_storage_start(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,struct usb_device_info *info,struct block_device *storage)
+{
+    if (!info || !storage) { return XHCI_TEST_ARGUMENT; }
+    *info=(struct usb_device_info){0}; return run(io,m,s,info,storage);
+}
 const char *xhci_test_error(enum xhci_test_result r)
 {
     switch (r) {
     case XHCI_TEST_OK: return "PASS: four xHCI No-op completions matched; controller halted.";
     case XHCI_TEST_ARGUMENT: return "invalid test arguments";
     case XHCI_TEST_LAYOUT: return "unsupported controller layout, page size or scratchpad count";
-    case XHCI_TEST_DMA: return "DMA mapping/alignment rejected before controller changes";
+    case XHCI_TEST_DMA: return "DMA mapping/alignment rejected";
     case XHCI_TEST_TIMEOUT: return "controller/event timeout";
     case XHCI_TEST_IO: return "controller register or hardware error";
     case XHCI_TEST_EVENT: return "unexpected event, completion code or command pointer";
     case XHCI_TEST_USED: return "test already attempted; reboot before another attempt";
+    case XHCI_TEST_UNSUPPORTED: return "unsupported USB device, speed, descriptor or topology";
     default: return "BIOS ownership present; no takeover attempted";
     }
 }

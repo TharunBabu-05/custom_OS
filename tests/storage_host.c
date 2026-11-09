@@ -10,6 +10,7 @@
 #include "console.h"
 #include "memory.h"
 #include "dt_property.h"
+#include "host_assert.h"
 static unsigned char *image; static size_t image_size;
 static int64_t fail_lba=-1; static uint64_t reads;
 static enum block_result disk_read(void *context,uint64_t lba,unsigned char *sector)
@@ -52,6 +53,21 @@ static void fat_tests(void)
     assert(n>6 && memcmp(data,"# OurOS",7)==0);
     assert(fat32_lookup(&v,"/OUROS.IMG",&e)==FS_OK && e.size>64);
     assert(fat32_read(&v,&e,0,data,512,&n)==FS_OK && n==512 && get32(data+56)==0x644d5241);
+    static struct fat32_file opened;
+    assert(fat32_open(&v,"/OUROS.IMG",&opened)==FS_OK && opened.entry.size==e.size);
+    assert(fat32_file_read(&opened,0,data,512,&n)==FS_OK && n==512 && get32(data+56)==0x644d5241);
+    assert(fat32_file_read(&opened,e.size,data,512,&n)==FS_OK && !n);
+    assert(fat32_open(&v,"/missing",&opened)==FS_NOT_FOUND && !opened.ready);
+    assert(fat32_file_read(&opened,0,data,1,&n)==FS_NOT_READY);
+    if (fat32_lookup(&v,"/FW43455.BIN",&e)==FS_OK) {
+        assert(e.size==609309);FILE *firmware=fopen(".dist/wifi-firmware/FW43455.BIN","rb");assert(firmware);
+        assert(fat32_open(&v,"/FW43455.BIN",&opened)==FS_OK);unsigned char expected[4096];
+        for (uint32_t offset=0;offset<e.size;) {
+            assert(fat32_file_read(&opened,offset,data,sizeof(data),&n)==FS_OK && n);
+            assert(fread(expected,1,n,firmware)==n && !memcmp(data,expected,n));offset+=(uint32_t)n;
+        }
+        assert(fgetc(firmware)==EOF);fclose(firmware);
+    }
     assert(fat32_lookup(&v,"/missing",&e)==FS_NOT_FOUND);
     assert(fat32_lookup(&v,"/OUROS.IMG/..",&e)==FS_NOT_DIR);
     assert(fat32_lookup(&v,"/..",&e)==FS_INVALID_PATH);
@@ -70,10 +86,17 @@ static void fat_tests(void)
     assert(fat32_lookup(&v,"/testdir/frag.txt",&e)==FS_OK);
     assert(fat32_read(&v,&e,500,data,40,&n)==FS_OK && n==40);
     for (unsigned i=0;i<40;++i) { assert(data[i]==(i<12 ? 'A' : 'B')); }
+    assert(fat32_open(&v,"/testdir/frag.txt",&opened)==FS_OK);
+    uint64_t indexed_before=reads;
+    assert(fat32_file_read(&opened,500,data,40,&n)==FS_OK && n==40 && reads-indexed_before==2);
+    for (unsigned i=0;i<40;++i) { assert(data[i]==(i<12 ? 'A' : 'B')); }
     fat_set(&v,c1,c1); assert(fat32_read(&v,&e,0,data,700,&n)==FS_CORRUPT);
+    assert(fat32_open(&v,"/testdir/frag.txt",&opened)==FS_CORRUPT && !opened.ready);
     fat_set(&v,c1,0x0fffffff); assert(fat32_read(&v,&e,0,data,700,&n)==FS_CORRUPT);
     fat_set(&v,c1,c2); put32(image+(v.fat_lba+(uint64_t)v.fat_sectors)*512+c1*4,0x0ffffff7);
     assert(fat32_read(&v,&e,0,data,700,&n)==FS_CORRUPT); fat_set(&v,c1,c2);
+    assert(fat32_open(&v,"/testdir/frag.txt",&opened)==FS_OK);
+    fail_lba=v.data_lba+(c1-2)*v.spc;assert(fat32_file_read(&opened,0,data,10,&n)==FS_IO);fail_lba=-1;
     fail_lba=v.data_lba+(c1-2)*v.spc; assert(fat32_read(&v,&e,0,data,10,&n)==FS_IO); fail_lba=-1;
     assert(ramfs_init("test")==FS_OK);
     assert(vfs_mount_boot(&disk)==FS_OK); assert(vfs_mount_boot(&disk)==FS_BUSY);
@@ -85,6 +108,8 @@ static void fat_tests(void)
     assert(vfs_prepare_write("/","/boot/new.txt",path)==FS_READ_ONLY);
     assert(vfs_prepare_write("/boot","../tmp/note.txt",path)==FS_OK && !strcmp(path,"/tmp/note.txt"));
     assert(vfs_read("/boot/CONFIG.TXT",0,data,sizeof(data),&n)==FS_OK && n>6);
+    assert(vfs_boot_open("/boot/OUROS.IMG",&opened)==FS_OK);
+    assert(vfs_boot_open("/etc/board",&opened)==FS_NOT_READY && !opened.ready);
     memcpy(root,saved_root,512); fat_set(&v,folder,0); fat_set(&v,c1,0); fat_set(&v,c2,0);
     uint64_t before=reads; assert(block_read(&disk,disk.sectors,data)==BLOCK_RANGE && reads==before);
     unsigned char *boot=image+2048*512; unsigned char saved_boot[512]; memcpy(saved_boot,boot,512);

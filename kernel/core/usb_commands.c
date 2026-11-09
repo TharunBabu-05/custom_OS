@@ -8,6 +8,9 @@ void usb_setup(const char *board,uintptr_t dtb,uintptr_t uart_base)
 {
     pi_board=same(board,"rpi5-header") || same(board,"rpi5"); firmware_dtb=dtb; console_base=uart_base;
 }
+bool usb_storage_attach(struct block_device *device)
+{ return platform_usb_storage_attach(firmware_dtb,console_base,device); }
+void usb_storage_info(void) { xhci_storage_info(); }
 #ifdef OUROS_PI5
 static bool mmio_read(void *context,uint32_t offset,uint32_t *value)
 {
@@ -47,8 +50,9 @@ static void print_snapshot(const struct xhci_snapshot *s)
 bool usb_command(const char *line)
 {
     if (same(line,"usbtest")) { platform_usb_test(firmware_dtb,console_base); return true; }
+    if (same(line,"usbenum")) { platform_usb_enumerate(firmware_dtb,console_base); return true; }
     bool probe=same(line,"usbprobe"); if (!probe && !same(line,"usbinfo")) { return false; }
-    console_write("USB stage: controller discovery only; no USB disk reads or writes.\n");
+    console_write("USB: discovery diagnostics; storageinit enables experimental read-only USB2 BOT.\n");
     if (!pi_board) { console_write("No Pi RP1 USB controller on QEMU virt; no MMIO attempted.\n"); return true; }
     console_write("Booting from USB uses Pi firmware; the RAM root is independent of the pendrive.\n");
     console_write("usbinfo reads DT only; usbprobe reads xHCI registers without changing them.\n");
@@ -79,6 +83,6 @@ bool usb_command(const char *line)
 #endif
     }
     console_write("A connected port does not identify the pendrive or mount /boot.\n");
-    console_write("usbtest checks command/event DMA; enumeration and USB disk reads are pending.\n");
+    console_write("On a fresh boot use storageinit first; usbtest/usbenum consume the one-shot controller session.\n");
     return true;
 }

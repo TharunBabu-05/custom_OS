@@ -1,0 +1,20 @@
+Supplement supplied by the user in a follow-up text reply after the failed
+wifiload session. The full initial capture is preserved separately as
+pi5-firmware-first-transfer-failure-2026-11-09.txt.
+
+Verbatim relevant wifiinfo lines from that follow-up:
+
+SDIO init phase=7 result=controller/card I/O error selected=no
+R4=0x00000000b0ffff00 RCA=0x0000000000000001 functions=3 CCCR=3 SDIO_revision=4
+last_irq=0x0000000000000011 last_response=0x0000000000001100
+
+Verbatim firmware status from that same follow-up:
+
+Wi-Fi firmware staging: controller/card I/O error phase=4 upload/readback=incomplete
+CR4 last-confirmed halted=yes D11 held in reset=yes
+code_bytes=0 verified_bytes=0 NVRAM_bytes=1748 NVRAM_address=0x000000000025f92c
+last_address=0x0000000000198000
+
+Interpretation: R5 includes OUT_OF_RANGE (0x0100); IRQ 0x11 contains command
+complete and buffer-write-ready, without host CRC/timeout error bits. This
+does not establish the card's exact maximum byte-mode transfer length.

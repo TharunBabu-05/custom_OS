@@ -468,3 +468,543 @@ Independent kernel work can proceed on QEMU while that hardware is unavailable.
   Pi usbtest/wifiinit captures, USB enumeration/storage and WPA3 connectivity
   remain outstanding. No physical drive, EEPROM or Git remote was written by
   the agent. No WPA2 fallback or assumed firmware SAE support was introduced.
+
+## Firmware identity DMA and WLAN cold preparation (2026-11-09)
+
+- Read and preserved the user's new attachment as
+  proofs/pi5-cold-wifi-and-dma-preflight-2026-11-09.txt. It confirms the kernel
+  still boots from USB, the wireless host is unclocked/unpowered, and the prior
+  candidate refuses Wi-Fi before commands. USB is now connected on usb1 port 1.
+  usbtest refuses BAR2=0x15 / UBUS_REMAP=1 before controller changes; no live
+  Pi command/event DMA or Wi-Fi connection has been demonstrated.
+- Fixed the DMA decoder to accept the captured 64 GiB inbound identity profile
+  in addition to the prior relocated profile, while retaining bounds, alignment,
+  enable and endian checks. RP1's documented direct outbound aperture supports
+  the selected address profiles; no PCIe window is programmed. Added a native
+  regression using the exact captured values. usbtest selects an enabled host
+  with a connected root port, or usb0 if none is connected, and prints the choice.
+- Added narrow manual WLAN cold preparation behind wifiinit. Validate the Pi 5
+  DT, WLAN GPIO/regulator/host/clock layout, 200 MHz source/capabilities, SDHCI
+  version, inactive host, CQE-off and exact BCM2712 stepping before any writes.
+  Handle C0/C1 0x27120020/21 and D0 0x27120030 mux/pull tables directly. This
+  handles the WLAN subset without assuming the template's C0 description fits
+  D0; general D0 overlay packaging remains a separate incomplete feature.
+- Reset only Wi-Fi SDHCI, select SD routing and non-removable presence, set
+  GPIO28 WL_ON and GPIO30..35 SD2 mux/pulls with masked writes. Hold WLAN low
+  10 ms, enable 3.3V host power, raise WLAN and wait 150 ms, then establish a
+  400 kHz divided clock. No parent-clock/mailbox programming, RP1/PCIe/UART,
+  Bluetooth GPIO29, SD-card host or storage writes. Failures disable the WLAN
+  clock, power and enable signal; changed state requires reboot before reuse.
+- Corrected SDIO's UHS/1.8V preflight to inspect Host Control 2 in the upper
+  half of the aligned 0x3c word rather than low-half Auto CMD Error Status.
+- Native Wi-Fi tests pass both stepping layouts, pin/pull masks and unrelated
+  bit preservation (including all-input direction registers), startup delays,
+  routing/presence, exact 400 kHz setup, reset/clock timeout shutdown, DT/step
+  rejection and retry refusal. SDIO selection/CCCR/CIS/CMD52/CMD53 and upper-half
+  voltage rejection tests pass. Native USB tests cover the captured identity
+  profile, relocated/invalid maps and prior command-ring tests.
+- QEMU A53/A76 and raw Image EL1/EL2 monitor, RAMFS/page, fault and virtio-FAT
+  regression suites pass, preserving input disk hashes. Real qemu-xhci EL2
+  No-op tests pass with a working monitor, RAMFS reads and page test afterward.
+  These do not emulate the physical Wi-Fi block or prove Pi DMA operation.
+- Preserved the previous local image as
+  build/rpi5-header/OurOS-Pi5-header-dma-preflight-observed.img, hash 23f8f40c...
+  New header image is 134,217,728 bytes, kernel 65,976 bytes, with full footprint
+  still below the reserved DTB window. SHA256:
+  245d6176174dddac8c3100122c9f8bba568ce1951640a3b926190c799f8edc95.
+  Package/MBR/FAT/independent extraction/hash checks pass. New physical captures
+  must verify board setup, actual SDIO identity and No-op completions.
+- WPA3-Personal remains the requested target. Firmware, backplane access,
+  FullMAC, SAE/PMF, secure credentials and IP networking remain unfinished.
+  No credentials requested, firmware blob downloaded, physical device written
+  or Git remote modified by the agent.
+
+## Wi-Fi function-1 identity and USB2 descriptor reads (2026-11-09)
+
+- Preserved the new user capture as
+  proofs/pi5-wlan-selected-usb-dma-pass-2026-11-09.txt. D0 WLAN preparation now
+  succeeds: configured 400 kHz clock, RCA 1, three SDIO functions, CCCR 3,
+  SDIO revision 4, vendor 0x02d0/device 0x4345 through CMD52. The later optional
+  function-0 CMD53 CIS request fails with R5=0x1100 (OUT_OF_RANGE). The monitor
+  remains alive, and usb1 completes all four No-ops with two scratchpads and
+  identity DMA at command=0x195000/event=0x196000, followed by a clean halt.
+- Removed the optional common-CIS probe. Initialization already parses the CIS
+  through CMD52; there is no reason to read past its end or attempt unsupported
+  function-0 extended access. Generic common reads now use CMD52 as well.
+- Added CMD52 writes and a guarded Broadcom 0x02d0:0x4345 function-1 candidate:
+  preserve other IO_ENABLE bits, enable function 1, poll IO_READY, request ALP,
+  wait for availability, force ALP with hardware clock requests disabled, wait
+  65 us and verify availability again. Set the ChipCommon window to 0x18000000
+  and read four bytes through function-1 CMD53 with the backplane access flag.
+  Report the raw word, chip ID and revision; refuse unknown devices before
+  writes. No firmware upload, core reset, association, network or disk commands.
+- Added usbenum as an alternative one-shot session to usbtest. It performs the
+  same No-ops, resets one directly attached USB2 port, enables a slot, supplies
+  32/64-byte input/device contexts and EP0 ring, issues Address Device and reads
+  device/configuration descriptors. Handles default EP0 size and Evaluate
+  Context when full-speed packet size changes. Reports real VID/PID/class and
+  a matching Bulk-Only Storage interface's endpoints and packet sizes. Does
+  not select the configuration, activate bulk endpoints, issue SCSI/block I/O
+  or mount the pendrive. Controller halts afterward; memory stays pinned.
+- Context/TRB/buffer mappings, commands/events, descriptor sizes/chains and
+  interface/endpoint counts are bounded. No ring wrap, hub traversal, USB3/UAS,
+  hotplug or general recovery in this phase. usbtest/usbenum share one-shot state;
+  reboot before reuse. Enumeration requests are explicitly distinguished from
+  the No-op path in diagnostics.
+- Native USB tests pass malformed/truncated descriptor chains and 2000
+  mutations, 64-byte context layout, slot/address/control TRBs, full-speed
+  packet evaluation, pointer/code matching and prior DMA error paths. Real
+  qemu-xhci USB2 storage tests from EL1 and EL2 read descriptors and BOT endpoints
+  (fixture VID 0x46f4/PID 1, endpoints 0x81/0x02, 512-byte packets), halt cleanly,
+  reject reuse, and retain a working UART/RAMFS/page allocator. The backing image
+  is read-only and its hash is unchanged. Empty supported-protocol ranges,
+  exposed by a USB2-only QEMU host, are now accepted by the observer.
+- Native Wi-Fi tests pass the captured function-0 failure regression, function-1
+  enable/ALP/window/ID sequence, unknown-device gating and readiness timeouts,
+  alongside the existing power/SDIO cases. Native chip IDs are mock fixtures,
+  not live chip identification. New Pi enumeration and backplane ID captures
+  are pending. WPA3-Personal, firmware/FullMAC, secure credentials and IP remain
+  unfinished; no password requested or connection success claimed.
+- Preserved associated previous image as
+  build/rpi5-header/OurOS-Pi5-header-wlan-dma-observed.img (245d6176...). This
+  is a local build associated with the capture, not a physical-drive hash.
+  New header whole image: 134,217,728 bytes; raw kernel 74,184 bytes; full
+  footprint fits before the DTB. SHA256:
+  d873a1df2e7ee68a0b657ea78af19c67c4f99de4fd903af02b4b1ebed62fde8d.
+  Package/FAT/MBR/independent extraction/hash checks pass. No physical drive,
+  EEPROM or Git remote was modified by the agent.
+
+## USB BOT sector reads and FAT32 mount (2026-11-09)
+
+- Preserved the latest physical capture as
+  proofs/pi5-chip-id-and-usb-descriptors-2026-11-09.txt. It confirms function-1
+  ALP/ChipCommon identification (word 0x15264345, chip 0x4345 revision 6) and
+  USB2 enumeration on usb1 (VID 0781/PID 5567, BOT interface 0, IN 81/OUT 02,
+  512-byte packets). Uptime and the page self-test still pass afterward.
+- Added configuration selection and xHCI bulk endpoint contexts, independent
+  IN/OUT transfer rings and cycling event consumption. Persistent session
+  metadata, DMA buffers and scratchpads outlive initialization. One request
+  runs at a time; controller waits are bounded. Failed active transports are
+  disabled and halt is attempted, with buffers retained even on halt failure.
+- Added explicitly read-only BOT/SCSI: INQUIRY, TEST UNIT READY, REQUEST SENSE,
+  READ CAPACITY(10), READ(10). Validate CBW/CSW framing, tag, residue, status,
+  capacity, actual transfer size and bounds; reject unsupported block sizes
+  and capacities. LUN 0, direct USB2 BOT only; no hub/UAS/USB3/hotplug/recovery.
+- Pi storageinit retains active SD handoff or uses USB when the SD host is
+  absent/unclocked/unpowered. QEMU retains virtio preference, falling back to
+  optional qemu-xhci. Both reuse the existing FAT/VFS read-only /boot route.
+  A successful USB session keeps the controller running; subsequent storageinit
+  reuses it. usbtest/usbenum consume the same one-shot controller state, so run
+  storageinit first on a fresh boot. No storage probing is automatic.
+- Added storagetest: read 512 sectors, report FNV-1a32, no writes. USB storageinfo
+  reports SCSI identity, capacity, sense and bulk/event ring wrap counters.
+  Native tests cover SCSI identity/capacity/sense retries, allowlisted opcodes,
+  bounds, repeated reads and malformed/short/tag/residue/status failures with
+  no retry after a read transport failure. Prior USB/SD/FAT/Wi-Fi tests pass.
+- Real qemu-xhci EL1 and EL2 tests mount FAT32, list/read actual files, repeat
+  storageinit, match the 512-sector hash to the host, wrap both bulk rings and
+  the event ring, then read files and pass the page test again. Input disk
+  SHA256 stays unchanged. A53/A76 and raw EL1/EL2 monitor, virtio-FAT and fatal
+  exception regressions pass. One earlier regression correctly rejected an
+  image rebuilt concurrently by the host; final runs used a fixed copy.
+- Updated hardware evidence and the networking sequence: USB firmware-file
+  source, core discovery/upload, firmware/FullMAC, WPA3 SAE/PMF, then ARP/IP,
+  DHCP/routing, ICMP and DNS. Wi-Fi firmware startup, hotspot association,
+  ping, downloads and program installation are not implemented or claimed.
+- Preserved the previous associated local image as
+  build/rpi5-header/OurOS-Pi5-header-chip-usb-enum-observed.img (d873a1df...).
+  New header image: 134,217,728 bytes; raw kernel 83,016 bytes, complete
+  footprint below the DTB. Whole-image SHA256:
+  5238ff93142e7dfa855421e9965e50ac3c64cecd1ef88a7d70603675e929d16f.
+  Package/MBR/FAT/independent extraction/hash checks pass; corruption and
+  mismatched-profile tests reject bad copies. Pi USB sector/file reads need
+  a new physical capture. No physical drive, EEPROM or Git remote was written.
+
+## Wi-Fi AI core discovery and CR4 RAM query (2026-11-09)
+
+- Preserved the new capture as proofs/pi5-usb-fat-and-ring-wrap-2026-11-09.txt.
+  The physical Pi now activates usb1 BOT, measures the SanDisk drive's capacity
+  (30,765,219,840 bytes), mounts read-only FAT32 /boot and reads actual files.
+  The 512-sector FNV check matches the host at 0x6a004021; bulk IN/OUT and event
+  rings wrap 4/2/6 times. CONFIG.TXT reads again afterward, wifiinit identifies
+  chip 0x4345 revision 6, and pagetest passes. No full-drive hash was supplied.
+- Added aligned function-1 CMD53/PIO word writes, including buffer-write-ready
+  status enable/acknowledgment, R5 checking and bounded command/buffer/transfer
+  completion waits. Errors disable the attachment. New backplane accessors
+  map 32 KiB windows with the 32-bit access flag, require the identified 4345
+  rev6 AI chip and reject misaligned/out-of-range addresses before window writes.
+- Added wificores after wifiinit. Bounded EROM parser handles component pairs,
+  ports, register/wrapper descriptors and wide/explicit-size payloads, with
+  1024-word and 16-core limits. Requires ChipCommon, SDIO, D11 and unique ARM CR4
+  before any bank writes. Failed maps print raw ROM samples for diagnosis.
+- Queries CR4 wrapper/reset/capability, refuses to release reset, saves BANKIDX,
+  selects each TCM bank and reads BANKINFO, caps RAM at 4 MiB, then restores and
+  verifies the selector. Reports live bank sizes separately from the chip-map
+  RAM base 0x198000 and the Pi's main RAM. Production adapter permits writes
+  only to the discovered CR4 BANKIDX. No CPU/D11 reset, chip RAM upload, firmware
+  startup, RF packets, WPA3 handshake or IP connection in this phase.
+- Repeated wificores reports cached results; no repeated device writes. Native
+  tests cover framing/PIO/window remaps, R5/CRC/command/buffer/transfer failures,
+  core/wrapper parsing, truncation, count bounds, missing/duplicate cores,
+  unsupported chip/type, sizing units/overflow, reset refusal, restoration
+  failures and 10,000 ROM mutations. Mock sizes/addresses are fixtures, not
+  physical measurements. QEMU routes the command to an explicit no-radio stub.
+- A53/A76 and raw Image EL1/EL2 monitor, RAMFS/page, virtio-FAT and fatal-fault
+  regressions pass; real qemu-xhci EL2 USB/FAT reads and ring wrap pass with
+  unchanged backing hashes. Native Wi-Fi tests pass. The new Pi core/RAM path
+  needs a fresh serial capture before firmware loading work.
+- Preserved the previous associated image as
+  build/rpi5-header/OurOS-Pi5-header-usb-fat-observed.img (5238ff93...).
+  New header image: 134,217,728 bytes, raw kernel 87,612 bytes; complete
+  footprint still precedes the DTB. SHA256:
+  97db6c6220891049f01205f5bef3cea7ba7185da68551911269bde9c0cca07a7.
+  Package/FAT/MBR/extraction/hash checks pass. No physical drive, EEPROM or
+  Git remote was written by the agent.
+
+## Captured EROM raw-size fix and native test assertion reporting (2026-11-09)
+
+- Preserved proofs/pi5-erom-size-field-rejection-2026-11-09.txt. The latest
+  physical run still mounts USB/FAT, identifies Wi-Fi chip 0x4345 rev6 and
+  passes the sector/ring/page tests. wificores stops at EROM 0x1810a000 after
+  six words, last 0x01000000, with cores=0 and SDIO still selected. RAM sizing
+  never began. Repeated discovery correctly prints cached state; active USB
+  storage refuses usbtest/usbenum takeover while uptime reaches 105 seconds.
+- Corrected the EROM parser: an explicit size is a raw payload, not an address
+  descriptor with a type tag. Consume it and the optional upper size word, then
+  continue past that extra address region. Reference brcmfmac chip.c and BCMA
+  scan.c both consume this field without a descriptor-type check. Kept address,
+  traversal, core-count and bank-query guards.
+- Native regression replays the captured six words with synthetic wrappers
+  and later cores (not claimed as physical evidence), then reaches RAM sizing.
+  Added wide raw-size and truncated-table cases; mutated both captured-prefix
+  and previous fixtures across 10,000 bounded runs. Full Wi-Fi native suite passes.
+- User also supplied a Windows test-sdio.exe fatal-exit screenshot. This is
+  the native project test, not a Pi exception. Current rebuild passes; earlier
+  local assertion failures make a stale abort dialog plausible, but the exact
+  failed run cannot be established from that screenshot. Windows labels
+  0x40000015 STATUS_FATAL_APP_EXIT. Replaced CRT-aborting assertions only in the
+  three Wi-Fi host tests with stderr file/line/expression reporting and exit 1.
+  Test checks remain enabled under NDEBUG. A bounded child-process probe confirms
+  the intentional failure exits 1 within three seconds, with diagnostic output;
+  it is checked separately from tests required to pass. No global Windows error
+  reporting settings or Pi assertion behavior were changed.
+- Preserved prior associated image as
+  build/rpi5-header/OurOS-Pi5-header-core-erom-size-observed.img (97db6c62...).
+  Corrected image: 134,217,728 bytes; raw kernel remains 87,612 bytes, with full
+  footprint before the DTB. Whole-image SHA256:
+  01074e919a4f931251670eedcfa0f65c321be1168e3680abe59705615c3489c1.
+  Package/MBR/FAT/extraction/hash validation passes. Full physical core discovery
+  and RAM sizing still need a new capture; no firmware startup/WPA3/IP success
+  is claimed. No physical drive, EEPROM or Git remote was written.
+
+## Pinned radio assets and halted-CPU firmware upload/readback (2026-11-09)
+
+- Preserved proofs/pi5-wifi-cores-800k-ram-2026-11-09.txt. Physical wificores now
+  passes: EROM 0x1810a000, 88 words, five cores (CC51/D11-54/CR4-9/PCIe2-14/
+  SDIO21), matching register/wrapper addresses. CR4 IOCTL=0x21, RESET=0,
+  capability=0x0b44, eight measured banks totalling 819200 bytes / 800 KiB,
+  selector restored. USB/FAT, sector hash, pagetest and uptime still pass.
+- Pinned resolved vendor firmware/NVRAM/CLM inputs and full notices from
+  RPi-Distro/firmware-nonfree commit c91cd2804cf7463aab913e7247c176049f16bbd6
+  in boot/wifi/assets.json. Verified download Git blob IDs and SHA256 values.
+  Native network download needed sandbox escalation; only project-local files
+  were downloaded. Pi 5 aliases resolve to shared 43455 settings/CLM and a
+  standard/minimal firmware alternative; selected the standard binary.
+- Complete disk image includes FW43455.BIN (609309 bytes), WIFINV.TXT (2074),
+  WIFICLM.BIN (2676) and WIFILIC.TXT (full unchanged upstream copyright, 313331).
+  Runtime checks pin all three inputs; image checks pin all four plus revision.
+  Source provenance is in SOURCE.TXT. The boot-files-only ZIP excludes the
+  radio assets; this distinction is documented. No Linux kernel is linked.
+- Added a bounded FAT opened-file API: validate/store up to 4096 clusters once,
+  then read binary chunks without repeated full-chain scans. Rejected opens
+  invalidate handles. Existing 64 KiB monitor cat limit remains. Native tests
+  cover fragmented/boundary/EOF/corrupt-chain/I/O cases and compare every byte
+  of the large firmware to the pinned cache. No heap or disk writes.
+- Added wififiles for no-radio file/SHA256 verification, also exercised through
+  real QEMU USB from EL1 and EL2. Added wifiload after storageinit/wifiinit/
+  wificores. Require the exact observed profile, correct hashes and board MAC
+  before writes. Verify CR4 already halted; preserve its state and disable only
+  D11 through its AI wrapper with bounded waits. No CPU reset or release.
+- Added aligned 4..512-byte function-1 PIO RAM reads/writes, split at 32 KiB
+  windows and limited to [0x198000,0x260000). Upload code at RAM base with a
+  padded final transfer; compare each chunk read back. Rehash source during
+  upload. Pack bounded NVRAM with the DT MAC and length/complement token.
+  Clear the token first, verify NVRAM payload, then hash the entire persistent
+  code in chip RAM before committing/verifying the token. This detects a
+  deliberately aliased window even when immediate chunk comparisons pass.
+- CR4 remains halted and D11 in reset. CLM is checked on disk for a later
+  FullMAC stage, not uploaded now. No reset-vector activation, firmware
+  execution, RF scan, WPA3 association or IP success is claimed. A repeated
+  load after device writes returns cached status and requires reboot.
+- Native tests pass SHA256 vectors/million-a and real pinned assets, NVRAM/MAC/
+  token formatting, exact profile, halted CPU, D11 reset, padded code/full RAM
+  verification, file/hash/mismatch/timeout/cleanup and repeat refusal. All prior
+  Wi-Fi/power/SDIO regressions pass. A53/A76, raw EL1/EL2, virtio-FAT, page/RAMFS
+  and fault suites pass. QEMU USB file hashes/ring wraps preserve backing hashes.
+  These are not physical radio-upload evidence; a new Pi capture is required.
+- Preserved previous associated local image as
+  build/rpi5-header/OurOS-Pi5-header-wifi-cores-ram-observed.img (01074e91...).
+  New complete header image is 134217728 bytes; raw kernel 118620 bytes, complete
+  footprint before the DTB. Whole-image SHA256:
+  cd89d288476ab8a8fe05486ec45d3cf4d64ee9b33ea4febc9bf66c9beb8048ca.
+  Package/MBR/FAT/mirrors/extraction/file-pin/header checks pass, as do negative
+  corruption and console-profile tests. No physical drive, EEPROM or Git remote
+  was written by the agent. See docs/wifi-firmware.md for the next Pi procedure.
+
+## First-upload card rejection and conservative F1 transport correction (2026-11-09)
+
+- Preserved proofs/pi5-firmware-first-transfer-failure-2026-11-09.txt. All
+  runtime asset pins, core map and 800 KiB RAM query pass. wifiload verifies
+  CR4 halt/D11 reset and the initial token clear/readback, then fails at the
+  first code transfer, phase 4, address 0x198000, with no code bytes verified.
+  NVRAM is packed to 1748 bytes at 0x25f92c. USB/page tests and uptime still pass.
+- Requested optional wifiinfo from the same failed prompt. User supplied
+  last_irq=0x11 and last_response=0x1100; the relevant lines are preserved in
+  proofs/pi5-first-upload-r5-out-of-range-2026-11-09.txt. R5 has OUT_OF_RANGE
+  (0x100), without host CRC/timeout IRQ bits. Thus a card rejection is observed;
+  an exact physical byte-mode maximum is not established.
+- Corrected F1 setup to write/read back 64-byte FBR size before enabling it,
+  matching brcmfmac. Gate subsequent register/RAM accesses on that setup.
+  Explicitly enable the SDHCI block counter for single-block CMD53 read/write
+  PIO, without DMA/multi-block/AutoCMD. RAM calls remain <=512 bytes logically,
+  but split into <=64-byte wire requests and at 32 KiB windows. No zero-count
+  512-byte CMD53 is emitted by this RAM path.
+- Poll error bits during each PIO word and stop on first error. Retain the first
+  command/argument/direction/R5/IRQ/present/block-count/command-mode/requested/
+  FIFO-byte/stage snapshot, including through cleanup and repeat refusal. Add
+  decoded host timeout/CRC and card OUT_OF_RANGE messages plus verified F1 size.
+- Native tests pass verified/mismatched FBR setup, exact block-count mode,
+  mid-FIFO error stop, retained error stages and the captured R5=0x1100/IRQ=0x11
+  on an oversized request before any FIFO writes. A translating RAM model writes
+  then reads all 800 KiB across every window with <=64-byte requests, including
+  a modeled over-64 rejection. That constraint is a regression fixture, not a
+  physical measurement. All existing firmware/SHA/NVRAM/core/power/SDIO tests pass.
+- Upload success is still unverified on the Pi. CR4 release/firmware startup,
+  FullMAC, WPA3 and IP remain gated on a successful upload/readback capture.
+  Reboot/reflash for the next test; do not retry the disabled failed attachment.
+- Preserved associated prior image as
+  build/rpi5-header/OurOS-Pi5-header-wifi-upload-first-chunk-observed.img
+  (cd89d288...). New complete image is 134217728 bytes; raw kernel 118700 bytes,
+  full footprint before DTB. Whole-image SHA256:
+  46ea45ad2bb1070aa13404943ce2c902e12832745f39dcfe87d50ffe5ceabf77.
+  Package/MBR/FAT/extraction/pins/header checks pass. No physical drive, EEPROM
+  or Git remote was written. See docs/wifi-firmware.md for the retry procedure.
+
+### 2026-11-09 — Physical upload verified; controlled startup candidate
+
+- Saved proofs/pi5-firmware-upload-verified-2026-11-09.txt. The 118700-byte
+  kernel passes file pins, D0/SDIO identification and core/RAM discovery, then
+  wifiload verifies all 609309 firmware bytes and 1748 packed NVRAM bytes at
+  0x25f92c. CR4 is halted and D11 reset. USB/page tests still pass; uptime 210.
+- Preserved the associated 46ea45ad... image and sidecars as
+  build/rpi5-header/OurOS-Pi5-header-wifi-upload-verified.img.
+- Added explicit wifistart after successful staging: recheck exact profile,
+  live halt/reset state, vector and NVRAM token; clear old SDIO interrupt status;
+  install/read back one address-zero vector word; reset/release CR4 with bounded
+  waits; request HT and validate the firmware-published shared pointer/flags.
+  Reject out-of-RAM pointers, unsupported versions, ASSERT/TRAP and FWHALT.
+- The normal RAM/register APIs still reject address zero. A separate operation
+  permits only the vector word. Startup write callbacks whitelist CR4/D11 wrappers
+  and SDIO W1C registers; clock writes permit only the HT request.
+- Invalidate cached CPU/D11 passive-state claims before removing CPUHALT.
+  Failures after that point report possible execution and require reboot;
+  no token cleanup writes or automatic retries can race running firmware.
+- Native tests cover individually injected I/O failures and invalid boot
+  states, delayed readiness and repeat refusal. SDIO PIO tests cover vector
+  remapping/readback mismatch while ordinary APIs retain their bounds.
+  Increased the bounded delay spin budget to allow real 5/10 ms startup waits
+  on Cortex-A76, using the architectural counter as the time source.
+- Reference-sequence review added completion of D11's AI reset while CR4 is
+  still halted: release wrapper reset with bounded retries and leave PHY clock
+  enabled. Test the distinct failure state with D11 release uncertain and CR4
+  still halted. The radio firmware takes ownership only after CR4 release.
+- Function 2 remains disabled. Shared-memory readiness is not a FullMAC
+  control response or network connection. Physical startup remains UNTESTED;
+  FullMAC, country/CLM, WPA3 SAE/PMF and DHCP/IP/ICMP/DNS are subsequent stages.
+  See docs/wifi-startup.md for the new hardware sequence.
+- Validation: native Wi-Fi suite passes, including 38 individually injected
+  startup I/O failures and 22 invalid boot states. QEMU A53/A76 monitor, fault
+  and read-only virtio/FAT checks pass; EL2 USB BOT/FAT/file-pin checks exercise
+  the startup refusal on a machine with no Pi radio. Native storage checks
+  and image corruption/profile rejection checks pass.
+- New header-console disk image: 134217728 bytes, raw kernel 122852 bytes,
+  in-memory end 0x1d0000 below the firmware DTB at 0x200000. Image SHA256:
+  df26b379821a50d3925a7c26152bd783a683f61f41dc631b10233ad7edc47a24.
+  Independent FAT extraction, all file pins, MBR/backups/mirrors and Image
+  header checks pass. No physical device, EEPROM or remote was written.
+
+### 2026-11-09 — Physical firmware startup; read-only control candidate
+
+- Saved proofs/pi5-firmware-startup-verified-2026-11-09.txt. The Pi boots the
+  122852-byte kernel, repeats successful upload/readback, then wifistart reaches
+  phase=7 shared_memory=ready: HT CSR 0xd0, shared 0x201cc0, flags 1, console
+  0x25debc, trap 0, assert line 0, mailbox 0 before F2. USB/page tests still pass;
+  uptime reaches 144 seconds. This is firmware boot evidence, not association.
+- Preserved associated df26b379... disk image and sidecars as
+  build/rpi5-header/OurOS-Pi5-header-wifi-startup-verified.img.
+- Added one-shot wificontrol after successful startup: recheck HT/F1 state,
+  force HT, configure/read back F2 block size 512, advertise SDPCM protocol 4,
+  enable F2, poll IO_READY and firmware DEVREADY/FWREADY, then honor transmit
+  credits. Poll/ack core interrupts and mailbox; no CPU IRQ handler needed.
+- The observed SDIO ID is 0x4345. The reference 43455-specific tuning uses
+  0xa9bf, so this path uses the reference default watermark 8. No guessed
+  43455 watermark/MESBUSY settings, clock save/restore or main PCIe reset.
+- Added F2 CMD53 byte-mode PIO with incrementing TX and fixed-address RX via
+  the ChipCommon window, aligned calls up to 512 bytes. F1 RAM upload still
+  splits at 64 bytes. Preserve existing first-failure/R5/IRQ/FIFO diagnostics.
+- Added bounded SDPCM/BCDC framing and two GET-only queries: ioctl ABI and
+  firmware version string. Validate frame extent, complements, offsets,
+  channels, credit window, command/ID/GET/interface flags, response extent,
+  status and version text. Drain bounded event/data frames without delivering
+  them. No glom, SET, radio-enable, scan, credentials, association or IP.
+- Retain protocol phase, mailbox, counters, request/status and last RX header.
+  One-shot cached repeats issue no device I/O; failures require reboot. Old
+  CR4 discovery registers are now explicitly labelled as a snapshot.
+- Native Wi-Fi suite passes: 37 injected control-operation failures, 28
+  negative states, delayed F2/mailbox readiness, multi-part reply reads,
+  stale IDs and sequence resynchronization. PIO tests cover F2 direction,
+  512-byte encoding, R5 refusal and mid-FIFO CRC stop. Prior upload/startup,
+  full 800 KiB F1 RAM, core parser, SHA/NVRAM and power tests still pass.
+- New complete header image: 134217728 bytes; raw kernel 133716 bytes;
+  in-memory end 0x1d3000 before the DTB at 0x200000. Image SHA256:
+  f5ba5932dc934e6229e55b8825ebd6c318cc8d2ec927c74650cc10e0c6ebd11c.
+  Package/image headers, MBR/FAT/backups/mirrors, independent extraction and
+  all file hashes pass. Physical control replies remain UNTESTED. See
+  docs/wifi-control.md. No physical disk, EEPROM or remote was written.
+- Final regression checks pass: QEMU A53/A76 monitor and fault handling with
+  read-only virtio/FAT; EL2 firmware entry with USB BOT, firmware file pins,
+  ring wraps and explicit wificontrol refusal. Both test image hashes remain
+  unchanged. Native storage/DT checks and MBR/FAT/kernel corruption/profile
+  rejection tests also pass. No physical control-channel result is inferred
+  from these host/QEMU checks.
+
+### 2026-11-09 — Physical control replies; capability/regulatory candidate
+
+- Saved proofs/pi5-wifi-control-verified-2026-11-09.txt. The 133716-byte kernel
+  passes upload/startup and wificontrol phase 8. Actual replies report ioctl
+  ABI 2, firmware 7.45.265 (28bca26 CY), FWID 01-b677b91b. F2 block size 512,
+  enable/ready 6, HT 0xd2, mailbox 0x40002, TX 2/RX 4, two drained events and
+  zero sequence resync. USB/page tests still pass; uptime 192 seconds.
+- Preserved associated f5ba5932... image and sidecars as
+  build/rpi5-header/OurOS-Pi5-header-wifi-control-verified.img.
+- User confirmed country IN. Added wificaps for a bounded 768-byte cap string,
+  actual firmware MAC, PMF and supplicant properties. Match SAE feature tokens
+  exactly. A zero GET result is a supported property at current value zero,
+  not absence of the feature. Explicit UNSUPPORTED is distinct from other
+  firmware rejections, which leave support unconfirmed with the status retained.
+- Added wifiprepare <CC>: verify the pinned 2676-byte CLM before device SETs,
+  upload exact 1400/1276-byte chunks with version/type/BEGIN/END/length/CRC
+  headers, require clmload_status 0 and version text, set country with revision
+  unspecified, then require matching abbreviation/ccode and resolved revision.
+  Preserve raw country response; no silent fallback or guessed mapping.
+- Extended the existing SDPCM session with restricted IOVAR GET/SET operations.
+  Only clmload and country may be SET. Preserve IDs, sequences and credits;
+  distinguish firmware rejection from transport/protocol failure. A failed
+  transport poisons further exchanges. SET acknowledgements may echo input
+  length without returning input bytes; validate matching header/status and
+  consume no output, following the reference SET completion behavior.
+- Larger TX frames use <=512-byte CMD53 requests with incrementing addresses
+  continuing across chunks; RX remains fixed at the frame port. No block mode,
+  DMA or retry. F1 upload retains its tested <=64-byte wire limit.
+- Native suite passes four capability and thirteen regulatory per-operation
+  failure injections, hash/file failures, exact CLM bytes/flags, country
+  mismatch/fallback, optional-property rejection, larger IOVAR framing,
+  bounded output copies, SET reply variants, ID/sequence wrap and transport
+  poisoning. PIO tests stop before a rejected second TX fragment. Previous
+  upload/startup/control/power/parser/SHA tests still pass.
+- Complete image: 134217728 bytes; raw kernel 148412 bytes; in-memory end
+  0x1d7000 before DTB 0x200000. SHA256:
+  bc3f693557eeb3b6e4a302fddd5845942b1da40d33c80b8b315f08f341c42eab.
+  Package, MBR/FAT/backups/mirrors, independent extraction, hashes and Image
+  header validation pass. QEMU A53/A76 monitor/fault/virtio-FAT regressions,
+  EL2 USB file-pin/ring-wrap checks and native storage/corruption checks pass.
+  Physical capability/regulatory operations remain UNTESTED. No interface-up,
+  scan, association, credentials or IP commands were added. No physical drive,
+  EEPROM or remote was written. Procedure: docs/wifi-prepare.md.
+
+### 2026-11-09 — Physical CLM/country verified; passive scan candidate
+
+- Saved proofs/pi5-wifi-prepare-verified-2026-11-09.txt. The 148412-byte kernel
+  passes capability discovery: actual MAC, sae_ext, PMF GET value 1 and a
+  valid sup_wpa UNSUPPORTED response. Firmware SAE offload is not advertised;
+  host authentication/key handling remains future work, not a transport fix.
+- CLM upload passes all 2676 bytes/two chunks with status 0. CLM version is
+  API 12.2 / Data RPi.4; country and ccode IN revision 0 read back correctly.
+  USB/page tests still pass; uptime 150 seconds. Preserved bc3f6935... image
+  and sidecars as build/rpi5-header/OurOS-Pi5-header-wifi-prepare-verified.img.
+- Added one-shot wifiscan after verified preparation/ioctl ABI 2. Recheck live
+  country, select escan v1/v2 using scan_ver availability, preserve/extend
+  event mask for result 69 and verify it. Request UP, a passive wildcard scan
+  using the firmware's legal default channel list, then bounded event polling.
+  No association, credentials, key or IP requests.
+- Add event callbacks to the existing SDPCM session, including events arriving
+  during a command acknowledgement. Check BCDC/Ethernet/Broadcom event framing,
+  interface, event version/type, length and sync ID. Distinguish command ACK
+  from terminal success/abort. Raise RX frame bound to 4096 bytes; scan session
+  has an explicit 1024-frame budget and 3000-poll/30-second wait bound plus I/O.
+- Parse only BSS109, including the 126-byte wire prefix and bounded IE offsets.
+  Validate IE/RSN counts/extents; decode primary channel/RSSI, advertised AKMs
+  and PMF. Retain 32 BSSID/band records, merge duplicates and count overflow.
+  Escape arbitrary SSID bytes for the terminal. Malformed results are counted,
+  not treated as a successful connection or evidence of an empty radio area.
+- On successful terminal completion, require DOWN acknowledgement and original
+  event-mask restoration/readback before reporting overall success. Preserve
+  uncertainty after a failed UP/scan/cleanup; no speculative retry/reset.
+- Native suite passes 13 scan operation-failure injections, v1/v2 requests,
+  synchronous and delayed events, timeout/abort/cleanup failures, country/mask
+  mismatches, BSS/RSN/channel/RSSI/duplicate/overflow cases and 5000 packet
+  mutations. Integrated SDPCM/CDC + scan test handles an event larger than
+  2 KiB before the SET ACK, then completion afterward. Existing Wi-Fi tests pass.
+- Complete header image: 134217728 bytes, raw kernel 160372 bytes, in-memory
+  end 0x1da000 below DTB 0x200000. SHA256:
+  99a7a861b6958ee8befa2a392f3bce6fd4fc33912b6b6ff57d4c0aed9cd3ef41.
+  Package/image header, MBR/FAT/backups/mirrors, independent extraction and
+  all file hashes pass. Native storage and image-corruption/profile rejection
+  checks pass. Physical scan remains UNTESTED. See docs/wifi-scan.md.
+  No physical disk, EEPROM or remote was written.
+- Final QEMU A53/A76 monitor/fault/virtio-FAT tests and EL2 USB file-pin,
+  ring-wrap and explicit wifiscan refusal checks pass. Both test-image hashes
+  remain unchanged. These emulated checks do not establish physical RF success.
+
+### 2026-11-09 — WPA3 hotspot discovery; authentication foundations
+
+- Saved proofs/pi5-wifi-scan-wpa3-hotspot-2026-11-09.txt. The 160372-byte
+  kernel finds five networks with passive escan v1, malformed=0, overflow=0,
+  and successful DOWN/mask restoration. Jack's: channel 6, 2.4 GHz, -28 dBm,
+  RSN+SAE and PMF required. USB/page tests still pass; uptime 303 seconds.
+- Preserved the associated 99a7a861... disk image and sidecars as
+  build/rpi5-header/OurOS-Pi5-header-wifi-scan-verified.img. The supplied
+  credential is not consumed, saved in source/docs/proofs or embedded in images.
+- Implemented original HMAC-SHA256 vector input/long-key handling and HKDF
+  extract/expand with RFC4231/RFC5869 known-answer tests. Add cryptotest,
+  bounded APIs, bytewise comparison, explicit volatile erasure of temporaries
+  and SHA message schedule. No claim of a completed SAE or side-channel audit.
+- Added a narrow Pi DT description gate for RNG200 at translated physical
+  0x107d208000: BCM2712, root/SoC cell counts, exact ranges, compatible,
+  status and 0x28-byte reg span. Manual rngtest only; no automatic boot access.
+- Follow the DT's BCM2711-compatible mode: preserve enabled configuration or
+  configure warm-up/FIFO thresholds and sample divider with control readback.
+  No generator resets, error-status clearing or interrupt handlers. Require
+  warm-up progress; discard sixteen words; stop on health/lockout errors,
+  FIFO timeout or a consecutive repeated word. Failure latches unavailable.
+- Condition each 64 fresh hardware bytes into 32 output bytes with SHA256;
+  cap requests at 256 bytes. Erase all raw/temp state and all caller output
+  on partial failure. No clock/MAC/PRNG fallback or claimed entropy count.
+  rngtest compares two 64-byte outputs, erases them and prints status/counters
+  only. Engineering checks are not entropy certification.
+- Native suite passes RFC vectors, key/length/output/erasure boundaries,
+  actual DT translation/mismatch tests, inherited/cold RNG setup, repeated
+  values/errors/timeouts and 584 individual register-I/O failure injections.
+  Existing firmware/scan/SDIO/PIO/crypto integrity tests still pass.
+- New complete image: 134217728 bytes, raw kernel 168564 bytes, in-memory end
+  0x1dc000 before firmware DTB 0x200000. SHA256:
+  d2da3d384c7eb2ff4f53cb0c1106865f891ceaf0b25a08a44b457823606004c0.
+  Package, Image header, MBR/FAT/backups/mirrors, independent extraction and
+  file hashes pass. Native storage and image corruption/profile checks pass.
+  Physical RNG remains UNTESTED. Host SAE/group math, external-auth frame
+  exchange, association, EAPOL/key/PMF handling and IP remain unfinished.
+  No physical drive, EEPROM or remote was written. See docs/wifi-auth-foundation.md.
+- Final QEMU checks pass: A53/A76 monitor and known-answer crypto tests,
+  explicit RNG200 refusal without the Pi source, fault handling and read-only
+  virtio/FAT. EL2 USB firmware-file pins and ring-wrap checks also pass; both
+  test-image hashes remain unchanged. Emulation does not verify physical entropy.

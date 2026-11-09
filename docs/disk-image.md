@@ -3,8 +3,11 @@
 The user has successfully booted the header-console image from a **32 GB USB
 pendrive**, without a microSD card. The retained `-sd.img` filename does not
 restrict the disk image to SD media. Firmware can load it from USB; kernel
-USB disk access is a separate feature. `storageinit` currently selects only
-the Pi microSD host. See [USB discovery and test instructions](usb.md).
+USB disk access is a separate feature. On the header build `storageinit` now
+uses experimental USB2 BOT when SD is absent/unclocked, then attempts FAT32
+at `/boot`. The full read path passes QEMU tests and now has Pi sector/file-read
+evidence. See [pendrive test instructions](usb.md). Run `storageinit` before
+`usbtest`/`usbenum` on a fresh boot.
 
 For a CP2102 connected with ordinary jumper wires to the **40-pin header**,
 use the separate [header-console image and wiring guide](rpi5-header-uart.md):
@@ -26,10 +29,10 @@ see [memory.md](memory.md). MB/MiB display and the [RAMFS root](ramfs.md) now
 also have physical Pi evidence. The latest [storage revision](storage.md) adds
 read-only block I/O, FAT32 and `/boot` mount routing, tested on host/QEMU;
 the Pi SD-handoff driver awaits its own capture. No storage writes, HDMI/GUI,
-keyboard/USB support, scheduling, virtual memory, networking or user applications
+USB keyboard support, scheduling, virtual memory, networking or user applications
 are implemented. [Wi-Fi diagnostics](wifi.md) do not implement association/IP.
 RAMFS remains the volatile root; `storageinit` attempts a separate read-only
-mount of the SD boot FAT32 partition at `/boot`.
+mount of the SD or supported USB boot FAT32 partition at `/boot`.
 The current Pi port uses the dedicated 3-pin UART10 connector. Without a serial
 adapter, you cannot observe or interact with this kernel on the board.
 
@@ -88,10 +91,19 @@ Boot filenames are explicitly shortened, with matching `CONFIG.TXT` settings:
 | `CONFIG.TXT` | Reviewed Pi config with only the two filenames replaced |
 | `COPYING.TXT`, `LICENSE.TXT` | Unchanged upstream notices |
 | `README.TXT`, `SOURCE.TXT` | Limitations and asset provenance |
+| `FW43455.BIN`, `WIFINV.TXT`, `WIFICLM.BIN` | Pinned radio firmware, board NVRAM and CLM inputs |
+| `WIFILIC.TXT` | Unchanged upstream vendor copyright/license notices |
 
 No custom armstub, Linux kernel, EEPROM update or recovery binary is included.
 The existing Pi EEPROM firmware must support the selected boot path. The exact
 EEPROM version on the user's board has not been recorded.
+
+The complete disk image includes the four radio assets; the separate
+boot-files-only ZIP does not. `wififiles` verifies the three input hashes.
+The new `wifiload` keeps the Wi-Fi CPU halted and uploads/reads back firmware
+and packed board settings. Firmware startup/FullMAC/WPA3/IP remain unfinished;
+see [the firmware-stage procedure](wifi-firmware.md). The image verifier checks
+the radio revision, exact file lengths and SHA256 pins, including the notices.
 
 ## Verification and limits
 

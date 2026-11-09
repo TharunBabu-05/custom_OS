@@ -130,6 +130,42 @@ enum fs_result fat32_list(struct fat32_volume *v,const char *path,fat32_emit emi
     if (!e.directory) { (void)emit(&e,context); return FS_OK; }
     return directory(v,e.cluster,emit,context);
 }
+enum fs_result fat32_open(struct fat32_volume *v,const char *path,struct fat32_file *file)
+{
+    if (!file || !path) { return FS_BAD_ARGUMENT; } file->ready=false;
+    enum fs_result r=fat32_lookup(v,path,&file->entry); if (r!=FS_OK) { return r; }
+    if (file->entry.directory) { return FS_IS_DIR; }
+    uint64_t needed=((uint64_t)file->entry.size+v->spc*512-1)/(v->spc*512);
+    if (needed>4096 || needed>v->clusters) { return FS_FILE_TOO_LARGE; }
+    uint32_t cluster=file->entry.cluster;
+    for (unsigned i=0;i<needed;++i) {
+        if (!valid_cluster(v,cluster)) { return FS_CORRUPT; }
+        for (unsigned j=0;j<i;++j) { if (file->chain[j]==cluster) { return FS_CORRUPT; } }
+        file->chain[i]=cluster; uint32_t next;
+        r=next_cluster(v,cluster,&next); if (r!=FS_OK) { return r; }
+        if (i+1==needed) { if (next<0x0ffffff8) { return FS_CORRUPT; } }
+        else { if (next>=0x0ffffff8) { return FS_CORRUPT; } cluster=next; }
+    }
+    file->volume=v;file->clusters=(unsigned)needed;file->ready=true;return FS_OK;
+}
+enum fs_result fat32_file_read(const struct fat32_file *f,uint32_t offset,void *buffer,size_t capacity,size_t *count)
+{
+    if (!f || !f->ready || !f->volume || !f->volume->ready) { return FS_NOT_READY; }
+    if (!count || (!buffer && capacity)) { return FS_BAD_ARGUMENT; } *count=0;
+    if (offset>=f->entry.size || !capacity) { return FS_OK; }
+    if (capacity>f->entry.size-offset) { capacity=f->entry.size-offset; }
+    unsigned char *out=buffer; struct fat32_volume *v=f->volume;
+    while (*count<capacity) {
+        unsigned index=offset/(v->spc*512),within=offset%(v->spc*512);
+        if (index>=f->clusters || !valid_cluster(v,f->chain[index])) { return FS_CORRUPT; }
+        unsigned char data[512]; enum fs_result r=sector(v,v->data_lba+(f->chain[index]-2)*v->spc+within/512,data);
+        if (r!=FS_OK) { return r; }
+        size_t n=512-offset%512; if (n>capacity-*count) { n=capacity-*count; }
+        for (size_t i=0;i<n;++i) { out[*count+i]=data[offset%512+i]; }
+        *count+=n;offset+=(uint32_t)n;
+    }
+    return FS_OK;
+}
 enum fs_result fat32_read(struct fat32_volume *v,const struct fat32_entry *e,uint32_t offset,
                          void *buffer,size_t capacity,size_t *count)
 {

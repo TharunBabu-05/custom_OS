@@ -72,7 +72,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
         $process.Dispose()
     }
 }
-$commands=@('help','info','cpuinfo','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
+$commands=@('help','info','cpuinfo','cryptotest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
     'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo',
     'fsinfo','pwd','ls /','cat /etc/board','cat /README.txt','cd /tmp','mkdir work','cd work','pwd',
     'touch empty.txt','write note.txt filesystem-ok','cat ./note.txt','ls .','cd ..','rmdir work',
@@ -80,6 +80,8 @@ $commands=@('help','info','cpuinfo','meminfo','memmap','pagetest','pagealloc','p
     'cd /etc/hostname','rmdir /','rm /tmp','fsinfo','meminfo','echo native-windows-ok',
     "echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
 $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt | EL1',
+    'PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.',
+    'No Pi RNG200 source on QEMU virt; randomness unavailable.',
     'help info cpuinfo meminfo uptime','timer_hz=',"`r`nnative-windows-ok`r`n", "`r`nbackspace`r`n",'uptime_seconds=',
     'Unknown command. Type help.','Input too long; command discarded.',"`r`nrecovered`r`n",'CPU halted.',
     'Memory: ready','reason=kernel/BSS/stack/bitmap','reason=DTB',
@@ -89,16 +91,22 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
     '/tmp/work',"`r`nfilesystem-ok`r`n",'Welcome to OurOS. This root filesystem lives in RAM.',
     'fs: directory not empty','fs: path not found','fs: not a directory',
     'fs: root or current directory is busy','fs: is a directory',
-    'USB stage: controller discovery only; no USB disk reads or writes.',
+    'USB: discovery diagnostics; storageinit enables experimental read-only USB2 BOT.',
     'No Pi RP1 USB controller on QEMU virt; no MMIO attempted.')
 if ($StorageImage) {
     $commands=$commands[0..($commands.Count-2)]+@('storageinit','storageinfo','ls /boot','cd /boot',
         'pwd','cat CONFIG.TXT','cat SOURCE.TXT','write CONFIG.TXT blocked','touch new.txt',
-        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','halt')
+        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','wificores','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan','halt')
     $expected+=@('/boot: FAT32 read-only','device=qemu-virtio-blk','CONFIG.TXT','kernel=OUROS.IMG',
-        'Official DTB and notices:','fs: read-only filesystem','Wi-Fi state: no FullMAC/firmware driver',
+        'Official DTB and notices:','fs: read-only filesystem','Wi-Fi state: manual firmware/control bring-up',
         'Requested network security: WPA3-Personal','No Pi Wi-Fi SDIO device on QEMU virt.',
-        'No Pi Wi-Fi SDIO device on QEMU virt; WPA3 association unavailable.')
+        'No Pi Wi-Fi SDIO device on QEMU virt; WPA3 association unavailable.',
+        'No Pi Wi-Fi cores on QEMU virt; use the Pi header build.',
+        'No Pi Wi-Fi firmware CPU on QEMU virt; startup unavailable.',
+        'No Pi Wi-Fi control channel on QEMU virt; queries unavailable.',
+        'No Pi Wi-Fi capabilities on QEMU virt; query unavailable.',
+        'No Pi Wi-Fi regulatory target on QEMU virt; preparation unavailable.',
+        'No Pi Wi-Fi radio on QEMU virt; scanning unavailable.')
 }
 if ($Handoff) {
     Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1','Reported RAM: 134.217 MB (128.000 MiB)'))

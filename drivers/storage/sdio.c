@@ -2,12 +2,27 @@
 #define SDIO_ERRORS 0xffff8000u
 static uint32_t rd(struct sdio_card *c,unsigned at) { return c->io.read(c->io.context,at); }
 static void wr(struct sdio_card *c,unsigned at,uint32_t value) { c->io.write(c->io.context,at,value); }
+static enum block_result controller_error(uint32_t status)
+{ return status&((1u<<16)|(1u<<20)) ? BLOCK_TIMEOUT : BLOCK_IO; }
+static enum block_result finish(struct sdio_card *c,enum block_result r)
+{
+    c->error=r;
+    if (r==BLOCK_OK) { c->transfer_stage=SDIO_FINISHED; }
+    else {
+        if (!c->failure.valid) {
+            c->failure=(struct sdio_failure){true,r,c->transfer_stage,c->last_command,c->last_argument,c->last_response,
+                c->last_interrupt,rd(c,0x24),rd(c,4),rd(c,12),c->transfer_bytes,c->fifo_bytes};
+        }
+        c->selected=false;
+    }
+    return r;
+}
 static enum block_result irq(struct sdio_card *c,uint32_t mask)
 {
     uint64_t start=c->io.ticks(c->io.context);
     for (unsigned spin=0;spin<10000000;++spin) {
         c->last_interrupt=rd(c,0x30);
-        if (c->last_interrupt&SDIO_ERRORS) { return (c->last_interrupt&((1u<<16)|(1u<<20))) ? BLOCK_TIMEOUT : BLOCK_IO; }
+        if (c->last_interrupt&SDIO_ERRORS) { return controller_error(c->last_interrupt); }
         if (c->last_interrupt&mask) { wr(c,0x30,mask); return BLOCK_OK; }
         if (c->io.ticks(c->io.context)-start>=c->io.hz) { break; }
     }
@@ -15,11 +30,13 @@ static enum block_result irq(struct sdio_card *c,uint32_t mask)
 }
 static enum block_result command(struct sdio_card *c,unsigned index,uint32_t argument,uint32_t flags,uint32_t mode)
 {
+    c->last_command=index;c->last_argument=argument;c->last_response=0;c->last_interrupt=0;
+    c->transfer_stage=SDIO_COMMAND;c->transfer_bytes=index==53 ? rd(c,4)&4095 : 0;c->fifo_bytes=0;
     uint64_t start=c->io.ticks(c->io.context);
     for (unsigned spin=0;rd(c,0x24)&3;++spin) {
         if (spin>=1000000 || c->io.ticks(c->io.context)-start>=c->io.hz) { return BLOCK_TIMEOUT; }
     }
-    wr(c,0x30,SDIO_ERRORS|0x23); wr(c,8,argument);
+    wr(c,0x30,SDIO_ERRORS|0x33); wr(c,8,argument);
     wr(c,12,index<<24|flags<<16|mode);
     enum block_result r=irq(c,1);
     if (r==BLOCK_OK && flags) { c->last_response=rd(c,16); }
@@ -32,27 +49,97 @@ enum block_result sdio_read_byte(struct sdio_card *c,unsigned function,uint32_t 
     enum block_result r=command(c,52,function<<28|address<<9,0x1a,0);
     if (r==BLOCK_OK && (c->last_response&0xcb00)) { r=BLOCK_IO; }
     if (r==BLOCK_OK) { *value=(uint8_t)c->last_response; }
-    else { c->selected=false; }
-    c->error=r; return r;
+    return finish(c,r);
 }
 enum block_result sdio_read_bytes(struct sdio_card *c,unsigned function,uint32_t address,void *data,size_t n)
 {
     if (!c || !c->selected) { return BLOCK_NOT_READY; }
     if (!data || !n || n>512 || function>c->functions || address>0x1ffff || n>0x20000-address) { return BLOCK_ARGUMENT; }
+    /* Broadcom's common CIS is readable with CMD52 but rejects our function-0
+     * extended request (captured R5=0x1100, OUT_OF_RANGE). Do not poison a valid
+     * attachment with that optional probe. Function 0 stays on direct reads. */
+    if (!function) {
+        unsigned char *bytes=data;
+        for (size_t i=0;i<n;++i) {
+            enum block_result r=sdio_read_byte(c,0,address+(uint32_t)i,&bytes[i]);
+            if (r!=BLOCK_OK) { return r; }
+        }
+        return BLOCK_OK;
+    }
     /* Disable DMA and use one byte-mode block, with the requested byte count. */
     wr(c,4,(1u<<16)|(uint32_t)n);
-    enum block_result r=command(c,53,function<<28|1u<<26|address<<9|((uint32_t)n&511),0x3a,0x10);
+    enum block_result r=command(c,53,function<<28|1u<<26|address<<9|((uint32_t)n&511),0x3a,0x12);
     if (r==BLOCK_OK && (c->last_response&0xcb00)) { r=BLOCK_IO; }
-    if (r==BLOCK_OK) { r=irq(c,1u<<5); }
+    if (r==BLOCK_OK) { c->transfer_stage=SDIO_BUFFER;r=irq(c,1u<<5); }
     if (r==BLOCK_OK) {
         unsigned char *bytes=data;
+        c->transfer_stage=SDIO_PIO;
         for (size_t i=0;i<n;i+=4) {
             uint32_t value=rd(c,32);
             for (unsigned j=0;j<4 && i+j<n;++j) { bytes[i+j]=(unsigned char)(value>>(j*8)); }
+            c->fifo_bytes+=(unsigned)(n-i<4 ? n-i : 4);
+            c->last_interrupt=rd(c,0x30);
+            if (c->last_interrupt&SDIO_ERRORS) { r=controller_error(c->last_interrupt);break; }
         }
-        r=irq(c,2);
+        if (r==BLOCK_OK) { c->transfer_stage=SDIO_COMPLETE;r=irq(c,2); }
     }
-    if (r!=BLOCK_OK) { c->selected=false; } c->error=r; return r;
+    return finish(c,r);
+}
+enum block_result sdio_write_byte(struct sdio_card *c,unsigned function,uint32_t address,uint8_t value)
+{
+    if (!c || !c->selected) { return BLOCK_NOT_READY; }
+    if (function>c->functions || address>0x1ffff) { return BLOCK_ARGUMENT; }
+    enum block_result r=command(c,52,1u<<31|function<<28|address<<9|value,0x1a,0);
+    if (r==BLOCK_OK && (c->last_response&0xcb00)) { r=BLOCK_IO; }
+    return finish(c,r);
+}
+enum block_result sdio_write_word(struct sdio_card *c,uint32_t address,uint32_t value)
+{
+    unsigned char data[4];for (unsigned i=0;i<4;++i) { data[i]=(unsigned char)(value>>(i*8)); }
+    return sdio_write_words(c,address,data,4);
+}
+enum block_result sdio_write_words(struct sdio_card *c,uint32_t address,const void *data,size_t n)
+{
+    if (!c || !c->selected) { return BLOCK_NOT_READY; }
+    if (!data || !n || n>512 || (n&3) || c->functions<1 || (address&3) || address>0x1ffff || n>0x20000-address) { return BLOCK_ARGUMENT; }
+    wr(c,4,(1u<<16)|(uint32_t)n);
+    enum block_result r=command(c,53,1u<<31|1u<<28|1u<<26|address<<9|((uint32_t)n&511),0x3a,2);
+    if (r==BLOCK_OK && (c->last_response&0xcb00)) { r=BLOCK_IO; }
+    if (r==BLOCK_OK) { c->transfer_stage=SDIO_BUFFER;r=irq(c,1u<<4); }
+    if (r==BLOCK_OK) {
+        const unsigned char *p=data;
+        c->transfer_stage=SDIO_PIO;
+        for (size_t i=0;i<n;i+=4) {
+            wr(c,32,(uint32_t)p[i]|(uint32_t)p[i+1]<<8|(uint32_t)p[i+2]<<16|(uint32_t)p[i+3]<<24);c->fifo_bytes+=4;
+            c->last_interrupt=rd(c,0x30);
+            if (c->last_interrupt&SDIO_ERRORS) { r=controller_error(c->last_interrupt);break; }
+        }
+        if (r==BLOCK_OK) { c->transfer_stage=SDIO_COMPLETE;r=irq(c,2); }
+    }
+    return finish(c,r);
+}
+enum block_result sdio_f2_packet(struct sdio_card *c,bool write,void *data,size_t n)
+{ return sdio_f2_packet_at(c,write,0x8000,data,n); }
+enum block_result sdio_f2_packet_at(struct sdio_card *c,bool write,uint32_t address,void *data,size_t n)
+{
+    if (!c || !c->selected) { return BLOCK_NOT_READY; }
+    if (!data || !n || n>512 || (n&3) || c->functions<2 || (address&3) || address<0x8000 || address>=0x8800 || n>0x8800-address || (!write && address!=0x8000)) { return BLOCK_ARGUMENT; }
+    wr(c,4,(1u<<16)|(uint32_t)n);
+    uint32_t argument=(write ? (1u<<31|1u<<26) : 0)|2u<<28|address<<9|((uint32_t)n&511);
+    enum block_result r=command(c,53,argument,0x3a,write ? 2 : 0x12);
+    if (r==BLOCK_OK && (c->last_response&0xcb00)) { r=BLOCK_IO; }
+    if (r==BLOCK_OK) { c->transfer_stage=SDIO_BUFFER;r=irq(c,write ? 16 : 32); }
+    if (r==BLOCK_OK) {
+        unsigned char *p=data;c->transfer_stage=SDIO_PIO;
+        for (size_t i=0;i<n;i+=4) {
+            if (write) { wr(c,32,(uint32_t)p[i]|(uint32_t)p[i+1]<<8|(uint32_t)p[i+2]<<16|(uint32_t)p[i+3]<<24); }
+            else { uint32_t v=rd(c,32);for (unsigned j=0;j<4;++j) { p[i+j]=(unsigned char)(v>>(j*8)); } }
+            c->fifo_bytes+=4;c->last_interrupt=rd(c,0x30);
+            if (c->last_interrupt&SDIO_ERRORS) { r=controller_error(c->last_interrupt);break; }
+        }
+        if (r==BLOCK_OK) { c->transfer_stage=SDIO_COMPLETE;r=irq(c,2); }
+    }
+    return finish(c,r);
 }
 static enum block_result identity(struct sdio_card *c)
 {
@@ -94,9 +181,9 @@ enum block_result sdio_initialize(struct sdio_card *c,const struct sdhci_io *io)
     uint32_t clock=rd(c,0x2c),control=rd(c,0x28);
     if ((clock&7)!=7 || (clock&0x07000000) || !(control&256) || (rd(c,0x24)&3) || (rd(c,0x208)&1)) { return c->error; }
     /* This candidate supports only an already configured 3.3V legacy bus. */
-    if (((control>>9)&7)!=7 || (control&0x24) || (rd(c,0x3c)&0xf)) { c->error=BLOCK_UNSUPPORTED; return c->error; }
+    if (((control>>9)&7)!=7 || (control&0x24) || ((rd(c,0x3c)>>16)&0xf)) { c->error=BLOCK_UNSUPPORTED; return c->error; }
     c->changed=true; c->phase=SDIO_IDLE;
-    wr(c,0x38,0); wr(c,0x34,SDIO_ERRORS|0x23);
+    wr(c,0x38,0); wr(c,0x34,SDIO_ERRORS|0x33);
     wr(c,0x2c,(clock&~0x000f0000u)|(14u<<16));
     enum block_result r=command(c,0,0,0,0); if (r!=BLOCK_OK) { goto done; }
     /* CMD0 resets card width; match it on the host without changing power. */
@@ -129,5 +216,5 @@ enum block_result sdio_initialize(struct sdio_card *c,const struct sdhci_io *io)
     c->phase=SDIO_CIS; r=identity(c); if (r!=BLOCK_OK) { goto done; }
     c->phase=SDIO_READY;
 done:
-    c->error=r; if (r!=BLOCK_OK) { c->selected=false; } return r;
+    return finish(c,r);
 }

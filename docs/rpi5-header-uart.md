@@ -146,6 +146,9 @@ written by any build or verification script.
 
 The user boots this header-console image from a 32 GB USB pendrive, without a
 microSD card. The `-sd.img` suffix is a retained disk-image filename, not a
-restriction to SD media. New [USB discovery commands](usb.md) reuse the working
-firmware RP1 window without resetting PCIe or the console. Kernel pendrive
-reads are not implemented yet; `storageinit` still targets the microSD host.
+restriction to SD media. [USB commands](usb.md) reuse the working firmware RP1
+window without resetting PCIe or the console. USB2 enumeration is physically
+observed. The new `storageinit` activates read-only USB BOT when SD is absent or
+unclocked, then attempts FAT32 at `/boot`; that complete path passes QEMU tests
+and now has Pi sector/file-read evidence. Run it before `usbtest`/`usbenum` on a fresh
+boot, since the commands share a one-shot controller session.

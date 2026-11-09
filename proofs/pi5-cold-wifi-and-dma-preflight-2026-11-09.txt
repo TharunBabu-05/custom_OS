@@ -1,0 +1,95 @@
+RP1_UART 0000001c00030000
+107.01 MESS:00:01:47.013741:0: board: boardrev d04171 otp d04171
+107.19 Read /config.txt bytes      395 hnd 0x3
+107.02 MESS:00:01:47.026123:0: Initial voltage 800000 temp 37280
+107.22 MESS:00:01:47.226590:0: avs_2712: AVS pred 8680 868000 temp 37829
+107.23 MESS:00:01:47.230269:0: vpred 868 mV +0
+107.23 MESS:00:01:47.234383:0: over-voltage idle: 0 avs: 108000 delta: 0 (0x0000       0000)
+107.24 MESS:00:01:47.248104:0: FB framebuffer_swap 1
+107.24 MESS:00:01:47.249966:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+107.25 MESS:00:01:47.256894:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+107.26 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+107.71 Read PI5.DTB bytes    78770 hnd 0xa6
+107.84  /overlays/overlay_map.dtb
+107.84  /overlays/bcm2712d0.dtbo
+107.30 PCIEx1: PWR 0 DET_WAKE 0
+107.14 Read /config.txt bytes      395 hnd 0x3
+107.35 [MSD [01:00] 2.00 000000:01] /cmdline.txt not found
+107.53  /cmdline.txt
+107.35 MESS:00:01:47.355446:0: Failed to open command line file 'cmdline.txt'
+107.46 MESS:00:01:47.461365:0: RPM 0, max RPM 0
+107.47 BMD "armstub8-2712.bin" not found
+107.80 fs_open: 'armstub8-2712.bin'
+107.48 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+107.92 Read OUROS.IMG bytes    61840 hnd 0x2d
+107.49 MESS:00:01:47.493630:0: Device tree loaded to 0x200000 (size 0x13ade)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit supports SD handoff only; USB pendrive I/O is pending.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> wifiinfo
+Wi-Fi state: no FullMAC/firmware driver; scan/connect/IP unavailable.
+Firmware DT Wi-Fi node: /axi/mmc@1100000/wifi@1
+DT compatible: brcm,bcm4329-fmac
+Firmware-described MAC: 2c:cf:67:f4:99:75
+Pi 5 platform plan: BCM43455-class FullMAC over separate SDIO host 0x1001100000.
+DT compatible brcm,bcm4329-fmac is a family binding, not a measured chip ID.
+Requested network security: WPA3-Personal (SAE + protected management frames).
+Commands: wifiinfo, wifiprobe, wifiinit. No scan/connect command is available ye       t.
+SDIO init phase=0 result=device not ready selected=no
+Required next: powered SDIO CMD52/53, chip identification, board firmware,
+FullMAC protocol, SAE/PMF authentication, IP/DHCP/DNS; no network connection yet       .
+> wifiprobe
+Wi-Fi SDIO host=0x0000001001100000 CONTROL0=0x0000000000800000 CONTROL1=0x0000000000000000
+PRESENT=0x00000000000f0000 CAPS=0x0000000055eec832 CQE=0x0000000000000000
+Wi-Fi SDIO host=0x0000001001100000 clock_control=0x0000000000000000
+SDIO CMD5 query: device not ready
+Query only. wifiinit attempts SDIO enumeration on a powered legacy host; no connection yet.
+> wifiinit
+Wi-Fi init: SDIO enumeration only; no RF association or network packets.
+SDIO initialization: device not ready
+Wi-Fi SDIO host=0x0000001001100000 CONTROL0=0x0000000000800000 CONTROL1=0x0000000000000000
+PRESENT=0x00000000000f0000 CAPS=0x0000000055eec832 CQE=0x0000000000000000
+SDIO init phase=0 result=device not ready selected=no
+WPA3-Personal requested; not connected. Needs board power/clock setup if unavailable,
+chip/backplane access, firmware, FullMAC, SAE/PMF authentication and an IP stack.
+> usbprobe
+USB stage: controller discovery only; no USB disk reads or writes.
+Booting from USB uses Pi firmware; the RAM root is independent of the pendrive.
+usbinfo reads DT only; usbprobe reads xHCI registers without changing them.
+usb0: /axi/pcie@1000120000/rp1/usb@200000
+DT status=okay RP1 bus=0x000000c040200000 span=0x0000000000100000
+Firmware CPU window candidate=0x0000001c00200000
+Reading controller registers now.
+controller registers observed
+xHCI version=0x0000000000000110 slots=64 interrupters=4 ports=3 address_bits=64 context_bytes=64
+USBCMD=0x000000000000000d USBSTS=0x0000000000000000 PAGESIZE=0x0000000000000001
+Controller not halted.
+port=1 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000200
+port=2 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000200
+port=3 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000300
+usb1: /axi/pcie@1000120000/rp1/usb@300000
+DT status=okay RP1 bus=0x000000c040300000 span=0x0000000000100000
+Firmware CPU window candidate=0x0000001c00300000
+Reading controller registers now.
+controller registers observed
+xHCI version=0x0000000000000110 slots=64 interrupters=4 ports=3 address_bits=64 context_bytes=64
+USBCMD=0x000000000000000d USBSTS=0x0000000000000018 PAGESIZE=0x0000000000000001
+Controller not halted.
+port=1 PORTSC=0x0000000000200e03 connected=yes enabled=yes powered=yes speed_id=3 link_state=0 protocol_revision=0x0000000000000200
+port=2 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000200
+port=3 PORTSC=0x00000000000002a0 connected=no enabled=no powered=yes speed_id=0 link_state=5 protocol_revision=0x0000000000000300
+A connected port does not identify the pendrive or mount /boot.
+usbtest checks command/event DMA; enumeration and USB disk reads are pending.
+> usbtest
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+USB test refused: unsupported live inbound DMA mapping; no controller changes.
+> uptime
+uptime_seconds=67
+>

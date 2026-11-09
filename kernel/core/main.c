@@ -5,6 +5,8 @@
 #include "ramfs.h"
 #include "block.h"
 #include "usb.h"
+#include "crypto.h"
+#include "rng200.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -35,14 +37,23 @@ static void command(const char *line)
     if (filesystem_command(line)) { return; }
     if (storage_command(line)) { return; }
     if (usb_command(line)) { return; }
+    if (equal(line,"cryptotest")) { console_write(crypto_selftest() ? "PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.\n" : "FAIL: crypto known-answer tests; do not use authentication primitives.\n");return; }
+    if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
+        console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
         console_write("pwd ls [path] cd [path] cat <path> mkdir <path> touch <path>\n");
         console_write("write <path> <text> rm <path> rmdir <path> fsinfo\n");
-        console_write("storageinit storageinfo wifi wifiinfo wifiprobe wifiinit\n");
-        console_write("usbinfo usbprobe (discovery only; USB disk I/O pending)\n");
-        console_write("usbtest (takes over usb0, tests DMA rings, then halts it; reboot to repeat)\n");
+        console_write("storageinit storageinfo storagetest wifi wifiinfo wifiprobe wifiinit wificores\n");
+        console_write("wififiles (verify /boot assets) wifiload (upload/readback; radio CPU stays halted)\n");
+        console_write("wifistart (release verified firmware; check shared memory; no connection yet)\n");
+        console_write("wificontrol (F2/SDPCM and read-only firmware version queries)\n");
+        console_write("wificaps (features/MAC) wifiprepare <CC> (verify/load CLM, set/read country)\n");
+        console_write("wifiscan (passive scan after preparation; cached one-shot results)\n");
+        console_write("usbinfo usbprobe (discovery diagnostics)\n");
+        console_write("usbtest (takes over one USB controller, tests DMA, halts it; reboot to repeat)\n");
+        console_write("usbenum (direct USB2 device descriptors; reboot before usbtest/usbenum reuse)\n");
     } else if (equal(line,"info")) {
         console_write("OurOS development kernel | board="); console_write(board.name);
         console_write(" | EL"); console_u64(cpu_el());
@@ -124,7 +135,8 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     usb_setup(board.name,dtb,board.uart_base);
     console_write("Storage is opt-in: storageinit attempts read-only FAT32 at /boot.\n");
 #ifdef OUROS_PI5
-    console_write("Pi storageinit supports SD handoff only; USB pendrive I/O is pending.\n");
+    console_write("Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.\n");
+    console_write("For USB storage use storageinit before usbtest/usbenum on a fresh boot.\n");
     console_write("USB discovery: usbinfo (DT), usbprobe (read-only controller registers).\n");
 #endif
     console_write("Kernel monitor ready. Type help.\n> ");

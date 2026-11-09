@@ -42,12 +42,13 @@ enum usb_probe_result xhci_observe(const struct xhci_observer *io,struct xhci_sn
             if (at>limit-16) { return USB_PROBE_LAYOUT; }
             if (!read32(io,at+4,&name) || !read32(io,at+8,&range)) { return USB_PROBE_IO; }
             unsigned first=range&255,n=(range>>8)&255,psi=range>>28;
-            if (name!=0x20425355 || !first || !n || first>ports || n>ports-first+1 ||
+            if (name!=0x20425355 || (n && (!first || first>ports || n>ports-first+1)) ||
                 at+16+psi*4>limit || (next && next*4<16+psi*4)) { return USB_PROBE_LAYOUT; }
-            for (unsigned i=first-1;i<first-1+n;++i) {
-                if (out->port[i].protocol_major) { return USB_PROBE_LAYOUT; }
-                out->port[i].protocol_major=(uint8_t)(header>>24);
-                out->port[i].protocol_minor=(uint8_t)(header>>16);
+            for (unsigned i=0;i<n;++i) {
+                unsigned port=first-1+i;
+                if (out->port[port].protocol_major) { return USB_PROBE_LAYOUT; }
+                out->port[port].protocol_major=(uint8_t)(header>>24);
+                out->port[port].protocol_minor=(uint8_t)(header>>16);
             }
         }
         if (next && next*4>limit-at-4) { return USB_PROBE_LAYOUT; }

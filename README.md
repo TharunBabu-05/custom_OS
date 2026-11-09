@@ -36,13 +36,22 @@
 > RAM discovery and physical page allocation have also passed the real-Pi test.
 > Readable MB/MiB summaries and a writable RAM root also work on the physical Pi.
 > The hardware boots from a **32 GB USB pendrive**, without a microSD card.
-> Firmware loads the kernel; kernel USB disk reads are still pending. The latest
-> discovery capture confirms both USB controllers and a connected root port.
-> This phase adds `usbtest` for controller DMA and `wifiinit` for guarded SDIO
-> device identification. WPA3-Personal is the requested connection target;
+> Firmware loads the kernel; USB DMA, USB2 BOT endpoint discovery and Wi-Fi
+> function-1 identification now pass on the Pi (chip `0x4345`, revision 6).
+> Read-only USB sectors, FAT32 `/boot`, CONFIG.TXT reads and transfer/event ring
+> cycling now pass on the Pi. Radio core discovery and 800 KiB RAM sizing also
+> pass. All 609,309 firmware bytes and packed NVRAM now pass physical
+> upload/readback with the radio CPU halted. This phase adds
+> [controlled firmware startup](docs/wifi-startup.md), now verified on the Pi.
+> The [firmware query channel](docs/wifi-control.md) also passes on the Pi
+> (firmware 7.45.265). [Capability and CLM/country setup](docs/wifi-prepare.md)
+> also pass for IN / revision 0. [Passive scanning](docs/wifi-scan.md) now finds
+> Jack's with SAE and required PMF. New [crypto/RNG foundations](docs/wifi-auth-foundation.md)
+> need their physical random-source test.
+> WPA3-Personal is the requested connection target;
 > association and external-network access are still unfinished.
-> FAT32 reads pass real QEMU block-I/O tests. Pi `storageinit` targets microSD,
-> so its failure in the USB-only setup is expected. Wi-Fi connections remain ahead.
+> On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
+> driver supplies the next dependency for reading Wi-Fi firmware from disk.
 
 ## The hardware receipts
 
@@ -112,17 +121,18 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 | Time and CPU | Architectural counter reads, uptime and MIDR inspection |
 | Physical memory | DTB RAM/reservations and 4 KiB pages, also observed on the real Pi |
 | Root filesystem | Writable RAMFS with paths and monitor commands, also observed on the real Pi |
-| Storage | Read-only block layer, FAT32 and `/boot` routing; real QEMU I/O tested, Pi handoff candidate pending |
-| USB groundwork | Physical controller discovery; command/event DMA passes real QEMU xHCI tests; Pi usbtest pending, no pendrive I/O yet |
-| Wi-Fi groundwork | DT inventory, CMD5 query and guarded SDIO identification/read transport; WPA3 connection not implemented |
+| Storage | USB BOT capacity/sectors and FAT32 `/boot` observed on Pi, including reads after ring wrap; virtio tested in QEMU |
+| USB | Pi DMA/descriptors observed; configuration, bulk/event ring cycling and SCSI reads tested in QEMU |
+| Wi-Fi groundwork | Firmware, CLM/country and passive scan observed, including SAE/PMF hotspot; crypto/RNG foundation added, physical RNG test pending; authentication/IP remain |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
 
 The FAT32 boot partition is read by the Pi firmware. Our kernel creates a
 separate [RAM root filesystem](docs/ramfs.md). `storageinit` attempts a read-only
-[FAT32 mount at /boot](docs/storage.md) from microSD on Pi or virtio on QEMU.
-It does not mount the user's USB pendrive; see [USB discovery](docs/usb.md).
+[FAT32 mount at /boot](docs/storage.md) from SD handoff or experimental USB2 BOT
+on Pi, and virtio or USB on QEMU. Follow the [pendrive test](docs/usb.md) on a
+fresh boot; the latest Pi capture verifies capacity, sectors and file reads.
 [Physical memory](docs/memory.md) and RAMFS
 have hardware evidence; Pi SD reads still need their own test. MMU, heap and user
 processes remain unfinished. [Wi-Fi diagnostics](docs/wifi.md) do not provide a connection.
@@ -247,7 +257,16 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] RAM root filesystem and file commands: host/QEMU tests
 - [x] Physical Pi validation of the RAMFS and MB/MiB revision
 - [x] Read-only FAT32, mount routing and QEMU block reads
-- [ ] Physical Pi SD-card handoff and SDIO query capture
+- [x] Physical Pi USB BOT sectors, FAT32 files and bulk/event ring cycling
+- [x] Physical Pi Wi-Fi SDIO and ChipCommon identification
+- [x] Physical Pi Wi-Fi core map, 800 KiB RAM and selector restoration
+- [x] Physical Pi firmware upload/readback with CR4 halted
+- [x] Physical Pi firmware startup and shared-memory initialization
+- [x] Physical Pi read-only FullMAC control replies (firmware 7.45.265)
+- [x] Physical Pi capability/CLM/country IN verification
+- [x] Physical Pi passive scan/events including SAE + required PMF hotspot
+- [ ] Physical Pi RNG source verification, then host authentication
+- [ ] Physical Pi SD-card handoff
 - [ ] Interrupt controller, timer interrupts and virtual memory
 - [ ] Scheduling, EL0 processes and a syscall interface
 - [ ] VFS, storage and persistent filesystems

@@ -31,9 +31,14 @@ bool pi5_dma_window_read(const struct xhci_observer *io,struct pi5_dma_window *o
     out->size=1ULL<<exponent;
     out->cpu=(uint64_t)out->remap_hi<<32|(out->remap_lo&~0xfffU);
     out->bus=(uint64_t)out->bar_hi<<32|(out->bar_lo&~31U);
-    if ((out->cpu&(out->size-1)) || (out->bus&(out->size-1)) ||
-        out->bus<0x1000000000ULL || out->bus>=0x2000000000ULL ||
-        out->size>0x2000000000ULL-out->bus || out->size-1>UINT64_MAX-out->cpu) { return false; }
+    /* RP1's 0..512 GiB outbound aperture is direct mapped. Firmware on the
+     * captured Pi maps RC BAR2 at PCI address zero; Linux's DT describes a
+     * different, later layout. Accept only these two known inbound profiles. */
+    bool identity=out->bus==0 && out->cpu==0 && out->size<=0x1000000000ULL;
+    bool relocated=out->bus>=0x1000000000ULL && out->bus<0x2000000000ULL &&
+        out->size<=0x2000000000ULL-out->bus;
+    if ((out->cpu&(out->size-1)) || (out->bus&(out->size-1)) || (!identity && !relocated) ||
+        out->size-1>UINT64_MAX-out->cpu) { return false; }
     return true;
 }
 bool pi5_dma_address(const struct pi5_dma_window *w,uint64_t physical,size_t length,uint64_t *bus)

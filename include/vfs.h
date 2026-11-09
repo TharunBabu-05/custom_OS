@@ -4,6 +4,7 @@
 /* Two mount routes: writable RAM root and one read-only FAT volume at /boot. */
 enum fs_result vfs_mount_boot(const struct block_device *device);
 bool vfs_boot_mounted(void);
+enum fs_result vfs_boot_open(const char *absolute,struct fat32_file *file);
 void vfs_boot_info(void);
 enum fs_result vfs_resolve(const char *cwd,const char *path,char *absolute,bool *directory);
 enum fs_result vfs_list(const char *absolute,ramfs_emit emit,void *context);

@@ -1,0 +1,131 @@
+ RP1_UART 0000001c00030000
+ 32.92 MESS:00:00:32.924627:0: board: boardrev d04171 otp d04171
+ 32.29 Read /config.txt bytes      395 hnd 0x3
+ 32.93 MESS:00:00:32.936997:0: Initial voltage 800000 temp 36730
+ 33.13 MESS:00:00:33.137472:0: avs_2712: AVS pred 8690 869000 temp 36730
+ 33.14 MESS:00:00:33.141148:0: vpred 869 mV +0
+ 33.14 MESS:00:00:33.145266:0: over-voltage idle: 0 avs: 109000 delta: 0 (0x00000000)
+ 33.15 MESS:00:00:33.158965:0: FB framebuffer_swap 1
+ 33.16 MESS:00:00:33.160822:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+ 33.16 MESS:00:00:33.167752:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+ 33.17 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+ 33.82 Read PI5.DTB bytes    78770 hnd 0xd9
+ 33.95  /overlays/overlay_map.dtb
+ 33.95  /overlays/bcm2712d0.dtbo
+ 33.21 PCIEx1: PWR 0 DET_WAKE 0
+ 33.25 Read /config.txt bytes      395 hnd 0x3
+ 33.26 [MSD [01:00] 2.00 000000:01] /cmdline.txt not found
+ 33.64  /cmdline.txt
+ 33.26 MESS:00:00:33.266509:0: Failed to open command line file 'cmdline.txt'
+ 33.37 MESS:00:00:33.372424:0: RPM 0, max RPM 0
+ 33.39 BMD "armstub8-2712.bin" not found
+ 33.91 fs_open: 'armstub8-2712.bin'
+ 33.39 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+ 33.04 Read OUROS.IMG bytes    87612 hnd 0x2d
+ 33.40 MESS:00:00:33.405680:0: Device tree loaded to 0x200000 (size 0x13ade)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+/boot: FAT32 read-only start_lba=2048 sectors=260096 clusters=255968
+> wifiinit
+Wi-Fi init: SDIO enumeration only; no RF association or network packets.
+Cold Wi-Fi host: preparing WLAN power, pins and 400 kHz clock.
+Board preparation: ok
+SDIO initialization: ok
+Function-1 backplane identify: ok
+Wi-Fi SDIO host=0x0000001001100000 CONTROL0=0x0000000000800f00 CONTROL1=0x00000000000efa07
+PRESENT=0x0000000001f70000 CAPS=0x0000000015eac832 CQE=0x0000000000000000
+Board power phase=6 result=ok stepping=0x0000000027120030 SD_clock_hz=400000
+SDIO init phase=7 result=ok selected=yes
+R4=0x00000000b0ffff00 RCA=0x0000000000000001 functions=3 CCCR=3 SDIO_revision=4
+last_irq=0x0000000000000002 last_response=0x0000000000001000
+SDIO CIS vendor=0x00000000000002d0 device=0x0000000000004345 (SDIO identity; not backplane chip/revision)
+Broadcom phase=4 result=ok clock_csr=0x0000000000000061
+ChipCommon ID word=0x0000000015264345 chip=0x0000000000004345 revision=6
+WPA3-Personal requested; not connected. Remaining: core discovery/upload,
+board firmware, FullMAC, SAE/PMF authentication and an IP stack.
+> wificores
+Reading AI core table and CR4 RAM banks; no CPU/D11 reset, firmware upload or RF packets.
+Wi-Fi core discovery: ok core_map=valid RAM=measured
+EROM=0x000000001810a000 words=88 cores=5
+core=0x0000000000000800 ChipCommon rev=51 base=0x0000000018000000 wrapper=0x0000000018100000
+core=0x0000000000000812 D11 WLAN rev=54 base=0x0000000018001000 wrapper=0x0000000018101000
+core=0x000000000000083e ARM CR4 rev=9 base=0x0000000018002000 wrapper=0x0000000018102000
+core=0x000000000000083c other rev=14 base=0x0000000018003000 wrapper=0x0000000018103000
+core=0x0000000000000829 SDIO device rev=21 base=0x0000000018004000 wrapper=0x0000000018104000
+CR4 ioctl=0x0000000000000021 reset=0x0000000000000000 capability=0x0000000000000b44 banks=8
+CR4 bank selector restored and verified.
+Wi-Fi RAM base (chip map)=0x0000000000198000 bytes=819200 KiB=800
+bank=0 bytes=131072
+bank=1 bytes=131072
+bank=2 bytes=131072
+bank=3 bytes=32768
+bank=4 bytes=131072
+bank=5 bytes=65536
+bank=6 bytes=131072
+bank=7 bytes=65536
+> wifiinfo
+Wi-Fi state: no FullMAC/firmware driver; scan/connect/IP unavailable.
+Firmware DT Wi-Fi node: /axi/mmc@1100000/wifi@1
+DT compatible: brcm,bcm4329-fmac
+Firmware-described MAC: 2c:cf:67:f4:99:75
+Pi 5 platform plan: BCM43455-class FullMAC over separate SDIO host 0x1001100000.
+DT compatible brcm,bcm4329-fmac is a family binding, not a measured chip ID.
+Requested network security: WPA3-Personal (SAE + protected management frames).
+Commands: wifiinfo, wifiprobe, wifiinit, wificores. No scan/connect command is available yet.
+Board power phase=6 result=ok stepping=0x0000000027120030 SD_clock_hz=400000
+SDIO init phase=7 result=ok selected=yes
+R4=0x00000000b0ffff00 RCA=0x0000000000000001 functions=3 CCCR=3 SDIO_revision=4
+last_irq=0x0000000000000002 last_response=0x0000000000001000
+SDIO CIS vendor=0x00000000000002d0 device=0x0000000000004345 (SDIO identity; not backplane chip/revision)
+Broadcom phase=4 result=ok clock_csr=0x0000000000000061
+ChipCommon ID word=0x0000000015264345 chip=0x0000000000004345 revision=6
+Wi-Fi core discovery: ok core_map=valid RAM=measured
+EROM=0x000000001810a000 words=88 cores=5
+core=0x0000000000000800 ChipCommon rev=51 base=0x0000000018000000 wrapper=0x0000000018100000
+core=0x0000000000000812 D11 WLAN rev=54 base=0x0000000018001000 wrapper=0x0000000018101000
+core=0x000000000000083e ARM CR4 rev=9 base=0x0000000018002000 wrapper=0x0000000018102000
+core=0x000000000000083c other rev=14 base=0x0000000018003000 wrapper=0x0000000018103000
+core=0x0000000000000829 SDIO device rev=21 base=0x0000000018004000 wrapper=0x0000000018104000
+CR4 ioctl=0x0000000000000021 reset=0x0000000000000000 capability=0x0000000000000b44 banks=8
+CR4 bank selector restored and verified.
+Wi-Fi RAM base (chip map)=0x0000000000198000 bytes=819200 KiB=800
+bank=0 bytes=131072
+bank=1 bytes=131072
+bank=2 bytes=131072
+bank=3 bytes=32768
+bank=4 bytes=131072
+bank=5 bytes=65536
+bank=6 bytes=131072
+bank=7 bytes=65536
+Required next: load board firmware after chip identity,
+FullMAC protocol, SAE/PMF authentication, IP/DHCP/DNS; no network connection yet.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x000000006a004021
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> uptime
+uptime_seconds=39
+>

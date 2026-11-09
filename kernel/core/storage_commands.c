@@ -3,16 +3,19 @@
 #include "console.h"
 #include "dt_property.h"
 #include "wifi.h"
+#include "wifi_files.h"
 static struct block_device disk;
 static bool attached;
+static uintptr_t wifi_dtb;
 static const char *board_name;
 static char wifi_path[256],wifi_compatible[64];
 static unsigned char wifi_mac[6];
 static bool have_wifi_mac;
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a; ++b; } return *a==*b; }
+static bool begins(const char *a,const char *b) { while (*b) { if (*a++!=*b++) { return false; } }return true; }
 void storage_setup(const char *board,uintptr_t dtb)
 {
-    board_name=board; const unsigned char *p; uint32_t n;
+    board_name=board; wifi_dtb=dtb; const unsigned char *p; uint32_t n;
     if (!dtb || !dt_property((const void *)dtb,0x200000,"/aliases","wifi0",&p,&n) ||
         n<2 || n>sizeof(wifi_path) || p[n-1]) { return; }
     for (uint32_t i=0;i<n;++i) { wifi_path[i]=(char)p[i]; }
@@ -26,13 +29,18 @@ void storage_setup(const char *board,uintptr_t dtb)
 }
 bool storage_command(const char *line)
 {
-    if (same(line,"wifiinit")) { platform_wifi_init(); return true; }
+    if (same(line,"wifiinit")) { platform_wifi_init(wifi_dtb); return true; }
+    if (same(line,"wificores")) { platform_wifi_cores(); return true; }
+    if (same(line,"wififiles")) { wifi_files_command(); return true; }
+    if (same(line,"wifiload")) { platform_wifi_load(); return true; }
+    if (same(line,"wifistart")) { platform_wifi_start(); return true; }
+    if (same(line,"wificontrol")) { platform_wifi_control(); return true; }
+    if (same(line,"wificaps")) { platform_wifi_caps(); return true; }
+    if (same(line,"wifiscan")) { platform_wifi_scan(); return true; }
+    if (same(line,"wifiprepare")) { platform_wifi_prepare(""); return true; }
+    if (begins(line,"wifiprepare ")) { platform_wifi_prepare(line+12);return true; }
     if (same(line,"wifiprobe")) { platform_wifi_probe(); return true; }
     if (same(line,"storageinit")) {
-        if (board_name && board_name[0]=='r') {
-            console_write("Pi storageinit targets the microSD slot, not USB storage.\n");
-            console_write("For a USB boot pendrive, use usbinfo/usbprobe; USB disk I/O is pending.\n");
-        }
         if (!ramfs_get_stats().ready) { console_write("Storage mount requires an available RAM root.\n"); return true; }
         if (!attached) { attached=platform_storage_attach(&disk); }
         if (!attached) {
@@ -45,6 +53,18 @@ bool storage_command(const char *line)
         }
         vfs_boot_info(); return true;
     }
+    if (same(line,"storagetest")) {
+        if (!attached) { console_write("Run storageinit first.\n"); return true; }
+        unsigned char sector[512]; uint32_t hash=2166136261u;
+        uint64_t count=disk.capacity_known && disk.sectors<512 ? disk.sectors : 512;
+        for (uint64_t lba=0;lba<count;++lba) {
+            enum block_result r=block_read(&disk,lba,sector);
+            if (r!=BLOCK_OK) { console_write("Storage read test failed: "); console_write(block_error(r)); console_write("\n"); return true; }
+            for (unsigned i=0;i<512;++i) { hash=(hash^sector[i])*16777619u; }
+        }
+        console_write("PASS: read-only storage sectors="); console_u64(count);
+        console_write(" fnv1a32="); console_hex(hash); console_write("\n"); return true;
+    }
     if (same(line,"storageinfo")) {
         platform_storage_info();
         if (attached) {
@@ -55,7 +75,7 @@ bool storage_command(const char *line)
         vfs_boot_info(); return true;
     }
     if (same(line,"wifiinfo") || same(line,"wifi")) {
-        console_write("Wi-Fi state: no FullMAC/firmware driver; scan/connect/IP unavailable.\n");
+        console_write("Wi-Fi state: manual firmware/control bring-up; wifiscan is opt-in; connect/IP unavailable.\n");
         if (wifi_path[0]) {
             console_write("Firmware DT Wi-Fi node: "); console_write(wifi_path);
             console_write("\nDT compatible: "); console_write(wifi_compatible); console_write("\n");
@@ -72,10 +92,12 @@ bool storage_command(const char *line)
             console_write("DT compatible brcm,bcm4329-fmac is a family binding, not a measured chip ID.\n");
         } else { console_write("QEMU virt has no emulated Pi Wi-Fi adapter.\n"); }
         console_write("Requested network security: WPA3-Personal (SAE + protected management frames).\n");
-        console_write("Commands: wifiinfo, wifiprobe, wifiinit. No scan/connect command is available yet.\n");
+        console_write("Commands: wifiinfo, wifiprobe, wifiinit, wificores, wififiles, wifiload, wifistart, wificontrol.\n");
+        console_write("wificaps (read features/MAC) wifiprepare <CC> (CLM + country, no scan)\n");
+        console_write("wifiscan (passive scan after country preparation; one-shot results)\n");
         platform_wifi_status();
-        console_write("Required next: powered SDIO CMD52/53, chip identification, board firmware,\n");
-        console_write("FullMAC protocol, SAE/PMF authentication, IP/DHCP/DNS; no network connection yet.\n"); return true;
+        console_write("Next stages: verify passive scan/events, then host authentication,\n");
+        console_write("SAE/PMF authentication, IP/DHCP/DNS; no network connection yet.\n"); return true;
     }
     return false;
 }

@@ -9,10 +9,15 @@ struct fat32_volume {
     bool ready;
 };
 struct fat32_entry { char name[13]; uint32_t cluster,size; bool directory; };
+/* Read-only opened file. Validate its complete chain once, then use a fixed
+ * cluster index for bounded binary reads without repeated chain traversal. */
+struct fat32_file { struct fat32_volume *volume; struct fat32_entry entry; uint32_t chain[4096]; unsigned clusters; bool ready; };
 typedef bool (*fat32_emit)(const struct fat32_entry *entry,void *context);
 enum fs_result fat32_mount(struct fat32_volume *volume,const struct block_device *device);
 enum fs_result fat32_lookup(struct fat32_volume *volume,const char *path,struct fat32_entry *entry);
 enum fs_result fat32_list(struct fat32_volume *volume,const char *path,fat32_emit emit,void *context);
 enum fs_result fat32_read(struct fat32_volume *volume,const struct fat32_entry *entry,uint32_t offset,
                          void *buffer,size_t capacity,size_t *read_count);
+enum fs_result fat32_open(struct fat32_volume *volume,const char *path,struct fat32_file *file);
+enum fs_result fat32_file_read(const struct fat32_file *file,uint32_t offset,void *buffer,size_t capacity,size_t *read_count);
 #endif

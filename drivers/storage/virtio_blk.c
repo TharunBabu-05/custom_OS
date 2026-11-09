@@ -4,6 +4,7 @@
 #include "console.h"
 #include "cpu.h"
 #include "wifi.h"
+#include "xhci_test.h"
 struct descriptor { uint64_t address; uint32_t length; uint16_t flags,next; };
 struct available { uint16_t flags,index,ring[8],event; };
 struct used { uint16_t flags,index; struct { uint32_t id,length; } ring[8]; uint16_t event; };
@@ -15,6 +16,7 @@ static volatile unsigned char bounce[512] __attribute__((aligned(16)));
 static volatile unsigned char completion;
 static uintptr_t base;
 static bool ready;
+static bool usb_backend;
 static uint32_t rd(unsigned offset) { uint32_t value=*(volatile uint32_t *)(base+offset); __asm__ volatile("dmb sy" ::: "memory"); return value; }
 static void wr(unsigned offset,uint32_t value) { __asm__ volatile("dmb sy" ::: "memory"); *(volatile uint32_t *)(base+offset)=value; }
 static void address(unsigned offset,uintptr_t value) { wr(offset,(uint32_t)value); wr(offset+4,(uint32_t)(value>>32)); }
@@ -49,7 +51,8 @@ bool platform_storage_attach(struct block_device *device)
         volatile uint32_t *regs=(volatile uint32_t *)candidate;
         if (regs[0]==0x74726976 && regs[2]==2) { base=candidate; break; }
     }
-    if (!base || rd(4)!=2) { return false; }
+    if (!base) { usb_backend=true; return usb_storage_attach(device); }
+    if (rd(4)!=2) { return false; }
     wr(0x70,0); if (rd(0x70)!=0) { return false; }
     wr(0x70,1); wr(0x70,3);
     wr(0x14,1); if (!(rd(0x10)&1)) { return false; }
@@ -71,9 +74,17 @@ bool platform_storage_attach(struct block_device *device)
 }
 void platform_storage_info(void)
 {
+    if (usb_backend) { usb_storage_info(); return; }
     console_write("QEMU virtio-mmio block: "); console_write(ready ? "ready (read-only driver)" : "not attached / no suitable device");
     console_write("\nMMIO base="); console_hex(base); console_write("\n");
 }
 void platform_wifi_probe(void) { console_write("No Pi Wi-Fi SDIO device on QEMU virt.\n"); }
-void platform_wifi_init(void) { console_write("No Pi Wi-Fi SDIO device on QEMU virt; WPA3 association unavailable.\n"); }
+void platform_wifi_init(uintptr_t dtb) { (void)dtb; console_write("No Pi Wi-Fi SDIO device on QEMU virt; WPA3 association unavailable.\n"); }
 void platform_wifi_status(void) { console_write("No live Pi SDIO transport on QEMU virt.\n"); }
+void platform_wifi_cores(void) { console_write("No Pi Wi-Fi cores on QEMU virt; use the Pi header build.\n"); }
+void platform_wifi_load(void) { console_write("No Pi Wi-Fi firmware target on QEMU virt; wififiles can verify the boot assets.\n"); }
+void platform_wifi_start(void) { console_write("No Pi Wi-Fi firmware CPU on QEMU virt; startup unavailable.\n"); }
+void platform_wifi_control(void) { console_write("No Pi Wi-Fi control channel on QEMU virt; queries unavailable.\n"); }
+void platform_wifi_caps(void) { console_write("No Pi Wi-Fi capabilities on QEMU virt; query unavailable.\n"); }
+void platform_wifi_prepare(const char *country) { (void)country;console_write("No Pi Wi-Fi regulatory target on QEMU virt; preparation unavailable.\n"); }
+void platform_wifi_scan(void) { console_write("No Pi Wi-Fi radio on QEMU virt; scanning unavailable.\n"); }

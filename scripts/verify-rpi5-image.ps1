@@ -79,6 +79,14 @@ $reviewed=$reviewed.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace(
 Require ($config -ceq $reviewed) 'Boot configuration mismatch'
 $assets=Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'boot/rpi5/assets.json') | ConvertFrom-Json
 Require ((Get-FileHash (Join-Path $work 'files/PI5.DTB')).Hash -eq $assets.files[0].sha256) 'DTB pin mismatch'
+if ($expected.PSObject.Properties['wifi_revision']) {
+    $wifiPins=Get-Content -Raw (Join-Path $ProjectRoot 'boot/wifi/assets.json') | ConvertFrom-Json
+    Require ($expected.wifi_revision -eq $wifiPins.revision) 'Wi-Fi revision mismatch'
+    foreach ($asset in $wifiPins.files) {
+        $file=Join-Path $work "files/$($asset.name)"
+        Require ((Get-Item -LiteralPath $file).Length -eq $asset.bytes -and (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -eq $asset.sha256) "Wi-Fi asset pin mismatch: $($asset.name)"
+    }
+}
 $kernel=[IO.File]::ReadAllBytes((Join-Path $work 'files/OUROS.IMG'))
 $isHeader=[Text.Encoding]::ASCII.GetString($kernel).Contains("rpi5-header`0")
 Require ($isHeader -eq ($console -eq 'header')) 'Kernel/console profile mismatch'

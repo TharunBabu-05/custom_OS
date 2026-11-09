@@ -8,6 +8,9 @@
 #include "xhci_test.h"
 void ring_tests(void);
 void platform_usb_test(uintptr_t dtb,uintptr_t uart_base) { (void)dtb; (void)uart_base; }
+void platform_usb_enumerate(uintptr_t dtb,uintptr_t uart_base) { (void)dtb; (void)uart_base; }
+bool platform_usb_storage_attach(uintptr_t dtb,uintptr_t uart_base,struct block_device *device)
+{ (void)dtb; (void)uart_base; (void)device; return false; }
 static char output[16384]; static size_t output_length;
 void console_write(const char *text)
 {
@@ -60,6 +63,7 @@ static void observer_tests(void)
     seed(); registers[6]=0; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
     seed(); registers[4]=(0x3000u<<16)|1; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
     seed(); registers[0x408/4]=0x0200; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
+    seed(); registers[0x418/4]=0; assert(xhci_observe(&io,&out)==USB_PROBE_OK);
     seed(); registers[0x418/4]=0x0202; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
     seed(); registers[0x408/4]|=1u<<28; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
     seed(); registers[0x404/4]=0; assert(xhci_observe(&io,&out)==USB_PROBE_LAYOUT);
@@ -129,4 +133,26 @@ static void dt_tests(void)
     free(data); puts("PASS: both actual Pi DT USB hosts, alias/reg validation, truncation and 2000 DT mutations");
     puts("PASS: command routing, QEMU refusal, UART mapping guard and DT-only USB inventory with correct CPU candidates");
 }
-int main(void) { observer_tests(); dt_tests(); ring_tests(); return 0; }
+static void descriptor_tests(void)
+{
+    const unsigned char device[]={18,1,0,2,0,0,0,64,0x34,0x12,0x78,0x56,0,1,0,0,0,1};
+    unsigned char config[256]={9,2,32,0,1,1,0,0x80,50,9,4,0,0,2,8,6,0x50,0,7,5,2,2,0,2,0,7,5,0x81,2,0,2,0};
+    struct usb_device_info info={0};
+    assert(usb_parse_device(device,sizeof(device),&info) && info.vendor==0x1234 && info.product==0x5678);
+    assert(usb_parse_configuration(config,32,&info) && info.mass_storage && info.bulk_in==0x81 && info.bulk_out==2);
+    assert(info.bulk_in_packet==512 && info.bulk_out_packet==512 && info.configuration==1);
+    for (unsigned i=0;i<32;++i) { assert(!usb_parse_configuration(config,i,&info)); }
+    config[9]=0; assert(!usb_parse_configuration(config,32,&info)); config[9]=9;
+    config[27]=0x82; assert(usb_parse_configuration(config,32,&info));
+    config[20]=0x82; assert(!usb_parse_configuration(config,32,&info)); config[20]=2; config[27]=0x81;
+    config[4]=2; assert(!usb_parse_configuration(config,32,&info)); config[4]=1;
+    const unsigned char extra[]={9,4,1,0,0,0xff,0,0,0,0,0}; memcpy(config+32,extra,sizeof(extra));
+    config[2]=43; config[4]=2; assert(!usb_parse_configuration(config,43,&info)); config[2]=32; config[4]=1;
+    uint32_t random=0x51913;
+    for (unsigned i=0;i<2000;++i) {
+        random=random*1664525u+1013904223u; unsigned at=random%32; unsigned char old=config[at];
+        config[at]^=(unsigned char)(1u<<(i%8)); (void)usb_parse_configuration(config,32,&info); config[at]=old;
+    }
+    puts("PASS: USB device/configuration/BOT descriptor bounds, truncated/malformed chains, interface counts and 2000 mutations");
+}
+int main(void) { observer_tests(); dt_tests(); ring_tests(); descriptor_tests(); return 0; }

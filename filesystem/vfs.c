@@ -13,6 +13,14 @@ enum fs_result vfs_mount_boot(const struct block_device *device)
     return fat32_mount(&boot,device);
 }
 bool vfs_boot_mounted(void) { return boot.ready; }
+enum fs_result vfs_boot_open(const char *absolute,struct fat32_file *file)
+{
+    if (file) { file->ready=false; }
+    if (!absolute || !file) { return FS_BAD_ARGUMENT; }
+    const char *path=boot_path(absolute);
+    if (!boot.ready || !path) { return FS_NOT_READY; }
+    return fat32_open(&boot,path,file);
+}
 bool vfs_read_only(const char *path) { return path && boot_path(path)!=NULL; } /* Reserved mountpoint even before attachment. */
 void vfs_boot_info(void)
 {

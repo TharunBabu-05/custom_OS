@@ -1,17 +1,18 @@
 # Storage phase: block reads and a FAT32 boot mount
 
 **Current hardware: the user boots from a 32 GB USB pendrive, with no microSD
-card.** The posted physical capture confirms kernel/RAMFS startup, root layout
-and firmware Wi-Fi inventory. `storageinit` cannot mount that pendrive: it selects
-the empty/unclocked microSD host (`control1=0` in the capture) and returns an
-unsupported handoff state. That does not invalidate the USB boot or RAMFS test.
-`/boot` is unmounted, so CONFIG.TXT is unavailable there. Firmware USB loading
-and kernel USB storage are separate. The next [USB phase](usb.md) adds `usbinfo`
-and an opt-in read-only `usbprobe`; USB mass-storage reads remain pending.
+card.** The latest [physical capture](../proofs/pi5-usb-fat-and-ring-wrap-2026-11-09.txt)
+proves USB2 BOT capacity/sector reads, FAT32 listing and CONFIG.TXT reads.
+This revision makes `storageinit` use experimental USB2 BOT when the SD host is
+absent, unpowered or unclocked. It reads capacity/sectors and attempts FAT32 at
+`/boot`. The complete USB/FAT path passes QEMU tests and is now observed on the
+Pi, including reads after all rings wrap. Follow the [pendrive test](usb.md#current-storage-test-run-this-first-after-reboot)
+before `usbtest`/`usbenum`, on a fresh boot. An older empty `/boot` after an SD
+handoff failure did not invalidate firmware USB boot or the RAMFS test.
 
 This revision adds a read-only block API, a bounded FAT32 reader, and routing
 between the RAM root and `/boot`. Real QEMU virtio block I/O and native tests
-pass. **Pi SD reads and the new SDIO query still require physical captures.**
+pass. **Pi SD reads remain unverified; Wi-Fi SDIO/chip identification is now observed.**
 The previous RAMFS revision now has physical Pi evidence from the user's
 screenshots, including file creation, navigation, reads and MB/MiB summaries.
 
@@ -79,7 +80,9 @@ while `/README.txt`, `/etc/board` and files under `/home` are RAMFS objects.
 If attachment fails, capture **all `storageinfo` output and the boot log**.
 Do not treat an unmounted empty `/boot` as successful card access. If the card
 booted through USB storage instead of the onboard SD slot, the SD driver does
-not automatically follow it. No USB mass-storage or NVMe driver is provided.
+not automatically follow it through the SD host. The USB fallback is separate,
+uses a one-shot controller takeover and currently requires the header UART's
+known RP1 mapping. No NVMe driver is provided.
 
 ## Pi driver contract
 
@@ -102,8 +105,14 @@ Waits have architectural-timer deadlines plus bounded polling loops. A timeout,
 CRC or card-status error disables further reads through that attachment. The
 driver changes controller command/PIO/status registers, but never issues a
 card write/erase command, writes data to the card FIFO, or changes power/voltage.
-`storageinfo` reads controller registers; `storageinit` attempts the handoff.
+`storageinfo` reads controller registers or cached USB state; `storageinit`
+attempts the handoff or USB fallback.
 No driver is probed automatically at boot.
+
+The USB backend uses the same block/FAT/VFS API. `storagetest` reads the first
+512 sectors and prints an FNV-1a checksum without writing disk data. It is
+available for SD and virtio too. See [USB implementation limits](usb.md) for
+the BOT command allowlist, ring cycling and failure behavior.
 
 ## Shared block and FAT32 code
 
