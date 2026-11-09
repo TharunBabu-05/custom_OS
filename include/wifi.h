@@ -11,4 +11,6 @@ void platform_wifi_control(void);
 void platform_wifi_caps(void);
 void platform_wifi_prepare(const char *country);
 void platform_wifi_scan(void);
+void platform_wifi_target(const char *ssid);
+void platform_wifi_auth_prepare(const char *ssid);
 #endif

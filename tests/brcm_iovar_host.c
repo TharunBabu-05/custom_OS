@@ -22,7 +22,13 @@ static enum block_result packet(void *ctx,bool write,void *buffer,size_t n)
         unsigned namelen=(unsigned)strlen((char *)p+28)+1;assert(namelen<=payload);
         if (!strcmp((char *)p+28,"cap")) { assert(!set && payload==772); }
         else if (!strcmp((char *)p+28,"cur_etheraddr")) { assert(!set && payload==20); }
-        else if (!strcmp((char *)p+28,"mfp")) { assert(!set && payload==8); }
+        else if (!strcmp((char *)p+28,"mfp")) { assert(payload==8); }
+        else if (!strcmp((char *)p+28,"auth") || !strcmp((char *)p+28,"wpa_auth") || !strcmp((char *)p+28,"wsec")) { assert(payload==namelen+4); }
+        else if (!strcmp((char *)p+28,"event_msgs_ext")) {
+            assert(payload==(set ? 44u : 274u) && p[28+namelen]==1);
+            if (!set) { assert(p[29+namelen]==0 && p[30+namelen]==255 && p[31+namelen]==255); }
+        }
+        else if (!strcmp((char *)p+28,"mgmt_frame")) { assert(set && payload==147 && p[28+namelen+10]==0xb0 && get32(p+28+namelen+28)==0x12345678); }
         else { assert(!strcmp((char *)p+28,"clmload") && set && payload==1420 && n==1448);for (unsigned i=0;i<1412;++i) { assert(p[28+namelen+i]==(unsigned char)(i*19)); } }
         unsigned out=set ? 0 : payload,len=28+out;memset(m.response,0,sizeof(m.response));
         put32(m.response,((uint32_t)(uint16_t)~len<<16)|len);m.response[4]=(unsigned char)m.sequence++;m.response[7]=12;m.response[9]=(uint8_t)(state.tx_seq+4);
@@ -65,6 +71,15 @@ int main(void)
     assert(brcm_control_iovar(&io,&state,false,"mfp",NULL,0,output,4,&n,&status)==BLOCK_OK && state.tx_seq==0 && state.request_id==0 && state.rx_seq==0);
     seed();assert(brcm_control_iovar(&io,&state,true,"ssid",NULL,0,NULL,0,&n,&status)==BLOCK_UNSUPPORTED && !m.calls);
     assert(brcm_control_iovar(&io,&state,false,"cap",input,769,output,768,&n,&status)==BLOCK_ARGUMENT && !m.calls);
+    unsigned char ext[259]={1,0,255,255},word[4]={3},auth[136]={0};
+    assert(brcm_control_iovar(&io,&state,false,"event_msgs_ext",ext,259,output,259,&n,&status)==BLOCK_OK && n==259);
+    ext[1]=3;ext[2]=25;ext[3]=0;
+    assert(brcm_control_iovar(&io,&state,true,"event_msgs_ext",ext,29,NULL,0,&n,&status)==BLOCK_OK);
+    assert(brcm_control_iovar(&io,&state,true,"auth",word,4,NULL,0,&n,&status)==BLOCK_OK);
+    assert(brcm_control_iovar(&io,&state,false,"wpa_auth",NULL,0,output,4,&n,&status)==BLOCK_OK && n==4);
+    auth[10]=0xb0;put32(auth+28,0x12345678);
+    assert(brcm_control_iovar(&io,&state,true,"mgmt_frame",auth,136,NULL,0,&n,&status)==BLOCK_OK);
+    puts("PASS: extended-mask GET input header, policy IOVARs and management-frame SET transported through actual CDC/SDPCM framing");
     puts("PASS: restricted IOVAR GET/SET framing, 1448-byte CLM TX, 800-byte multi-part RX, padded results/copy bounds, SET reply variants and ID/sequence wrap");
     puts("PASS: rejected firmware request preserves transport, later I/O failure poisons it; no access after failure and no arbitrary SET interface");return 0;
 }

@@ -48,6 +48,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi IOVAR test compilation failed' }
     & ./build/wifi-tests/test-iovar.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi IOVAR tests failed' }
+    & "$PSScriptRoot/test-brcm-auth.ps1" -HostCompiler $HostCompiler
     & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_prepare_host.c drivers/storage/brcm_prepare.c drivers/storage/brcm_firmware.c lib/sha256.c -o build/wifi-tests/test-prepare.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi preparation test compilation failed' }
     & ./build/wifi-tests/test-prepare.exe
@@ -56,6 +57,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi scan test compilation failed' }
     & ./build/wifi-tests/test-scan.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi scan tests failed' }
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/wifi_target_host.c drivers/storage/wifi_target.c drivers/storage/brcm_scan.c drivers/storage/brcm_prepare.c drivers/storage/brcm_firmware.c lib/sha256.c -o build/wifi-tests/test-target.exe
+    if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi target test compilation failed' }
+    & ./build/wifi-tests/test-target.exe
+    if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi target tests failed' }
     & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_scan_transport_host.c drivers/storage/brcm_control.c drivers/storage/brcm_scan.c drivers/storage/brcm_prepare.c drivers/storage/brcm_firmware.c lib/sha256.c -o build/wifi-tests/test-scan-transport.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi scan transport test compilation failed' }
     & ./build/wifi-tests/test-scan-transport.exe
@@ -64,6 +69,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Crypto test compilation failed' }
     & ./build/wifi-tests/test-crypto.exe
     if ($LASTEXITCODE -ne 0) { throw 'Crypto tests failed' }
+    & "$PSScriptRoot/test-p256.ps1" -HostCompiler $HostCompiler
+    & "$PSScriptRoot/test-sae-h2e.ps1" -HostCompiler $HostCompiler
+    & "$PSScriptRoot/test-sae-session.ps1" -HostCompiler $HostCompiler
     & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/rng200_host.c drivers/random/rng200.c drivers/random/pi5_rng200.c kernel/core/dt_property.c lib/crypto.c lib/sha256.c -o build/wifi-tests/test-rng.exe
     if ($LASTEXITCODE -ne 0) { throw 'RNG test compilation failed' }
     & ./build/wifi-tests/test-rng.exe

@@ -120,8 +120,9 @@ enum block_result brcm_control_iovar(const struct brcm_control_io *io,struct brc
     if (!s->ready || s->error!=BLOCK_OK || !s->f2_ready) { return BLOCK_NOT_READY; }
     unsigned name_length=0;while (name_length<32 && name[name_length]) { ++name_length; }
     if (!name_length || name_length==32) { return BLOCK_ARGUMENT; }++name_length;
-    bool allowed=set ? same(name,"clmload") || same(name,"country") || same(name,"event_msgs") || same(name,"escan") :
-        same(name,"cap") || same(name,"mfp") || same(name,"sup_wpa") || same(name,"cur_etheraddr") || same(name,"clmver") || same(name,"clmload_status") || same(name,"country") || same(name,"event_msgs") || same(name,"scan_ver");
+    bool auth_policy=same(name,"auth") || same(name,"wpa_auth") || same(name,"wsec") || same(name,"mfp");
+    bool allowed=set ? same(name,"clmload") || same(name,"country") || same(name,"event_msgs") || same(name,"escan") || auth_policy || same(name,"event_msgs_ext") || same(name,"mgmt_frame") :
+        same(name,"cap") || auth_policy || same(name,"sup_wpa") || same(name,"cur_etheraddr") || same(name,"clmver") || same(name,"clmload_status") || same(name,"country") || same(name,"event_msgs") || same(name,"scan_ver") || same(name,"event_msgs_ext");
     if (!allowed) { return BLOCK_UNSUPPORTED; }
     size_t bytes=name_length+(set ? n : capacity);
     if (n>1536-name_length || capacity>1536-name_length || bytes>1536 || (!set && (!capacity || n>capacity))) { return BLOCK_ARGUMENT; }

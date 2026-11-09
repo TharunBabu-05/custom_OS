@@ -11,4 +11,5 @@
 *.svg text eol=lf
 *.mjs text eol=lf
 *.cs text eol=lf
+*.zip binary
 Makefile text eol=lf

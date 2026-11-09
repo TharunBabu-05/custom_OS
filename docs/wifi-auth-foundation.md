@@ -1,10 +1,17 @@
 # Authentication foundations: random source and crypto primitives
 
-The [latest Pi capture](../proofs/pi5-wifi-scan-wpa3-hotspot-2026-11-09.txt)
+The [scan Pi capture](../proofs/pi5-wifi-scan-wpa3-hotspot-2026-11-09.txt)
 confirms passive scanning on real hardware. Five networks are listed with no
 malformed results. Jack's appears on channel 6 / 2.4 GHz at -28 dBm, with
 RSN+SAE and required PMF. Scan completion, interface DOWN and event-mask
 restoration pass. Storage and page tests still pass afterward.
+
+The [later foundation capture](../proofs/pi5-wifi-auth-foundation-verified-2026-11-09.txt)
+now passes `cryptotest` and the physical `rngtest`, followed by scanning, storage
+and page tests. The two distinct 64-byte RNG samples were erased. Continue with
+the [WPA3 target preflight](wifi-target.md). The image/hash below identifies the
+tested foundation version. Its backup is `image_files/OurOS-Pi5-header-wifi-auth-foundation-verified.img`;
+the newest build is `image_files/OurOS-Pi5-header-experimental-sd.img`.
 
 This is a WPA3 advertisement, not a connection. The radio firmware exposes
 external SAE, while its supplicant property returns UNSUPPORTED. Before host
@@ -59,7 +66,7 @@ it is never run automatically at boot. It prints configuration/status and
 counters, not raw samples, hashes of samples, seeds or keys. Repeating it
 prints cached status. Paste the two new command results and the final checks.
 If RNG initialization fails, reboot before retrying; random-byte requests
-remain unavailable. **The new physical RNG path is UNTESTED.** QEMU has no Pi
+remain unavailable. **The physical RNG test now passes in the linked capture.** QEMU has no Pi
 RNG200 source and explicitly refuses to substitute simulated entropy.
 
 ## Implemented
@@ -102,8 +109,8 @@ real authentication depends on them. No completed SAE protocol is claimed.
 
 ## What remains before connecting
 
-1. Verify this physical random-source path and review the cryptographic
-   integration; never use a deterministic fallback for authentication.
+1. The physical random-source test passes. Review the cryptographic integration
+   before authentication; never use a deterministic fallback.
 2. Implement the SAE group operations, password-element derivation, commit/
    confirm processing and its validation/state machine. HMAC/HKDF alone do
    not implement SAE; the exact supported SAE modes must be established.

@@ -88,17 +88,47 @@ wifiscan enables result events/interface, requests passive discovery, displays
 SSID/BSSID/channel/RSSI/security, then DOWN/restores the mask on success.
 Physical scanning now passes including Jack's / SAE / required PMF.
 cryptotest runs HMAC/HKDF published known-answer tests.
+p256test checks P-256 scalar/point validation, group operations and RFC5903
+public/shared-point known answers. It uses public fixtures only, not credentials.
+Host known-answer and independent OpenSSL comparisons cover this new math path.
+Physical P-256 now passes, including repeat execution; storage/pages still pass.
+h2etest adds group-19 H2E SSWU mapping, password-token derivation and MAC-bound
+password elements using synthetic public fixtures only. No hotspot credential
+is accepted or packaged. Physical H2E now passes, with storage/pages intact.
+saetest adds an in-memory group-19 SAE exchange with public synthetic peers.
+It checks commits, confirms, key derivation, bad-confirm rejection and key export
+gating. No real credentials, radio authentication, association or IP requests.
+Native exchange vectors and rejection tests pass; physical saetest now passes.
+Math tests are optional for the auth-policy check below. Their first execution
+can take minutes with caches off; results are cached until reboot. Append
+' force' to p256test, h2etest or saetest for another full run; elapsed seconds
+are reported. No arithmetic validation or entropy checks have been weakened.
+wifiauthprep <SSID> temporarily sets/readbacks SAE auth, AES, required PMF and
+the extended event mask (187..190), then restores the entire saved configuration.
+Run it after wifiscan/wifitarget; it never raises the interface or joins a network.
+If restoration is unconfirmed, control access is blocked until reboot.
+The latest hardware check stopped before SET at the extended-mask snapshot.
+This revision requests up to 255 mask bytes and prints reply-header diagnostics;
+physical verification is pending. Do not assume an oversized mask was the cause.
+The new management-frame/event codec has native tests; no live frame TX/RX yet.
+The backend accepts only fixed group-19 bodies without optional IEs. No complete
+radio SAE state machine, EAPOL/key installation or IP stack is implemented yet.
 rngtest manually checks the DT-gated RNG200 source and erases its samples.
 No random bytes are printed, and no timer/MAC fallback is allowed.
-Native crypto/RNG tests pass; physical RNG remains UNTESTED. No authentication/IP.
+Native crypto/RNG tests and physical RNG checks pass. No authentication/IP.
+wifitarget <SSID> checks cached RSN group/pairwise/SAE/PMF/management suites,
+and retains RSNXE/H2E advertisements. It sends no packets and accepts no password.
+Run wifitarget Jack's after wifiscan; no surrounding quotes. Physical preflight
+now passes with CCMP-128, SAE AKM 8, required PMF and H2E advertised.
 The first failing SDIO command/R5/IRQ/FIFO snapshot is retained for diagnosis.
 It can take a minute or more at 400 kHz SDIO; wait for progress and the prompt.
 WIFILIC.TXT retains vendor asset notices; SOURCE.TXT records the pinned source.
 CLM is verified/staged on disk for later FullMAC use, not loaded by wifiload.
 WPA3-Personal is the requested target. No association or external network yet.
-First capture cryptotest and rngtest; no password is accepted or embedded.
-Then storageinit, wififiles, wifiinit, wificores, wifiload, wifistart,
-wificontrol, wificaps, wifiprepare IN, wifiscan, wifiinfo.
+No password is accepted or embedded. The short hardware check is:
+storageinit, wififiles, wifiinit, wificores, wifiload, wifistart,
+wificontrol, wificaps, wifiprepare IN, wifiscan, wifitarget Jack's,
+wifiauthprep Jack's, wifiinfo. Capture its policy/readback/restoration status.
 See docs/wifi-auth-foundation.md. These are prerequisites, not an SAE connection.
 Reboot before retrying a partial CLM/country operation.
 Then storagetest, storageinfo, pagetest and uptime to check continued operation.
@@ -211,10 +241,14 @@ $manifestPath=Join-Path $work 'image-manifest.json'
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding ASCII $manifestPath
 & "$PSScriptRoot/verify-rpi5-image.ps1" -Image $temporary -Manifest $manifestPath
 # Promote only a verified artifact. Output paths are fixed project-local files.
+if (Test-Path -LiteralPath $image) { & "$PSScriptRoot/archive-images.ps1" -Image $image }
 Copy-Item -LiteralPath $temporary -Destination $image -Force
 Copy-Item -LiteralPath $manifestPath -Destination "$image.json" -Force
 $digest=(Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
 "$digest  $([IO.Path]::GetFileName($image))" | Set-Content -Encoding ASCII "$image.sha256"
+& "$PSScriptRoot/archive-images.ps1" -Image $image
+& "$PSScriptRoot/compress-image.ps1" -Image $image
+& "$PSScriptRoot/clean-build.ps1" -IncludeTestImages
 Write-Output "IMAGE: $image"
 Write-Output "SHA256: $digest"
 Write-Output 'Experimental Pi 5 image. Filesystem verified; hardware boot UNTESTED. No physical device written.'

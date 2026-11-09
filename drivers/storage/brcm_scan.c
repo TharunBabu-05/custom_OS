@@ -13,11 +13,14 @@ static bool suite(const unsigned char *p,unsigned type)
 { return !p[0] && p[1]==15 && p[2]==172 && p[3]==type; }
 static enum block_result rsn(const unsigned char *p,size_t n,struct brcm_scan_ap *ap)
 {
-    if (n<8 || le16(p)!=1) { return BLOCK_RANGE; }size_t at=6;unsigned count=le16(p+at);at+=2;
-    if (!count || count>(n-at)/4) { return BLOCK_RANGE; }at+=count*4;
+    if (n<8 || le16(p)!=1) { return BLOCK_RANGE; }ap->group_cipher=be32(p+2);
+    size_t at=6;unsigned count=le16(p+at);at+=2;
+    if (!count || count>(n-at)/4) { return BLOCK_RANGE; }
+    for (unsigned i=0;i<count;++i,at+=4) { if (suite(p+at,4)) { ap->pairwise_ccmp=true; } }
     if (n-at<2) { return BLOCK_RANGE; }count=le16(p+at);at+=2;
     if (!count || count>(n-at)/4) { return BLOCK_RANGE; }
     for (unsigned i=0;i<count;++i,at+=4) {
+        if (suite(p+at,8)) { ap->akm_sae=true; }
         if (suite(p+at,2) || suite(p+at,4) || suite(p+at,6)) { ap->security|=SCAN_PSK; }
         else if (suite(p+at,8) || suite(p+at,9)) { ap->security|=SCAN_SAE; }
         else if (suite(p+at,18)) { ap->security|=SCAN_OWE; }
@@ -27,9 +30,11 @@ static enum block_result rsn(const unsigned char *p,size_t n,struct brcm_scan_ap
     if (at==n) { return BLOCK_OK; }if (n-at<2) { return BLOCK_RANGE; }
     unsigned caps=le16(p+at);at+=2;ap->pmf_capable=!!(caps&128);ap->pmf_required=!!(caps&64);
     if (ap->pmf_required && !ap->pmf_capable) { return BLOCK_RANGE; }
+    if (ap->pmf_capable) { ap->management_cipher=0x000fac06; } /* Omitted BIP suite defaults to AES-CMAC-128. */
     if (at==n) { return BLOCK_OK; }if (n-at<2) { return BLOCK_RANGE; }
     count=le16(p+at);at+=2;if (count>(n-at)/16) { return BLOCK_RANGE; }at+=count*16;
-    return n-at==0 || n-at==4 ? BLOCK_OK : BLOCK_RANGE;
+    if (n-at==4) { ap->management_cipher=be32(p+at);return BLOCK_OK; }
+    return n-at==0 ? BLOCK_OK : BLOCK_RANGE;
 }
 enum block_result brcm_scan_bss(const void *buffer,size_t n,struct brcm_scan_ap *ap)
 {
@@ -64,6 +69,9 @@ enum block_result brcm_scan_bss(const void *buffer,size_t n,struct brcm_scan_ap 
         if (id==48) {
             if (have_rsn) { return BLOCK_RANGE; }have_rsn=true;ap->security|=SCAN_RSN;
             enum block_result r=rsn(p+at,bytes,ap);if (r!=BLOCK_OK) { return r; }
+        } else if (id==244) {
+            if (!bytes || bytes>sizeof(ap->rsnxe) || ap->rsnxe_length || (unsigned)(p[at]&15)+1!=bytes) { return BLOCK_RANGE; }
+            ap->rsnxe_length=(uint8_t)bytes;for (unsigned i=0;i<bytes;++i) { ap->rsnxe[i]=p[at+i]; }
         } else if (id==221 && bytes>=4 && !p[at] && p[at+1]==80 && p[at+2]==242 && p[at+3]==1) {
             if (bytes<6 || le16(p+at+4)!=1) { return BLOCK_RANGE; }ap->security|=SCAN_WPA;
         }at+=bytes;

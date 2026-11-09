@@ -6,6 +6,9 @@
 #include "block.h"
 #include "usb.h"
 #include "crypto.h"
+#include "p256.h"
+#include "sae_h2e.h"
+#include "sae_session.h"
 #include "rng200.h"
 static struct board_info board;
 static bool console_ready;
@@ -32,17 +35,47 @@ void exception_fatal(unsigned long vector, unsigned long esr, unsigned long elr,
     }
     cpu_halt();
 }
+static bool math_command(const char *line)
+{
+    static const struct {
+        const char *name,*force,*description,*pass;bool (*run)(void);
+    } tests[]={
+        {"p256test","p256test force","P-256 public vectors", "PASS: P-256 RFC5903 public/shared points, scalar boundaries and group identities.\n",p256_selftest},
+        {"h2etest","h2etest force","SAE H2E public fixtures", "PASS: SAE H2E group-19 mapping, password token and MAC-bound password element.\n",sae_h2e_selftest},
+        {"saetest","saetest force","in-memory SAE public exchange", "PASS: SAE commit/confirm, key derivation, bad-confirm rejection and gated key export.\n",sae_session_selftest}
+    };
+    static unsigned char results[3];
+    for (unsigned i=0;i<3;++i) {
+        bool force=equal(line,tests[i].force);
+        if (!force && !equal(line,tests[i].name)) { continue; }
+        if (results[i] && !force) { console_write("Cached self-test result from this boot; append ' force' to rerun.\n"); }
+        else {
+            console_write("Testing ");console_write(tests[i].description);console_write("; this can take minutes with caches off. Wait for the prompt.\n");
+            uint64_t start=timer_ticks();results[i]=tests[i].run() ? 1 : 2;
+            uint64_t elapsed=timer_ticks()-start,hz=timer_frequency();
+            console_write("Self-test elapsed_seconds=");console_u64(hz ? elapsed/hz : 0);console_write("\n");
+        }
+        console_write(results[i]==1 ? tests[i].pass : "FAIL: math self-test; authentication must stay unavailable.\n");
+        console_write("Public fixtures only; no hotspot credentials, radio exchange or network connection.\n");return true;
+    }
+    return false;
+}
 static void command(const char *line)
 {
     if (filesystem_command(line)) { return; }
     if (storage_command(line)) { return; }
     if (usb_command(line)) { return; }
+    if (math_command(line)) { return; }
     if (equal(line,"cryptotest")) { console_write(crypto_selftest() ? "PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.\n" : "FAIL: crypto known-answer tests; do not use authentication primitives.\n");return; }
     if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
+        console_write("p256test (SAE group-19 arithmetic/public vectors; no authentication)\n");
+        console_write("h2etest (H2E token/password-element public fixtures; no connection)\n");
+        console_write("saetest (in-memory SAE commit/confirm public exchange; no radio)\n");
+        console_write("Math tests cache PASS/FAIL until reboot; append ' force' to rerun.\n");
         console_write("pwd ls [path] cd [path] cat <path> mkdir <path> touch <path>\n");
         console_write("write <path> <text> rm <path> rmdir <path> fsinfo\n");
         console_write("storageinit storageinfo storagetest wifi wifiinfo wifiprobe wifiinit wificores\n");
@@ -51,6 +84,8 @@ static void command(const char *line)
         console_write("wificontrol (F2/SDPCM and read-only firmware version queries)\n");
         console_write("wificaps (features/MAC) wifiprepare <CC> (verify/load CLM, set/read country)\n");
         console_write("wifiscan (passive scan after preparation; cached one-shot results)\n");
+        console_write("wifitarget <SSID> (cached WPA3 cipher/PMF preflight; no association)\n");
+        console_write("wifiauthprep <SSID> (temporary firmware SAE/PMF/event test, then restore)\n");
         console_write("usbinfo usbprobe (discovery diagnostics)\n");
         console_write("usbtest (takes over one USB controller, tests DMA, halts it; reboot to repeat)\n");
         console_write("usbenum (direct USB2 device descriptors; reboot before usbtest/usbenum reuse)\n");

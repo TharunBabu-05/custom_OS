@@ -1,5 +1,17 @@
 # Experimental Pi 5 disk image
 
+Builds now preserve previous and newly generated images in the local
+[`image_files` folder](image-archive.md), then clean known stale build outputs.
+The newest complete header disk image is
+`image_files/OurOS-Pi5-header-experimental-sd.img`; older versions have readable
+phase or date/time filenames directly in that same folder.
+Each completed build also generates `OurOS-Pi5-header-experimental-sd.zip`
+(or the debug-console equivalent) in `image_files`, checks its decompressed
+SHA256 against the entire disk, and preserves the previous ZIP under a dated
+name. ZIPs are tracked in Git; raw `.img` files remain ignored. Extract the
+image before flashing. This ZIP contains the whole disk, whereas the existing
+`ouros-rpi5-boot-files.zip` contains only individual boot files.
+
 The user has successfully booted the header-console image from a **32 GB USB
 pendrive**, without a microSD card. The retained `-sd.img` filename does not
 restrict the disk image to SD media. Firmware can load it from USB; kernel

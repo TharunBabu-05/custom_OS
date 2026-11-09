@@ -68,7 +68,7 @@ try {
             'kernel/core/dt_property.c','drivers/usb/xhci_observe.c','drivers/usb/pi5_usb_dt.c',
             'kernel/core/usb_commands.c','drivers/usb/xhci_test.c','drivers/usb/xhci_test_report.c',
             'drivers/usb/xhci_enumerate.c','drivers/usb/usb_descriptors.c','drivers/storage/usb_bot.c',
-            'drivers/storage/brcm_firmware.c','drivers/storage/brcm_start.c','drivers/storage/brcm_control.c','drivers/storage/brcm_prepare.c','drivers/storage/brcm_scan.c','lib/sha256.c','lib/crypto.c','drivers/random/rng200.c','drivers/random/pi5_rng200.c','kernel/core/wifi_files.c')
+            'drivers/storage/brcm_firmware.c','drivers/storage/brcm_start.c','drivers/storage/brcm_control.c','drivers/storage/brcm_prepare.c','drivers/storage/brcm_scan.c','drivers/storage/brcm_auth.c','drivers/storage/brcm_auth_probe.c','drivers/storage/wifi_target.c','lib/sha256.c','lib/crypto.c','lib/p256.c','lib/p256_selftest.c','lib/sae_h2e.c','lib/sae_h2e_selftest.c','lib/sae_session.c','lib/sae_session_selftest.c','drivers/random/rng200.c','drivers/random/pi5_rng200.c','kernel/core/wifi_files.c')
         if ($Target -eq 'rpi5') { $sources+=@('drivers/storage/sdhci.c','drivers/storage/sdio.c','drivers/storage/brcm_sdio.c','drivers/storage/brcm_chip.c','drivers/storage/pi5_sd.c','drivers/storage/pi5_wifi_probe.c','drivers/storage/pi5_wifi_power.c','drivers/usb/pi5_dma.c','drivers/usb/pi5_xhci_test.c') }
         else { $sources+=@('drivers/storage/virtio_blk.c','drivers/usb/qemu_xhci_test.c') }
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }
@@ -89,6 +89,7 @@ try {
         }
         if ($Target -eq 'rpi5') {
             Copy-Item -LiteralPath "$out/kernel.bin" -Destination "$out/ouros-rpi5.img"
+            & "$PSScriptRoot/clean-build.ps1"
             Write-Output "Built Pi 5 candidate: $out/ouros-rpi5.img. Console=$Console. Hardware boot remains UNTESTED."
         } else { Write-Output "Built $out/kernel.elf for QEMU only." }
     }

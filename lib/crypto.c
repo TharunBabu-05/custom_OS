@@ -1,6 +1,9 @@
 /* Original HMAC-SHA256 / HKDF-SHA256. RFC 4231 / RFC 5869 test vectors
  * exercise the primitives; this is not an SAE or EAPOL implementation. */
 #include "crypto.h"
+#include <stdint.h>
+static bool overlaps(const void *a,size_t an,const void *b,size_t bn)
+{ uintptr_t x=(uintptr_t)a,y=(uintptr_t)b;return an && bn && (x<=y ? y-x<an : x-y<bn); }
 void crypto_wipe(void *p,size_t n)
 { volatile unsigned char *v=p;while (n--) { *v++=0; } }
 bool crypto_equal(const void *a,const void *b,size_t n)
@@ -23,12 +26,10 @@ bool hmac_sha256(const void *key,size_t key_bytes,const struct crypto_span *part
     sha256_init(&hash);sha256_update(&hash,pad,64);sha256_update(&hash,inner,32);sha256_final(&hash,output);
     crypto_wipe(&hash,sizeof(hash));crypto_wipe(pad,sizeof(pad));crypto_wipe(inner,sizeof(inner));return true;
 }
-bool hkdf_sha256(const void *salt,size_t salt_bytes,const void *ikm,size_t ikm_bytes,const void *info,size_t info_bytes,void *output,size_t n)
+bool hkdf_sha256_expand(const unsigned char prk[32],const void *info,size_t info_bytes,void *output,size_t n)
 {
-    if ((!salt && salt_bytes) || (!ikm && ikm_bytes) || (!info && info_bytes) || (!output && n) || n>8160 || salt_bytes>1048576 || ikm_bytes>1048576 || info_bytes>1048576) { return false; }
-    unsigned char zero[32]={0},prk[32],block[32]={0};
-    struct crypto_span input={ikm,ikm_bytes};
-    if (!hmac_sha256(salt_bytes ? salt : zero,salt_bytes ? salt_bytes : 32,&input,1,prk)) { return false; }
+    if (!prk || (!info && info_bytes) || (!output && n) || n>8160 || info_bytes>1048576 || overlaps(prk,32,output,n) || overlaps(info,info_bytes,output,n)) { return false; }
+    unsigned char block[32]={0};
     size_t at=0,previous=0;unsigned char counter=1;bool ok=true;
     while (at<n) {
         struct crypto_span parts[]={{block,previous},{info,info_bytes},{&counter,1}};
@@ -36,7 +37,14 @@ bool hkdf_sha256(const void *salt,size_t salt_bytes,const void *ikm,size_t ikm_b
         size_t amount=n-at;if (amount>32) { amount=32; }
         for (size_t i=0;i<amount;++i) { ((unsigned char *)output)[at+i]=block[i]; }at+=amount;previous=32;++counter;
     }
-    crypto_wipe(prk,sizeof(prk));crypto_wipe(block,sizeof(block));crypto_wipe(zero,sizeof(zero));if (!ok && n) { crypto_wipe(output,n); }return ok;
+    crypto_wipe(block,sizeof(block));if (!ok && n) { crypto_wipe(output,n); }return ok;
+}
+bool hkdf_sha256(const void *salt,size_t salt_bytes,const void *ikm,size_t ikm_bytes,const void *info,size_t info_bytes,void *output,size_t n)
+{
+    if ((!salt && salt_bytes) || (!ikm && ikm_bytes) || (!info && info_bytes) || (!output && n) || n>8160 || salt_bytes>1048576 || ikm_bytes>1048576 || info_bytes>1048576 || overlaps(salt,salt_bytes,output,n) || overlaps(ikm,ikm_bytes,output,n) || overlaps(info,info_bytes,output,n)) { return false; }
+    unsigned char zero[32]={0},prk[32];struct crypto_span input={ikm,ikm_bytes};
+    bool ok=hmac_sha256(salt_bytes ? salt : zero,salt_bytes ? salt_bytes : 32,&input,1,prk) && hkdf_sha256_expand(prk,info,info_bytes,output,n);
+    crypto_wipe(prk,sizeof(prk));crypto_wipe(zero,sizeof(zero));return ok;
 }
 bool crypto_selftest(void)
 {

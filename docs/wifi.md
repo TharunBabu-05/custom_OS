@@ -8,12 +8,25 @@ and [firmware startup](wifi-startup.md) now pass on the real Pi.
 also pass on the Pi, as does [passive scanning](wifi-scan.md). Jack's is
 observed on channel 6 / 2.4 GHz with RSN+SAE and required PMF. This revision
 adds [authentication foundations](wifi-auth-foundation.md): HMAC/HKDF helpers
-and a manually tested hardware random source. Physical RNG operation is UNTESTED.
+and a manually tested hardware random source. The [latest capture](../proofs/pi5-wifi-auth-foundation-verified-2026-11-09.txt)
+now passes the physical RNG and crypto checks. The [target preflight](wifi-target.md)
+also passes on the Pi: CCMP-128, ordinary SAE, required PMF and H2E advertisement.
+[P-256 group arithmetic](wifi-p256.md) and [H2E derivation](wifi-h2e.md) now also
+pass on the Pi, as does the [in-memory SAE exchange](wifi-sae.md). The next
+[external-auth transport stage](wifi-auth-transport.md) adds a frame/event codec
+and a reversible firmware SAE/PMF/event-mask check before live authentication.
+The [new UART capture](../proofs/pi5-auth-mask-blocked-2026-11-09.txt) stops
+before any policy SET at the extended-mask snapshot. This revision accepts
+the full one-byte mask length (up to 255 bytes) and prints the reply header
+to distinguish an oversized mask from an incompatible or truncated reply.
+The previous 32-byte limit is a possible cause, not yet a measured diagnosis.
+Repeat the short radio sequence in [the transport guide](wifi-auth-transport.md);
+the long crypto self-tests are optional for this check.
 It does not provide a complete FullMAC network
 driver, authentication or IP networking. Neither a device-tree entry nor an
 SDIO response establishes a working Wi-Fi network interface.
 
-The latest [physical capture](../proofs/pi5-wifi-scan-wpa3-hotspot-2026-11-09.txt)
+The latest [physical capture](../proofs/pi5-sae-verified-2026-11-09.txt)
 confirms D0 board preparation, a configured 400 kHz clock, SDIO selection and
 CMD52 CIS identity: vendor 0x02d0, device 0x4345, RCA 1, three functions,
 CCCR 3 and SDIO revision 4. Function-1 enable, ALP clock and the backplane read
@@ -23,7 +36,7 @@ selector restoration are now observed. Firmware startup also passes: HT CSR
 0xd0, shared pointer 0x201cc0, flags 1, no trap/assert indication. No Wi-Fi
 association or IP connection is established by these results. F2 control
 replies now also pass; the firmware reports version 7.45.265. The next test
-is the RNG/crypto foundation after verified passive scanning and IN / revision 0.
+is `wifiauthprep Jack's`, after the proven radio sequence and IN / revision 0.
 Measured capabilities include sae_ext and PMF (mfp value 1); sup_wpa reports
 UNSUPPORTED, so host authentication work remains. That reply is not an SDIO fault.
 
@@ -56,9 +69,10 @@ CR4 stays halted during upload, then `wifistart` releases CR4 and confirms
 HT/shared memory. Storage and page tests still pass. `wificontrol` now enables
 F2, checks protocol/credits and queries the actual firmware version. That
 packet/control path now passes physically, as do wificaps and wifiprepare IN.
-The latest scan finds five networks including Jack's at -28 dBm with SAE and
-required PMF. Run cryptotest/rngtest using the [new procedure](wifi-auth-foundation.md),
-then repeat the proven radio sequence. No connection is attempted yet.
+The latest scan finds four networks including Jack's at -46 dBm with SAE and
+required PMF. Crypto, RNG and target preflight tests pass on the Pi. Follow the
+[external-auth procedure](wifi-auth-transport.md) to test firmware policy/events.
+No connection is attempted yet.
 
 The [first upload capture](../proofs/pi5-firmware-first-transfer-failure-2026-11-09.txt)
 passes file hashes and D11/CPU checks but fails on the first code transfer at
@@ -74,7 +88,8 @@ The acceptance sequence is:
 2. Firmware, board NVRAM and CLM assets are pinned and packaged. Upload,
    startup and read-only control replies now pass physically.
 3. Capability discovery, CLM/country IN and passive scan/events now pass.
-   Verify the new random source and cryptographic helpers before host SAE.
+   The random source and cryptographic helper tests now also pass on the Pi.
+   Check exact target cipher/AKM/PMF advertisements before host SAE.
 4. Implement the requested WPA3-Personal SAE/PMF path and protected credential
    input; prove association and key installation against the hotspot.
 5. Implement ARP/IPv4, DHCP and routing, then ICMP. First ping the local gateway,

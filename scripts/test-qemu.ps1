@@ -30,6 +30,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
         $stderr=$process.StandardError.ReadToEndAsync()
         Start-Sleep -Milliseconds 800
         if ($process.HasExited) { throw $stderr.Result }
+        $mathSeen=@{}
         foreach ($line in $Commands) {
             # Pace UART input: a host pipe burst can overrun its 16-byte FIFO.
             foreach ($character in ($line+"`r`n").ToCharArray()) {
@@ -37,7 +38,9 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
                 $process.StandardInput.Flush()
                 Start-Sleep -Milliseconds 5
             }
-            Start-Sleep -Milliseconds 200
+            if ($mathSeen.ContainsKey($line)) { Start-Sleep -Milliseconds 200 }
+            elseif ($line -eq 'saetest') { Start-Sleep -Seconds 20;$mathSeen[$line]=$true }
+            elseif ($line -eq 'p256test' -or $line -eq 'h2etest') { Start-Sleep -Seconds 12;$mathSeen[$line]=$true } else { Start-Sleep -Milliseconds 200 }
         }
         Start-Sleep -Milliseconds 800
         if ($process.HasExited) { throw "QEMU terminated unexpectedly: $($stderr.Result)" }
@@ -52,6 +55,8 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
         }
         if ($Name -notlike 'fault*' -and $text.Contains('FATAL')) { throw 'Unexpected exception' }
         if ($Name -notlike 'fault*') {
+            if ([regex]::Matches($text,'Cached self-test result from this boot').Count -ne 3 -or
+                [regex]::Matches($text,'Self-test elapsed_seconds=').Count -ne 3) { throw "$Name math self-test caching/timing failed" }
             $snapshots=[regex]::Matches($text,'managed_pages=(\d+) free_pages=(\d+) allocated_pages=(\d+)')
             if ($snapshots.Count -ne 4 -or $snapshots[0].Groups[3].Value -ne '3' -or
                 $snapshots[1].Groups[3].Value -ne '5' -or $snapshots[2].Groups[3].Value -ne '3' -or
@@ -72,7 +77,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
         $process.Dispose()
     }
 }
-$commands=@('help','info','cpuinfo','cryptotest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
+$commands=@('help','info','cpuinfo','cryptotest','p256test','h2etest','saetest','p256test','h2etest','saetest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
     'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo',
     'fsinfo','pwd','ls /','cat /etc/board','cat /README.txt','cd /tmp','mkdir work','cd work','pwd',
     'touch empty.txt','write note.txt filesystem-ok','cat ./note.txt','ls .','cd ..','rmdir work',
@@ -81,6 +86,10 @@ $commands=@('help','info','cpuinfo','cryptotest','rngtest','meminfo','memmap','p
     "echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
 $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt | EL1',
     'PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.',
+    'PASS: P-256 RFC5903 public/shared points, scalar boundaries and group identities.',
+    'PASS: SAE H2E group-19 mapping, password token and MAC-bound password element.',
+    'PASS: SAE commit/confirm, key derivation, bad-confirm rejection and gated key export.',
+    "Cached self-test result from this boot; append ' force' to rerun.",
     'No Pi RNG200 source on QEMU virt; randomness unavailable.',
     'help info cpuinfo meminfo uptime','timer_hz=',"`r`nnative-windows-ok`r`n", "`r`nbackspace`r`n",'uptime_seconds=',
     'Unknown command. Type help.','Input too long; command discarded.',"`r`nrecovered`r`n",'CPU halted.',
@@ -96,7 +105,7 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
 if ($StorageImage) {
     $commands=$commands[0..($commands.Count-2)]+@('storageinit','storageinfo','ls /boot','cd /boot',
         'pwd','cat CONFIG.TXT','cat SOURCE.TXT','write CONFIG.TXT blocked','touch new.txt',
-        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','wificores','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan','halt')
+        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','wificores','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's",'halt')
     $expected+=@('/boot: FAT32 read-only','device=qemu-virtio-blk','CONFIG.TXT','kernel=OUROS.IMG',
         'Official DTB and notices:','fs: read-only filesystem','Wi-Fi state: manual firmware/control bring-up',
         'Requested network security: WPA3-Personal','No Pi Wi-Fi SDIO device on QEMU virt.',
@@ -106,7 +115,9 @@ if ($StorageImage) {
         'No Pi Wi-Fi control channel on QEMU virt; queries unavailable.',
         'No Pi Wi-Fi capabilities on QEMU virt; query unavailable.',
         'No Pi Wi-Fi regulatory target on QEMU virt; preparation unavailable.',
-        'No Pi Wi-Fi radio on QEMU virt; scanning unavailable.')
+        'No Pi Wi-Fi radio on QEMU virt; scanning unavailable.',
+        'No Pi Wi-Fi radio on QEMU virt; target check unavailable.',
+        'No Pi Wi-Fi radio on QEMU virt; firmware auth-policy check unavailable.')
 }
 if ($Handoff) {
     Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1','Reported RAM: 134.217 MB (128.000 MiB)'))

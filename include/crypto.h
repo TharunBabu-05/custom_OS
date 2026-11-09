@@ -10,5 +10,8 @@ bool hmac_sha256(const void *key,size_t key_bytes,const struct crypto_span *,siz
 /* RFC 5869 SHA256 HKDF; inputs and output must not overlap. Maximum output
  * 255*32 bytes. Neither primitive supplies entropy or implements SAE. */
 bool hkdf_sha256(const void *salt,size_t salt_bytes,const void *ikm,size_t ikm_bytes,const void *info,size_t info_bytes,void *output,size_t output_bytes);
+/* Expand an already extracted 32-byte PRK, with no second extract. Inputs
+ * must not overlap output. Invalid arguments are rejected before any writes. */
+bool hkdf_sha256_expand(const unsigned char prk[32],const void *info,size_t info_bytes,void *output,size_t output_bytes);
 bool crypto_selftest(void);
 #endif

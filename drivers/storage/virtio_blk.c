@@ -88,3 +88,5 @@ void platform_wifi_control(void) { console_write("No Pi Wi-Fi control channel on
 void platform_wifi_caps(void) { console_write("No Pi Wi-Fi capabilities on QEMU virt; query unavailable.\n"); }
 void platform_wifi_prepare(const char *country) { (void)country;console_write("No Pi Wi-Fi regulatory target on QEMU virt; preparation unavailable.\n"); }
 void platform_wifi_scan(void) { console_write("No Pi Wi-Fi radio on QEMU virt; scanning unavailable.\n"); }
+void platform_wifi_target(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; target check unavailable.\n"); }
+void platform_wifi_auth_prepare(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; firmware auth-policy check unavailable.\n"); }

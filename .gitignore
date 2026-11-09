@@ -1,4 +1,6 @@
 /build/
 /.dist/
+/image_files/*
+!/image_files/*.zip
 *.pyc
 __pycache__/

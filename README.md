@@ -47,13 +47,33 @@
 > (firmware 7.45.265). [Capability and CLM/country setup](docs/wifi-prepare.md)
 > also pass for IN / revision 0. [Passive scanning](docs/wifi-scan.md) now finds
 > Jack's with SAE and required PMF. New [crypto/RNG foundations](docs/wifi-auth-foundation.md)
-> need their physical random-source test.
+> now pass their physical random-source test. The [WPA3 target checks](docs/wifi-target.md)
+> inspect exact cipher/AKM/PMF and RSNXE advertisements before authentication,
+> and now pass on the Pi. [P-256 math](docs/wifi-p256.md) also passes twice on
+> hardware. [H2E derivation](docs/wifi-h2e.md) now passes on the Pi too. The next
+> [in-memory SAE exchange](docs/wifi-sae.md) also passes on the Pi. The next
+> [external-auth transport stage](docs/wifi-auth-transport.md) adds frame/event
+> encoding and a reversible firmware policy check before radio authentication.
 > WPA3-Personal is the requested connection target;
 > association and external-network access are still unfinished.
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
 > driver supplies the next dependency for reading Wi-Fi firmware from disk.
 
 ## The hardware receipts
+
+Complete disk image backups are saved directly in `image_files` with readable
+phase names. The newest header image is `OurOS-Pi5-header-experimental-sd.img`.
+Builds preserve previous versions before cleaning stale output. See
+[image backups and cleanup](docs/image-archive.md).
+
+**Download the complete flashable image:**
+[Pi 5 header-console disk ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip).
+Extract the `.img` before flashing your pendrive. Every completed disk-image
+build now creates a verified ZIP for GitHub; raw 128 MiB images stay local.
+The [latest UART capture](proofs/pi5-auth-mask-blocked-2026-11-09.txt) passes the
+crypto tests and scan but stops at the extended event-mask snapshot, before
+any security settings change. This revision widens the mask buffer and adds
+reply-header diagnostics; its physical auth-policy result is pending.
 
 <p align="center">
   <img src="docs/assets/boot-replay.gif" width="100%" alt="Animated illustration replaying captured OurOS startup, CPU information, uptime and echo commands." />

@@ -28,7 +28,7 @@ try {
     $usbCommand=if ($Enumerate) { 'usbenum' } else { 'usbtest' }
     $commands=@($usbCommand,$usbCommand,'uptime','cat /etc/board','pagetest','fsinfo','echo usb-ring-monitor-ok','halt')
     if ($Storage) { $commands=@('storageinit','storageinit','storageinfo','ls /boot','cat /boot/CONFIG.TXT','storagetest','storageinfo','cat /boot/SOURCE.TXT','uptime','cat /etc/board','pagetest','fsinfo','echo usb-ring-monitor-ok','halt') }
-    if ($WifiFiles) { $commands=@('storageinit','cryptotest','rngtest','wififiles','wifiload','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan')+$commands[1..($commands.Count-1)] }
+    if ($WifiFiles) { $commands=@('storageinit','cryptotest','p256test','h2etest','saetest','rngtest','wififiles','wifiload','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's")+$commands[1..($commands.Count-1)] }
     foreach ($line in $commands) {
         if ($process.HasExited) { throw $stderr.Result }
         foreach ($character in ($line+"`r`n").ToCharArray()) {
@@ -36,6 +36,8 @@ try {
             Start-Sleep -Milliseconds 8
         }
         if ($line -eq 'wififiles') { Start-Sleep -Milliseconds 12000 }
+        elseif ($line -eq 'saetest') { Start-Sleep -Seconds 20 }
+        elseif ($line -eq 'p256test' -or $line -eq 'h2etest') { Start-Sleep -Seconds 12 }
         elseif ($line -eq 'storagetest') { Start-Sleep -Milliseconds 3000 } else { Start-Sleep -Milliseconds 700 }
     }
     Start-Sleep -Milliseconds 500
@@ -57,7 +59,12 @@ try {
     if ($text.Contains('FATAL')) { throw 'Unexpected exception in USB test' }
     if ($WifiFiles) {
         if (!$text.Contains('PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.') -or !$text.Contains('No Pi RNG200 source on QEMU virt; randomness unavailable.')) { throw 'QEMU crypto test / RNG refusal failed' }
+        if (!$text.Contains('PASS: P-256 RFC5903 public/shared points, scalar boundaries and group identities.')) { throw 'QEMU P-256 self-test failed' }
+        if (!$text.Contains('PASS: SAE H2E group-19 mapping, password token and MAC-bound password element.')) { throw 'QEMU H2E self-test failed' }
+        if (!$text.Contains('PASS: SAE commit/confirm, key derivation, bad-confirm rejection and gated key export.')) { throw 'QEMU SAE exchange self-test failed' }
         if (!$text.Contains('No Pi Wi-Fi radio on QEMU virt; scanning unavailable.')) { throw 'QEMU scan refusal failed' }
+        if (!$text.Contains('No Pi Wi-Fi radio on QEMU virt; target check unavailable.')) { throw 'QEMU target preflight refusal failed' }
+        if (!$text.Contains('No Pi Wi-Fi radio on QEMU virt; firmware auth-policy check unavailable.')) { throw 'QEMU firmware auth-policy refusal failed' }
         if (!$text.Contains('No Pi Wi-Fi capabilities on QEMU virt; query unavailable.') -or !$text.Contains('No Pi Wi-Fi regulatory target on QEMU virt; preparation unavailable.')) { throw 'QEMU capability/regulatory refusal failed' }
         if (!$text.Contains('No Pi Wi-Fi control channel on QEMU virt; queries unavailable.')) { throw 'QEMU control-channel refusal failed' }
         if (!$text.Contains('No Pi Wi-Fi firmware CPU on QEMU virt; startup unavailable.')) { throw 'QEMU startup refusal failed' }

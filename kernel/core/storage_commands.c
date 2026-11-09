@@ -37,6 +37,10 @@ bool storage_command(const char *line)
     if (same(line,"wificontrol")) { platform_wifi_control(); return true; }
     if (same(line,"wificaps")) { platform_wifi_caps(); return true; }
     if (same(line,"wifiscan")) { platform_wifi_scan(); return true; }
+    if (same(line,"wifitarget")) { platform_wifi_target(""); return true; }
+    if (begins(line,"wifitarget ")) { platform_wifi_target(line+11);return true; }
+    if (same(line,"wifiauthprep")) { platform_wifi_auth_prepare("");return true; }
+    if (begins(line,"wifiauthprep ")) { platform_wifi_auth_prepare(line+13);return true; }
     if (same(line,"wifiprepare")) { platform_wifi_prepare(""); return true; }
     if (begins(line,"wifiprepare ")) { platform_wifi_prepare(line+12);return true; }
     if (same(line,"wifiprobe")) { platform_wifi_probe(); return true; }
@@ -95,8 +99,10 @@ bool storage_command(const char *line)
         console_write("Commands: wifiinfo, wifiprobe, wifiinit, wificores, wififiles, wifiload, wifistart, wificontrol.\n");
         console_write("wificaps (read features/MAC) wifiprepare <CC> (CLM + country, no scan)\n");
         console_write("wifiscan (passive scan after country preparation; one-shot results)\n");
+        console_write("wifitarget <SSID> (cached WPA3 cipher/PMF checks; no connection)\n");
+        console_write("wifiauthprep <SSID> (verify/restore firmware SAE/PMF/events; no join)\n");
         platform_wifi_status();
-        console_write("Next stages: verify passive scan/events, then host authentication,\n");
+        console_write("Next stages: SAE group/password-element operations and authentication transport,\n");
         console_write("SAE/PMF authentication, IP/DHCP/DNS; no network connection yet.\n"); return true;
     }
     return false;

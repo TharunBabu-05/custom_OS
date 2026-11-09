@@ -13,6 +13,8 @@
 #include "brcm_control.h"
 #include "brcm_prepare.h"
 #include "brcm_scan.h"
+#include "brcm_auth.h"
+#include "wifi_target.h"
 #include "wifi_files.h"
 #include "dt_property.h"
 #define WIFI_HOST 0x1001100000UL
@@ -26,6 +28,7 @@ static struct brcm_control_state control={.error=BLOCK_NOT_READY};
 static struct brcm_caps_state capabilities={.error=BLOCK_NOT_READY};
 static struct brcm_prepare_state preparation={.error=BLOCK_NOT_READY};
 static struct brcm_scan_state scan={.error=BLOCK_NOT_READY};
+static struct brcm_auth_probe auth_probe={.error=BLOCK_NOT_READY};
 static uintptr_t firmware_dtb;
 static void host_status(void);
 static void startup_status(void);
@@ -33,6 +36,7 @@ static void control_status(void);
 static void prepare_status(void);
 static void caps_status(void);
 static void scan_status(void);
+static void auth_probe_status(void);
 static void transfer_failure(void)
 {
     const struct sdio_failure *f=&card.failure;if (!f->valid) { return; }
@@ -374,6 +378,61 @@ void platform_wifi_scan(void)
     control.event=NULL;control.event_context=NULL;control.rx_limit=control.rx_frames+64;
     scan_status();transfer_failure();if (!card.selected) { host_status(); }
 }
+void platform_wifi_target(const char *ssid)
+{
+    size_t bytes=0;while (ssid && ssid[bytes] && bytes<=32) { ++bytes; }
+    const struct brcm_scan_ap *ap=NULL;
+    enum wifi_target_result r=wifi_target_check(&scan,&capabilities,ssid,bytes,&ap);
+    console_write("WPA3 target check: ");console_write(wifi_target_error(r));console_write("\n");
+    if (ap) {
+        console_write("SSID=");print_ssid(ap);console_write(" BSSID=");print_mac(ap->bssid);
+        console_write(" channel=");console_u64(ap->channel);console_write(" band=");console_u64(ap->band);console_write("GHz\n");
+        console_write("RSN group=");console_hex(ap->group_cipher);console_write(" pairwise_CCMP128=");console_u64(ap->pairwise_ccmp);
+        console_write(" SAE_AKM8=");console_u64(ap->akm_sae);console_write(" management=");console_hex(ap->management_cipher);console_write("\n");
+        console_write(ap->pmf_required ? "AP PMF=required; station policy=required.\n" : ap->pmf_capable ? "AP PMF=capable; station policy=required.\n" : "AP PMF=not-advertised; station policy=required.\n");
+        console_write("RSNXE=");
+        if (!ap->rsnxe_length) { console_write("absent; SAE password-element mode has not been negotiated.\n"); }
+        else {
+            for (unsigned i=0;i<ap->rsnxe_length;++i) { console_hex(ap->rsnxe[i]);console_putc(' '); }
+            console_write((ap->rsnxe[0]&32) ? "SAE H2E advertised.\n" : "SAE H2E not advertised.\n");
+        }
+    }
+    if (r==WIFI_TARGET_ARGUMENT) { console_write("Usage: wifitarget <exact SSID> (no surrounding quotes; spaces/apostrophes are literal).\n"); }
+    console_write("Cached advertisements only. No password accepted or packets sent; not authenticated or connected.\n");
+}
+static void auth_probe_status(void)
+{
+    static const char *const properties[]={"none","auth","wpa_auth","wsec","mfp","event_msgs_ext"};
+    console_write("Firmware auth-policy check: ");console_write(block_error(auth_probe.error));console_write(" phase=");console_u64(auth_probe.phase);
+    console_write(" operation=");console_write(auth_probe.property<6 ? properties[auth_probe.property] : "unknown");console_write("\n");
+    console_write(auth_probe.verified ? "Temporary SAE/AES/required-PMF and extended events verified.\n" : "Temporary policy/event verification incomplete.\n");
+    console_write("event_mask_bytes=");console_u64(auth_probe.mask_bytes);console_write(" external-auth event IDs=187,188,189,190\n");
+    console_write("Extended mask reply_bytes=");console_u64(auth_probe.mask_reply_bytes);
+    console_write(" version=");console_u64(auth_probe.mask_header[0]);console_write(" command=");console_u64(auth_probe.mask_header[1]);
+    console_write(" length=");console_u64(auth_probe.mask_header[2]);console_write(" maxgetsize=");console_u64(auth_probe.mask_header[3]);console_write("\n");
+    for (unsigned i=0;i<4;++i) {
+        console_write(properties[i+1]);console_putc('=');
+        if (auth_probe.observed_mask&(1u<<i)) { console_hex(auth_probe.observed[i]); }else { console_write("not-read"); }console_putc(' ');
+    }console_write("\n");
+    console_write("firmware_status=");console_hex(auth_probe.firmware_status);console_write(" restore_status=");console_hex(auth_probe.restore_status);console_write("\n");
+    if (!auth_probe.changed) { console_write("No firmware settings changed.\n"); }
+    else if (auth_probe.restored) { console_write("Original security policy and complete event mask restored and verified.\n"); }
+    else { console_write("RESTORATION UNCONFIRMED: reboot before further Wi-Fi work.\n"); }
+    console_write("Interface remains DOWN. No join, credential, management-frame send or network connection.\n");
+}
+void platform_wifi_auth_prepare(const char *ssid)
+{
+    if (auth_probe.attempted) { console_write("Firmware auth-policy check already attempted; cached status. Reboot to repeat.\n");auth_probe_status();return; }
+    size_t n=0;while (ssid && ssid[n] && n<=32) { ++n; }const struct brcm_scan_ap *ap=NULL;
+    enum wifi_target_result target=wifi_target_check(&scan,&capabilities,ssid,n,&ap);
+    if (target!=WIFI_TARGET_OK) { console_write("Auth preparation refused: ");console_write(wifi_target_error(target));console_write("\nUsage: wifiauthprep <exact SSID> after a successful scan.\n");return; }
+    if (!ap->rsnxe_length || !(ap->rsnxe[0]&32)) { console_write("Target does not advertise H2E; this backend requires H2E. No firmware settings changed.\n");return; }
+    if (!card.selected || !control.ready || control.error!=BLOCK_OK || control.ioctl_version!=2 || !preparation.ready) { console_write("Run the firmware/control/country sequence successfully before auth preparation.\n");return; }
+    console_write("Checking firmware SAE/AES/required-PMF and extended auth-event mask, then restoring.\nTarget=");print_ssid(ap);console_write(" BSSID=");print_mac(ap->bssid);console_write("\n");
+    const struct brcm_auth_probe_io io={NULL,prepare_iovar};(void)brcm_auth_probe_run(&io,true,&auth_probe);
+    if (auth_probe.changed && !auth_probe.restored) { control.ready=false;control.error=auth_probe.restore_error==BLOCK_OK ? BLOCK_IO : auth_probe.restore_error; }
+    auth_probe_status();transfer_failure();
+}
 static uint32_t rd(void *context,unsigned offset)
 {
     (void)context; uint32_t value=*(volatile uint32_t *)(WIFI_HOST+offset);
@@ -435,6 +494,7 @@ void platform_wifi_status(void)
     if (capabilities.attempted) { caps_status(); }
     if (preparation.phase) { prepare_status(); }
     if (scan.phase) { scan_status(); }
+    if (auth_probe.attempted) { auth_probe_status(); }
 }
 void platform_wifi_cores(void)
 {

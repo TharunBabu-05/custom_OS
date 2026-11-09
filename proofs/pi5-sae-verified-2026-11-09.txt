@@ -1,0 +1,208 @@
+ RP1_UART 0000001c00030000
+ 11.47 MESS:00:00:11.471465:0: board: boardrev d04171 otp d04171
+ 11.76 Read /config.txt bytes      395 hnd 0x3
+ 11.48 MESS:00:00:11.483837:0: Initial voltage 800000 temp 31235
+ 11.68 MESS:00:00:11.684299:0: avs_2712: AVS pred 8691 869100 temp 31784
+ 11.68 MESS:00:00:11.687973:0: vpred 869 mV +0
+ 11.69 MESS:00:00:11.692093:0: over-voltage idle: 0 avs: 109100 delta: 0 (0x00000000)
+ 11.70 MESS:00:00:11.705804:0: FB framebuffer_swap 1
+ 11.70 MESS:00:00:11.707660:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+ 11.71 MESS:00:00:11.714589:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+ 11.72 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+ 11.29 Read PI5.DTB bytes    78770 hnd 0x648
+ 11.42  /overlays/overlay_map.dtb
+ 11.42  /overlays/bcm2712d0.dtbo
+ 11.76 PCIEx1: PWR 0 DET_WAKE 0
+ 11.72 Read /config.txt bytes      395 hnd 0x3
+ 11.80 [MSD [01:00] 2.00 000000:01] /cmdline.txt not found
+ 11.11  /cmdline.txt
+ 11.81 MESS:00:00:11.813387:0: Failed to open command line file 'cmdline.txt'
+ 11.91 MESS:00:00:11.919311:0: RPM 0, max RPM 0
+ 11.93 BMD "armstub8-2712.bin" not found
+ 11.38 fs_open: 'armstub8-2712.bin'
+ 11.94 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+ 11.54 Read OUROS.IMG bytes   190004 hnd 0x4d4
+ 11.95 MESS:00:00:11.955520:0: Device tree loaded to 0x200000 (size 0x13ade)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> saetest
+Testing an in-memory SAE exchange with public fixtures; wait for the prompt.
+PASS: SAE commit/confirm, key derivation, bad-confirm rejection and gated key export.
+Synthetic peers only; no hotspot credentials, radio exchange or network connection.
+> h2etest
+Testing SAE H2E group 19 with public fixtures; wait for the prompt.
+PASS: SAE H2E group-19 mapping, password token and MAC-bound password element.
+Public fixtures only; no hotspot credentials or radio packets. Not connected.
+> p256test
+Testing P-256 group arithmetic with public vectors; wait for the prompt.
+PASS: P-256 RFC5903 public/shared points, scalar boundaries and group identities.
+Math self-test only; no credentials, radio packets or Wi-Fi connection.
+> cryptotest
+PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.
+> rngtest
+RNG200: ok phase=5 base=0x000000107d208000 configuration=inherited
+control=0x0000000000007fff status=0x0000000000020005 warmup_bits=1852489249 discarded_words=16 consumed_words=80 conditioned_blocks=4
+PASS: hardware source supplied two distinct 64-byte conditioned samples; sample bytes erased.
+No random bytes printed. Engineering health checks are not entropy certification; WPA3 is not implemented.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+/boot: FAT32 read-only start_lba=2048 sectors=260096 clusters=255968
+> wififiles
+Verifying pinned Wi-Fi files from /boot; no radio access.
+Wi-Fi firmware files: SHA256 pins verified
+FW43455.BIN bytes=609309 SHA256=D608F866582519C0A28D86DB43040F4F1B98DD1D153E72E9752586546B4A36C3
+WIFINV.TXT bytes=2074 SHA256=CA709BE81A78BDB6932936374F39943ACBD7AF07FAE6151011127599A3CE9E3D
+WIFICLM.BIN bytes=2676 SHA256=9823842CAE9FB9A5DD1E5FB31F595516EC7DEEE341354BEF30BB3026EEE29CC1
+Vendor firmware is separate from the OurOS kernel. WIFILIC.TXT retains its notices.
+> wifiinit
+Wi-Fi init: SDIO enumeration only; no RF association or network packets.
+Cold Wi-Fi host: preparing WLAN power, pins and 400 kHz clock.
+Board preparation: ok
+SDIO initialization: ok
+Function-1 backplane identify: ok
+Wi-Fi SDIO host=0x0000001001100000 CONTROL0=0x0000000000800f00 CONTROL1=0x00000000000efa07
+PRESENT=0x0000000001f70000 CAPS=0x0000000015eac832 CQE=0x0000000000000000
+Current host IRQ=0x0000000000000000
+Board power phase=6 result=ok stepping=0x0000000027120030 SD_clock_hz=400000
+SDIO init phase=7 result=ok selected=yes
+R4=0x00000000b0ffff00 RCA=0x0000000000000001 functions=3 CCCR=3 SDIO_revision=4
+last_irq=0x0000000000000002 last_response=0x0000000000001000
+SDIO CIS vendor=0x00000000000002d0 device=0x0000000000004345 (SDIO identity; not backplane chip/revision)
+Broadcom phase=4 result=ok clock_csr=0x0000000000000061
+Function-1 block size=64 bytes; RAM wire requests <=64 bytes
+ChipCommon ID word=0x0000000015264345 chip=0x0000000000004345 revision=6
+WPA3-Personal requested; not connected. Remaining: core discovery/upload,
+board firmware, FullMAC, SAE/PMF authentication and an IP stack.
+> wifiload
+Run wifiinit and wificores successfully before wifiload.
+> wificores
+Reading AI core table and CR4 RAM banks; no CPU/D11 reset, firmware upload or RF packets.
+Wi-Fi core discovery: ok core_map=valid RAM=measured
+EROM=0x000000001810a000 words=88 cores=5
+core=0x0000000000000800 ChipCommon rev=51 base=0x0000000018000000 wrapper=0x0000000018100000
+core=0x0000000000000812 D11 WLAN rev=54 base=0x0000000018001000 wrapper=0x0000000018101000
+core=0x000000000000083e ARM CR4 rev=9 base=0x0000000018002000 wrapper=0x0000000018102000
+core=0x000000000000083c PCIe Gen2 rev=14 base=0x0000000018003000 wrapper=0x0000000018103000
+core=0x0000000000000829 SDIO device rev=21 base=0x0000000018004000 wrapper=0x0000000018104000
+CR4 discovery snapshot: ioctl=0x0000000000000021 reset=0x0000000000000000 capability=0x0000000000000b44 banks=8
+CR4 bank selector restored and verified.
+Wi-Fi RAM base (chip map)=0x0000000000198000 bytes=819200 KiB=800
+bank=0 bytes=131072
+bank=1 bytes=131072
+bank=2 bytes=131072
+bank=3 bytes=32768
+bank=4 bytes=131072
+bank=5 bytes=65536
+bank=6 bytes=131072
+bank=7 bytes=65536
+> wifiload
+wifiload: verify files, keep CR4 halted, reset D11, upload and compare every byte.
+Wait for the prompt; at 400 kHz SDIO this can take a minute or more.
+Firmware readback verified 65536/609309 bytes
+Firmware readback verified 131072/609309 bytes
+Firmware readback verified 196608/609309 bytes
+Firmware readback verified 262144/609309 bytes
+Firmware readback verified 327680/609309 bytes
+Firmware readback verified 393216/609309 bytes
+Firmware readback verified 458752/609309 bytes
+Firmware readback verified 524288/609309 bytes
+Firmware readback verified 589824/609309 bytes
+Firmware readback verified 609309/609309 bytes
+Wi-Fi firmware files: SHA256 pins verified
+FW43455.BIN bytes=609309 SHA256=D608F866582519C0A28D86DB43040F4F1B98DD1D153E72E9752586546B4A36C3
+WIFINV.TXT bytes=2074 SHA256=CA709BE81A78BDB6932936374F39943ACBD7AF07FAE6151011127599A3CE9E3D
+WIFICLM.BIN bytes=2676 SHA256=9823842CAE9FB9A5DD1E5FB31F595516EC7DEEE341354BEF30BB3026EEE29CC1
+Vendor firmware is separate from the OurOS kernel. WIFILIC.TXT retains its notices.
+Wi-Fi firmware staging: ok phase=6 upload/readback=verified
+CR4 last-confirmed halted=yes D11 held in reset=yes
+code_bytes=609309 verified_bytes=609309 NVRAM_bytes=1748 NVRAM_address=0x000000000025f92c
+Initial NVRAM token clear/readback succeeded.
+Firmware is not executing. Next: controlled startup and FullMAC; no Wi-Fi connection.
+> wifistart
+wifistart: verified staging required; install CR4 vector, release CPU, check HT/shared memory.
+No scan, association or network requests are issued. Wait for the prompt.
+Wi-Fi firmware startup: ok phase=7 shared_memory=ready
+CR4 may be executing; halt is not asserted by this status.
+reset_vector=0x00000000b83ef198 clock_csr=0x00000000000000d0 shared=0x0000000000201cc0 polls=1
+shared_flags=0x0000000000000001 console=0x000000000025debc trap=0x0000000000000000 assert_line=0 mailbox=0x0000000000000000
+Function 2 / FullMAC control not started; scan/connect/WPA3/IP unavailable.
+> wificontrol
+wificontrol: enable F2, check protocol/credits, query ioctl and firmware versions.
+No scan, association, credentials or IP requests. Wait for the prompt.
+Wi-Fi control channel: ok phase=8 queries=verified
+F2 block_size=512 IO_ENABLE=0x0000000000000006 IO_READY=0x0000000000000006 clock_csr=0x00000000000000d2 device_ready=yes
+interrupt=0x0000000020800040 mailbox=0x0000000000040002 last_address=0x0000000000008000 last_word=0x0000000000040002
+TX_frames=2 RX_frames=4 events=2 data_dropped=0 empty=2 sequence_resync=0 polls=6
+Last RX header: 0x00000000fee3011c 0x000000000c000003 0x0000000000001600
+tx_seq=2 tx_window=22 request_id=2 command=262 firmware_status=0x0000000000000000 response_bytes=256
+Firmware ioctl ABI=2
+Firmware version: wl0: Aug 29 2023 01:47:08 version 7.45.265 (28bca26 CY) FWID 01-b677b91b
+Version queries snapshot; preparation/scan have separate status. No association/WPA3/IP.
+> wificaps
+Wi-Fi capabilities: ok phase=5 discovery=verified
+Firmware cap: ap sta wme 802.11d 802.11h rm cqa cac dualband ampdu ampdu_tx ampdu_rx amsdurx radio_pwrsave btamp p2p proptxstatus mchan p2po anqpo vht-prop-rates dfrts txpwrcache stbc-tx stbc-rx-1ss epno pfnx wnm bsstrans mfp sae_ext fbt
+Firmware MAC: 2c:cf:67:f4:99:75
+SAE advertised=no external_SAE advertised=yes
+PMF iovar replied=yes current_value=1 firmware_status=0x0000000000000000
+Firmware supplicant iovar unsupported current_value=0 firmware_status=0x00000000ffffffe9
+Capability discovery does not enable SAE/PMF or prove a WPA3 connection.
+last_firmware_status=0x00000000ffffffe9
+> wifiprepare In
+Usage: wifiprepare IN (use your actual two-letter uppercase country code).
+> wifipreapre IN
+Unknown command. Type help.
+> wifiprepare IN
+Verifying pinned CLM before upload; then setting and reading back country. No scan/association.
+Wi-Fi regulatory preparation: ok phase=6 CLM/country=verified
+CLM pin=verified uploaded_bytes=2676 chunks=2 clmload_status=0x0000000000000000 firmware_status=0x0000000000000000
+CLM version: API: 12.2 Data: RPi.4 Compiler: 1.29.4 ClmImport: 1.39.1 Customization: v2 21/11/15 Creation: 2021-11-15 01:32:40
+Requested country=IN verified country=IN ccode=IN revision=0
+Country raw reply: 0x0000000000000049 0x000000000000004e 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000049 0x000000000000004e 0x0000000000000000 0x0000000000000000
+Preparation snapshot; wifiscan is separate. Association/WPA3/IP remain unimplemented.
+> wifiscan
+wifiscan: passive scan after verified CLM/country; no association or credentials.
+Allow up to 30 seconds plus I/O; wait for the prompt.
+Wi-Fi passive scan: ok phase=8 scan=complete
+escan_version=1 scan_ver_reply=0x0000000000000000 sync_id=0x0000000000004f53 firmware_status=0x0000000000000000 event_status=0 reason=0
+networks=4 events=10 duplicates=5 malformed=0 ignored=1 overflow=0 polls=381
+Interface DOWN acknowledged. Event mask restored and verified.
+e6:49:0c:b1:bc:23 channel=6 band=2GHz RSSI=-46dBm security=RSN+SAE PMF=required SSID="Jack's"
+6c:4f:89:f9:a1:97 channel=6 band=2GHz RSSI=-88dBm security=RSN+PSK PMF=not-advertised SSID="Airtel_vetri_5G"
+0e:36:23:6e:71:59 channel=11 band=2GHz RSSI=-83dBm security=RSN+PSK PMF=not-advertised SSID="Airtel_bala_9559"
+be:55:db:ae:a9:fe channel=11 band=2GHz RSSI=-85dBm security=RSN+PSK PMF=not-advertised SSID="Navin AirFiber"
+Network advertisements only; not associated. WPA3 authentication and IP are unavailable.
+> wifitarget Jack's
+WPA3 target check: advertisement matches SAE/CCMP-128/BIP-CMAC-128 with PMF
+SSID="Jack's" BSSID=e6:49:0c:b1:bc:23 channel=6 band=2GHz
+RSN group=0x00000000000fac04 pairwise_CCMP128=1 SAE_AKM8=1 management=0x00000000000fac06
+AP PMF=required; station policy=required.
+RSNXE=0x0000000000000020 SAE H2E advertised.
+Cached advertisements only. No password accepted or packets sent; not authenticated or connected.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x000000006a004021
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> uptime
+uptime_seconds=1742
+>

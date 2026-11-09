@@ -6,6 +6,9 @@ enum brcm_security { SCAN_PRIVACY=1,SCAN_WPA=2,SCAN_RSN=4,SCAN_PSK=8,SCAN_SAE=16
 struct brcm_scan_ap {
     unsigned char bssid[6],ssid[32];uint8_t ssid_length,channel,band;
     int16_t rssi;uint16_t chanspec,security;bool pmf_capable,pmf_required;
+    uint32_t group_cipher,management_cipher;
+    bool pairwise_ccmp,akm_sae; /* Exact 00:0f:ac:4 and :8; FT-SAE is distinct. */
+    uint8_t rsnxe_length;unsigned char rsnxe[16];
 };
 struct brcm_scan_state {
     bool attempted,armed,request_accepted,complete,ready,interface_may_be_up,interface_down,mask_restored,truncated;
