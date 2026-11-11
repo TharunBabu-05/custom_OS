@@ -93,8 +93,8 @@ public/shared-point known answers. It uses public fixtures only, not credentials
 Host known-answer and independent OpenSSL comparisons cover this new math path.
 Physical P-256 now passes, including repeat execution; storage/pages still pass.
 h2etest adds group-19 H2E SSWU mapping, password-token derivation and MAC-bound
-password elements using synthetic public fixtures only. No hotspot credential
-is accepted or packaged. Physical H2E now passes, with storage/pages intact.
+password elements using synthetic public fixtures only. This self-test accepts
+no credential. Physical H2E now passes, with storage/pages intact.
 saetest adds an in-memory group-19 SAE exchange with public synthetic peers.
 It checks commits, confirms, key derivation, bad-confirm rejection and key export
 gating. No real credentials, radio authentication, association or IP requests.
@@ -107,18 +107,111 @@ wifiauthprep <SSID> temporarily sets/readbacks SAE auth, AES, required PMF and
 the extended event mask (187..190), then restores the entire saved configuration.
 Run it after wifiscan/wifitarget; it never raises the interface or joins a network.
 If restoration is unconfirmed, control access is blocked until reboot.
-The latest hardware GET reports a 24-byte mask with e/v in its first two bytes,
-consistent with request-name residue; our version-echo check rejected it.
-This revision handles exactly that header as well as normal v1 replies, checks
-the low 128 mask bits through legacy event_msgs and requires two identical
-complete snapshots before SET. Every SET constructs a fresh v1 header.
-Compatibility remains hardware-untested; no live authentication is performed.
-The new management-frame/event codec has native tests; no live frame TX/RX yet.
-The backend accepts only fixed group-19 bodies without optional IEs. No complete
-radio SAE state machine, EAPOL/key installation or IP stack is implemented yet.
+The latest capture verifies the temporary event mask and full restoration.
+auth reads 2 immediately after SET auth=3; ordering did not resolve it.
+wsec=0x604 is AES plus PMF flags, now accepted with separate required mfp=2.
+Unknown/extra cipher bits and optional PMF still fail. The strict wifiauthprep
+diagnostic can still report the auth=2 mismatch; it is optional below.
+wifijoinprobe <SSID> is a new one-shot external-SAE request observation. It
+first initializes station mode, snapshots/applies security/events, raises the interface,
+rechecks live security/events, then issues one fixed BSSID/channel/SSID join.
+The earlier 2026-11-10 capture stopped at INFRA=0 before UP/join. The driver requires
+AP=0 and UP=0, accepts only INFRA 0/1, selects INFRA=1 if needed, and verifies
+GET_INFRA=1 before continuing. An already-STA interface skips the SET. The
+role is checked again after UP. Station selection is retained this boot;
+security/event snapshots are taken after this initialization and restored.
+The latest 2026-11-10 capture passes station setup, matched request delivery,
+DOWN and security/event restoration. No role-0 fallback is used.
+auth=2 may proceed only to this bounded observation with SAE-only wpa_auth,
+AES and required PMF. Only a matched firmware external-SAE request can pass.
+After observation/timeout/error it sends DOWN before restoring policy/mask.
+It sends no password, SAE response, auth success, keys or IP. It is not a
+connection command. Pending join/SSID cache is not restored: reboot to repeat.
+The request-only path is physically verified. Wait 15 seconds plus I/O.
+Image ZIPs stay local; the user currently handles GitHub publication.
+wifisaeprobe <SSID> adds a one-shot fresh group-19 SAE commit and peer-reply
+observation. On a fresh boot skip wifijoinprobe; run wifisaeprobe after target.
+It checks RNG200, accepts a hidden local password, derives the token/PWE and
+fresh commit BEFORE UP, then erases the password and all private SAE state.
+Preparation can take minutes with caches off. Wait for progress and the prompt.
+Use PuTTY local echo and local line editing Force off. At the hidden password
+prompt type it without quotes, then Enter. Printable ASCII 1..128 bytes only;
+Backspace/Delete edit, Ctrl+U clears, empty Enter cancels. Rejected lines are
+drained and wiped. UART is not encrypted; no credential is saved or packaged.
+The probe sends one commit after the matched request, waits for the correct
+packet-ID TX ACK and a peer commit, then DOWN/restores. Peer curve/reflection
+validation happens after DOWN. Public transcript buffers are then erased.
+An earlier Pi capture passes commit SET/TX ACK but rejects RX metadata v1 in
+the old parser. This revision accepts the documented 16-byte v1 header, keeps
+legacy v0 support, and rejects v2 rather than interpreting different offsets.
+Fixed group-19 bodies are accepted, without optional IEs.
+Anti-clogging/unknown metadata/status/lengths stop with diagnostics, not success.
+The probe cannot prove password correctness. No confirm, auth-success, keys,
+association, EAPOL/PMF data path or IP stack is implemented in this commit-only path.
+Reboot after any started preparation/probe. This commit-only probe does not retry.
+wifisaeauth <SSID> is the new bounded live commit/confirm test. On a fresh
+boot skip BOTH wifijoinprobe and wifisaeprobe; run wifisaeauth after target.
+It uses the same hidden local input and fresh RNG, but retains a private SAE
+session only for this synchronous test. Password/token temporaries are erased
+before UP. It validates the peer commit, derives keys, sends one confirm with
+a distinct packet ID, requires SET/TX ACKs and verifies the peer confirm HMAC.
+Key math is outside callbacks; key_math_ms is reported, and >=4000 ms stops
+before sending a known-late confirm. It then DOWN/restores and destroys the
+session/keys on all attempted exits. No PMK export, firmware auth-success,
+association, EAPOL/PMF key installation or IP in this confirm-only command.
+The latest Pi capture PASSES peer_confirm_verified=yes, both TX ACKs and
+cleanup. Preparation takes 3 seconds; peer key calculation takes 2900 ms.
+The first attempt succeeded. Up to THREE identical commit transmissions exist,
+with new packet IDs, ONLY after SET success/TX ACK 0/no matched RX for a full
+five seconds. It preserves the same private session/commit; no new RNG draws.
+NACK, missing ACK, rejected/malformed RX, I/O or stalled clocks stop immediately.
+The total missing-commit wait is about 15 seconds plus bounded control I/O.
+No confirm retransmission, anti-clogging response or weaker-security fallback.
+Capture commit_attempts, observed_auth_RX, early_RX, filtered_RX, malformed_RX
+and the final 12 event diagnostics. Rows contain only envelope metadata; no
+password, frame bodies or SAE keys. They distinguish early/filtered RX and
+firmware events from an absent reply. They never count as authentication.
+crypto_result=not-run marks a stop before peer-key processing; numeric zero
+alone does not prove password agreement. Check peer_confirm_verified.
+P-256 prime folding replaces slow 512-bit serial reduction; 13647 independent
+BigInt products and existing OpenSSL/H2E/SAE vectors pass. Pi preparation went
+from 95 seconds to 3 in the captures; live peer-key timing is 2900 ms.
+Latest physical Pi capture PASSES corrected first-M4/key ordering, peer-port
+121 SET/readback, DHCP OFFER/ACK and two successful decryptions. Cleanup passes.
+The observed lease was 10.21.217.100, gateway/DNS 10.21.217.61, /24, 3599 s.
+These are capture values, not hardcoded configuration.
+Current phase: wifiping <SSID> runs fresh SAE/M4/keys/port/DHCP, three ARP address
+probes with randomized timing, two announcements, gateway ARP and three ICMP
+requests. Require an on-link gateway and usable mask/address; no guesses.
+ARP/ICMP hardware behavior remains UNTESTED. A bounded local gateway test only.
+Fresh boot: nettest, keytest, storageinit, wififiles, wifiinit, wificores,
+wifiload, wifistart, wificontrol, wificaps, wifiprepare IN, wifiscan,
+wifitarget Jack's, wifiping Jack's, netinfo, wifiinfo, storagetest, pagetest, uptime.
+Run separately and wait for each prompt. Skip wifidhcp/wifiassoc/other join probes.
+Enter credentials only at the hidden prompt. Nothing is embedded or saved.
+PuTTY Local echo and Local line editing: Force off. Reboot before retrying.
+DHCP remains bounded by 45 s plus I/O. New ARP/ICMP scope: 30 s/3000 polls plus
+bounded I/O, three probes, two announcements, three gateway requests, three
+ICMP echoes, eight credit deferrals and eight queued ARP reply writes at most.
+No conflict observed is limited evidence. Recheck lease validity before writes.
+On conflict remove the temporary IP and attempt DHCPDECLINE, then stop.
+Allow at least ten seconds before retrying. No automatic acquisition retry.
+Always remove the temporary IP, DEAUTHORIZE every attempted port, DOWN/delete
+keys/clear RSN/restore policy and erase private state. Unconfirmed cleanup
+poisons I/O. M3 retry service never reinstalls keys.
+Success: overall phase=11, DHCP phase=3, Gateway probe ok phase=5, three probes,
+two announcements, learned gateway MAC, sent=3 and nonzero reply_mask.
+reply_mask=7 means all three replied. Observed latency includes polling/I/O.
+netinfo caches public results. Active_now must be no after the test finishes.
+nettest now checks public DHCP and ARP/ICMP known answers, without radio I/O.
+No persistent connection, DNS, external Internet probe, renewal, TCP/TLS or
+package installation. No DHCP RELEASE yet. ping www.google.com is unavailable.
+SAE H&P/CCMP/required PMF remains the live profile; no WPA2 fallback. H2E M2
+binding and group rekey remain later work. Long math tests are optional here.
+See docs/wifi-gateway.md for exact limits, validation and the current procedure.
 rngtest manually checks the DT-gated RNG200 source and erases its samples.
 No random bytes are printed, and no timer/MAC fallback is allowed.
-Native crypto/RNG tests and physical RNG checks pass. No authentication/IP.
+Native crypto/RNG tests, physical RNG checks and live SAE confirms pass. No IP.
 wifitarget <SSID> checks cached RSN group/pairwise/SAE/PMF/management suites,
 and retains RSNXE/H2E advertisements. It sends no packets and accepts no password.
 Run wifitarget Jack's after wifiscan; no surrounding quotes. Physical preflight
@@ -127,12 +220,7 @@ The first failing SDIO command/R5/IRQ/FIFO snapshot is retained for diagnosis.
 It can take a minute or more at 400 kHz SDIO; wait for progress and the prompt.
 WIFILIC.TXT retains vendor asset notices; SOURCE.TXT records the pinned source.
 CLM is verified/staged on disk for later FullMAC use, not loaded by wifiload.
-WPA3-Personal is the requested target. No association or external network yet.
-No password is accepted or embedded. The short hardware check is:
-storageinit, wififiles, wifiinit, wificores, wifiload, wifistart,
-wificontrol, wificaps, wifiprepare IN, wifiscan, wifitarget Jack's,
-wifiauthprep Jack's, wifiinfo. Capture its policy/readback/restoration status.
-See docs/wifi-auth-foundation.md. These are prerequisites, not an SAE connection.
+WPA3-Personal is the requested target; the new DHCP test ends DOWN. No persistent IP.
 Reboot before retrying a partial CLM/country operation.
 Then storagetest, storageinfo, pagetest and uptime to check continued operation.
 Root dirs: /boot /dev /etc /home /mnt /proc /sys /tmp /var/log.

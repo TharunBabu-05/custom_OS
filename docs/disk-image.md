@@ -1,5 +1,10 @@
 # Experimental Pi 5 disk image
 
+Current Wi-Fi test: [address checks, ARP and gateway ping](wifi-gateway.md).
+The latest Pi run passes peer-port authorization and DHCP OFFER/ACK. The new
+`wifiping` command tests ARP and gateway ICMP, then removes its temporary IP
+and ends DOWN. That new behavior needs a fresh Pi test.
+
 Builds now preserve previous and newly generated images in the local
 [`image_files` folder](image-archive.md), then clean known stale build outputs.
 The newest complete header disk image is

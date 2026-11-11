@@ -1,6 +1,6 @@
 /* Original SAE H2E group-19 derivation. Protocol reference: hostap sae.c
  * sae_derive_pt_ecc()/sae_derive_pwe_from_pt_ecc(); SSWU tested with RFC9380.
- * Current monitor calls use synthetic public fixtures only, not credentials. */
+ * h2etest uses public fixtures; the opt-in SAE probe accepts hidden credentials. */
 #include <stdint.h>
 #include "sae_h2e.h"
 #include "p256.h"

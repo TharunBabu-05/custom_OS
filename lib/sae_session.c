@@ -1,6 +1,9 @@
 /* Original bounded SAE crypto exchange. Protocol definitions: hostap sae.c
- * and sha256-prf.c. This backend is not yet connected to management frames.
- * Only group 19/H2E/AKM8 without optional IEs or rejected-group salt is accepted. */
+ * and sha256-prf.c. The commit-only probe clears state before UP; the live
+ * confirm test retains it only for its exchange and destroys it before return.
+ * Only group 19/AKM8 without optional IEs or rejected-group salt is accepted.
+ * The PWE may come from H2E or hunting-and-pecking. SHA256 key derivation is
+ * identical for this no-rejected-groups group-19 profile. */
 #include "sae_session.h"
 #include "p256.h"
 #include "crypto.h"

@@ -90,3 +90,10 @@ void platform_wifi_prepare(const char *country) { (void)country;console_write("N
 void platform_wifi_scan(void) { console_write("No Pi Wi-Fi radio on QEMU virt; scanning unavailable.\n"); }
 void platform_wifi_target(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; target check unavailable.\n"); }
 void platform_wifi_auth_prepare(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; firmware auth-policy check unavailable.\n"); }
+void platform_wifi_join_probe(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; external-SAE join probe unavailable.\n"); }
+void platform_wifi_sae_probe(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; SAE commit probe unavailable. No password requested.\n"); }
+void platform_wifi_sae_auth(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; SAE confirm test unavailable. No password requested.\n"); }
+void platform_wifi_assoc(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; association probe unavailable. No password requested.\n"); }
+void platform_wifi_dhcp(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; DHCP probe unavailable. No password requested.\n"); }
+void platform_wifi_ping(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; gateway ping unavailable. No password requested.\n"); }
+void platform_network_info(void) { console_write("No live Pi Wi-Fi DHCP lease on QEMU virt.\n"); }

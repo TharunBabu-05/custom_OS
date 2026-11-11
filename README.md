@@ -55,7 +55,11 @@
 > [external-auth transport stage](docs/wifi-auth-transport.md) adds frame/event
 > encoding and a reversible firmware policy check before radio authentication.
 > WPA3-Personal is the requested connection target;
-> association and external-network access are still unfinished.
+> SAE, association, M2/M3, key SET/deletion ACKs, authenticated M3 retries and
+> live M4 writes now pass on hardware. Corrected M4/key ordering, peer-port
+> authorization/readback and DHCP OFFER/ACK also pass, with two successful decryptions.
+> The new address-check/ARP/gateway-ICMP test needs a Pi run;
+> persistent IP and Internet access remain unfinished.
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
 > driver supplies the next dependency for reading Wi-Fi firmware from disk.
 
@@ -70,12 +74,18 @@ Builds preserve previous versions before cleaning stale output. See
 [Pi 5 header-console disk ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip).
 Extract the `.img` before flashing your pendrive. Every completed disk-image
 build now creates a verified ZIP for GitHub; raw 128 MiB images stay local.
-The [latest UART capture](proofs/pi5-auth-mask-header-2026-11-09.txt) passes
-storage and scanning, but reveals an unusual `e/v` header in the firmware's
-24-byte event-mask reply. This revision accepts that captured format with a
-legacy-mask cross-check and two matching snapshots before changing settings.
-Its physical auth-policy result is pending; association/IP remain unfinished.
+The [latest Pi transcript](proofs/pi5-dhcp-ack-port-verified-2026-11-11.txt)
+passes corrected M4/key ordering, firmware peer-port authorization/readback and
+DHCP OFFER/ACK. Two packets decrypt successfully, and cleanup passes.
 
+The new [`wifiping` phase](docs/wifi-gateway.md) checks the leased address for
+conflicts, announces a temporary IP, resolves the gateway with ARP and sends
+three ICMP echo requests. Native packet/transport/handshake models cover the
+path; a fresh Pi test is needed. It removes the temporary IP and ends
+deauthorized/DOWN/delete/restore. Persistent networking, external Internet
+access, DNS queries and package installation remain later work.
+Type credentials only at the hidden prompt; none are saved or embedded.
+Current development images stay local; the user handles GitHub publication.
 <p align="center">
   <img src="docs/assets/boot-replay.gif" width="100%" alt="Animated illustration replaying captured OurOS startup, CPU information, uptime and echo commands." />
   <br />
@@ -144,7 +154,7 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 | Root filesystem | Writable RAMFS with paths and monitor commands, also observed on the real Pi |
 | Storage | USB BOT capacity/sectors and FAT32 `/boot` observed on Pi, including reads after ring wrap; virtio tested in QEMU |
 | USB | Pi DMA/descriptors observed; configuration, bulk/event ring cycling and SCSI reads tested in QEMU |
-| Wi-Fi groundwork | Firmware, CLM/country and passive scan observed, including SAE/PMF hotspot; crypto/RNG foundation added, physical RNG test pending; authentication/IP remain |
+| Wi-Fi groundwork | SAE, keys, peer authorization and DHCP ACK observed on Pi; address checks/ARP/gateway ping added; persistent networking remains |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
@@ -286,7 +296,13 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] Physical Pi read-only FullMAC control replies (firmware 7.45.265)
 - [x] Physical Pi capability/CLM/country IN verification
 - [x] Physical Pi passive scan/events including SAE + required PMF hotspot
-- [ ] Physical Pi RNG source verification, then host authentication
+- [x] Physical Pi RNG source and live SAE peer confirmation
+- [x] Physical Pi association and EAPOL M2/M3 MIC/unwrap verification
+- [x] Physical Pi authenticated key-data validation and offline M4
+- [x] Physical Pi firmware key installation/live M4 with authenticated M3 retries
+- [x] Physical Pi peer-port authorization/readback and DHCP DORA
+- [ ] Physical Pi address checks, ARP and gateway ICMP (new bounded probe)
+- [ ] Persistent supplicant, group rekey, lease renewal and external IP networking
 - [ ] Physical Pi SD-card handoff
 - [ ] Interrupt controller, timer interrupts and virtual memory
 - [ ] Scheduling, EL0 processes and a syscall interface

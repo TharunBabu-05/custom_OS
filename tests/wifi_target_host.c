@@ -79,5 +79,13 @@ int main(void)
     /* Arbitrary SSIDs remain bounded byte strings, including embedded NUL. */
     seed();scan.ap[0].ssid[1]=0;const unsigned char binary[]={'J',0,'c','k','\'', 's'};
     assert(wifi_target_check(&scan,&caps,binary,sizeof(binary),&target)==WIFI_TARGET_OK);
+    seed();assert(wifi_target_sae_method(&scan.ap[0])==WIFI_SAE_HUNT);
+    scan.ap[0].rsnxe_length=1;scan.ap[0].rsnxe[0]=32;assert(wifi_target_sae_method(&scan.ap[0])==WIFI_SAE_H2E);
+    scan.ap[0].rsnxe[0]=0;assert(wifi_target_sae_method(&scan.ap[0])==WIFI_SAE_HUNT);
+    scan.ap[0].rsnxe[0]=33;assert(wifi_target_sae_method(&scan.ap[0])==WIFI_SAE_METHOD_INVALID);
+    scan.ap[0].rsnxe_length=17;assert(wifi_target_sae_method(&scan.ap[0])==WIFI_SAE_METHOD_INVALID);
+    scan.ap[0].rsnxe_length=0;scan.ap[0].akm_sae=false;assert(wifi_target_sae_method(&scan.ap[0])==WIFI_SAE_METHOD_INVALID);
+    assert(wifi_target_sae_method(NULL)==WIFI_SAE_METHOD_INVALID);
+    puts("PASS: H2E preferred when advertised, hunting-and-pecking when absent, malformed method rejection; SAE AKM/required-PMF policy remains separate and no PSK fallback");
     puts("PASS: exact WPA3 target/cipher/PMF checks, no PSK or FT-SAE fallback, ambiguous/unclean scan refusal, RSNXE bounds, PMKIDs and truncated advertisements");return 0;
 }

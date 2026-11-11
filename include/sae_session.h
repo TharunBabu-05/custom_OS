@@ -8,7 +8,7 @@
 enum sae_phase { SAE_EMPTY,SAE_COMMITTED,SAE_KEYS,SAE_SENT,SAE_VERIFIED,SAE_EXPORTED,SAE_FAILED };
 enum sae_result { SAE_OK,SAE_ARGUMENT,SAE_STATE,SAE_RANDOM,SAE_FORMAT,SAE_REFLECTION,SAE_MATH,SAE_CONFIRM };
 struct sae_keys { unsigned char pmk[32],pmkid[16]; };
-/* Narrow experimental group-19 H2E / ordinary SAE AKM-8 profile. No optional
+/* Narrow experimental group-19 / ordinary SAE AKM-8 profile. No optional
  * IEs, rejected groups, password identifier negotiation, SAE-PK or radio I/O.
  * Initialize to zero; clear before reuse. Inputs/outputs must not overlap this
  * state. The caller's RNG must supply fresh cryptographic bytes and fail on

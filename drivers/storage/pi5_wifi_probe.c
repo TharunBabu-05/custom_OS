@@ -1,6 +1,6 @@
 /* Manual SDIO bring-up, verified staging and explicit firmware startup.
  * Never called at boot. The upload keeps CR4 halted; wifistart releases it.
- * F2 supports only read-only firmware control queries; no network interface. */
+ * F2 control supports bounded preparation/scan/request probes; no IP interface. */
 #include "wifi.h"
 #include "sdhci.h"
 #include "console.h"
@@ -14,6 +14,14 @@
 #include "brcm_prepare.h"
 #include "brcm_scan.h"
 #include "brcm_auth.h"
+#include "brcm_join_probe.h"
+#include "brcm_sae_probe.h"
+#include "brcm_assoc.h"
+#include "sae_h2e.h"
+#include "sae_hunt.h"
+#include "sae_session.h"
+#include "rng200.h"
+#include "crypto.h"
 #include "wifi_target.h"
 #include "wifi_files.h"
 #include "dt_property.h"
@@ -29,6 +37,10 @@ static struct brcm_caps_state capabilities={.error=BLOCK_NOT_READY};
 static struct brcm_prepare_state preparation={.error=BLOCK_NOT_READY};
 static struct brcm_scan_state scan={.error=BLOCK_NOT_READY};
 static struct brcm_auth_probe auth_probe={.error=BLOCK_NOT_READY};
+static struct brcm_join_probe join_probe={.error=BLOCK_NOT_READY};
+static struct brcm_sae_probe sae_probe={.error=BLOCK_NOT_READY};
+static struct brcm_assoc_probe association_probe={.error=BLOCK_NOT_READY};
+static bool sae_preparation_attempted;
 static uintptr_t firmware_dtb;
 static void host_status(void);
 static void startup_status(void);
@@ -37,6 +49,9 @@ static void prepare_status(void);
 static void caps_status(void);
 static void scan_status(void);
 static void auth_probe_status(void);
+static void join_probe_status(void);
+static void sae_status(const struct brcm_sae_probe *s);
+static void assoc_status(void);
 static void transfer_failure(void)
 {
     const struct sdio_failure *f=&card.failure;if (!f->valid) { return; }
@@ -245,12 +260,23 @@ static void control_status(void)
     console_write(" empty=");console_u64(control.empty_frames);console_write(" sequence_resync=");console_u64(control.seq_resync);
     console_write(" polls=");console_u64(control.polls);console_write("\n");
     console_write("Last RX header:");for (unsigned i=0;i<3;++i) { console_write(" ");console_hex(control.last_header[i]); }console_write("\n");
+    console_write("SDPCM glom: descriptors=");console_u64(control.glom_descriptors);console_write(" aggregates=");console_u64(control.glom_frames);
+    console_write(" subframes=");console_u64(control.glom_subframes);console_write(" failures=");console_u64(control.glom_failures);
+    console_write(" phase=");console_u64(control.glom_phase);console_write(" result=");console_write(block_error(control.glom_error));console_write("\n");
+    if (control.glom_phase) {
+        console_write("Glom entries=");console_u64(control.glom_last_count);console_write(" pending=");console_u64(control.glom_count);console_write(" described_bytes=");console_u64(control.glom_bytes);
+        console_write(" wire_bytes=");console_u64(control.glom_wire_bytes);console_write(" outer_header:");
+        for (unsigned i=0;i<3;++i) { console_write(" ");console_hex(control.glom_header[i]); }console_write("\n");
+        console_write("Glom last_index=");console_u64(control.glom_bad_index);console_write(" lengths:");
+        for (unsigned i=0;i<control.glom_last_count && i<BRCM_GLOM_FRAMES;++i) { console_write(" ");console_u64(control.glom_lengths[i]); }
+        console_write(" subheader:");for (unsigned i=0;i<3;++i) { console_write(" ");console_hex(control.glom_subheader[i]); }console_write("\n");
+    }
     console_write("tx_seq=");console_u64(control.tx_seq);console_write(" tx_window=");console_u64(control.tx_max);
     console_write(" request_id=");console_u64(control.request_id);console_write(" command=");console_u64(control.command);
     console_write(" firmware_status=");console_hex(control.firmware_status);console_write(" response_bytes=");console_u64(control.response_length);console_write("\n");
     if (control.ioctl_version) { console_write("Firmware ioctl ABI=");console_u64(control.ioctl_version);console_write("\n"); }
     if (control.ready) { console_write("Firmware version: ");console_write(control.version);console_write("\n"); }
-    console_write("Version queries snapshot; preparation/scan have separate status. No association/WPA3/IP.\n");
+    console_write("Version queries snapshot; preparation/scan/association have separate status. No authorized data port or IP.\n");
     if (control.attempted && !control.ready) { console_write("Control startup incomplete; capture wifiinfo, then reboot before retry.\n"); }
 }
 void platform_wifi_control(void)
@@ -296,7 +322,7 @@ static void prepare_status(void)
     console_write("Requested country=");console_write(preparation.requested);console_write(" verified country=");console_write(preparation.country);
     console_write(" ccode=");console_write(preparation.ccode);console_write(" revision=");console_u64(preparation.country_revision);console_write("\n");
     console_write("Country raw reply:");for (unsigned i=0;i<12;++i) { console_write(" ");console_hex(preparation.country_reply[i]); }console_write("\n");
-    console_write("Preparation snapshot; wifiscan is separate. Association/WPA3/IP remain unimplemented.\n");
+    console_write("Preparation snapshot; wifiscan is separate. wifiassoc tests key installation/live M4, then DOWN/delete; no persistent link/IP.\n");
     if (preparation.attempted && !preparation.ready) { console_write("Partial preparation; capture wifiinfo, then reboot before retry.\n"); }
 }
 void platform_wifi_caps(void)
@@ -364,7 +390,7 @@ static void scan_status(void)
     }
     if (scan.truncated) { console_write("Result table full; additional networks were counted but not stored.\n"); }
     if (scan.malformed) { console_write("last_BSS_version=");console_u64(scan.last_bss_version);console_write(" last_parse_error=");console_write(block_error(scan.last_parse_error));console_write("\n"); }
-    console_write("Network advertisements only; not associated. WPA3 authentication and IP are unavailable.\n");
+    console_write("Scan advertisements only; use a separate WPA3 handshake/network test. The scan ends DOWN.\n");
     if (scan.attempted && !scan.ready) { console_write("Capture wifiinfo, then reboot before retrying the scan.\n"); }
 }
 void platform_wifi_scan(void)
@@ -391,7 +417,7 @@ void platform_wifi_target(const char *ssid)
         console_write(" SAE_AKM8=");console_u64(ap->akm_sae);console_write(" management=");console_hex(ap->management_cipher);console_write("\n");
         console_write(ap->pmf_required ? "AP PMF=required; station policy=required.\n" : ap->pmf_capable ? "AP PMF=capable; station policy=required.\n" : "AP PMF=not-advertised; station policy=required.\n");
         console_write("RSNXE=");
-        if (!ap->rsnxe_length) { console_write("absent; SAE password-element mode has not been negotiated.\n"); }
+        if (!ap->rsnxe_length) { console_write("absent; SAE hunting-and-pecking will be selected (not WPA2).\n"); }
         else {
             for (unsigned i=0;i<ap->rsnxe_length;++i) { console_hex(ap->rsnxe[i]);console_putc(' '); }
             console_write((ap->rsnxe[0]&32) ? "SAE H2E advertised.\n" : "SAE H2E not advertised.\n");
@@ -403,7 +429,7 @@ void platform_wifi_target(const char *ssid)
 static void auth_probe_status(void)
 {
     static const char *const properties[]={"none","auth","wpa_auth","wsec","mfp","event_msgs_ext","event_msgs"};
-    console_write("Firmware auth-policy check: ");console_write(block_error(auth_probe.error));console_write(" phase=");console_u64(auth_probe.phase);
+    console_write("Firmware auth-policy check: ");console_write(auth_probe.mismatch_mask ? "policy readback mismatch" : block_error(auth_probe.error));console_write(" phase=");console_u64(auth_probe.phase);
     console_write(" operation=");console_write(auth_probe.property<7 ? properties[auth_probe.property] : "unknown");console_write("\n");
     console_write(auth_probe.verified ? "Temporary SAE/AES/required-PMF and extended events verified.\n" : "Temporary policy/event verification incomplete.\n");
     console_write("event_mask_bytes=");console_u64(auth_probe.mask_bytes);console_write(" external-auth event IDs=187,188,189,190\n");
@@ -417,7 +443,18 @@ static void auth_probe_status(void)
         console_write(properties[i+1]);console_putc('=');
         if (auth_probe.observed_mask&(1u<<i)) { console_hex(auth_probe.observed[i]); }else { console_write("not-read"); }console_putc(' ');
     }console_write("\n");
+    console_write("Expected: auth=3 wpa_auth=0x40000 wsec=AES(4 or 0x604 with PMF) mfp=2; mismatch_bits=");console_hex(auth_probe.mismatch_mask);console_write("\n");
+    static const unsigned trace_order[]={1,0,2,3};
+    for (unsigned step=0;step<4;++step) {
+        unsigned i=trace_order[step];console_write("auth_after_");console_write(properties[i+1]);console_putc('=');
+        if (auth_probe.auth_trace_mask&(1u<<i)) { console_hex(auth_probe.auth_after[i]); }else { console_write("not-read"); }console_putc(' ');
+    }console_write("\n");
+    console_write("Temporary extended-event mask readback=");console_write(auth_probe.mask_readback_verified ? "verified" : "not-verified");console_write("\n");
     console_write("firmware_status=");console_hex(auth_probe.firmware_status);console_write(" restore_status=");console_hex(auth_probe.restore_status);console_write("\n");
+    if (auth_probe.restore_error!=BLOCK_OK) {
+        console_write("First restoration failure: ");console_write(auth_probe.restore_property<7 ? properties[auth_probe.restore_property] : "unknown");
+        console_write(" result=");console_write(block_error(auth_probe.restore_error));console_write("\n");
+    }
     if (!auth_probe.changed) { console_write("No firmware settings changed.\n"); }
     else if (auth_probe.restored) { console_write("Original security policy and complete event mask restored and verified.\n"); }
     else { console_write("RESTORATION UNCONFIRMED: reboot before further Wi-Fi work.\n"); }
@@ -429,13 +466,406 @@ void platform_wifi_auth_prepare(const char *ssid)
     size_t n=0;while (ssid && ssid[n] && n<=32) { ++n; }const struct brcm_scan_ap *ap=NULL;
     enum wifi_target_result target=wifi_target_check(&scan,&capabilities,ssid,n,&ap);
     if (target!=WIFI_TARGET_OK) { console_write("Auth preparation refused: ");console_write(wifi_target_error(target));console_write("\nUsage: wifiauthprep <exact SSID> after a successful scan.\n");return; }
-    if (!ap->rsnxe_length || !(ap->rsnxe[0]&32)) { console_write("Target does not advertise H2E; this backend requires H2E. No firmware settings changed.\n");return; }
+    if (wifi_target_sae_method(ap)==WIFI_SAE_METHOD_INVALID) { console_write("Target SAE method advertisement is invalid. No firmware settings changed.\n");return; }
     if (!card.selected || !control.ready || control.error!=BLOCK_OK || control.ioctl_version!=2 || !preparation.ready) { console_write("Run the firmware/control/country sequence successfully before auth preparation.\n");return; }
     console_write("Checking firmware SAE/AES/required-PMF and extended auth-event mask, then restoring.\nTarget=");print_ssid(ap);console_write(" BSSID=");print_mac(ap->bssid);console_write("\n");
     const struct brcm_auth_probe_io io={NULL,prepare_iovar};(void)brcm_auth_probe_run(&io,true,&auth_probe);
     if (auth_probe.changed && !auth_probe.restored) { control.ready=false;control.error=auth_probe.restore_error==BLOCK_OK ? BLOCK_IO : auth_probe.restore_error; }
     auth_probe_status();transfer_failure();
 }
+static enum block_result join_station(void *ctx,uint32_t *status)
+{
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_station_prepare(&io,&control,status);
+}
+static enum block_result join_station_live(void *ctx,uint32_t *status)
+{
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_station(&io,&control,status);
+}
+static void join_poison(void *ctx,enum block_result error)
+{ (void)ctx;control.ready=false;control.error=error==BLOCK_OK ? BLOCK_IO : error; }
+static void join_probe_status(void)
+{
+    console_write("External-SAE join probe: ");console_write(block_error(join_probe.error));console_write(" phase=");console_u64(join_probe.phase);console_write("\n");
+    console_write("Firmware station mode=");if (control.station_mode_known) { console_u64(control.station_mode); }else { console_write("not-read"); }console_write(" (requires 1)\n");
+    console_write("Station setup: phase=");console_u64(control.station_prepare_phase);console_write(" initial=");
+    if (control.station_initial_known) { console_u64(control.station_initial_mode); }else { console_write("not-read"); }
+    console_write(" AP=");if (control.station_ap_known) { console_u64(control.station_ap_mode); }else { console_write("not-read"); }
+    console_write(" UP=");if (control.station_up_known) { console_u64(control.station_up_state); }else { console_write("not-read"); }
+    console_write(" SET_INFRA_attempted=");console_write(control.station_change_attempted ? "yes" : "no");
+    console_write(" selected=");console_write(control.station_mode_changed ? "verified" : "not-changed");console_write("\n");
+    console_write("request_seen=");console_write(join_probe.request_seen ? "yes" : "no");console_write(" flags=");console_hex(join_probe.request_flags);
+    console_write(" events=");console_u64(join_probe.events);console_write(" ignored=");console_u64(join_probe.ignored);console_write(" malformed=");console_u64(join_probe.malformed);console_write(" polls=");console_u64(join_probe.polls);console_write("\n");
+    console_write("Probe policy result=");console_write(block_error(join_probe.policy.error));console_write(" phase=");console_u64(join_probe.policy.phase);
+    console_write(" operation=");console_u64(join_probe.policy.property);console_write(" mismatch_bits=");console_hex(join_probe.policy.mismatch_mask);console_write("\n");
+    console_write("Raw auth=");if (join_probe.policy.observed_mask&1) { console_hex(join_probe.policy.observed[0]); }else { console_write("not-read"); }
+    console_write(" raw wsec=");if (join_probe.policy.observed_mask&4) { console_hex(join_probe.policy.observed[2]); }else { console_write("not-read"); }
+    console_write(" external_request_verified=");console_write(join_probe.policy.external_request_verified ? "yes" : "no");console_write("\n");
+    static const char *const names[]={"auth","wpa_auth","wsec","mfp"};
+    console_write("After UP: ");for (unsigned i=0;i<4;++i) {
+        console_write(names[i]);console_putc('=');if (join_probe.live_read_mask&(1u<<i)) { console_hex(join_probe.live_policy[i]); }else { console_write("not-read"); }console_putc(' ');
+    }console_write("event_mask=");console_write(join_probe.live_mask_verified ? "verified" : "not-verified");console_write("\n");
+    console_write("Interface DOWN=");console_write(join_probe.down ? "acknowledged" : join_probe.up_attempted ? "UNCONFIRMED" : "not-raised");
+    console_write(" policy/mask restoration=");console_write(join_probe.policy.restored ? "verified" : join_probe.policy.changed ? "UNCONFIRMED" : "not-needed");console_write("\n");
+    console_write("firmware_status=");console_hex(join_probe.firmware_status);console_write(" cleanup_status=");console_hex(join_probe.cleanup_status);
+    console_write(" policy_status=");console_hex(join_probe.policy.firmware_status);console_write(" restore_status=");console_hex(join_probe.policy.restore_status);console_write("\n");
+    console_write("Station selection is retained for this boot. Request observation only; no password, SAE response, success notification, keys or IP. Reboot before another join attempt.\n");
+}
+void platform_wifi_join_probe(const char *ssid)
+{
+    if (sae_preparation_attempted) { console_write("SAE preparation/probe already used this boot; reboot before another join.\n");return; }
+    if (join_probe.attempted) { console_write("Join probe already attempted; cached status only. Reboot to repeat.\n");join_probe_status();return; }
+    size_t n=0;while (ssid && ssid[n] && n<=32) { ++n; }const struct brcm_scan_ap *ap=NULL;
+    enum wifi_target_result target=wifi_target_check(&scan,&capabilities,ssid,n,&ap);
+    if (target!=WIFI_TARGET_OK) { console_write("Join probe refused: ");console_write(wifi_target_error(target));console_write("\n");return; }
+    if (wifi_target_sae_method(ap)==WIFI_SAE_METHOD_INVALID || !capabilities.external_sae || !card.selected || !control.ready || control.error!=BLOCK_OK || control.ioctl_version!=2 || !preparation.ready) {
+        console_write("Join probe requires clean scan/target, a valid SAE method, external-SAE capability and prepared live control.\n");return;
+    }
+    struct brcm_auth_peer peer={.ssid_length=ap->ssid_length,.channel=ap->channel,.band=ap->band,.hunting=wifi_target_sae_method(ap)==WIFI_SAE_HUNT};
+    for (unsigned i=0;i<6;++i) { peer.local[i]=capabilities.mac[i];peer.peer[i]=ap->bssid[i]; }
+    for (unsigned i=0;i<ap->ssid_length;++i) { peer.ssid[i]=ap->ssid[i]; }
+    console_write("One-shot join probe: temporary SAE-only/AES/required-PMF, target=");print_ssid(ap);console_write(" BSSID=");print_mac(ap->bssid);
+    console_write("\nMay send join discovery traffic; wait up to 15 seconds plus I/O for external-SAE request, then DOWN/restore. No password or SAE response.\n");
+    void (*saved_event)(void *,const void *,size_t)=control.event;void *saved_context=control.event_context;
+    control.event=brcm_join_event;control.event_context=&join_probe;control.rx_limit=control.rx_frames+1024;
+    const struct brcm_join_probe_io io={{NULL,prepare_iovar},join_station,scan_radio,scan_poll,firmware_delay,scan_milliseconds,join_poison,join_station_live,NULL,0};
+    (void)brcm_join_probe_run(&io,&peer,true,&join_probe);
+    control.event=saved_event;control.event_context=saved_context;control.rx_limit=control.rx_frames+64;
+    if (join_probe.policy.changed && !join_probe.policy.restored) { join_poison(NULL,join_probe.policy.restore_error); }
+    join_probe_status();transfer_failure();
+}
+static bool sae_random(void *ctx,unsigned char out[32])
+{ (void)ctx;return platform_random_bytes(out,32)==BLOCK_OK; }
+static bool prepare_sae_commit(const struct brcm_auth_peer *peer,unsigned char out[98],struct sae_session *retained)
+{
+    struct { unsigned char password[128],pt[64],pwe[64],check[32];struct sae_session session; } w={0};
+    bool ok=false;size_t password_bytes=0;uint64_t start=0;
+    crypto_wipe(out,98);platform_rng_test(firmware_dtb);
+    if (platform_random_bytes(w.check,sizeof(w.check))!=BLOCK_OK) { console_write("Hardware RNG unavailable; SAE probe refused before credential input.\n");goto done; }
+    crypto_wipe(w.check,sizeof(w.check));
+    console_write("Password (hidden, printable ASCII; Enter submits, Ctrl+U clears, empty Enter cancels): ");
+    if (!console_read_secret(w.password,sizeof(w.password),&password_bytes)) { console_write("\nInput cancelled or invalid; no radio activity.\n");goto done; }
+    console_write(peer->hunting ? "\nPreparing group-19 SAE hunting-and-pecking PWE: fixed 40 candidates before radio UP. Wait for the prompt.\n" : "\nPreparing group-19 H2E token before radio UP. Wait for the prompt.\n");
+    sae_preparation_attempted=true;start=timer_ticks();
+    if (peer->hunting) {
+        ok=sae_hunt_pwe(w.password,password_bytes,peer->local,peer->peer,w.pwe);
+        crypto_wipe(w.password,sizeof(w.password));password_bytes=0;if (!ok) { goto done; }
+        console_write("Hunting-and-pecking password element ready; password erased.\n");
+    }else {
+        ok=sae_h2e_pt(peer->ssid,peer->ssid_length,w.password,password_bytes,NULL,0,w.pt);
+        crypto_wipe(w.password,sizeof(w.password));password_bytes=0;if (!ok) { goto done; }
+        console_write("H2E token ready; password erased. Deriving the MAC-bound password element.\n");
+        ok=sae_h2e_pwe(w.pt,peer->local,peer->peer,w.pwe);crypto_wipe(w.pt,sizeof(w.pt));if (!ok) { goto done; }
+    }
+    console_write("Password element ready. Preparing one fresh randomized SAE commit; no radio UP yet.\n");
+    ok=sae_session_start(&w.session,w.pwe,sae_random,NULL)==SAE_OK && sae_session_commit(&w.session,out)==SAE_OK;
+    if (ok && retained) { *retained=w.session; }
+done:
+    crypto_wipe(&w,sizeof(w));if (!ok) { crypto_wipe(out,98); }
+    if (sae_preparation_attempted) {
+        console_write("SAE preparation elapsed_seconds=");uint64_t hz=timer_frequency();console_u64(hz ? (timer_ticks()-start)/hz : 0);
+        console_write(ok ? (retained ? " password/token temporaries erased; private session retained only for this confirm test.\n" : " private state erased; commit ready.\n") : " failed; buffers erased; reboot before retry.\n");
+    }
+    return ok;
+}
+static void sae_status(const struct brcm_sae_probe *s)
+{
+    console_write("SAE method=");console_write(s->join.peer.hunting ? "hunting-and-pecking (commit status 0)" : "H2E (commit status 126)");console_write("\n");
+    console_write(s->confirm_mode ? "SAE confirm test: " : "SAE commit probe: ");console_write(brcm_auth_error(s->error));console_write(" phase=");console_u64(s->phase);
+    console_write(" join_phase=");console_u64(s->join.phase);console_write("\n");
+    console_write("request_seen=");console_write(s->join.request_seen ? "yes" : "no");
+    console_write(" commit_TX_attempted=");console_write(s->tx_attempted ? "yes" : "no");
+    console_write(" SET_ack=");console_write(s->tx_set_acknowledged ? "yes" : "no");console_write(" TX_status=");
+    if (s->tx_status_seen) { console_u64(s->tx_status); }else { console_write("not-seen"); }
+    console_write(" offchannel=");if (s->offchannel_seen) { console_u64(s->offchannel_status); }else { console_write("not-seen"); }console_write("\n");
+    console_write("peer_RX=");console_write(s->rx_seen ? "seen" : "not-seen");console_write(" metadata_version=");console_u64(s->metadata_version);
+    console_write(" sequence=");console_u64(s->sequence);console_write(" status=");console_u64(s->auth_status);console_write(" group=");console_u64(s->group);
+    console_write(" body_bytes=");console_u64(s->wire_body_bytes);console_write(" peer_commit_valid=");console_write(s->peer_valid ? "yes" : "no");
+    console_write(" reflection=");console_write(s->reflection ? "yes" : "no");console_write("\n");
+    console_write("events=");console_u64(s->events);console_write(" ignored=");console_u64(s->ignored);console_write(" polls=");console_u64(s->polls);
+    console_write(" firmware_status=");console_hex(s->firmware_status);console_write("\n");
+    console_write("commit_attempts=");console_u64(s->commit_attempts);console_write(" active_packet_id=");console_u64(s->active_packet_id);
+    console_write(" observed_auth_RX=");console_u64(s->wire_auth_rx);console_write(" early_RX=");console_u64(s->rx_early);
+    console_write(" filtered_RX=");console_u64(s->rx_filtered);console_write(" malformed_RX=");console_u64(s->rx_bad);console_write("\n");
+    if (s->confirm_mode) {
+        console_write("confirm_TX_attempted=");console_write(s->confirm_tx_attempted ? "yes" : "no");
+        console_write(" SET_ack=");console_write(s->confirm_set_acknowledged ? "yes" : "no");console_write(" TX_status=");
+        if (s->confirm_tx_status_seen) { console_u64(s->confirm_tx_status); }else { console_write("not-seen"); }
+        console_write(" confirm_RX=");console_write(s->confirm_rx_seen ? "seen" : "not-seen");
+        console_write(" peer_confirm_verified=");console_write(s->confirmed ? "yes" : "no");console_write(" crypto_result=");
+        if (s->crypto_attempted) { console_u64(s->crypto_result); }else { console_write("not-run"); }
+        console_write(" key_math_ms=");console_u64(s->key_math_ms);console_write(" firmware_status=");console_hex(s->confirm_firmware_status);console_write("\n");
+    }
+    console_write("Interface DOWN=");console_write(s->join.down ? "acknowledged" : s->join.up_attempted ? "UNCONFIRMED" : "not-raised");
+    console_write(" policy/mask restoration=");console_write(s->join.policy.restored ? "verified" : s->join.policy.changed ? "UNCONFIRMED" : "not-needed");
+    console_write(" transcript_buffers=");console_write(s->erased ? "erased" : "not-used");console_write("\n");
+    unsigned count=s->trace_count>BRCM_SAE_TRACE_MAX ? BRCM_SAE_TRACE_MAX : s->trace_count;
+    console_write("Event diagnostics (last ");console_u64(count);console_write("; stage 0=before TX, 1=commit, 2=confirm, 3=handoff):\n");
+    unsigned start=s->trace_count-count;
+    for (unsigned i=0;i<count;++i) {
+        const struct brcm_sae_event_trace *t=&s->trace[(start+i)%BRCM_SAE_TRACE_MAX];
+        console_write("event=");console_u64(t->event);console_write(" status=");console_hex(t->status);console_write(" bytes=");console_u64(t->bytes);
+        console_write(" stage=");console_u64(t->stage);console_write(" cookie=");console_u64(t->cookie);console_write(" if=");console_u64(t->interface);
+        console_write(" bss=");console_u64(t->bss);console_write(" filter=");console_u64(t->filter);console_write(" result=");console_write(brcm_auth_error(t->result));console_write("\n");
+    }
+    if (s->handoff_attempted) { console_write("SAE verified; firmware handoff was attempted. See association status. Private session/keys erased.\n"); }
+    else if (s->confirm_mode) { console_write("SAE confirm test only; private session/keys erased. No firmware auth-success, association, EAPOL/key installation or IP. Reboot before retry.\n"); }
+    else { console_write("Commit/reply observation only. Password correctness, SAE confirms, key installation and IP are not established. Reboot before retry.\n"); }
+}
+static void assoc_status(void)
+{
+    const struct brcm_assoc_probe *s=&association_probe;
+    console_write("Association/EAPOL probe: ");console_write(s->port_attempted ? block_error(s->error) : brcm_auth_error(s->error));console_write(" phase=");console_u64(s->phase);console_write("\n");
+    if (s->dhcp.attempted && s->dhcp.error!=BLOCK_OK) { console_write("Failure stage: DHCP/data path after verified SAE; see netinfo and SCB snapshots.\n"); }
+    else if (s->gateway_attempted && s->gateway_result!=BLOCK_OK) { console_write("Failure stage: address checks/ARP/gateway ICMP; see netinfo.\n"); }
+    sae_status(&s->sae);
+    console_write("RSN mode=");console_write(s->ie_owned ? "exclusive fresh-station SET/clear journal" : "snapshot/readback");console_write("\n");
+    if (s->ie_owned) {
+        console_write("RSN empty_baseline_SET=");console_write(s->ie_baseline_ack ? "acknowledged" : "not-acknowledged");
+        console_write(" profile_SET=");console_write(s->ie_set_ack ? "acknowledged" : "not-acknowledged");
+        console_write(" cleanup_clear_SET=");console_write(s->ie_clear_ack ? "acknowledged" : s->ie_changed ? "UNCONFIRMED" : "not-needed");console_write("\n");
+        console_write("wpaie GET diagnostic only: result=");console_write(brcm_auth_error(s->ie_query_result));console_write(" firmware_status=");console_hex(s->ie_query_status);
+        console_write(" bytes=");console_u64(s->ie_query_bytes);console_write(" prefix_LE32:");
+        for (unsigned i=0;i<sizeof(s->ie_query_prefix) && i<s->ie_query_bytes;i+=4) {
+            uint32_t word=0;for (unsigned j=0;j<4 && i+j<s->ie_query_bytes;++j) { word|=(uint32_t)s->ie_query_prefix[i+j]<<(8*j); }console_write(" ");console_hex(word);
+        }console_write("\n");
+    }
+    console_write("RSN snapshot=");console_write(s->ie_snapshot ? "saved" : s->ie_owned ? "software-owned empty baseline" : "not-saved");console_write(" bytes=");console_u64(s->saved_ie_bytes);
+    console_write(" effective_request=");console_write(s->ie_verified ? "verified" : "unverified");console_write(" restored=");console_write(s->ie_restored ? s->ie_owned ? "clear acknowledged" : "verified" : s->ie_changed ? "UNCONFIRMED" : "not-needed");
+    console_write(" result=");console_write(brcm_auth_error(s->ie_error));console_write(" restore_result=");console_write(brcm_auth_error(s->restore_error));console_write("\n");
+    console_write("firmware_auth_success_SET=");console_write(s->status_ack ? "acknowledged" : s->status_issued ? "FAILED" : "not-issued");console_write(" status=");console_hex(s->auth_status);
+    console_write(" private_keys_erased=");console_write(s->keys_erased ? "yes" : "not-exported");console_write("\n");
+    console_write("SET_SSID_success=");console_write(s->ssid_event ? "seen" : "not-seen");console_write(" LINK_up=");console_write(s->link_event ? "seen" : "not-seen");
+    console_write(" identity=");console_write(s->identity_verified ? "verified" : "unverified");console_write(" SAE/AES/PMF=");console_write(s->policy_verified ? "verified" : "unverified");
+    console_write(" association_verified=");console_write(s->association_verified ? "yes" : "no");console_write("\n");
+    console_write("Association request IEs=");console_write(s->assoc_ie_verified ? "verified" : "unverified");console_write(" bytes=");console_u64(s->assoc_ie_bytes);
+    console_write(" RSNXE_H2E=");console_write(s->request_h2e ? "present" : "not-seen");console_write(" firmware_status=");console_hex(s->identity_status);console_write("\n");
+    console_write("Association IE query phase=");console_u64(s->assoc_query_phase);console_write(" info_reply_bytes=");console_u64(s->assoc_info_reply_bytes);
+    console_write(" request_reply_bytes=");console_u64(s->assoc_req_reply_bytes);console_write(" info_header_LE32:");
+    for (unsigned i=0;i<3;++i) { console_write(" ");console_hex(s->assoc_info_words[i]); }console_write("\n");
+    console_write("Association request fixed_header_bytes=");console_u64(s->request_fixed_bytes);console_write(" normalized_IE_bytes=");console_u64(s->assoc_ie_bytes);console_write("\n");
+    static const char *const ie_errors[]={"ok","truncated TLV","SSID mismatch/duplicate","duplicate RSN","RSN security fields","RSNXE/method","WPA1 IE","missing SSID","missing RSN"};
+    console_write("Request IE check=");console_write(s->request_error<9 ? ie_errors[s->request_error] : "unknown");console_write(" offset=");console_u64(s->request_error_offset);
+    console_write(" tag=");console_u64(s->request_tag);console_write(" RSN_bytes=");console_u64(s->request_rsn_bytes);console_write(" RSN_result=");console_write(wpa_rsn_error(s->request_rsn_error));
+    console_write(" capabilities=");console_hex(s->request_rsn.capabilities);console_write(" PMKID_count=");console_u64(s->request_rsn.pmkid_count);
+    console_write(" management_suite=");console_write(s->request_rsn.management_explicit ? "explicit" : "BIP-CMAC-128 default if otherwise valid");console_write("\n");
+    if (s->request_error && s->request_saved) {
+        static const char hex[]="0123456789abcdef";console_write("Firmware association-request IEs (public wire data; no password or keys):\n");
+        for (size_t i=0;i<s->request_saved;++i) {
+            if (!(i%16)) { console_u64(i);console_write(": "); }
+            console_putc(hex[s->request_ies[i]>>4]);console_putc(hex[s->request_ies[i]&15]);console_putc(' ');
+            if (i%16==15 || i+1==s->request_saved) { console_write("\n"); }
+        }
+    }
+    console_write("EAPOL_M1=");console_write(s->m1_seen ? "observed (unauthenticated)" : "not-seen");console_write(" version=");console_u64(s->eapol_version);
+    console_write(" descriptor=");console_u64(s->descriptor);console_write(" last_key_info=");console_hex(s->key_info);
+    console_write(" data_frames=");console_u64(s->data_frames);console_write(" ignored=");console_u64(s->data_ignored);console_write(" malformed=");console_u64(s->data_bad);console_write("\n");
+    if (s->key_probe) {
+        console_write("EAPOL key probe: ");console_write(wpa_probe_error(s->key_result));console_write(" phase=");console_u64(s->key_phase);
+        console_write(" M2_SDIO_write=");console_write(s->m2_written ? "completed (not air ACK)" : s->m2_attempted ? "FAILED" : "not-attempted");console_write(" bytes=");console_u64(s->m2_bytes);console_write("\n");
+        console_write("M3_bytes=");console_u64(s->m3_bytes);console_write(" MIC=");console_write(s->m3_mic_verified ? "verified" : "unverified");
+        console_write(" unwrap_integrity=");console_write(s->m3_unwrap_verified ? "verified" : "unverified");console_write(" plaintext_bytes=");console_u64(s->unwrapped_bytes);console_write(" (private buffers erased on exit)\n");
+        if (s->key_data_probe) {
+            console_write("M3 key data: ");console_write(wpa_kde_error(s->key_data_result));console_write(" verified=");console_write(s->key_data_verified ? "yes" : "no");
+            console_write(" AP_RSN_scan_match=");console_write(s->key_data.rsn_match ? "yes" : "no");console_write(" RSN_bytes=");console_u64(s->key_data.rsn_bytes);console_write("\n");
+            console_write("GTK_bytes=");console_u64(s->key_data.gtk_bytes);console_write(" id=");console_u64(s->key_data.gtk_id);
+            console_write(" IGTK_bytes=");console_u64(s->key_data.igtk_bytes);console_write(" id=");console_u64(s->key_data.igtk_id);console_write(" padding_bytes=");console_u64(s->key_data.padding_bytes);console_write(" (key bytes erased)\n");
+            console_write("KDE check offset=");console_u64(s->key_data.error_offset);console_write(" tag=");console_u64(s->key_data.tag);console_write(" selector=");console_u64(s->key_data.selector);console_write("\n");
+            console_write("M4_encoded=");console_write(s->m4_encoded ? "yes" : "no");console_write(" bytes=");console_u64(s->m4_bytes);
+            console_write(" M4_SDIO_write=");console_write(s->m4_written ? "completed (not air ACK)" : s->m4_attempted ? "FAILED" : "not-attempted");console_write("\n");
+        }
+    }
+    if (s->install_probe) {
+        console_write("M3 retries: queued=");console_u64(s->m3_retries_queued);console_write(" authenticated=");console_u64(s->m3_retries_verified);
+        console_write(" duplicates=");console_u64(s->m3_duplicates);console_write(" pending=");console_write(s->m3_retry_pending ? "yes" : "no");console_write("\n");
+        static const char *const retry_filters[]={"none","counter not above M1","counter below latest M3","changed bytes at same M3 counter","conflicting pending candidate"};
+        console_write("M3 retry replay filter=");console_write(s->m3_retry_rejection<5 ? retry_filters[s->m3_retry_rejection] : "unknown");console_write("\n");
+        console_write("M4 writes=");console_u64(s->m4_writes);console_write(" credit_deferrals=");console_u64(s->m4_deferred);console_write(" key_reinstall_attempts=0 (one-shot install journal)\n");
+        console_write("Firmware key installation: ");console_write(s->keys.attempted ? brcm_auth_error(s->keys.error) : "not-attempted");console_write(" phase=");console_u64(s->keys.phase);
+        console_write(" issued_mask=");console_hex(s->keys.issued_mask);console_write(" ack_mask=");console_hex(s->keys.ack_mask);console_write(" status=");console_hex(s->keys.status);console_write(" (SET acknowledgements; no key readback)\n");
+        console_write("Post-M4 identity=");console_write(s->post_m4_identity ? "verified" : "unverified");console_write(" settle_polls=");console_u64(s->settle_polls);console_write("\n");
+        console_write("Firmware key cleanup=");console_write(!s->keys.issued_mask ? "not-needed" : s->keys.cleared ? "acknowledged" : "UNCONFIRMED");
+        console_write(" clear_mask=");console_hex(s->keys.clear_mask);console_write(" result=");console_write(brcm_auth_error(s->keys.clear_error));console_write(" status=");console_hex(s->keys.clear_status);console_write("\n");
+    }
+    console_write("association events=");console_u64(s->events);console_write(" ignored=");console_u64(s->ignored);console_write(" polls=");console_u64(s->polls);
+    console_write(" identity_queries=");console_u64(s->identity_queries);console_write(" last_event=");console_u64(s->last_event);
+    console_write(" status=");console_hex(s->last_status);console_write(" reason=");console_u64(s->last_reason);console_write(" flags=");console_hex(s->last_flags);console_write("\n");
+    if (s->event_error!=BLOCK_OK) { console_write("failure_event=");console_u64(s->failure_event);console_write(" status=");console_hex(s->failure_status);console_write(" reason=");console_u64(s->failure_reason);console_write("\n"); }
+    console_write(s->sae.join.down ? "Probe ended DOWN. " : s->sae.join.up_attempted ? "Interface DOWN is UNCONFIRMED. " : "Radio UP was not attempted. ");
+    console_write("No persistent authorized data port or IP. Bounded test only; reboot before retry.\n");
+}
+static enum block_result assoc_identity(void *ctx,struct brcm_link_identity *out,uint32_t *status)
+{
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_identity(&io,&control,out,status);
+}
+static bool assoc_m2_permitted(void *ctx)
+{
+    const struct brcm_assoc_probe *s=ctx;
+    return s && s->armed && s->status_ack && s->association_verified && s->assoc_ie_verified && s->m1_seen && s->sae.confirmed &&
+        s->sae.event_error==BLOCK_OK && s->event_error==BLOCK_OK && s->private_exchange && !s->private_exchange->failed && s->private_exchange->m2_issued && !s->m2_written;
+}
+static enum block_result assoc_data_tx(void *ctx,const void *frame,size_t n)
+{
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_eapol_m2(&io,&control,frame,n,assoc_m2_permitted,&association_probe);
+}
+static bool assoc_key_permitted(void *ctx)
+{
+    const bool *remove=ctx;const struct brcm_assoc_probe *s=&association_probe;
+    if (*remove) { return s->keys.cleanup_active; }
+    return s->armed && s->status_ack && s->association_verified && s->key_data_verified && s->event_error==BLOCK_OK && s->sae.event_error==BLOCK_OK && s->private_exchange && s->private_exchange->group_retained;
+}
+static enum block_result assoc_key_set(void *ctx,const void *wire,size_t n,uint32_t *status)
+{
+    (void)ctx;if (!brcm_key_wire_valid(wire,n)) { return BLOCK_ARGUMENT; }bool remove=!brcm_key_le32((const unsigned char *)wire+4);
+    struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_key(&io,&control,wire,n,status,assoc_key_permitted,&remove);
+}
+static bool assoc_m4_permitted(void *ctx)
+{
+    (void)ctx;bool remove=false;const struct brcm_assoc_probe *s=&association_probe;
+    return assoc_key_permitted(&remove) && ((!s->keys.attempted && !s->keys.issued_mask) || (s->keys.installed && s->keys.ack_mask==7)) && s->m4_encoded && s->m4_attempted && s->m4_writes<4 &&
+        s->private_exchange->m4_encoded && !s->private_exchange->retry_pending && !s->private_exchange->m4_due && !s->private_exchange->failed;
+}
+static enum block_result assoc_m4_tx(void *ctx,const void *frame,size_t n)
+{
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_eapol_m4(&io,&control,frame,n,assoc_m4_permitted,NULL);
+}
+static bool assoc_dhcp_permitted(void *ctx)
+{
+    (void)ctx;bool remove=false;const struct brcm_assoc_probe *s=&association_probe;
+    return assoc_key_permitted(&remove) && s->port_verified && s->dhcp_probe && (s->dhcp.armed || (s->gateway_probe && s->decline_active && s->network.conflict)) && s->post_m4_identity && s->m4_written && s->keys.installed &&
+        !s->private_exchange->retry_pending && !s->private_exchange->m4_due && !s->private_exchange->failed;
+}
+static enum block_result assoc_dhcp_tx(void *ctx,const void *frame,size_t n)
+{
+    const struct brcm_assoc_probe *s=&association_probe;const unsigned char *p=frame;
+    if (n!=DHCP_FRAME_BYTES || !p || (p[284]==4 ? !s->decline_active : !s->dhcp.armed)) { return BLOCK_NOT_READY; }
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_dhcp(&io,&control,frame,n,assoc_dhcp_permitted,NULL);
+}
+static bool assoc_net_permitted(void *ctx)
+{
+    (void)ctx;const struct brcm_assoc_probe *s=&association_probe;bool remove=false;
+    return assoc_key_permitted(&remove) && s->port_verified && s->gateway_probe && s->keys.installed && s->m4_written && s->post_m4_identity &&
+        !s->private_exchange->retry_pending && !s->private_exchange->m4_due && !s->private_exchange->failed && netprobe_can_tx(&s->network,scan_milliseconds(NULL));
+}
+static enum block_result assoc_net_tx(void *ctx,enum netprobe_packet kind,unsigned sequence,const void *frame,size_t n)
+{
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_netprobe(&io,&control,&association_probe.network,kind,sequence,frame,n,assoc_net_permitted,NULL);
+}
+static bool assoc_port_permitted(void *ctx)
+{
+    (void)ctx;const struct brcm_assoc_probe *s=&association_probe;if (s->port_close_active) { return s->port_issued; }
+    bool remove=false;return assoc_key_permitted(&remove) && s->dhcp_probe && s->port_attempted && s->post_m4_identity && s->m4_written && s->keys.installed &&
+        !s->private_exchange->retry_pending && !s->private_exchange->m4_due && !s->private_exchange->failed;
+}
+static enum block_result assoc_port_set(void *ctx,const unsigned char peer[6],bool authorize,uint32_t *status)
+{
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_port(&io,&control,peer,authorize,status,assoc_port_permitted,NULL);
+}
+static enum block_result assoc_peer_info(void *ctx,const unsigned char peer[6],struct brcm_station_info *out,uint32_t *status)
+{
+    (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_station_info(&io,&control,peer,out,status);
+}
+static void peer_status(const char *label,const struct brcm_station_info *s)
+{
+    console_write(label);console_write(" valid=");console_write(s->valid ? "yes" : "no");console_write(" version=");console_u64(s->version);console_write(" bytes=");console_u64(s->length);console_write(" flags=");console_hex(s->flags);
+    console_write(" authenticated=");console_write(s->flags&8 ? "yes" : "no");console_write(" associated=");console_write(s->flags&16 ? "yes" : "no");console_write(" authorized=");console_write(s->flags&32 ? "yes" : "no");console_write("\n");
+    if (s->statistics) {
+        console_write("SCB counters tx=");console_u64(s->tx_packets);console_write(" tx_fail=");console_u64(s->tx_failures);console_write(" rx_unicast=");console_u64(s->rx_unicast);console_write(" rx_multicast=");console_u64(s->rx_multicast);
+        console_write(" decrypt_ok=");console_u64(s->decrypt_ok);console_write(" decrypt_fail=");console_u64(s->decrypt_fail);console_write("\n");
+    }
+}
+static void ipv4(const unsigned char p[4])
+{ for (unsigned i=0;i<4;++i) { if (i) { console_putc('.'); }console_u64(p[i]); } }
+void platform_network_info(void)
+{
+    const struct brcm_assoc_probe *s=&association_probe;
+    console_write("First M4 before TX key installation=");console_write(s->first_m4_before_keys ? "yes" : "no");console_write(" (SDIO ordering only, not air ACK)\n");
+    console_write("Controlled port: ");console_write(s->port_attempted ? block_error(s->port_result) : "not-attempted");console_write(" phase=");console_u64(s->port_phase);console_write(" AUTHORIZE_SET=");console_write(s->port_ack ? "acknowledged" : s->port_issued ? "unconfirmed" : "not-issued");
+    console_write(" readback=");console_write(s->port_verified ? "verified" : "not-verified");console_write(" firmware_status=");console_hex(s->port_status);console_write(" deferrals=");console_u64(s->port_deferrals);console_write("\n");
+    if (s->port_attempted) { peer_status("SCB before",&s->port_before);peer_status("SCB after",&s->port_after); }
+    if (s->dhcp.attempted) { console_write("SCB final query: ");console_write(block_error(s->port_final_result));console_write(" firmware_status=");console_hex(s->port_final_status);console_write("\n");peer_status("SCB final",&s->port_final); }
+    console_write("DEAUTHORIZE_SET=");console_write(s->port_closed ? "acknowledged" : s->port_issued ? "UNCONFIRMED" : "not-needed");console_write(" status=");console_hex(s->port_close_status);console_write("\n");
+    const struct dhcp_client *d=&association_probe.dhcp;
+    console_write("DHCP probe: ");console_write(d->attempted ? d->error==BLOCK_TIMEOUT ? "reply deadline expired" : block_error(d->error) : "not-attempted");console_write(" phase=");console_u64(d->phase);console_write("\n");
+    console_write("DISCOVER_writes=");console_u64(d->discover_sent);console_write(" REQUEST_writes=");console_u64(d->request_sent);console_write(" OFFER=");console_write(d->have_offer ? "observed" : "not-seen");
+    console_write(" ACK=");console_write(d->ack_seen && d->request_written ? "verified for transaction/server" : "not-verified");console_write(" NAK=");console_write(d->nak_seen ? "seen" : "not-seen");console_write("\n");
+    console_write("DHCP RX=");console_u64(d->received);console_write(" ignored=");console_u64(d->ignored);console_write(" malformed=");console_u64(d->malformed);console_write(" credit_deferrals=");console_u64(d->deferrals);console_write(" polls=");console_u64(d->polls);console_write("\n");
+    const struct dhcp_lease *l=d->ack_seen ? &d->lease : &d->offer;
+    if (d->have_offer) {
+        console_write(d->ack_seen ? "ACK address=" : "Offered address=");ipv4(l->address);console_write(" server=");ipv4(l->server);console_write(" lease_seconds=");console_u64(l->seconds);console_write("\n");
+        console_write("mask=");if (l->have_mask) { ipv4(l->mask); }else { console_write("not-supplied"); }
+        console_write(" gateway=");if (l->have_router) { ipv4(l->router); }else { console_write("not-supplied"); }
+        console_write(" DNS=");if (l->have_dns) { ipv4(l->dns); }else { console_write("not-supplied"); }console_write("\n");
+    }
+    if (s->gateway_probe) {
+        const struct netprobe *n=&s->network;
+        console_write("Gateway probe: ");console_write(s->gateway_attempted ? block_error(s->gateway_result) : "not-attempted");console_write(" phase=");console_u64(n->phase);console_write("\n");
+        console_write("ARP checks: probes=");console_u64(n->probes);console_write(" announcements=");console_u64(n->announcements);console_write(" conflict=");console_write(n->conflict ? "yes" : "not-observed");
+        console_write(" temporary_IP_used=");console_write(n->was_active ? "yes" : "no");console_write(" active_now=");console_write(n->active ? "yes" : "no");console_write("\n");
+        console_write("Gateway ARP requests=");console_u64(n->resolutions);console_write(" learned=");console_write(n->gateway_known ? "yes" : "no");console_write(" MAC=");print_mac(n->gateway_mac);console_write(" changed=");console_write(n->gateway_changed ? "yes" : "no");console_write("\n");
+        console_write("ICMP to gateway ");ipv4(n->lease.router);console_write(" sent=");console_u64(n->echoes);console_write(" reply_mask=");console_hex(n->received_mask);console_write("\n");
+        for (unsigned j=0;j<3;++j) { if (n->received_mask&(1u<<j)) { console_write("echo sequence=");console_u64(j+1);console_write(" observed_latency_ms=");console_u64(n->latency_ms[j]);console_write(" (includes polling/I/O)\n"); } }
+        console_write("Network RX=");console_u64(n->received);console_write(" ARP=");console_u64(n->arp_rx);console_write(" IPv4=");console_u64(n->ipv4_rx);console_write(" ignored=");console_u64(n->ignored);console_write(" malformed=");console_u64(n->malformed);console_write(" deferrals=");console_u64(n->deferrals);console_write(" polls=");console_u64(n->polls);console_write(" ARP_replies=");console_u64(n->arp_replies);console_write("\n");
+        if (n->conflict) { console_write("Conflicting MAC=");print_mac(n->conflict_mac);console_write(" DHCPDECLINE_write=");console_write(s->decline_written ? "completed" : "unconfirmed");console_write(" result=");console_write(block_error(s->decline_result));console_write("\n"); }
+        console_write("Cached gateway test only; temporary IP removed and Wi-Fi ends DOWN. No DNS, external Internet probe or persistent connection.\n");
+    }else { console_write("Cached DHCP metadata only; no address installed. Use wifiping on a fresh boot for ARP/gateway testing. Wi-Fi ends DOWN.\n"); }
+}
+static void run_sae(const char *ssid,unsigned mode)
+{
+    bool authenticate=mode!=0,association=mode>=2;
+    if (sae_preparation_attempted || sae_probe.attempted || association_probe.attempted) { console_write("SAE preparation/probe already attempted; cached status. Reboot to repeat.\n");if (association_probe.attempted) { assoc_status(); }else { sae_status(&sae_probe); }return; }
+    if (join_probe.attempted) { console_write("Join probe already used this boot. Reboot and use the selected SAE command directly after scan/target.\n");return; }
+    size_t n=0;while (ssid && ssid[n] && n<=32) { ++n; }const struct brcm_scan_ap *ap=NULL;
+    enum wifi_target_result target=wifi_target_check(&scan,&capabilities,ssid,n,&ap);
+    if (target!=WIFI_TARGET_OK) { console_write("SAE probe refused: ");console_write(wifi_target_error(target));console_write("\n");return; }
+    enum wifi_sae_method method=wifi_target_sae_method(ap);
+    if (method==WIFI_SAE_METHOD_INVALID) { console_write("SAE probe refused: malformed method advertisement.\n");return; }
+    if (association && !wpa_ap_rsn_profile(ap->rsn,ap->rsn_bytes)) { console_write("Key-data probe refused: unsupported/missing AP RSN snapshot. Requires CCMP, SAE optionally with PSK, and PMF; no credentials requested.\n");return; }
+    if (!capabilities.external_sae || !card.selected || !control.ready || control.error!=BLOCK_OK || control.ioctl_version!=2 || !preparation.ready || ap->band!=2 || !ap->channel || ap->channel>13) {
+        console_write("SAE probe requires clean 2.4 GHz scan/target, external-SAE capability and live prepared control.\n");return;
+    }
+    struct brcm_auth_peer peer={.ssid_length=ap->ssid_length,.channel=ap->channel,.band=ap->band,.hunting=method==WIFI_SAE_HUNT};
+    for (unsigned i=0;i<6;++i) { peer.local[i]=capabilities.mac[i];peer.peer[i]=ap->bssid[i]; }for (unsigned i=0;i<ap->ssid_length;++i) { peer.ssid[i]=ap->ssid[i]; }
+    console_write("SAE method selected from scan: ");console_write(peer.hunting ? "hunting-and-pecking (H2E not advertised)" : "H2E");console_write("; SAE-only, required PMF; no method retry or WPA2 fallback.\n");
+    console_write(association ? "One-shot association/EAPOL observation for " : authenticate ? "One-shot SAE commit/confirm test for " : "One-shot SAE commit probe for ");print_ssid(ap);console_write(" BSSID=");print_mac(ap->bssid);
+    console_write(association ? ". Verified SAE/M3 required, then initial M4 before TX keys, PTK/GTK/IGTK installation and identity checks; then DOWN/delete/restore. No persistent connection.\n" : authenticate ? ". Will verify a peer confirm, then DOWN/restore; no association or IP.\n" : ". No confirm, auth success, keys or IP will be sent.\n");
+    if (mode>=3) { console_write("After verified M4/keys/identity: authorize peer port, verify sta_info, then DHCP test up to 45 seconds plus I/O.\n"); }
+    if (mode==4) { console_write("After DHCP: three address probes, announcements, gateway ARP and three ICMP echoes; up to 30 seconds plus I/O. Temporary IP removed on exit.\n"); }
+    unsigned char commit[98]={0};struct sae_session session={0};
+    if (!prepare_sae_commit(&peer,commit,authenticate ? &session : NULL)) { crypto_wipe(commit,sizeof(commit));sae_session_clear(&session);return; }
+    console_write("Starting bounded join/SAE exchange, then DOWN/restore.\n");
+    void (*saved_event)(void *,const void *,size_t)=control.event;void *saved_context=control.event_context;
+    void (*saved_data)(void *,const void *,size_t)=control.data_observer;void *saved_data_context=control.data_context;
+    control.event=brcm_sae_probe_event;control.event_context=&sae_probe;control.rx_limit=control.rx_frames+1024;
+    const struct brcm_join_probe_io io={{NULL,prepare_iovar},join_station,scan_radio,scan_poll,firmware_delay,scan_milliseconds,join_poison,join_station_live,NULL,0};
+    if (association) {
+        control.event=brcm_assoc_event;control.event_context=&association_probe;control.data_observer=brcm_assoc_data;control.data_context=&association_probe;
+        /* Only this guarded one-shot path sets wpaie. Fresh control, clean
+         * scan/DOWN and no earlier join/SAE attempt establish IE ownership. */
+        const struct brcm_assoc_io aio={.join=io,.identity=assoc_identity,.fresh_ie_owner=true,.request_fixed_bytes=4,.key_probe=true,.data_tx=assoc_data_tx,.random=sae_random,.key_data_probe=true,.ap_rsn=ap->rsn,.ap_rsn_bytes=ap->rsn_bytes,.install_probe=true,.key_set=assoc_key_set,.m4_tx=assoc_m4_tx,.dhcp_probe=mode>=3,.dhcp_tx=assoc_dhcp_tx,.peer_info=assoc_peer_info,.port_set=assoc_port_set,.gateway_probe=mode==4,.net_tx=assoc_net_tx};
+        (void)brcm_assoc_run(&aio,&peer,&session,true,&association_probe);
+    }
+    else if (authenticate) { (void)brcm_sae_auth_run(&io,&peer,&session,1,true,&sae_probe); }
+    else { (void)brcm_sae_probe_run(&io,&peer,commit,1,true,&sae_probe); }
+    crypto_wipe(commit,sizeof(commit));sae_session_clear(&session);
+    control.event=saved_event;control.event_context=saved_context;control.rx_limit=control.rx_frames+64;
+    control.data_observer=saved_data;control.data_context=saved_data_context;
+    if (association) { assoc_status();if (mode>=3) { platform_network_info(); } }else { sae_status(&sae_probe); }transfer_failure();
+}
+void platform_wifi_sae_probe(const char *ssid) { run_sae(ssid,0); }
+void platform_wifi_sae_auth(const char *ssid) { run_sae(ssid,1); }
+void platform_wifi_assoc(const char *ssid) { run_sae(ssid,2); }
+void platform_wifi_dhcp(const char *ssid) { run_sae(ssid,3); }
+void platform_wifi_ping(const char *ssid) { run_sae(ssid,4); }
 static uint32_t rd(void *context,unsigned offset)
 {
     (void)context; uint32_t value=*(volatile uint32_t *)(WIFI_HOST+offset);
@@ -498,6 +928,9 @@ void platform_wifi_status(void)
     if (preparation.phase) { prepare_status(); }
     if (scan.phase) { scan_status(); }
     if (auth_probe.attempted) { auth_probe_status(); }
+    if (join_probe.attempted) { join_probe_status(); }
+    if (sae_probe.attempted) { sae_status(&sae_probe); }
+    if (association_probe.attempted) { assoc_status(); }
 }
 void platform_wifi_cores(void)
 {

@@ -10,6 +10,7 @@
 #include "sae_h2e.h"
 #include "sae_session.h"
 #include "rng200.h"
+#include "wpa_keys.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -67,11 +68,14 @@ static void command(const char *line)
     if (usb_command(line)) { return; }
     if (math_command(line)) { return; }
     if (equal(line,"cryptotest")) { console_write(crypto_selftest() ? "PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.\n" : "FAIL: crypto known-answer tests; do not use authentication primitives.\n");return; }
+    if (equal(line,"keytest")) { console_write(wpa_keys_selftest() ? "PASS: AES-128, CMAC, key unwrap, SAE PTK, offline M2/M4, key-data and M3-retry known-answer tests.\n" : "FAIL: WPA key primitives; live handshake unavailable.\n");console_write("Public fixtures only; no key installation or EAPOL transmission.\n");return; }
     if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
+        console_write("keytest (offline AES/CMAC/unwrap/PTK/M2/M4/key-data/M3-retry vectors; no radio)\n");
+        console_write("nettest (offline DHCP packet fixtures) wifidhcp <SSID> (DHCP test) wifiping <SSID> (gateway test) netinfo\n");
         console_write("p256test (SAE group-19 arithmetic/public vectors; no authentication)\n");
         console_write("h2etest (H2E token/password-element public fixtures; no connection)\n");
         console_write("saetest (in-memory SAE commit/confirm public exchange; no radio)\n");
@@ -86,6 +90,10 @@ static void command(const char *line)
         console_write("wifiscan (passive scan after preparation; cached one-shot results)\n");
         console_write("wifitarget <SSID> (cached WPA3 cipher/PMF preflight; no association)\n");
         console_write("wifiauthprep <SSID> (temporary firmware SAE/PMF/event test, then restore)\n");
+        console_write("wifijoinprobe <SSID> (bounded external-SAE request probe; then DOWN/restore)\n");
+        console_write("wifisaeprobe <SSID> (hidden password, one fresh commit/reply, then DOWN/restore)\n");
+        console_write("wifisaeauth <SSID> (hidden password, live SAE confirms, then DOWN/restore; no IP)\n");
+        console_write("wifiassoc <SSID> (hidden password, verified SAE/M3, key-install/live-M4 test; then DOWN/delete)\n");
         console_write("usbinfo usbprobe (discovery diagnostics)\n");
         console_write("usbtest (takes over one USB controller, tests DMA, halts it; reboot to repeat)\n");
         console_write("usbenum (direct USB2 device descriptors; reboot before usbtest/usbenum reuse)\n");
@@ -177,13 +185,11 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     console_write("Kernel monitor ready. Type help.\n> ");
     char line[128];
     unsigned length=0;
-    bool overflow=false, last_cr=false;
+    bool overflow=false;
     for (;;) {
-        int input=uart_getc();
+        int input=console_getc();
         if (input < 0) { continue; }
         char c=(char)input;
-        if (c=='\n' && last_cr) { last_cr=false; continue; }
-        last_cr=c=='\r';
         if (c=='\r' || c=='\n') {
             console_write("\n");
             line[length]='\0';

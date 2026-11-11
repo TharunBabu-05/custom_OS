@@ -1,79 +1,37 @@
 # Wi-Fi bring-up status
 
-**Passive scanning now passes on the Pi. Association and IP networking are not implemented.**
-Core discovery, 800 KiB RAM sizing, [complete firmware upload/readback](wifi-firmware.md)
-and [firmware startup](wifi-startup.md) now pass on the real Pi.
-[Firmware control queries](wifi-control.md) also pass: ioctl ABI 2, firmware
-7.45.265, FWID 01-b677b91b. [Capability and CLM/country preparation](wifi-prepare.md)
-also pass on the Pi, as does [passive scanning](wifi-scan.md). Jack's is
-observed on channel 6 / 2.4 GHz with RSN+SAE and required PMF. This revision
-adds [authentication foundations](wifi-auth-foundation.md): HMAC/HKDF helpers
-and a manually tested hardware random source. The [latest capture](../proofs/pi5-wifi-auth-foundation-verified-2026-11-09.txt)
-now passes the physical RNG and crypto checks. The [target preflight](wifi-target.md)
-also passes on the Pi: CCMP-128, ordinary SAE, required PMF and H2E advertisement.
-[P-256 group arithmetic](wifi-p256.md) and [H2E derivation](wifi-h2e.md) now also
-pass on the Pi, as does the [in-memory SAE exchange](wifi-sae.md). The next
-[external-auth transport stage](wifi-auth-transport.md) adds a frame/event codec
-and a reversible firmware SAE/PMF/event-mask check before live authentication.
-The [new UART capture](../proofs/pi5-auth-mask-header-2026-11-09.txt) shows a
-24-byte mask with `e/v` in the returned version/command positions. Capacity
-was not the blocker: our version-echo check rejected this response before SET.
-This revision adds compatibility for exactly that captured header, checks its
-low 128 bits against legacy `event_msgs`, and requires two identical complete
-snapshots before policy changes. Physical confirmation is pending.
-Repeat the short radio sequence in [the transport guide](wifi-auth-transport.md);
-the long crypto self-tests are optional for this check.
-It does not provide a complete FullMAC network
-driver, authentication or IP networking. Neither a device-tree entry nor an
-SDIO response establishes a working Wi-Fi network interface.
+**Current phase: [address checks, ARP and gateway ping](wifi-gateway.md).**
+The [latest Pi capture](../proofs/pi5-dhcp-ack-port-verified-2026-11-11.txt)
+passes corrected M4/key ordering, peer-port authorization/readback, DHCP
+OFFER/ACK and two successful decryptions. It observes a lease and ends cleanly
+DOWN/deauthorized with keys deleted. Storage/pages still pass.
 
-The latest [physical capture](../proofs/pi5-sae-verified-2026-11-09.txt)
-confirms D0 board preparation, a configured 400 kHz clock, SDIO selection and
-CMD52 CIS identity: vendor 0x02d0, device 0x4345, RCA 1, three functions,
-CCCR 3 and SDIO revision 4. Function-1 enable, ALP clock and the backplane read
-now pass on the Pi: clock CSR `0x61`, ChipCommon word `0x15264345`, chip `0x4345`,
-revision `6`. Five cores, eight banks totalling 819200 bytes and verified bank
-selector restoration are now observed. Firmware startup also passes: HT CSR
-0xd0, shared pointer 0x201cc0, flags 1, no trap/assert indication. No Wi-Fi
-association or IP connection is established by these results. F2 control
-replies now also pass; the firmware reports version 7.45.265. The next test
-is `wifiauthprep Jack's`, after the proven radio sequence and IN / revision 0.
-Measured capabilities include sae_ext and PMF (mfp value 1); sup_wpa reports
-UNSUPPORTED, so host authentication work remains. That reply is not an SDIO fault.
+The new `wifiping <SSID>` command performs a fresh handshake/DHCP, checks for
+address conflicts, announces a temporary IP, resolves the gateway and sends
+three ICMP echoes. It removes the IP and deauthorizes/DOWN/deletes/restores on
+exit. ARP/ICMP hardware behavior needs a new Pi test. No persistent connection,
+external Internet probe, DNS or package installation yet.
 
-That optional extended probe is now removed. Common CIS reads use CMD52, with
-the parser stopping at the CIS terminator. The new next step enables function 1
-through CCCR IO_ENABLE, waits for IO_READY, requests and verifies the ALP clock,
-programs the 32 KiB ChipCommon window and reads its ID with a four-byte function-1
-CMD53 request. This sequence is now physically observed. The previous optional
-function-0 extended probe failed with R5=0x1100; it remains removed.
-
-The user's requested connection target is **WPA3-Personal**. Connection to an
-external router/hotspot remains unfinished. No SSID/password is requested yet.
-
-The [2026-11-09 capture](../proofs/pi5-cold-wifi-and-dma-preflight-2026-11-09.txt)
-shows the missing wireless board initialization: CONTROL0=0x00800000,
-CONTROL1=0, PRESENT=0x000f0000, CAPS=0x55eec832 and CQE=0. Both wifiprobe and
-the previous wifiinit correctly refused that unclocked/unpowered host. No SDIO
-command response or Wi-Fi association was obtained in that earlier capture.
-The later capture above verifies D0 cold preparation and SDIO identity; the
-function-1 identification is now confirmed in the latest capture.
+Use the current guide's fresh-boot sequence. No credentials are saved/embedded.
+Earlier stages: [key installation](wifi-key-install.md),
+[authenticated key data](wifi-key-data.md), [M2/M3](wifi-eapol-probe.md),
+[association](wifi-association.md) and [aggregate RX](wifi-sdpcm-glom.md).
+Earlier verified stages include SDIO identity, function-1 backplane access,
+[core discovery](wifi.md#command-wificores) and 800 KiB RAM sizing,
+[full firmware upload/readback](wifi-firmware.md), [startup](wifi-startup.md),
+[control queries](wifi-control.md) (ABI 2, firmware 7.45.265),
+[capability/CLM/country IN](wifi-prepare.md), [passive scan](wifi-scan.md),
+[crypto/RNG checks](wifi-auth-foundation.md), [target validation](wifi-target.md),
+[P-256](wifi-p256.md), [H2E](wifi-h2e.md), [offline SAE](wifi-sae.md), and
+[the request-only join probe](wifi-join-probe.md).
 
 ## When can I use a hotspot, ping or install software?
 
-Hardware identification is complete for this Pi; it is not yet a network
-interface. USB BOT sector reads, FAT32 `/boot`, file reads after transfer/event
-ring wrap and the page self-test are now observed on the real Pi. The immediate
-radio work is host authentication foundations after verified passive scanning. The latest
-capture verifies all 609309 firmware bytes and 1748 packed NVRAM bytes while
-CR4 stays halted during upload, then `wifistart` releases CR4 and confirms
-HT/shared memory. Storage and page tests still pass. `wificontrol` now enables
-F2, checks protocol/credits and queries the actual firmware version. That
-packet/control path now passes physically, as do wificaps and wifiprepare IN.
-The latest scan finds four networks including Jack's at -46 dBm with SAE and
-required PMF. Crypto, RNG and target preflight tests pass on the Pi. Follow the
-[external-auth procedure](wifi-auth-transport.md) to test firmware policy/events.
-No connection is attempted yet.
+The USB/FAT firmware-file path, radio startup, passive scan, crypto/RNG,
+exact-target preflight and external-SAE request scope now pass physically.
+Live SAE, association, authenticated M3 retries, key SETs and M4 writes now pass.
+DHCP also passes now. Test [address checks and gateway ping](wifi-gateway.md)
+next. It uses a temporary address and ends DOWN; persistent networking follows.
 
 The [first upload capture](../proofs/pi5-firmware-first-transfer-failure-2026-11-09.txt)
 passes file hashes and D11/CPU checks but fails on the first code transfer at
@@ -91,9 +49,10 @@ The acceptance sequence is:
 3. Capability discovery, CLM/country IN and passive scan/events now pass.
    The random source and cryptographic helper tests now also pass on the Pi.
    Check exact target cipher/AKM/PMF advertisements before host SAE.
-4. Implement the requested WPA3-Personal SAE/PMF path and protected credential
-   input; prove association and key installation against the hotspot.
-5. Implement ARP/IPv4, DHCP and routing, then ICMP. First ping the local gateway,
+4. Live SAE, association, M2/M3, PTK/GTK/IGTK SETs, authenticated retries and M4
+   writes pass on the Pi. The bounded tests still tear down the connection.
+5. DHCP DORA now passes on the Pi. Verify the new address checks and gateway
+   ICMP test. Add persistent link/rekey and broader IP routing. First reach the local gateway,
    then a reachable external numeric address. Add DNS for `ping www.google.com`.
 
 ICMP replies can be filtered by a network, so a ping timeout alone does not
@@ -117,7 +76,14 @@ OurOS currently has none of those application services and cannot use Linux
 - The remaining dependencies for a usable connection.
 - WPA3-Personal as the requested security target, with connection unavailable.
 
-## Current stage: cryptotest and rngtest
+## Current test: association and EAPOL observation
+
+Follow [the M3-retry guide](wifi-m3-retry.md) on a fresh boot. Use
+`wifiassoc Jack's` after target validation; skip the other join/SAE probes in
+that boot. Type the password only at the hidden local prompt. The probe checks
+verified SAE and association, sends M2, authenticates M3 key data and encodes/discards M4, then tears down.
+
+## Earlier foundation tests: cryptotest and rngtest
 
 Follow [authentication foundation instructions](wifi-auth-foundation.md) using the complete
 rebuilt header image: cryptotest, rngtest, storageinit, wififiles, wifiinit, wificores, wifiload,

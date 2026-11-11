@@ -9,6 +9,7 @@ struct brcm_scan_ap {
     uint32_t group_cipher,management_cipher;
     bool pairwise_ccmp,akm_sae; /* Exact 00:0f:ac:4 and :8; FT-SAE is distinct. */
     uint8_t rsnxe_length;unsigned char rsnxe[16];
+    uint16_t rsn_bytes;unsigned char rsn[257]; /* Exact selected AP advertisement, public. */
 };
 struct brcm_scan_state {
     bool attempted,armed,request_accepted,complete,ready,interface_may_be_up,interface_down,mask_restored,truncated;

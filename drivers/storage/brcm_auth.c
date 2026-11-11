@@ -25,7 +25,7 @@ enum block_result brcm_auth_encode(const struct brcm_auth_peer *peer,uint32_t id
     unsigned char payload[BRCM_AUTH_PARAMS_MAX]={0};put32(payload+4,4000);put16(payload+8,(unsigned)bytes+6);
     put16(payload+10,0xb0);put16(payload+12,peer->channel);
     for (unsigned i=0;i<6;++i) { payload[14+i]=peer->peer[i];payload[20+i]=peer->peer[i]; }
-    put32(payload+28,id);put16(payload+32,3);put16(payload+34,sequence);put16(payload+36,sequence==1 ? 126 : 0);
+    put32(payload+28,id);put16(payload+32,3);put16(payload+34,sequence);put16(payload+36,sequence==1 && !peer->hunting ? 126 : 0);
     for (size_t i=0;i<bytes;++i) { payload[38+i]=b[i]; }for (size_t i=0;i<total;++i) { ((unsigned char *)output)[i]=payload[i]; }
     *actual=total;return BLOCK_OK;
 }
@@ -48,32 +48,50 @@ enum block_result brcm_auth_event(const struct brcm_auth_peer *peer,uint32_t id,
     if ((p[2]&15)!=0) { return BLOCK_NOT_READY; }p+=skip;n-=skip;
     if (n<72) { return BLOCK_RANGE; }
     if (be16(p+12)!=0x886c || be16(p+14)!=0x8001 || p[18] || p[19] || p[20]!=16 || p[21]!=24 || be16(p+22)!=1 || be16(p+24)!=2) { return BLOCK_UNSUPPORTED; }
-    if (p[70] || p[71]) { return BLOCK_NOT_READY; }
-    uint32_t event=be32(p+28),bytes=be32(p+44);if (bytes>n-72) { return BLOCK_RANGE; }
+    uint32_t event=be32(p+28),bytes=be32(p+44);
+    out->envelope_valid=true;out->wire_event=event;out->wire_status=be32(p+32);out->wire_bytes=bytes;out->wire_interface=p[70];out->wire_bss=p[71];
+    out->wire_flags=be16(p+26);out->wire_reason=be32(p+36);for (unsigned i=0;i<6;++i) { out->wire_peer[i]=p[48+i]; }
+    if (p[70] || p[71]) { out->filter=AUTH_FILTER_INTERFACE;return BLOCK_NOT_READY; }
+    if (bytes>n-72) { return BLOCK_RANGE; }
     if (event<187 || event>190) { return BLOCK_NOT_READY; }
-    const unsigned char *data=p+72;struct brcm_auth_message m={.kind=(enum brcm_auth_kind)event,.status=be32(p+32),.reason=be32(p+36)};
+    const unsigned char *data=p+72;struct brcm_auth_message m=*out;m.kind=(enum brcm_auth_kind)event;m.status=be32(p+32);m.reason=be32(p+36);
     if (event>=189) {
-        if (bytes!=4) { return BLOCK_RANGE; }m.packet_id=le32(data);
-        if (!id || m.packet_id!=id) { return BLOCK_NOT_READY; }
+        if (bytes!=4) { return BLOCK_RANGE; }m.packet_id=le32(data);m.wire_cookie=m.packet_id;out->wire_cookie=m.packet_id;
+        if (!id || m.packet_id!=id) { out->filter=AUTH_FILTER_COOKIE;return BLOCK_NOT_READY; }
     } else {
         if (event==187) {
             if (bytes!=44 && bytes!=60) { return BLOCK_RANGE; }
             uint32_t ssid_bytes=le32(data+8);
-            if (!equal(data+2,peer->peer,6) || ssid_bytes!=peer->ssid_length || !equal(data+12,peer->ssid,peer->ssid_length)) { return BLOCK_NOT_READY; }
+            if (!equal(data+2,peer->peer,6)) { out->filter=AUTH_FILTER_PEER;return BLOCK_NOT_READY; }
+            if (ssid_bytes!=peer->ssid_length || !equal(data+12,peer->ssid,peer->ssid_length)) { out->filter=AUTH_FILTER_SSID;return BLOCK_NOT_READY; }
             m.request_flags=le16(data);
         } else {
-            if (!equal(p+48,peer->peer,6)) { return BLOCK_NOT_READY; }
+            if (!equal(p+48,peer->peer,6)) { out->filter=AUTH_FILTER_PEER;return BLOCK_NOT_READY; }
             if (m.status) { *out=m;return BLOCK_IO; }
-            if (bytes<46 || be16(data)!=0) { return BLOCK_RANGE; }
-            if (!channel_matches(peer,be16(data+2))) { return BLOCK_NOT_READY; }
+            if (bytes<16) { *out=m;return BLOCK_RANGE; }
+            m.rx_metadata_version=be16(data);
+            /* Vendor wl_event_rx_frame_data_v1 and brcmf_rx_mgmt_data are
+             * both 16 bytes: BE version/chanspec/RSSI/mactime/rate. Version
+             * 1 is observed on the Pi. Keep legacy v0 fixtures; v2 has a
+             * different header and must never use these offsets. */
+            if (m.rx_metadata_version>1) { *out=m;return BLOCK_UNSUPPORTED; }
+            if (bytes<46) { *out=m;return BLOCK_RANGE; }
+            if (!channel_matches(peer,be16(data+2))) { out->filter=AUTH_FILTER_CHANNEL;return BLOCK_NOT_READY; }
             /* Like the firmware reference, skip the supplied 24-byte header
              * and bind RX to the event peer/interface rather than its MACs. */
             const unsigned char *auth=data+40;m.sequence=le16(auth+2);m.auth_status=le16(auth+4);
-            if (le16(auth)!=3 || (m.sequence!=1 && m.sequence!=2)) { return BLOCK_UNSUPPORTED; }
-            if (m.auth_status!=(m.sequence==1 ? 126 : 0)) { *out=m;return BLOCK_UNSUPPORTED; }
-            m.body_bytes=m.sequence==1 ? 98 : 34;if (bytes!=46+m.body_bytes) { return BLOCK_RANGE; }
+            m.wire_body_bytes=bytes-46;if (m.wire_body_bytes>=2) { m.wire_group=le16(auth+6); }
+            if (le16(auth)!=3 || (m.sequence!=1 && m.sequence!=2)) { *out=m;return BLOCK_UNSUPPORTED; }
+            if (m.auth_status!=(m.sequence==1 && !peer->hunting ? 126 : 0)) { *out=m;return BLOCK_UNSUPPORTED; }
+            size_t required=m.sequence==1 ? 98 : 34;if (bytes!=46+required) { *out=m;return BLOCK_RANGE; }m.body_bytes=required;
             for (size_t i=0;i<m.body_bytes;++i) { m.body[i]=auth[6+i]; }
         }
     }
     *out=m;return event==187 && m.status ? BLOCK_IO : BLOCK_OK;
+}
+const char *brcm_auth_error(enum block_result result)
+{
+    static const char *const errors[]={"ok","invalid authentication argument","malformed/out-of-range authentication data","authentication timeout",
+        "firmware/transport I/O error","unsupported authentication format/state","authentication path not ready"};
+    return (unsigned)result<sizeof(errors)/sizeof(errors[0]) ? errors[result] : "unknown authentication error";
 }

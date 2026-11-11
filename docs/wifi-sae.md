@@ -123,10 +123,11 @@ absent; they are not silently ignored. Timers, session expiry, retry policy,
 address/status/sequence validation and radio transport remain outside this
 backend. Future callers must bind it to one peer and clear it on timeout.
 
-The next integration work is external-authentication management-frame/event
-transport and reviewed credential/RNG plumbing, followed by association and
-the EAPOL four-way handshake/key installation with PMF. Side-channel and
-protocol integration review remain necessary before accepting live credentials.
+External-authentication management-frame/event transport, hidden local input
+and fresh hardware RNG are now integrated in the experimental
+[live SAE confirm test](wifi-sae-auth.md); physical confirm verification is
+pending. Association and the EAPOL four-way handshake/key installation with
+PMF remain. No independent side-channel audit is claimed for this live path.
 ARP/IPv4/DHCP, ICMP and DNS follow a protected link. There is no package manager
 or internet connection yet.
 

@@ -77,6 +77,7 @@ int main(void)
     struct brcm_scan_io io={NULL,iovar,radio,poll,delay,now};struct brcm_prepare_state prep={.ready=true,.clm_complete=true,.country="IN",.ccode="IN",.country_revision=0};
     seed(0);assert(brcm_scan_run(&io,&prep,&scan)==BLOCK_OK && scan.ready && scan.phase==8 && scan.count==1 && scan.interface_down && scan.mask_restored && !scan.interface_may_be_up && m.mask[0]==8 && !m.mask[8]);
     assert(scan.ap[0].rssi==-49 && scan.ap[0].channel==6 && (scan.ap[0].security&(SCAN_SAE|SCAN_PSK))==(SCAN_SAE|SCAN_PSK) && scan.ap[0].pmf_required);
+    assert(scan.ap[0].rsn_bytes==sizeof(rsnie) && !memcmp(scan.ap[0].rsn,rsnie,sizeof(rsnie)));
     unsigned calls=m.calls,total=calls;assert(brcm_scan_run(&io,&prep,&scan)==BLOCK_OK && m.calls==calls);
     for (unsigned mode=1;mode<=16;++mode) {
         seed(mode);enum block_result r=brcm_scan_run(&io,&prep,&scan);

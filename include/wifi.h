@@ -13,4 +13,11 @@ void platform_wifi_prepare(const char *country);
 void platform_wifi_scan(void);
 void platform_wifi_target(const char *ssid);
 void platform_wifi_auth_prepare(const char *ssid);
+void platform_wifi_join_probe(const char *ssid);
+void platform_wifi_sae_probe(const char *ssid);
+void platform_wifi_sae_auth(const char *ssid);
+void platform_wifi_assoc(const char *ssid);
+void platform_wifi_dhcp(const char *ssid);
+void platform_wifi_ping(const char *ssid);
+void platform_network_info(void);
 #endif

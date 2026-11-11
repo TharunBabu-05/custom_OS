@@ -28,8 +28,24 @@ static enum block_result iovar(void *ctx,bool set,const char *name,const void *i
     if (model.calls==model.fail_at) { *status=0xffffffe9u;if (model.mode==4) { model.poisoned=true; }return BLOCK_IO; }
     unsigned index=4;for (unsigned i=0;i<4;++i) { if (!strcmp(name,names[i])) { index=i; } }
     if (index<4) {
-        if (set) { assert(bytes==4 && !output && !capacity);++model.sets;model.values[index]=g32(input);if (index==2) { model.values[3]=0; } }
-        else { assert(!bytes && !input && capacity==4);p32(output,model.mode==3 && model.sets==5 && index==3 ? 0 : model.values[index]);*actual=4; }
+        if (set) {
+            assert(bytes==4 && !output && !capacity);++model.sets;uint32_t value=g32(input);
+            if (index==1 && model.values[index]!=value) { model.values[0]=2; }
+            model.values[index]=value;if (index==2) { model.values[3]=0; }
+            if (model.mode==14 && index==2 && value==4) { model.values[0]=2; }
+        }
+        else {
+            assert(!bytes && !input && capacity==4);uint32_t value=model.values[index];
+            if (model.sets==5) {
+                if (model.mode==3 && index==3) { value=0; }
+                if (model.mode==15 && index==1) { value|=0x80; }
+                if (model.mode==16 && index==3) { value=1; }
+                if (index==2 && model.mode>=17) {
+                    static const uint32_t wsec[]={0x604,0x204,0x404,0xe04,0x606,0};value=wsec[model.mode-17];
+                }
+            }
+            p32(output,value);*actual=4;
+        }
     } else if (!strcmp(name,"event_msgs")) {
         assert(!set && !input && !bytes && capacity==16);
         memcpy(output,model.mask,16);*actual=model.mode==9 ? 15 : 16;
@@ -77,19 +93,26 @@ int main(void)
     for (unsigned i=0;i<n;++i) { assert(brcm_auth_event(&peer,0,event,i,&message)!=BLOCK_OK); }
     n=fixture(188,80);p16(event+76+42,2);p16(event+76+44,0);memcpy(event+76+46,confirm,34);
     assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_OK && message.sequence==2 && message.body_bytes==34);
-    n=fixture(188,144);event[4+48]^=2;assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_NOT_READY);
-    n=fixture(188,144);event[4+70]=1;assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_NOT_READY);
-    n=fixture(188,144);b16(event+76+2,0x100b);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_NOT_READY);
+    n=fixture(188,144);event[4+48]^=2;assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_NOT_READY && message.filter==AUTH_FILTER_PEER && !message.kind && !message.body_bytes && message.wire_event==188);
+    n=fixture(188,144);event[4+70]=1;assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_NOT_READY && message.filter==AUTH_FILTER_INTERFACE && message.wire_interface==1 && !message.kind);
+    n=fixture(188,144);b16(event+76+2,0x100b);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_NOT_READY && message.filter==AUTH_FILTER_CHANNEL && !message.kind && !message.body_bytes);
     n=fixture(188,144);p16(event+76+44,76);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_UNSUPPORTED && message.auth_status==76);
+    assert(message.wire_body_bytes==98 && message.wire_group==19 && !message.body_bytes);
+    n=fixture(188,145);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_RANGE && message.wire_body_bytes==99 && !message.body_bytes);
+    n=fixture(188,144);b16(event+76,1);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_OK && message.rx_metadata_version==1 && message.sequence==1 && message.body_bytes==98 && !memcmp(message.body,body,98));
+    for (unsigned cut=0;cut<n;++cut) { assert(brcm_auth_event(&peer,0,event,cut,&message)!=BLOCK_OK); }
+    b16(event+76,2);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_UNSUPPORTED && message.rx_metadata_version==2 && !message.body_bytes);
+    assert(!strcmp(brcm_auth_error(BLOCK_RANGE),"malformed/out-of-range authentication data"));
     n=fixture(188,144);p16(event+76+40,0);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_UNSUPPORTED);
     n=fixture(188,144);b32(event+4+44,145);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_RANGE);
     n=fixture(187,44);memset(event+4+48,0,6);assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_OK && message.kind==BRCM_AUTH_REQUEST);
     event[76+12]^=1;assert(brcm_auth_event(&peer,0,event,n,&message)==BLOCK_NOT_READY);
     n=fixture(189,4);assert(brcm_auth_event(&peer,0x12345678,event,n,&message)==BLOCK_OK && message.packet_id==0x12345678);
-    assert(brcm_auth_event(&peer,1,event,n,&message)==BLOCK_NOT_READY);
+    assert(brcm_auth_event(&peer,1,event,n,&message)==BLOCK_NOT_READY && message.filter==AUTH_FILTER_COOKIE && message.wire_cookie==0x12345678 && !message.kind);
     b32(event+4+32,5);assert(brcm_auth_event(&peer,0x12345678,event,n,&message)==BLOCK_OK && message.status==5);
     n=fixture(190,4);assert(brcm_auth_event(&peer,0x12345678,event,n,&message)==BLOCK_OK && message.kind==BRCM_AUTH_OFFCHANNEL);
     n=fixture(69,0);assert(brcm_auth_event(&peer,1,event,n,&message)==BLOCK_NOT_READY);
+    n=fixture(0,0);b32(event+4+32,7);assert(brcm_auth_event(&peer,1,event,n,&message)==BLOCK_NOT_READY && message.envelope_valid && !message.wire_event && message.wire_status==7 && !message.kind && !message.body_bytes);
     n=fixture(188,144);unsigned char original[512];memcpy(original,event,n);uint32_t random=0x42;
     for (unsigned i=0;i<5000;++i) { memcpy(event,original,n);random=random*1664525u+1013904223u;event[random%n]^=(unsigned char)(random>>24);(void)brcm_auth_event(&peer,1,event,i%9==0 ? random%n : n,&message);assert(message.body_bytes<=98); }
     puts("PASS: byte-exact mgmt_frame v0 commit/confirm encoding, mixed endianness/padding, bounded BCDC external-auth/RX/TX events, target/channel/cookie filters and 5000 mutations");
@@ -97,14 +120,15 @@ int main(void)
     assert(brcm_auth_probe_run(&io,false,&state)==BLOCK_NOT_READY && !model.calls && !state.attempted);
     assert(brcm_auth_probe_run(&io,true,&state)==BLOCK_OK && state.verified && state.restored && state.phase==6 && state.mask_bytes==25 && state.observed_mask==15 && state.mask_legacy_verified && state.mask_snapshot_stable && !state.mask_compatibility);
     assert(model.values[0]==0 && model.values[1]==0 && model.values[2]==0 && model.values[3]==1 && model.mask[23]==0x80 && model.mask[24]==0x5a);
-    unsigned total=model.calls;assert(total==30);assert(brcm_auth_probe_run(&io,true,&state)==BLOCK_OK && model.calls==total);
+    assert(state.auth_trace_mask==15 && state.auth_after[1]==2 && state.auth_after[0]==3 && state.auth_after[2]==3 && state.auth_after[3]==3 && state.mask_readback_verified);
+    unsigned total=model.calls;assert(total==34);assert(brcm_auth_probe_run(&io,true,&state)==BLOCK_OK && model.calls==total);
     for (unsigned compatibility=0;compatibility<2;++compatibility) {
       for (unsigned fail=1;fail<=total;++fail) {
         seed();state=(struct brcm_auth_probe){0};model.fail_at=fail;model.compatibility=compatibility!=0;if (compatibility) { model.mask_bytes=24; }
         assert(brcm_auth_probe_run(&io,true,&state)!=BLOCK_OK);
         if (fail<=8) { assert(!state.changed && !model.sets); }
-        else if (fail<=19) { assert(state.restored && !model.values[0] && !model.values[1] && !model.values[2] && model.values[3]==1 && model.mask[23]==0x80); }
-        else { assert(!state.restored && state.restore_error!=BLOCK_OK); }
+        else if (fail<=23) { assert(state.restored && state.failure_phase==state.phase && state.failure_property==state.property && !model.values[0] && !model.values[1] && !model.values[2] && model.values[3]==1 && model.mask[23]==0x80); }
+        else { assert(!state.restored && state.restore_error!=BLOCK_OK && state.restore_status==0xffffffe9u && state.phase==5 && state.property==state.restore_property); }
         unsigned calls=model.calls;assert(brcm_auth_probe_run(&io,true,&state)==state.error && calls==model.calls);
       }
     }
@@ -118,6 +142,28 @@ int main(void)
     }
     seed();state=(struct brcm_auth_probe){0};model.compatibility=true;model.mask_bytes=24;
     assert(brcm_auth_probe_run(&io,true,&state)==BLOCK_OK && state.mask_compatibility && state.mask_legacy_verified && state.mask_snapshot_stable && state.restored && state.mask_bytes==24 && state.mask_header[0]==101 && state.mask_header[1]==118 && state.mask_reply_bytes==259);
+    /* A mode transition resetting auth is a modelled hypothesis, not a
+     * measured Pi cause. The old ordering fails it; the new ordering passes. */
+    seed();unsigned char word[4];size_t actual;uint32_t status;p32(word,3);
+    assert(iovar(NULL,true,"auth",word,4,NULL,0,&actual,&status)==BLOCK_OK);p32(word,0x40000);
+    assert(iovar(NULL,true,"wpa_auth",word,4,NULL,0,&actual,&status)==BLOCK_OK && model.values[0]==2);
+    seed();state=(struct brcm_auth_probe){0};model.values[0]=3;model.values[1]=0x80;model.values[2]=4;model.values[3]=2;
+    assert(brcm_auth_probe_run(&io,true,&state)==BLOCK_OK && state.restored && model.values[0]==3 && model.values[1]==0x80 && model.values[2]==4 && model.values[3]==2);
+    for (unsigned mode=14;mode<=16;++mode) {
+        seed();state=(struct brcm_auth_probe){0};model.mode=mode;
+        assert(brcm_auth_probe_run(&io,true,&state)==BLOCK_IO && !state.verified && state.restored && state.observed_mask==15 && state.mask_readback_verified);
+        assert(state.phase==4 && state.failure_phase==4 && state.property==state.failure_property && state.restore_error==BLOCK_OK);
+        if (mode==14) { assert(state.mismatch_mask==1 && state.property==1 && state.observed[0]==2 && state.auth_after[0]==3 && state.auth_after[2]==2 && state.auth_after[3]==2); }
+        if (mode==15) { assert(state.mismatch_mask==2 && state.property==2 && state.observed[1]==0x40080); }
+        if (mode==16) { assert(state.mismatch_mask==8 && state.property==4 && state.observed[3]==1); }
+    }
+    for (unsigned mode=17;mode<=22;++mode) {
+        seed();state=(struct brcm_auth_probe){0};model.mode=mode;
+        enum block_result r=brcm_auth_probe_run(&io,true,&state);
+        assert(state.restored && state.observed_mask==15);
+        if (mode==17) { assert(r==BLOCK_OK && state.verified && !state.mismatch_mask && state.observed[2]==0x604); }
+        else { assert(r==BLOCK_IO && !state.verified && state.mismatch_mask==4); }
+    }
     const unsigned lengths[]={24,25,32,33,64,128,255};
     for (unsigned j=0;j<sizeof(lengths)/sizeof(lengths[0]);++j) {
         seed();state=(struct brcm_auth_probe){0};model.mask_bytes=lengths[j];
@@ -125,5 +171,6 @@ int main(void)
         assert(brcm_auth_probe_run(&io,true,&state)==BLOCK_OK && state.mask_bytes==lengths[j] && state.mask_reply_bytes==4+lengths[j] && state.mask_header[2]==lengths[j]);
         assert(state.restored && !memcmp(model.mask,saved,sizeof(saved)));
     }
-    puts("PASS: captured ev/24/24 GET compatibility, independent legacy cross-check, stable complete snapshots, 24..255-byte restoration, 60 operation failures and malformed/echo/unstable reply rejection");return 0;
+    puts("PASS: captured ev/24/24 GET compatibility, legacy/stable checks, 24..255-byte restoration and 68 operation failures");
+    puts("PASS: WPA-before-auth ordering, four auth checkpoints, non-default profile restoration, complete mismatch diagnostics, retained failure/status and strict SAE/AES/required-PMF checks");return 0;
 }

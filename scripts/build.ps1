@@ -61,14 +61,14 @@ try {
         New-Item -ItemType Directory -Force -Path $out | Out-Null
         $sources = @($entrySource,'arch/aarch64/interrupts/vectors.S',
             $boardSource,'drivers/uart/pl011.c','drivers/timer/arch_timer.c',
-            'kernel/core/console.c','kernel/core/main.c','lib/memory.c',
+            'kernel/core/console.c','kernel/core/console_input.c','kernel/core/main.c','lib/memory.c',
             'kernel/memory/map.c','kernel/memory/fdt_memory.c','kernel/memory/pages.c',
             'kernel/memory/boot_memory.c','filesystem/ramfs.c','kernel/core/fs_commands.c',
             'drivers/storage/block.c','filesystem/fat32.c','filesystem/vfs.c','kernel/core/storage_commands.c',
             'kernel/core/dt_property.c','drivers/usb/xhci_observe.c','drivers/usb/pi5_usb_dt.c',
             'kernel/core/usb_commands.c','drivers/usb/xhci_test.c','drivers/usb/xhci_test_report.c',
             'drivers/usb/xhci_enumerate.c','drivers/usb/usb_descriptors.c','drivers/storage/usb_bot.c',
-            'drivers/storage/brcm_firmware.c','drivers/storage/brcm_start.c','drivers/storage/brcm_control.c','drivers/storage/brcm_prepare.c','drivers/storage/brcm_scan.c','drivers/storage/brcm_auth.c','drivers/storage/brcm_auth_probe.c','drivers/storage/wifi_target.c','lib/sha256.c','lib/crypto.c','lib/p256.c','lib/p256_selftest.c','lib/sae_h2e.c','lib/sae_h2e_selftest.c','lib/sae_session.c','lib/sae_session_selftest.c','drivers/random/rng200.c','drivers/random/pi5_rng200.c','kernel/core/wifi_files.c')
+            'drivers/storage/brcm_firmware.c','drivers/storage/brcm_start.c','drivers/storage/brcm_control.c','drivers/storage/brcm_prepare.c','drivers/storage/brcm_scan.c','drivers/storage/brcm_auth.c','drivers/storage/brcm_auth_probe.c','drivers/storage/brcm_join_probe.c','drivers/storage/brcm_sae_probe.c','drivers/storage/brcm_assoc.c','drivers/storage/brcm_keys.c','drivers/storage/wifi_target.c','lib/sha256.c','lib/crypto.c','lib/aes.c','lib/aes_selftest.c','lib/wpa_rsn.c','lib/wpa_keys.c','lib/wpa_probe.c','network/dhcp.c','network/netprobe.c','network/netprobe_selftest.c','network/dhcp_selftest.c','lib/wpa_retry_selftest.c','lib/wpa_kde.c','lib/wpa_kde_selftest.c','lib/wpa_keys_selftest.c','lib/p256.c','lib/p256_selftest.c','lib/sae_h2e.c','lib/sae_hunt.c','lib/sae_h2e_selftest.c','lib/sae_session.c','lib/sae_session_selftest.c','drivers/random/rng200.c','drivers/random/pi5_rng200.c','kernel/core/wifi_files.c')
         if ($Target -eq 'rpi5') { $sources+=@('drivers/storage/sdhci.c','drivers/storage/sdio.c','drivers/storage/brcm_sdio.c','drivers/storage/brcm_chip.c','drivers/storage/pi5_sd.c','drivers/storage/pi5_wifi_probe.c','drivers/storage/pi5_wifi_power.c','drivers/usb/pi5_dma.c','drivers/usb/pi5_xhci_test.c') }
         else { $sources+=@('drivers/storage/virtio_blk.c','drivers/usb/qemu_xhci_test.c') }
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }

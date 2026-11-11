@@ -67,8 +67,10 @@ Compression streams the image, then independently decompresses the entry to
 SHA256 and compares it with the source before promotion. An unchanged image
 reuses its ZIP; replacing a ZIP first preserves the old ZIP under a dated name.
 Archives at or above 100,000,000 bytes are rejected before promotion. A build
-generates artifacts; committing and pushing them is a separate Git operation
-performed with each requested project update.
+generates artifacts; committing and pushing them is a separate Git operation.
+Current user preference: keep development changes and image ZIPs local while
+working toward connection to Jack's. The user handles GitHub publication;
+do not commit or push each phase automatically.
 
 To compress an existing complete image without rebuilding:
 

@@ -38,7 +38,8 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
                 $process.StandardInput.Flush()
                 Start-Sleep -Milliseconds 5
             }
-            if ($mathSeen.ContainsKey($line)) { Start-Sleep -Milliseconds 200 }
+            if ($line -eq 'keytest') { Start-Sleep -Seconds 2 }
+            elseif ($mathSeen.ContainsKey($line)) { Start-Sleep -Milliseconds 200 }
             elseif ($line -eq 'saetest') { Start-Sleep -Seconds 20;$mathSeen[$line]=$true }
             elseif ($line -eq 'p256test' -or $line -eq 'h2etest') { Start-Sleep -Seconds 12;$mathSeen[$line]=$true } else { Start-Sleep -Milliseconds 200 }
         }
@@ -77,7 +78,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
         $process.Dispose()
     }
 }
-$commands=@('help','info','cpuinfo','cryptotest','p256test','h2etest','saetest','p256test','h2etest','saetest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
+$commands=@('help','info','cpuinfo','cryptotest','keytest','nettest','p256test','h2etest','saetest','p256test','h2etest','saetest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
     'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo',
     'fsinfo','pwd','ls /','cat /etc/board','cat /README.txt','cd /tmp','mkdir work','cd work','pwd',
     'touch empty.txt','write note.txt filesystem-ok','cat ./note.txt','ls .','cd ..','rmdir work',
@@ -86,6 +87,9 @@ $commands=@('help','info','cpuinfo','cryptotest','p256test','h2etest','saetest',
     "echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
 $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt | EL1',
     'PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.',
+    'PASS: AES-128, CMAC, key unwrap, SAE PTK, offline M2/M4, key-data and M3-retry known-answer tests.',
+    'PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.',
+    'PASS: ARP/ICMP gateway public packet fixtures; no network I/O.',
     'PASS: P-256 RFC5903 public/shared points, scalar boundaries and group identities.',
     'PASS: SAE H2E group-19 mapping, password token and MAC-bound password element.',
     'PASS: SAE commit/confirm, key derivation, bad-confirm rejection and gated key export.',
@@ -105,7 +109,7 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
 if ($StorageImage) {
     $commands=$commands[0..($commands.Count-2)]+@('storageinit','storageinfo','ls /boot','cd /boot',
         'pwd','cat CONFIG.TXT','cat SOURCE.TXT','write CONFIG.TXT blocked','touch new.txt',
-        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','wificores','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's",'halt')
+        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','wificores','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's","wifijoinprobe Jack's","wifisaeprobe Jack's","wifisaeauth Jack's","wifiassoc Jack's","wifidhcp Jack's","wifiping Jack's",'netinfo','halt')
     $expected+=@('/boot: FAT32 read-only','device=qemu-virtio-blk','CONFIG.TXT','kernel=OUROS.IMG',
         'Official DTB and notices:','fs: read-only filesystem','Wi-Fi state: manual firmware/control bring-up',
         'Requested network security: WPA3-Personal','No Pi Wi-Fi SDIO device on QEMU virt.',
@@ -117,7 +121,14 @@ if ($StorageImage) {
         'No Pi Wi-Fi regulatory target on QEMU virt; preparation unavailable.',
         'No Pi Wi-Fi radio on QEMU virt; scanning unavailable.',
         'No Pi Wi-Fi radio on QEMU virt; target check unavailable.',
-        'No Pi Wi-Fi radio on QEMU virt; firmware auth-policy check unavailable.')
+        'No Pi Wi-Fi radio on QEMU virt; firmware auth-policy check unavailable.',
+        'No Pi Wi-Fi radio on QEMU virt; external-SAE join probe unavailable.',
+        'No Pi Wi-Fi radio on QEMU virt; SAE commit probe unavailable. No password requested.',
+        'No Pi Wi-Fi radio on QEMU virt; SAE confirm test unavailable. No password requested.',
+        'No Pi Wi-Fi radio on QEMU virt; association probe unavailable. No password requested.',
+        'No Pi Wi-Fi radio on QEMU virt; DHCP probe unavailable. No password requested.',
+        'No Pi Wi-Fi radio on QEMU virt; gateway ping unavailable. No password requested.',
+        'No live Pi Wi-Fi DHCP lease on QEMU virt.')
 }
 if ($Handoff) {
     Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1','Reported RAM: 134.217 MB (128.000 MiB)'))

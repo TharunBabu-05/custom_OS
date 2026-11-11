@@ -69,6 +69,7 @@ enum block_result brcm_scan_bss(const void *buffer,size_t n,struct brcm_scan_ap 
         if (id==48) {
             if (have_rsn) { return BLOCK_RANGE; }have_rsn=true;ap->security|=SCAN_RSN;
             enum block_result r=rsn(p+at,bytes,ap);if (r!=BLOCK_OK) { return r; }
+            ap->rsn_bytes=(uint16_t)(bytes+2);for (unsigned i=0;i<ap->rsn_bytes;++i) { ap->rsn[i]=p[at-2+i]; }
         } else if (id==244) {
             if (!bytes || bytes>sizeof(ap->rsnxe) || ap->rsnxe_length || (unsigned)(p[at]&15)+1!=bytes) { return BLOCK_RANGE; }
             ap->rsnxe_length=(uint8_t)bytes;for (unsigned i=0;i<bytes;++i) { ap->rsnxe[i]=p[at+i]; }

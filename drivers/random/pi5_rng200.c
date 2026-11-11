@@ -52,7 +52,7 @@ void platform_rng_test(uintptr_t dtb)
     console_write("control=");console_hex(source.control);console_write(" status=");console_hex(source.status);console_write(" warmup_bits=");console_u64(source.total_bits);
     console_write(" discarded_words=");console_u64(source.discarded);console_write(" consumed_words=");console_u64(source.words);console_write(" conditioned_blocks=");console_u64(source.blocks);console_write("\n");
     console_write(test_pass ? "PASS: hardware source supplied two distinct 64-byte conditioned samples; sample bytes erased.\n" : "RNG test failed; randomness unavailable. Reboot before retry.\n");
-    console_write("No random bytes printed. Engineering health checks are not entropy certification; WPA3 is not implemented.\n");
+    console_write("No random bytes printed. Engineering health checks are not entropy certification; RNG testing alone does not authenticate Wi-Fi.\n");
 }
 #else
 enum block_result platform_random_bytes(void *out,size_t n) { if (out && n<=256) { crypto_wipe(out,n); }return BLOCK_NOT_READY; }

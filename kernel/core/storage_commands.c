@@ -4,6 +4,8 @@
 #include "dt_property.h"
 #include "wifi.h"
 #include "wifi_files.h"
+#include "dhcp.h"
+#include "netprobe.h"
 static struct block_device disk;
 static bool attached;
 static uintptr_t wifi_dtb;
@@ -29,6 +31,7 @@ void storage_setup(const char *board,uintptr_t dtb)
 }
 bool storage_command(const char *line)
 {
+    if (same(line,"nettest")) { console_write(dhcp_selftest() ? "PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.\n" : "FAIL: DHCP packet fixtures.\n");console_write(netprobe_selftest() ? "PASS: ARP/ICMP gateway public packet fixtures; no network I/O.\n" : "FAIL: ARP/ICMP packet fixtures.\n");return true; }
     if (same(line,"wifiinit")) { platform_wifi_init(wifi_dtb); return true; }
     if (same(line,"wificores")) { platform_wifi_cores(); return true; }
     if (same(line,"wififiles")) { wifi_files_command(); return true; }
@@ -41,6 +44,19 @@ bool storage_command(const char *line)
     if (begins(line,"wifitarget ")) { platform_wifi_target(line+11);return true; }
     if (same(line,"wifiauthprep")) { platform_wifi_auth_prepare("");return true; }
     if (begins(line,"wifiauthprep ")) { platform_wifi_auth_prepare(line+13);return true; }
+    if (same(line,"wifijoinprobe")) { platform_wifi_join_probe("");return true; }
+    if (begins(line,"wifijoinprobe ")) { platform_wifi_join_probe(line+14);return true; }
+    if (same(line,"wifisaeprobe")) { platform_wifi_sae_probe("");return true; }
+    if (begins(line,"wifisaeprobe ")) { platform_wifi_sae_probe(line+13);return true; }
+    if (same(line,"wifisaeauth")) { platform_wifi_sae_auth("");return true; }
+    if (begins(line,"wifisaeauth ")) { platform_wifi_sae_auth(line+12);return true; }
+    if (same(line,"wifiassoc")) { platform_wifi_assoc("");return true; }
+    if (begins(line,"wifiassoc ")) { platform_wifi_assoc(line+10);return true; }
+    if (same(line,"wifidhcp")) { platform_wifi_dhcp("");return true; }
+    if (begins(line,"wifidhcp ")) { platform_wifi_dhcp(line+9);return true; }
+    if (same(line,"wifiping")) { platform_wifi_ping("");return true; }
+    if (begins(line,"wifiping ")) { platform_wifi_ping(line+9);return true; }
+    if (same(line,"netinfo")) { platform_network_info();return true; }
     if (same(line,"wifiprepare")) { platform_wifi_prepare(""); return true; }
     if (begins(line,"wifiprepare ")) { platform_wifi_prepare(line+12);return true; }
     if (same(line,"wifiprobe")) { platform_wifi_probe(); return true; }
@@ -101,9 +117,14 @@ bool storage_command(const char *line)
         console_write("wifiscan (passive scan after country preparation; one-shot results)\n");
         console_write("wifitarget <SSID> (cached WPA3 cipher/PMF checks; no connection)\n");
         console_write("wifiauthprep <SSID> (verify/restore firmware SAE/PMF/events; no join)\n");
+        console_write("wifijoinprobe <SSID> (observe external-SAE request, then DOWN/restore; no password)\n");
+        console_write("wifisaeprobe <SSID> (hidden password, fresh SAE commit/reply probe; no confirm or IP)\n");
+        console_write("wifisaeauth <SSID> (hidden password, live SAE confirm test; then DOWN/restore, no association/IP)\n");
+        console_write("wifiassoc <SSID> (verified SAE/M3, key-install/live-M4 test; then DOWN/delete, no persistent link/IP)\n");
+        console_write("wifidhcp <SSID> (fresh SAE/M4, peer-port authorization/readback, DHCP test; DOWN/delete) netinfo\n");
+        console_write("wifiping <SSID> (fresh DHCP, address checks, ARP and gateway ICMP; then DOWN)\n");
         platform_wifi_status();
-        console_write("Next stages: SAE group/password-element operations and authentication transport,\n");
-        console_write("SAE/PMF authentication, IP/DHCP/DNS; no network connection yet.\n"); return true;
+        console_write("Next: verify address checks and gateway ping, then external numeric reachability, DNS and persistent link/rekey.\n"); return true;
     }
     return false;
 }

@@ -2,6 +2,13 @@
 #include "wifi_target.h"
 static bool equal(const unsigned char *a,const unsigned char *b,size_t n)
 { for (size_t i=0;i<n;++i) { if (a[i]!=b[i]) { return false; } }return true; }
+enum wifi_sae_method wifi_target_sae_method(const struct brcm_scan_ap *ap)
+{
+    if (!ap || !ap->akm_sae || ap->rsnxe_length>sizeof(ap->rsnxe)) { return WIFI_SAE_METHOD_INVALID; }
+    if (!ap->rsnxe_length) { return WIFI_SAE_HUNT; }
+    if (ap->rsnxe_length!=(unsigned)(ap->rsnxe[0]&15)+1) { return WIFI_SAE_METHOD_INVALID; }
+    return ap->rsnxe[0]&32 ? WIFI_SAE_H2E : WIFI_SAE_HUNT;
+}
 enum wifi_target_result wifi_target_check(const struct brcm_scan_state *scan,const struct brcm_caps_state *caps,const void *ssid,size_t bytes,const struct brcm_scan_ap **target)
 {
     if (!target) { return WIFI_TARGET_ARGUMENT; }*target=NULL;

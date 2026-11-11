@@ -1,8 +1,8 @@
 /* Original P-256 arithmetic for the next SAE stage. Curve/test parameters:
  * RFC5903 sections 3.1/8.1. Jacobian formulas: EFD dbl-2001-b/madd-2007-bl.
  * Fixed-size loops and masked exceptional-case handling at source level;
- * this is not a claim of a compiler/CPU side-channel audit. No secret inputs
- * are used by the current monitor; p256test uses public known-answer values. */
+ * this is not a claim of a compiler/CPU side-channel audit. p256test uses
+ * public known-answer values; the opt-in SAE commit probe uses private inputs. */
 #include <stdint.h>
 #include "p256.h"
 #include "crypto.h"
@@ -43,21 +43,44 @@ static void sub(fe *r,const fe *a,const fe *b)
 }
 static void multiply(fe *r,const fe *a,const fe *b)
 {
-    uint32_t product[16]={0};fe rem={{0}},difference;
+    uint32_t product[16]={0};fe rem,difference;int64_t folded[16];
     for (unsigned i=0;i<8;++i) {
         uint64_t carry=0;
         for (unsigned j=0;j<8;++j) { uint64_t v=(uint64_t)a->v[i]*b->v[j]+product[i+j]+carry;product[i+j]=(uint32_t)v;carry=v>>32; }
         product[i+8]=(uint32_t)carry;
     }
-    /* Binary long reduction. Every multiplication consumes all 512 product
-     * bits, regardless of operand magnitude; no division or secret lookup. */
-    for (unsigned bit=512;bit--;) {
-        uint32_t carry=(product[bit/32]>>(bit%32))&1;
-        for (unsigned i=0;i<8;++i) { uint32_t next=rem.v[i]>>31;rem.v[i]=(rem.v[i]<<1)|carry;carry=next; }
-        uint32_t borrow=subtract(&difference,&rem,&prime);select_fe(&rem,&rem,&difference,carry|(borrow^1u));
+    /* B=2^32, p=B^8-B^7+B^6+B^3-1, so B^8 = B^7-B^6-B^3+1
+     * modulo p. Fold eight high limbs in descending order, with signed
+     * accumulators (each is bounded by 9*(B-1), far below INT64_MAX).
+     * The initial normalized carry is in [-8,8]. Folding that carry gives
+     * at most +/-1; a second fold cannot overflow: its residue is near the
+     * opposite end of [0,B^8). Four fixed normalization rounds include one
+     * spare round. All products take the same public loop counts. */
+    for (unsigned i=0;i<16;++i) { folded[i]=product[i]; }
+    for (unsigned k=16;k-->8;) {
+        int64_t high=folded[k];folded[k]=0;
+        folded[k-8]+=high;folded[k-1]+=high;folded[k-2]-=high;folded[k-5]-=high;
     }
-    *r=rem;crypto_wipe(product,sizeof(product));crypto_wipe(&rem,sizeof(rem));crypto_wipe(&difference,sizeof(difference));
+    for (unsigned round=0;round<4;++round) {
+        int64_t carry=0;
+        for (unsigned i=0;i<8;++i) {
+            int64_t value=folded[i]+carry;uint32_t low=(uint32_t)value;
+            /* Exact division by constant 2^32; avoids implementation-defined
+             * right shift of negative signed values. No secret divisor. */
+            carry=(value-(int64_t)low)/INT64_C(4294967296);folded[i]=low;
+        }
+        folded[0]+=carry;folded[7]+=carry;folded[6]-=carry;folded[3]-=carry;
+    }
+    for (unsigned i=0;i<8;++i) { rem.v[i]=(uint32_t)folded[i]; }
+    uint32_t borrow=subtract(&difference,&rem,&prime);select_fe(r,&rem,&difference,borrow^1u);
+    crypto_wipe(product,sizeof(product));crypto_wipe(folded,sizeof(folded));crypto_wipe(&rem,sizeof(rem));crypto_wipe(&difference,sizeof(difference));
 }
+#ifdef OUROS_P256_FIELD_TEST
+/* Native-only differential test seam; absent from the kernel API/build. */
+void p256_field_product_test(const unsigned char a[32],const unsigned char b[32],unsigned char out[32]);
+void p256_field_product_test(const unsigned char a[32],const unsigned char b[32],unsigned char out[32])
+{ fe x,y,r;decode(&x,a);decode(&y,b);multiply(&r,&x,&y);encode(out,&r);crypto_wipe(&x,sizeof(x));crypto_wipe(&y,sizeof(y));crypto_wipe(&r,sizeof(r)); }
+#endif
 static void square(fe *r,const fe *a) { multiply(r,a,a); }
 static void twice(fe *r,const fe *a) { add(r,a,a); }
 static void power(fe *r,const fe *a,const fe *exponent)
@@ -183,6 +206,19 @@ bool p256_scalar_from_hash(const unsigned char hash[32],unsigned char output[32]
 static void curve_value(fe *r,const fe *x)
 {
     fe t;square(r,x);multiply(r,r,x);twice(&t,x);add(&t,&t,x);sub(r,r,&t);add(r,r,&curve_b);crypto_wipe(&t,sizeof(t));
+}
+bool p256_from_x(const unsigned char x[32],unsigned parity,unsigned char output[64])
+{
+    if (!output) { return false; }if (!x || parity>1) { crypto_wipe(output,64);return false; }
+    static const fe exponent={{0,0,0x40000000,0,0,0x40000000,0xc0000000,0x3fffffff}};
+    struct { fe x,y,g,check,diff; } w={0};decode(&w.x,x);
+    uint32_t canonical=subtract(&w.diff,&w.x,&prime);select_fe(&w.x,&zero,&w.x,canonical);
+    curve_value(&w.g,&w.x);power(&w.y,&w.g,&exponent);square(&w.check,&w.y);sub(&w.diff,&w.check,&w.g);
+    uint32_t valid=canonical&(nonzero(&w.diff)^1u);
+    sub(&w.diff,&zero,&w.y);select_fe(&w.y,&w.y,&w.diff,(w.y.v[0]^parity)&1u);
+    encode(output,&w.x);encode(output+32,&w.y);unsigned char mask=(unsigned char)(0u-valid);
+    for (unsigned i=0;i<64;++i) { output[i]&=mask; }
+    crypto_wipe(&w,sizeof(w));return !!valid;
 }
 bool p256_scalar_sum(const unsigned char a[32],const unsigned char b[32],unsigned char output[32])
 {

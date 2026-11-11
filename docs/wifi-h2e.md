@@ -102,15 +102,16 @@ not an implementation of the entire RFC9380 hash-to-curve suite.
 
 ## Still needed before a connection
 
-The new derivation is isolated from the radio and live credentials. It needs
-cryptographic integration and side-channel review before live authentication;
+In the original foundation stage this derivation was isolated from the radio
+and live credentials. It is now used by the experimental
+[live SAE confirm test](wifi-sae-auth.md). Independent cryptographic integration
+and compiler/CPU side-channel review are still needed;
 fixed loops/masked selections alone do not establish compiler/CPU constant-time
 behavior. No interoperable handshake has been demonstrated with another SAE
 implementation or the hotspot.
 
-Next are SAE scalar/random handling, commit/confirm validation and key
-derivation, anti-clogging/retry handling, external-auth frame/event transport,
-protected credential entry, association and EAPOL/key installation with PMF.
+Next are physical confirm verification, anti-clogging/retry handling,
+association and EAPOL/key installation with PMF.
 ARP/IPv4/DHCP, ICMP and DNS follow a protected link. There is no internet access
 or package installation yet.
 

@@ -10,6 +10,11 @@ struct mock {
 };
 static struct mock m;
 static struct brcm_control_state state;
+static unsigned observed_data;
+static void data_observer(void *ctx,const void *data,size_t n)
+{
+    const unsigned char *p=data;assert(ctx==&observed_data && n==117 && p[0]==0x20 && p[116]==0x5a);++observed_data;
+}
 static const struct brcm_start_state boot={.phase=START_READY,.error=BLOCK_OK,.ready=true};
 static const char version[]="Cypress test firmware: host-side fixture only, never a measured chip version. This deliberately spans more than the first 64 bytes of an SDPCM packet.";
 static enum block_result touch(void) { return ++m.calls==m.fail_at ? BLOCK_IO : BLOCK_OK; }
@@ -130,6 +135,13 @@ int main(void)
     assert(brcm_sdpcm_header(header,11,&h)==BLOCK_ARGUMENT);
     /* Mutate all header bytes with a short input; parsing must remain bounded. */
     for (unsigned i=0;i<12;++i) { for (unsigned v=0;v<256;++v) { memset(header,0,12);header[i]=(unsigned char)v;(void)brcm_sdpcm_header(header,12,&h); } }
+    seed();assert(brcm_control_start(&io,&boot,&state)==BLOCK_OK);state.rx_limit=128;observed_data=0;
+    state.data_observer=data_observer;state.data_context=&observed_data;
+    unsigned char *data=frame(129,2);data[12]=0x20;data[128]=0x5a;
+    assert(brcm_control_poll(&io,&state)==BLOCK_OK && observed_data==1 && state.data_frames==1);
+    state.data_observer=NULL;state.data_context=NULL;
+    assert(brcm_control_poll(&io,&state)==BLOCK_OK && observed_data==1);
+    puts("PASS: optional raw BCDC observer receives exact channel-2 payload across split SDIO reads and stops after unbind");
     printf("PASS: F2 setup/mailbox/credits, SDPCM/BCDC version replies, partial RX, event/data drain, stale/sequence handling; %u per-operation I/O failures and 28 negative states\n",total);
     puts("PASS: no writes before verified startup/live prechecks, no SET commands, malformed lengths/channels/IDs/flags/status/version strings rejected, bounded polling and one-shot refusal");
     return 0;

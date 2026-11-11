@@ -1,6 +1,7 @@
 /* PUBLIC synthetic exchange only. Expected bytes cross-checked with the
  * independent affine/OpenSSL host model in tests/sae_session_vectors.mjs. */
 #include "sae_session.h"
+#include "sae_hunt.h"
 #include "crypto.h"
 struct public_random { unsigned calls;unsigned char first,second; };
 static bool fixture_random(void *context,unsigned char output[32])
@@ -32,5 +33,11 @@ bool sae_session_selftest(void)
     ok=ok && sae_session_take_keys(&w.a,&w.ka)==SAE_OK && sae_session_take_keys(&w.b,&w.kb)==SAE_OK && crypto_equal(&w.ka,&w.kb,sizeof(w.ka));
     unhex(w.expected,"f9d594cd2e2d8dc1b33b346e28e9ccefdf58c792142afac8eec46f033bf2827a",32);
     ok=ok && crypto_equal(w.ka.pmk,w.expected,32) && w.a.phase==SAE_EXPORTED && w.b.phase==SAE_EXPORTED;
+    /* Fixed public H&P KAT also executes the new root/PWE path on AArch64
+     * when the existing optional saetest runs. No credential or RNG needed. */
+    static const unsigned char mac_a[6]={2,0,0,0,0,1},mac_b[6]={2,0,0,0,0,2};
+    unhex(w.expected,"c2238d73143a3b6021eb3c35608dde1a64fb2bf8652bc644fe5e45784eecd9a3a98809e8f4408afa64d15e3291954771942d1ba28c32723119432a4f0b90d235",64);
+    static const char password[]="public-hunting-fixture";
+    ok=ok && sae_hunt_pwe(password,sizeof(password)-1,mac_a,mac_b,w.pwe) && crypto_equal(w.pwe,w.expected,64);
     crypto_wipe(&w,sizeof(w));crypto_wipe(&a,sizeof(a));crypto_wipe(&b,sizeof(b));return ok;
 }

@@ -10,4 +10,8 @@ enum wifi_target_result {
  * An SSID with multiple BSSIDs is deliberately refused until explicit selection exists. */
 enum wifi_target_result wifi_target_check(const struct brcm_scan_state *,const struct brcm_caps_state *,const void *,size_t,const struct brcm_scan_ap **);
 const char *wifi_target_error(enum wifi_target_result);
+enum wifi_sae_method { WIFI_SAE_H2E,WIFI_SAE_HUNT,WIFI_SAE_METHOD_INVALID };
+/* Method choice is made once from validated advertisements, never by retrying
+ * another method after authentication failure. WPA3 AKM/PMF checks are separate. */
+enum wifi_sae_method wifi_target_sae_method(const struct brcm_scan_ap *);
 #endif

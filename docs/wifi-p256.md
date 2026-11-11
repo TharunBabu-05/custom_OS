@@ -69,7 +69,9 @@ fixed published values may be used as a live authentication key or random seed.
 ## Implementation and checks
 
 - Original freestanding C arithmetic using eight 32-bit limbs, 64-bit products,
-  fixed 512-bit product reduction, modular addition/subtraction and inversion.
+  512-bit products with fixed P-256 prime folding, modular addition/subtraction
+  and inversion. The earlier serial reduction loop is replaced in the current
+  [live-confirm revision](wifi-sae-auth.md), checked on 13,647 BigInt products.
 - P-256 point validation, Jacobian doubling/addition, scalar multiplication and
   point negation. Input scalars must be in `1..n-1`; coordinates must be canonical
   and on-curve. Point-at-infinity results are rejected. P-256 has cofactor one.
@@ -94,11 +96,11 @@ crypto and random-source tests continue to run separately.
 
 ## Remaining connection work
 
-The backend is isolated from live authentication. Before accepting credentials,
-the project still needs reviewed SAE-specific scalar/key handling and H2E
-password-element derivation, commit/confirm processing, anti-clogging handling,
-external-auth frame/event transport, association and EAPOL/key installation with
-PMF enforcement. Generic curve test vectors do not establish SAE interoperability
+The backend is now used by the experimental [live SAE confirm test](wifi-sae-auth.md).
+H2E, hidden input, fresh RNG, commit/confirm processing and external-auth frame
+transport are implemented; physical confirm verification is pending. Remaining
+work includes anti-clogging/retry handling, association and EAPOL/key installation
+with PMF enforcement. Generic curve test vectors do not establish SAE interoperability
 or password side-channel resistance. ARP/IPv4/DHCP, ICMP and DNS follow a protected
 link. There is still no internet connection or package installer.
 
