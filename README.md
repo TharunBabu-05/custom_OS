@@ -62,7 +62,9 @@
 > `1.1.1.1` replies, DNS and hostname ping pass, followed by clean disconnect.
 > Heap, MMU protection, exception return and timer IRQs now pass on Pi too.
 > Cooperative kernel tasks, guarded stacks and timed sleep/wakeup also pass on Pi.
-> The current phase adds USB write/flush and a small persistent `/data` volume;
+> Pi now verifies `/data` mount, write/read and sync after BOT stall recovery.
+> A physical power-cycle check remains. The new phase adds 16 owned file
+> handles, independent cursors and cooperative task file I/O with exit cleanup.
 > renewal, rekey, background networking and application downloads remain.
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
 > driver supplies the next dependency for reading Wi-Fi firmware from disk.
@@ -334,6 +336,9 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] Physical Pi exception return, GICv2 and timer IRQs
 - [x] Physical Pi cooperative task contexts, guarded stacks and sleep/wakeup
 - [ ] Physical Pi USB writes/flush and persistent `/data` across reboot (new revision)
+- [x] Pi `/data` mount, write/read and WCE=0 sync (same-session evidence)
+- [x] Kernel owned file handles, cursors, path leases and automatic task cleanup
+- [ ] Physical Pi file-handle/task-I/O acceptance and data power-cycle check
 - [ ] Persistent supplicant, group rekey, lease renewal and background networking
 - [ ] Physical Pi SD-card handoff
 - [ ] General peripheral IRQ dispatch, IRQ-safe concurrency and dynamic/user virtual memory

@@ -1,5 +1,105 @@
 # Development log
 
+## 2026-11-13 - Owned file handles and cooperative task I/O
+
+- Preserved proofs/pi5-usb-data-write-sync-2026-11-13.txt: the tested SanDisk
+  now mounts /data with WCE=0 after one recovered stall, writes/reads the file,
+  completes sync and reaches generation 2. No second boot banner is shown;
+  actual power-cycle persistence remains unconfirmed.
+- Added 16 owned, generation-checked file handles with read/write modes,
+  independent cursors, bounded SET/CUR/END seek and whole-file-preserving
+  writes. Shared readers or one exclusive writer pin canonical paths; public
+  VFS mutations normalize aliases and refuse pinned file/ancestor edits.
+  Stale or foreign handles fail, and exhausted/invalid opens never create or
+  truncate files. Static scratch avoids large task-stack allocations.
+- Added fopen/fread/fwrite/fseek/fclose, fileinfo and bounded RAM filetest.
+  taskiotest keeps one writable RAM file and one shared reader per worker
+  across yields and timed sleeps, verifies independent data/cursors and
+  foreign access refusal, then auto-closes six handles on exit. Cancellation
+  also sweeps owners; run epochs prevent owner reuse. Monitor handles survive.
+- Native tests pass: cursors, tail-preserving writes, EOF/seek bounds, stale
+  tokens, ownership/modes, canonical/ancestor leases, table exhaustion before
+  mutation, 4 KiB write limits, heap/read/commit failure cursor preservation,
+  read-only boot files, data commits/independent remount and cleanup. Only an
+  in-memory disk copy changes; final handle/heap/page baselines restore.
+  Existing FAT/SDHCI/DT and 272 update/70 mount-failure checks still pass.
+- New application/EL0 isolation, executable loader, syscalls and preemption
+  remain future phases. No physical disk write or Git commit/push performed.
+- QEMU A53/EL1 and A76/EL2 pass two cold boots each: handle write/seek/read,
+  shared/exclusive modes and alias pins, monitor handle preserved across task
+  I/O, six task handles auto-closed per run, stale/foreign checks and restored
+  memory. Independent host SHA256/metadata/content checks establish generation
+  4, unchanged boot/superblock/unused sectors and source image. Existing EL1/EL2
+  scheduler context/register/timer/refusal/fatal tests also pass.
+- Full IMG 134217728 bytes, verified ZIP 826133 bytes, Pi kernel 397028 bytes;
+  reserved end 0x161000 below DTB 0x200000. SHA256:
+  `927d8b20ebb42e3f74ede5a9687b76c12ac21f638e25997f255caa81cc9e1e5b`.
+  Package/FAT/partition/ZIP and negative corruption/profile checks pass.
+  Prior complete image/ZIP archived flat with date names; see file-handles.md
+  for exact artifacts, test logs and the required fresh Pi acceptance sequence.
+
+## 2026-11-13 - Recover BOT endpoint stalls during the cache-policy query
+
+- Preserved the user diagnostic excerpt in proofs/pi5-usb-data-stall-2026-11-13.txt.
+  CACHE10 reports ILLEGAL REQUEST 20/00; MODE SENSE6's status read then stalls
+  (xHCI completion 6). The old transport halted the controller immediately.
+- Added a distinct validated STALL result, bounded host Reset Endpoint /
+  device CLEAR_FEATURE(ENDPOINT_HALT) / Set TR Dequeue sequence, and a single
+  CSW retry. Data-stage stalls proceed to status; WRITE data/commands are never
+  replayed. Failed recovery or repeated stalls remain fatal to the session.
+- Added read-only CURRENT MODE6 DBD/no-DBD/all-pages and MODE10 alternatives.
+  Reuse a successful form at later syncs and re-read WCE; never infer write
+  durability from an absent caching page. Parse descriptor lengths, all pages,
+  padding and meaningful residue; reject malformed/protected/WCE=1 replies.
+- Native BOT tests reproduce short-data/status stall, data stalls, repeat/clear
+  failures, no replay, MODE6/10 fallback and unknown cache refusal. A DMA/register
+  model runs production xHCI recovery in both directions at normal/ring-wrap
+  positions, checks exact requests/dequeue/cycle and subsequent transfer success.
+  Existing USB/storage/272 update-failure and 70 mount-failure checks pass.
+- New physical write/sync/reboot test still required. No Git commit/push or
+  physical device write performed.
+- Packaged full 128 MiB IMG plus verified ZIP (818983 bytes) in image_files.
+  SHA256 `d9f63b4f30825120cef547d379beb3feb656d0e675b0369f166a6941a968b659`.
+  Previous IMG/ZIP retained with dated filenames. Kernel end remains 0x15a000.
+  Both partitions, FAT/boot-file pins and ZIP decompression independently pass;
+  negative MBR/FAT/kernel/data-extent/data-payload/console-profile cases pass.
+- A53/EL1 and A76/EL2 QEMU each pass three cold boots (create/reopen/replace/
+  delete), independent snapshot hash/content checks, unchanged boot/unused
+  sectors, read-only media refusal and task/IRQ/MMU/heap checks. Failed-mount
+  diagnostic retention/boot-file-read regression also passes. Delivery image
+  unchanged. Logs: build/phase-data-stall-usb-native.log,
+  phase-data-stall-persistence-qemu.log and phase-data-stall-image-negative.log.
+
+## 2026-11-12 - Diagnose Pi data mount and verify write-through cache policy
+
+- User reports successful SanDisk 0781:5567 USB/FAT attachment (boot sectors
+  258048), then `/data` mount I/O failure. No accepted file writes. The log
+  lacks SCSI sense/failed opcode, so no confirmed root cause is claimed.
+- Add mount phase/LBA/block-result diagnostics and automatic BOT/CSW/sense
+  and xHCI reporting. Preserve first mount failure until reboot; repeating
+  datainit cannot erase the evidence. Replace misleading RAM-only filesystem
+  errors with generic unavailable/corrupt filesystem messages.
+- A CACHE10 rejection permits a synchronous write-through policy only after
+  current caching page 08 explicitly reports WCE=0 with no write protection.
+  Restrict fallback to current ILLEGAL REQUEST 20/00 or 24/00; never ignore
+  arbitrary flush failures or assume cache policy from a vendor/product ID.
+  Recheck WCE on every sync. Fixed/descriptor sense supported; deferred errors
+  cannot trigger fallback. READ10 errors now capture sense when possible.
+- Native USB tests pass, including 26 cache/sense compatibility/error cases.
+  All 70 mount failure locations preserve phase/LBA, and all 272 update
+  failure cases continue to recover only complete snapshots. Existing FAT,
+  SDHCI, DT and USB descriptor/ring tests pass. See persistent-storage.md for
+  the required Pi retest; new hardware persistence remains unverified.
+- Follow-up full IMG/verified ZIP archived flat in `image_files`; disk SHA256
+  `811e1a378b2d74de0f7596e9c51ac0a580b41d53b59d668a261ffcd135d928c8`.
+  Prior data-phase IMG/ZIP retained with dated names. No physical device write
+  or GitHub push performed.
+- QEMU A53/EL1 and A76/EL2 pass three cold-boot persistence runs and read-only
+  media refusal, with task/IRQ/MMU checks and independent host verification of
+  both snapshot hashes and unchanged boot/unused sectors. A separate corrupt
+  superblock run verifies retained mount diagnostics, repeat-attempt refusal,
+  rejected writes and continued boot-file access. Delivery image unchanged.
+
 ## 2026-11-12 - Cooperative task hardware evidence and persistent USB data
 
 - Saved `proofs/pi5-cooperative-tasks-usb-2026-11-12.txt`: both task runs pass,

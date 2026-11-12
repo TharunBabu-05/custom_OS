@@ -12,4 +12,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'USB BOT test compilation failed' }
     & ./build/usb-tests/test-usb-bot.exe
     if ($LASTEXITCODE -ne 0) { throw 'USB BOT tests failed' }
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Wmissing-prototypes -Iinclude tests/usb_bot_stall_host.c drivers/storage/usb_bot.c drivers/storage/block.c -o build/usb-tests/test-usb-bot-stall.exe
+    if ($LASTEXITCODE -ne 0) { throw 'USB BOT stall test compilation failed' }
+    & ./build/usb-tests/test-usb-bot-stall.exe
+    if ($LASTEXITCODE -ne 0) { throw 'USB BOT stall tests failed' }
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Wmissing-prototypes -Iinclude tests/xhci_stall_host.c drivers/usb/usb_descriptors.c drivers/storage/usb_bot.c drivers/storage/block.c -o build/usb-tests/test-xhci-stall.exe
+    if ($LASTEXITCODE -ne 0) { throw 'xHCI stall test compilation failed' }
+    & ./build/usb-tests/test-xhci-stall.exe
+    if ($LASTEXITCODE -ne 0) { throw 'xHCI stall tests failed' }
 } finally { Pop-Location }

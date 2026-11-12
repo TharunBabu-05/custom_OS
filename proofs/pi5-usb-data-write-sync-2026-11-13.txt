@@ -1,0 +1,42 @@
+Diagnostic excerpt supplied by the user on 2026-11-13.
+Pi 5, header UART, SanDisk Cruzer Blade USB2, VID 0781 PID 5567.
+Confirms /data mount, write, read and sync in the displayed session.
+No second boot banner appears in the submitted capture. Power-cycle
+persistence is not established by repeated storageinit/datainit commands.
+
+OurOS: AArch64 kernel booted
+Board=rpi5-header entered EL2 running EL1
+> storageinit
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> datainfo
+/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> storageinfo
+Storage backend: USB2 xHCI / SCSI BOT.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=5 ASC=0x0000000000000020 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x000000000000001a stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=40 sense_valid=no
+Cache policy=device reports WCE=0 (write-through; rechecked at sync)
+BOT stalls_recovered=1 cache_query=1
+xHCI event_type=32 completion=1 halted=no
+device=usb-bot sector_size=512 boot=read-only data=opt-in
+Capacity: 30765.219 MB (29340.000 MiB)
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> write /data/hello.txt hello-after-reboot
+> cat /data/hello.txt
+hello-after-reboot
+> sync
+Data cache flushed; file updates already commit synchronously.
+> storageinit
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=1 generation=2 valid_banks=2
+> cat /data/hello.txt
+hello-after-reboot
+>

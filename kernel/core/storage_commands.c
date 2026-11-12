@@ -35,7 +35,7 @@ bool storage_command(const char *line)
         if (!attached || !vfs_boot_mounted()) { console_write("Run storageinit before datainit.\n");return true; }
         enum fs_result r=vfs_mount_data(&disk);
         if (r!=FS_OK && r!=FS_BUSY) { console_write("Data mount failed: ");console_write(ramfs_error(r));console_write(". No formatting attempted.\n"); }
-        vfs_data_info();return true;
+        vfs_data_info();if (r!=FS_OK && r!=FS_BUSY) { platform_storage_info(); }return true;
     }
     if (same(line,"datainfo")) { vfs_data_info();return true; }
     if (same(line,"sync")) {
@@ -101,7 +101,7 @@ bool storage_command(const char *line)
     if (same(line,"storageinfo")) {
         platform_storage_info();
         if (attached) {
-            console_write("device="); console_write(disk.name); console_write(" sector_size=512 access=read-only\n");
+            console_write("device="); console_write(disk.name); console_write(" sector_size=512 boot=read-only data=opt-in\n");
             if (disk.capacity_known) { console_write("Capacity: "); console_memory_size(disk.sectors*512); console_write("\n"); }
             else { console_write("Card capacity not discovered; SDHC 32-bit sector addressing limit only.\n"); }
         }

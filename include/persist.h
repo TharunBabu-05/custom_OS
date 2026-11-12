@@ -11,6 +11,9 @@ struct persist_volume {
     uint64_t generation;
     unsigned bank,valid_banks;
     bool ready,failed,busy;
+    const char *mount_phase;
+    enum block_result mount_io;
+    uint64_t mount_lba;
     unsigned char live[DATA_PAYLOAD_BYTES],staged[DATA_PAYLOAD_BYTES];
 };
 /* Original bounded snapshot format in its own MBR type-DA partition. No

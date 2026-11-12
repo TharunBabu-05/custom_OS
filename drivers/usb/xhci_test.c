@@ -150,6 +150,7 @@ const char *xhci_test_error(enum xhci_test_result r)
     case XHCI_TEST_EVENT: return "unexpected event, completion code or command pointer";
     case XHCI_TEST_USED: return "test already attempted; reboot before another attempt";
     case XHCI_TEST_UNSUPPORTED: return "unsupported USB device, speed, descriptor or topology";
+    case XHCI_TEST_STALL: return "USB endpoint stalled";
     default: return "BIOS ownership present; no takeover attempted";
     }
 }

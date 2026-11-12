@@ -43,19 +43,25 @@ static bool valid_header(const unsigned char *h,unsigned bank)
     return equal(h,"OUROSBK1",8) && u32(h+8)==1 && u32(h+12)==bank && u64(h+16) && u32(h+24)==DATA_PAYLOAD_BYTES &&
         !u32(h+28) && zeros(h+96,416) && checksum(h,64,h+64);
 }
+static enum block_result mount_read(struct persist_volume *v,uint64_t lba,unsigned char *data)
+{ v->mount_lba=lba;v->mount_io=block_read(&v->device,lba,data);return v->mount_io; }
 static enum fs_result load(struct persist_volume *v,unsigned bank,unsigned char *data,uint64_t *generation,bool *valid)
 {
     unsigned char h[512];uint64_t base=(uint64_t)v->start+1+bank*DATA_BANK_SECTORS;*valid=false;
-    if (block_read(&v->device,base,h)!=BLOCK_OK) { return FS_IO; }
+    v->mount_phase=bank ? "bank1-header" : "bank0-header";
+    if (mount_read(v,base,h)!=BLOCK_OK) { return FS_IO; }
     if (!valid_header(h,bank)) { return FS_OK; }
-    for (unsigned i=0;i<DATA_PAYLOAD_SECTORS;++i) { if (block_read(&v->device,base+1+i,data+i*512)!=BLOCK_OK) { return FS_IO; } }
+    v->mount_phase=bank ? "bank1-payload" : "bank0-payload";
+    for (unsigned i=0;i<DATA_PAYLOAD_SECTORS;++i) { if (mount_read(v,base+1+i,data+i*512)!=BLOCK_OK) { return FS_IO; } }
     *generation=u64(h+16);*valid=checksum(data,DATA_PAYLOAD_BYTES,h+32) && valid_payload(data);return FS_OK;
 }
 enum fs_result persist_mount(struct persist_volume *v,const struct block_device *device)
 {
     if (!v || !device) { return FS_BAD_ARGUMENT; }*v=(struct persist_volume){0};
+    v->device=*device;v->mount_phase="capabilities";
     if (!device->read || !device->capacity_known || !device->write || !device->flush) { return FS_UNSUPPORTED; }
-    unsigned char m[512],h[512];if (block_read(device,0,m)!=BLOCK_OK) { return FS_IO; }
+    v->mount_phase="mbr";
+    unsigned char m[512],h[512];if (mount_read(v,0,m)!=BLOCK_OK) { return FS_IO; }
     if (m[510]!=0x55 || m[511]!=0xaa) { return FS_CORRUPT; }
     unsigned found=0;uint32_t start=0,sectors=0;
     for (unsigned i=0;i<4;++i) {
@@ -66,17 +72,20 @@ enum fs_result persist_mount(struct persist_volume *v,const struct block_device 
         if (e[4]==0xda) { ++found;start=(uint32_t)a;sectors=(uint32_t)n; }
     }
     if (found!=1 || sectors<DATA_MIN_SECTORS) { return FS_UNSUPPORTED; }
-    if (block_read(device,start,h)!=BLOCK_OK) { return FS_IO; }
+    v->mount_phase="superblock";
+    if (mount_read(v,start,h)!=BLOCK_OK) { return FS_IO; }
     if (!equal(h,"OUROSDAT",8) || u32(h+8)!=1 || u32(h+12)!=512 || u32(h+16)!=sectors || u32(h+20)!=DATA_BANK_SECTORS ||
         u32(h+24)!=DATA_FILES || u32(h+28)!=DATA_FILE_BYTES || !zeros(h+32,32) || !zeros(h+96,416) || !checksum(h,64,h+64)) { return FS_CORRUPT; }
     v->device=*device;v->start=start;v->sectors=sectors;bool a,b;uint64_t ga=0,gb=0;
     enum fs_result r=load(v,0,v->live,&ga,&a);if (r!=FS_OK) { return r; }r=load(v,1,v->staged,&gb,&b);if (r!=FS_OK) { return r; }
+    v->mount_phase="snapshot-validation";
     if ((!a && !b) || (a && b && ga==gb)) { return FS_CORRUPT; }
     v->valid_banks=(unsigned)a+(unsigned)b;
     if (b && (!a || gb>ga)) { copy(v->live,v->staged,DATA_PAYLOAD_BYTES);v->bank=1;v->generation=gb; }else { v->bank=0;v->generation=ga; }
     zero(v->staged,DATA_PAYLOAD_BYTES);
     /* Check synchronous-flush support before accepting any data writes. */
-    if (block_flush(&v->device)!=BLOCK_OK) { return FS_IO; }v->ready=true;return FS_OK;
+    v->mount_phase="cache-policy/flush";v->mount_lba=0;v->mount_io=block_flush(&v->device);
+    if (v->mount_io!=BLOCK_OK) { return FS_IO; }v->ready=true;v->mount_phase="mounted";return FS_OK;
 }
 enum fs_result persist_stat(const struct persist_volume *v,const char *path,bool *directory)
 {

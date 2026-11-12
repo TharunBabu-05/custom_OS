@@ -2,6 +2,7 @@
 #include "console.h"
 #include "vfs.h"
 static char cwd[RAMFS_PATH_MAX]="/";
+const char *filesystem_cwd(void) { return cwd; }
 static bool same(const char *a,const char *b)
 { while (*a && *a==*b) { ++a; ++b; } return *a==*b; }
 static void spaces(const char **p) { while (**p==' ') { ++*p; } }

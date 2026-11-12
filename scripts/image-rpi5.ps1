@@ -37,6 +37,21 @@ Expected message: OurOS: AArch64 kernel booted
 Commands: help info cpuinfo meminfo memmap uptime echo clear halt fault
 Memory commands: pagealloc, pagefree <slot>, pagetest.
 Current phase: USB single-sector writes/flush and persistent /data files.
+Next application foundation: 16 owned open/read/write/seek/close handles.
+Commands: filetest, fileinfo, fopen <path> r|rw|w, fread <handle> <1..512>,
+fwrite <handle> <text>, fseek <handle> <offset> set|cur|end, fclose <handle>.
+Run taskiotest after mmuinit, irqinit, timerstart: three tasks keep file
+cursors across yields/sleeps and auto-close six handles on exit.
+Open files pin paths; shell mutations report busy until all handles close.
+Read limit 64 KiB, writable files 4 KiB, no seek past EOF; /boot read-only.
+Pi now confirms WCE=0 mount, write/read and sync; its posted log has no
+second boot banner, so physical power-cycle persistence remains unconfirmed.
+New file-handle/task-I/O phase still requires its own physical Pi test.
+Mount diagnostics retain phase/LBA/BOT status and require reboot after failure.
+BOT data/status stalls clear host/device endpoint halt without replaying writes;
+status reads retry once. MODE6/10 current-page alternatives handle query quirks.
+Rejected CACHE10 permits write-through only with explicit current WCE=0;
+unknown or enabled write caching is never silently ignored.
 Boot FAT32 partition is read-only. A separate 1 MiB type-DA partition stores
 two SHA256-protected snapshots, eight flat files up to 4096 bytes each.
 At normal > run storageinit, datainit, datainfo, write /data/note.txt saved,

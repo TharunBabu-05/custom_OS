@@ -1,8 +1,11 @@
 #include "vfs.h"
 #include "console.h"
 #include "persist.h"
+#include "kfile.h"
 static struct fat32_volume boot;
 static struct persist_volume data_volume;
+static bool data_attempted;
+static enum fs_result data_mount_result;
 static const char *data_path(const char *p)
 {
     const char *prefix="/data";if (!p) { return NULL; }
@@ -10,11 +13,22 @@ static const char *data_path(const char *p)
     return !p[5] ? "/" : p[5]=='/' ? p+5 : NULL;
 }
 enum fs_result vfs_mount_data(const struct block_device *device)
-{ return data_volume.ready ? FS_BUSY : persist_mount(&data_volume,device); }
+{
+    if (data_volume.ready) { return FS_BUSY; }
+    if (!data_attempted) { data_attempted=true;data_mount_result=persist_mount(&data_volume,device); }
+    return data_mount_result;
+}
 enum fs_result vfs_data_sync(void) { return persist_sync(&data_volume); }
 void vfs_data_info(void)
 {
-    if (!data_volume.ready) { console_write("/data: not mounted; datainit requires the new data-partition image and USB write/flush support.\n");return; }
+    if (!data_volume.ready) {
+        console_write("/data: not mounted; datainit requires the new data-partition image and USB write/flush support.\n");
+        if (data_attempted) {
+            console_write("Data mount phase=");console_write(data_volume.mount_phase ? data_volume.mount_phase : "arguments");
+            console_write(" result=");console_write(ramfs_error(data_mount_result));console_write(" block_result=");console_write(block_error(data_volume.mount_io));
+            console_write(" last_read_lba=");console_u64(data_volume.mount_lba);console_write("\nMount failure retained; reboot before retrying. No file writes were accepted.\n");
+        }return;
+    }
     console_write("/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=");console_write(data_volume.failed ? "failed (reboot required)" : "synchronous");
     console_write("\npartition_start_lba=");console_u64(data_volume.start);console_write(" sectors=");console_u64(data_volume.sectors);
     console_write(" bank=");console_u64(data_volume.bank);console_write(" generation=");console_u64(data_volume.generation);console_write(" valid_banks=");console_u64(data_volume.valid_banks);console_write("\n");
@@ -143,21 +157,44 @@ enum fs_result vfs_prepare_write(const char *cwd,const char *path,char *absolute
 }
 enum fs_result vfs_write(const char *absolute,const void *bytes,size_t length)
 {
+    char path[RAMFS_PATH_MAX];enum fs_result r=vfs_prepare_write("/",absolute,path);if (r!=FS_OK) { return r; }
+    if (kfile_path_busy(path,false)) { return FS_BUSY; }return vfs_replace_open(path,bytes,length);
+}
+enum fs_result vfs_replace_open(const char *absolute,const void *bytes,size_t length)
+{
+    if (!absolute || absolute[0]!='/') { return FS_BAD_ARGUMENT; }
     if (vfs_read_only(absolute)) { return FS_READ_ONLY; }const char *dp=data_path(absolute);
     return dp ? persist_write(&data_volume,dp,bytes,length,false) : ramfs_write(0,absolute,bytes,length);
 }
 enum fs_result vfs_touch(const char *absolute)
 {
-    if (vfs_read_only(absolute)) { return FS_READ_ONLY; }const char *dp=data_path(absolute);
-    return dp ? persist_write(&data_volume,dp,NULL,0,true) : ramfs_touch(0,absolute);
+    char path[RAMFS_PATH_MAX];enum fs_result r=vfs_prepare_write("/",absolute,path);if (r!=FS_OK) { return r; }
+    if (kfile_path_busy(path,false)) { return FS_BUSY; }const char *dp=data_path(path);
+    return dp ? persist_write(&data_volume,dp,NULL,0,true) : ramfs_touch(0,path);
 }
 enum fs_result vfs_mkdir(const char *absolute)
 {
-    if (vfs_read_only(absolute)) { return FS_READ_ONLY; }const char *dp=data_path(absolute);
-    return dp ? FS_UNSUPPORTED : ramfs_mkdir(0,absolute);
+    char path[RAMFS_PATH_MAX];enum fs_result r=vfs_prepare_write("/",absolute,path);if (r!=FS_OK) { return r; }
+    if (kfile_path_busy(path,false)) { return FS_BUSY; }const char *dp=data_path(path);
+    return dp ? FS_UNSUPPORTED : ramfs_mkdir(0,path);
 }
 enum fs_result vfs_remove(const char *absolute,bool directory)
 {
-    if (vfs_read_only(absolute)) { return FS_READ_ONLY; }const char *dp=data_path(absolute);
-    return dp ? persist_remove(&data_volume,dp,directory) : ramfs_remove(0,absolute,directory);
+    char path[RAMFS_PATH_MAX];bool dir;enum fs_result r=vfs_resolve("/",absolute,path,&dir);if (r!=FS_OK) { return r; }
+    if (vfs_read_only(path)) { return FS_READ_ONLY; }
+    if (kfile_path_busy(path,directory)) { return FS_BUSY; }const char *dp=data_path(path);
+    return dp ? persist_remove(&data_volume,dp,directory) : ramfs_remove(0,path,directory);
+}
+struct file_size { uint32_t bytes;bool seen,bad; };
+static void size_entry(const char *name,bool directory,size_t bytes,void *context)
+{
+    (void)name;struct file_size *s=context;
+    if (s->seen || directory || bytes>UINT32_MAX) { s->bad=true; }s->seen=true;s->bytes=(uint32_t)bytes;
+}
+enum fs_result vfs_file_size(const char *path,uint32_t *bytes)
+{
+    if (!path || !bytes) { return FS_BAD_ARGUMENT; }*bytes=0;bool directory;
+    enum fs_result r=stat_path(path,&directory);if (r!=FS_OK) { return r; }if (directory) { return FS_IS_DIR; }
+    struct file_size size={0};r=vfs_list(path,size_entry,&size);if (r!=FS_OK) { return r; }
+    if (!size.seen || size.bad) { return FS_CORRUPT; }*bytes=size.bytes;return FS_OK;
 }

@@ -259,8 +259,9 @@ const char *ramfs_error(enum fs_result result)
 {
     static const char *const messages[]={"ok","path not found","not a directory","is a directory","already exists",
         "invalid path","name too long","path too long","node table full","out of kernel heap memory",
-        "file too large for this operation","directory not empty","root or current directory is busy","RAM filesystem unavailable","invalid argument",
-        "read-only filesystem","storage I/O error","corrupt FAT32 filesystem","unsupported filesystem format"};
+        "file too large for this operation","directory not empty","root or current directory is busy","filesystem not mounted or unavailable","invalid argument",
+        "read-only filesystem","storage I/O error","corrupt filesystem","unsupported filesystem format",
+        "invalid or foreign file handle","file access mode denied","file handle table exhausted"};
     if ((unsigned)result>=sizeof(messages)/sizeof(messages[0])) { return "unknown filesystem error"; }
     return messages[result];
 }

@@ -30,4 +30,5 @@ bool task_sleep_ms(unsigned milliseconds);
 void task_exit(int code) __attribute__((noreturn));
 void task_context_switch(struct task_context *old,const struct task_context *next);
 uint64_t task_context_selftest(unsigned rounds);
+uint64_t task_file_owner(void);
 #endif

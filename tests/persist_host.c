@@ -91,9 +91,21 @@ static void rejection(void)
     genesis();assert(persist_mount(&v,&device)==FS_OK);v.generation=UINT64_MAX;unsigned before=writes;assert(persist_write(&v,"/overflow","x",1,false)==FS_UNSUPPORTED && writes==before);
     puts("PASS: missing write/flush, overlapping/out-of-bounds/duplicate partitions, corrupt superblock/data, invalid names and generation overflow refused; damaged newest snapshot falls back to older complete bank");
 }
+static void mount_diagnostics(void)
+{
+    genesis();assert(persist_mount(&v,&device)==FS_OK);unsigned count=events;assert(count==70);
+    for (unsigned point=1;point<=count;++point) {
+        genesis();fail_event=point;assert(persist_mount(&v,&device)==FS_IO && !v.ready && !writes && v.mount_io==BLOCK_IO);
+        const char *phase=point==1 ? "mbr" : point==2 ? "superblock" : point==3 ? "bank0-header" : point<69 ? "bank0-payload" : point==69 ? "bank1-header" : "cache-policy/flush";
+        assert(!strcmp(v.mount_phase,phase));
+        uint64_t lba=point==1 || point==70 ? 0 : point==69 ? START+67 : START+point-2;
+        assert(v.mount_lba==lba);
+    }
+    puts("PASS: all 70 mount I/O failures retain exact phase/result/LBA; failed mounts accept no writes");
+}
 int main(int argc,char **argv)
 {
-    behavior();cuts();rejection();
+    behavior();cuts();rejection();mount_diagnostics();
     if (argc==2 || argc==3) {
         FILE *f=fopen(argv[argc-1],"rb");assert(f);
         if (argc==2) {

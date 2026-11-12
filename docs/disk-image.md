@@ -1,11 +1,13 @@
 # Experimental Pi 5 disk image
 
-Current OS test: [persistent USB storage](persistent-storage.md), opt-in with
-`storageinit`, `datainit`, then `write`/`cat` under `/data`. The latest Pi
-run passes cooperative task contexts/stacks/sleep/exit, exception return,
-GICv2/timer IRQs, MMU protection and USB/FAT reads. New USB writes, flush and
-data persistence need a fresh hardware run;
-earlier captures verify DNS/Internet ping and cleanup.
+Current OS test: [owned file handles and cooperative task I/O](file-handles.md).
+The latest Pi capture confirms data mount/write/read/sync; no second boot is
+shown. The new handle/task-I/O image needs a fresh Pi run. Storage remains
+opt-in with `storageinit`, `datainit`, then `write`/`cat` or file handles under
+`/data`. BOT endpoint recovery and the WCE=0 cache check now pass on the Pi.
+Earlier Pi runs also verify cooperative contexts/stacks/sleep/exit, exception
+return, GICv2/timer IRQs, MMU protection, USB/FAT reads and DNS/Internet ping.
+Physical power-cycle persistence and the new handle/task-I/O test remain.
 The full [OS/driver checklist](os-status.md) records what is still missing.
 
 Builds now preserve previous and newly generated images in the local

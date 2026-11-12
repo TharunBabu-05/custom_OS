@@ -64,7 +64,7 @@ try {
             'kernel/core/console.c','kernel/core/console_input.c','kernel/core/main.c','lib/memory.c',
             'kernel/memory/map.c','kernel/memory/fdt_memory.c','kernel/memory/pages.c',
             'kernel/memory/boot_memory.c','kernel/memory/heap.c','kernel/memory/heap_commands.c','filesystem/ramfs.c','kernel/core/fs_commands.c',
-            'drivers/storage/block.c','filesystem/fat32.c','filesystem/persist.c','filesystem/vfs.c','kernel/core/storage_commands.c',
+            'drivers/storage/block.c','filesystem/fat32.c','filesystem/persist.c','filesystem/vfs.c','filesystem/kfile.c','kernel/core/file_commands.c','kernel/core/storage_commands.c',
             'kernel/core/dt_property.c','drivers/usb/xhci_observe.c','drivers/usb/pi5_usb_dt.c',
             'kernel/core/usb_commands.c','drivers/usb/xhci_test.c','drivers/usb/xhci_test_report.c',
             'drivers/usb/xhci_enumerate.c','drivers/usb/usb_descriptors.c','drivers/storage/usb_bot.c',

@@ -13,10 +13,11 @@ sleep/wakeup/exit and private-stack IRQ return, with USB/FAT and memory tests
 between runs. MMU and timer IRQs remain active without unexpected IRQs/faults.
 Earlier captures verify the heap baseline and [WPA3/DNS/Internet ping and
 cleanup](wifi-dns.md).
-**Current phase:** [persistent USB storage](persistent-storage.md), block
-write/flush and a separate `/data` snapshot volume. Native/QEMU tests cover
-the implementation; its new Pi write/durability test is pending. A successful QEMU run does not establish hardware
-support on a different board.
+**Current phase:** [owned file handles and task I/O](file-handles.md).
+The [new Pi capture](../proofs/pi5-usb-data-write-sync-2026-11-13.txt) confirms
+that the BOT fix permits `/data` mount, write/read and sync with WCE=0.
+It shows no second boot banner, so physical power-cycle persistence remains
+unconfirmed. The new handle/task-I/O addition requires its own Pi test.
 
 ## Core OS subsystems
 
@@ -30,11 +31,11 @@ support on a different board.
 | Virtual memory/protection | Opt-in EL1 identity tables, RO code/constants/DTB/tables, RW/XN data, null/stack guard; repeated Pi protection and USB tests pass | Dynamic mappings, per-process address spaces, user/kernel split and cache maintenance |
 | Interrupts | GICv2 PPI30, raw acknowledge/EOI, IRQ return and bounded unexpected-source quarantine; opt-in, Pi verified | General peripheral handlers/registration, IRQ-safe locks and SMP |
 | Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
-| Scheduling | Cooperative EL1 contexts, private guarded 16 KiB stacks, ready/sleep states, round-robin yield, wake/exit and repeatable self-test; Pi verified | Preemption, blocking I/O/driver ownership, general task creation, synchronization and background services |
+| Scheduling | Cooperative EL1 contexts, guarded stacks, yield/sleep/wake/exit Pi verified; new task-owned file I/O and exit/cancellation cleanup native/QEMU tested | Pi task-I/O acceptance, preemption, blocking I/O, general task creation, synchronization and background services |
 | Processes/system calls | Everything runs in EL1 kernel context | EL0 entry, syscall ABI, user-pointer checks, exit/wait, permissions and process isolation |
 | Programs/runtime | Kernel is freestanding C/assembly; built-in monitor commands | ELF loader, user C runtime/library, executable applications, later dynamic linking if needed |
-| Filesystem namespace | Writable volatile RAMFS `/`; read-only FAT32 `/boot`; new opt-in persistent `/data` route | General mount/open/read/write/close handles, offsets, richer metadata and pseudo-filesystems |
-| Persistent files | New USB writes/synchronous flush and two checksummed snapshots in a separate 1 MiB data partition, eight flat 4 KiB files | Pi persistence validation, larger/nested files, writable general filesystem metadata, migration/export and physical power-loss tests |
+| Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked open/read/write/seek/close handles with cursors and path leases | General mounts, richer metadata, permissions, pseudo-filesystems and preemptive driver synchronization |
+| Persistent files | USB writes/WCE=0 sync and two checksummed snapshots, eight flat 4 KiB files; Pi mount/write/read/sync verified | Pi power-cycle validation, larger/nested files, writable general filesystem metadata, migration/export and physical power-loss tests |
 | Shell | Serial kernel monitor with file, memory, storage and network commands | A real EL0 shell, job control/pipes/redirection and program launch |
 | Networking | WPA3/SAE, keys/port, DHCP, ARP, IPv4, ICMP and UDP DNS; Pi Internet pings verified | Renewal/rekey/reconnect, background service, neighbor cache, sockets, TCP, HTTP/TLS; IPv6 if required |
 | Security | Reservation-aware allocation, hidden volatile credential input, verified handshake checks; new page permissions | User/process boundaries, filesystem permissions, access control, secure update/boot design and review |

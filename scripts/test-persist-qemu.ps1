@@ -70,5 +70,15 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
     if ((Get-FileHash -LiteralPath $disk -Algorithm SHA256).Hash -ne $savedHash) { throw 'Read-only device changed' }
     Write-Output "PASS: $stem three cold boots, synchronous USB2 writes/flush, independent SHA256/content generation checks, unchanged boot/MBR/unused sectors, IRQ/tasks and read-only media failure."
 }
+# A corrupt data superblock must retain the first failure across datainit,
+# without issuing writes or losing the working boot-filesystem access.
+$bad=Join-Path $ProjectRoot ('build/usb-tests/data-corrupt-'+[guid]::NewGuid().ToString('N')+'.img')
+Copy-Item -LiteralPath $source -Destination $bad
+$f=[IO.File]::Open($bad,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite)
+try { $f.Position=260096L*512;$f.WriteByte(0) } finally { $f.Dispose() }
+$badHash=(Get-FileHash -LiteralPath $bad -Algorithm SHA256).Hash
+Run-Session $bad 'data-mount-failure' 'cortex-a76' 'on' @('storageinit','datainit','datainit','datainfo','write /data/no.txt refused','cat /boot/CONFIG.TXT','storageinfo','echo mount-failure-alive','halt') @('Data mount phase=superblock result=corrupt filesystem','Mount failure retained; reboot before retrying. No file writes were accepted.','fs: filesystem not mounted or unavailable','BOT last_opcode=','mount-failure-alive')
+if ((Get-FileHash -LiteralPath $bad -Algorithm SHA256).Hash -ne $badHash) { throw 'Failed mount changed disk' }
+Write-Output 'PASS: failed data mount retains diagnostics across retries, accepts no file writes and preserves boot reads.'
 if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $sourceHash) { throw 'Source delivery image changed' }
 Write-Output 'PASS: source delivery image unchanged; only regular build/usb-tests copies were written.'

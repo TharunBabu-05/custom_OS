@@ -1,0 +1,26 @@
+Diagnostic excerpt supplied by the user on 2026-11-13.
+Pi 5, header UART, SanDisk Cruzer Blade USB2, VID 0781 PID 5567.
+This records a failure, not a successful persistence test.
+
+> storageinit
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+Data mount failed: storage I/O error. No formatting attempted.
+/data: not mounted; datainit requires the new data-partition image and USB write/flush support.
+Data mount phase=cache-policy/flush result=storage I/O error block_result=controller/card I/O error last_read_lba=0
+Mount failure retained; reboot before retrying. No file writes were accepted.
+Storage backend: USB2 xHCI / SCSI BOT.
+USB BOT: not ready result=controller/card I/O error
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=5 ASC=0x0000000000000020 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x000000000000001a stage=3 lba=0 expected=13 actual=0 CSW_status=255 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+xHCI event_type=32 completion=6 halted=yes
+> storageinfo
+device=usb-bot sector_size=512 boot=read-only data=opt-in
+Capacity: 30765.219 MB (29340.000 MiB)
+> write /data/hello.txt hello-after-reboot
+fs: filesystem not mounted or unavailable
+
+Repeated datainit retained this failure. No /data file writes were accepted.

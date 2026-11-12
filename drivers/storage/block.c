@@ -21,6 +21,6 @@ enum block_result block_flush(const struct block_device *device)
 const char *block_error(enum block_result result)
 {
     const char *const errors[]={"ok","invalid block argument","sector outside device bounds","controller timeout",
-        "controller/card I/O error","unsupported controller/card state","device not ready"};
+        "controller/card I/O error","unsupported controller/card state","device not ready","USB endpoint stalled"};
     return (unsigned)result<sizeof(errors)/sizeof(errors[0]) ? errors[result] : "unknown block error";
 }

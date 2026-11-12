@@ -30,10 +30,12 @@ static enum xhci_test_result event_for(struct session *t,unsigned type,uint64_t 
             ++*t->event;
             if (!wr64(t,t->rt+0x38,(t->s->event_dma+(*t->event%XHCI_RING_TRBS)*16)|8)) { return XHCI_TEST_IO; }
             if (kind==type) {
-                if (address!=pointer || (code!=1 && !(short_ok && code==13)) ||
+                if (address!=pointer ||
                     (type==32 && (((control>>16)&31)!=endpoint || (control>>24)!=t->slot)) ||
                     (type==33 && t->slot && (control>>24)!=t->slot)) { return XHCI_TEST_EVENT; }
                 if (transfer_status) { *transfer_status=status; }
+                if (type==32 && code==6) { return XHCI_TEST_STALL; }
+                if (code!=1 && !(short_ok && code==13)) { return XHCI_TEST_EVENT; }
                 if (result) { *result=control; } return XHCI_TEST_OK;
             }
             if (kind!=34 || !(address>>24&255) || (address>>24&255)>t->snapshot->ports) { return XHCI_TEST_EVENT; }
@@ -54,18 +56,20 @@ static enum xhci_test_result command(struct session *t,unsigned type,uint64_t po
     sync(t); if (!wr(t,t->db,0)) { return XHCI_TEST_IO; }
     return event(t,33,t->s->command_dma+at*16,result);
 }
-static enum xhci_test_result request(struct session *t,unsigned request_type,unsigned request_number,unsigned value,unsigned n)
+static enum xhci_test_result request_index(struct session *t,unsigned request_type,unsigned request_number,unsigned value,unsigned index,unsigned n)
 {
     unsigned stages=n ? 3 : 2;
     if (n>sizeof(t->m->data) || t->ep+stages>=XHCI_RING_TRBS-1 || (n && request_type!=0x80)) { return XHCI_TEST_ARGUMENT; }
     for (unsigned i=0;i<sizeof(t->m->data);++i) { t->m->data[i]=0; }
     unsigned at=t->ep; t->ep+=stages; t->s->usb_requests=true;
-    t->m->ep0[at]=(struct xhci_trb){request_type|(request_number<<8)|(value<<16),n<<16,8,(2u<<10)|(1u<<6)|(n ? 3u<<16 : 0)|1};
+    t->m->ep0[at]=(struct xhci_trb){request_type|(request_number<<8)|(value<<16),(n<<16)|index,8,(2u<<10)|(1u<<6)|(n ? 3u<<16 : 0)|1};
     if (n) { t->m->ep0[at+1]=(struct xhci_trb){(uint32_t)t->data,(uint32_t)(t->data>>32),n,(3u<<10)|(1u<<16)|1}; }
     t->m->ep0[at+stages-1]=(struct xhci_trb){0,0,0,(4u<<10)|(1u<<5)|(n ? 0 : 1u<<16)|1};
     sync(t); if (!wr(t,t->db+t->slot*4,1)) { return XHCI_TEST_IO; }
     return event(t,32,t->ep0+(at+stages-1)*16,NULL);
 }
+static enum xhci_test_result request(struct session *t,unsigned type,unsigned number,unsigned value,unsigned n)
+{ return request_index(t,type,number,value,0,n); }
 static enum xhci_test_result control(struct session *t,unsigned descriptor,unsigned n)
 { return n ? request(t,0x80,6,descriptor<<8,n) : XHCI_TEST_ARGUMENT; }
 static void put32(unsigned char *p,uint32_t value)
@@ -80,8 +84,15 @@ static struct {
     struct session t; struct xhci_test_io io; struct xhci_snapshot snapshot;
     struct usb_device_info info; struct usb_bot bot;
     struct pipe in,out; uint64_t cbw,csw;
-    unsigned events; bool online;
+    unsigned events,clears; bool online;
 } disk={.bot={.error=BLOCK_NOT_READY}};
+static void next_pipe(struct session *t,struct pipe *p)
+{
+    if (p->index==XHCI_RING_TRBS-1) {
+        p->ring[p->index].control=(6u<<10)|2|p->cycle;
+        sync(t);p->index=0;p->cycle^=1;++p->wraps;
+    }
+}
 static void stop_storage(void)
 {
     disk.online=false; disk.bot.ready=false;
@@ -97,23 +108,37 @@ static enum block_result bulk(void *context,bool input,void *data,unsigned lengt
 {
     (void)context; if (!disk.online) { return BLOCK_NOT_READY; }
     if (!data || !actual || !length || length>512 || (!input && length!=31 && length!=512)) { return BLOCK_ARGUMENT; }
+    *actual=0;
     struct session *t=&disk.t; struct pipe *p=input ? &disk.in : &disk.out;
     unsigned char *buffer=input ? (length==13 ? t->m->csw : t->m->data) : (length==31 ? t->m->cbw : t->m->data);
     uint64_t dma=input ? (length==13 ? disk.csw : t->data) : (length==31 ? disk.cbw : t->data);
     for (unsigned i=0;i<length;++i) { buffer[i]=input ? 0 : ((const unsigned char *)data)[i]; }
-    if (p->index==XHCI_RING_TRBS-1) {
-        p->ring[p->index].control=(6u<<10)|2|p->cycle;
-        sync(t); p->index=0; p->cycle^=1; ++p->wraps;
-    }
+    next_pipe(t,p);
     unsigned at=p->index++;
     p->ring[at]=(struct xhci_trb){(uint32_t)dma,(uint32_t)(dma>>32),length,(1u<<10)|(1u<<5)|(input ? 1u<<2 : 0)|p->cycle};
     sync(t);
     if (!wr(t,t->db+t->slot*4,p->endpoint)) { stop_storage(); return BLOCK_IO; }
     uint32_t status=0;
     enum xhci_test_result r=event_for(t,32,p->dma+at*16,p->endpoint,input,NULL,&status);
+    /* A validated STALL completion halts this endpoint, not the controller.
+     * BOT decides whether it is a recoverable data/status stall. No replay. */
+    if (r==XHCI_TEST_STALL) { return BLOCK_STALL; }
     if (r!=XHCI_TEST_OK || (status&0xffffff)>length) { stop_storage(); return r==XHCI_TEST_TIMEOUT ? BLOCK_TIMEOUT : BLOCK_IO; }
     *actual=length-(status&0xffffff);
     if (input) { for (unsigned i=0;i<*actual;++i) { ((unsigned char *)data)[i]=buffer[i]; } }
+    return BLOCK_OK;
+}
+static enum block_result clear_halt(void *context,bool input)
+{
+    (void)context;if (!disk.online || disk.clears>=32) { return BLOCK_IO; }++disk.clears;
+    struct session *t=&disk.t;struct pipe *p=input ? &disk.in : &disk.out;
+    uint32_t target=((uint32_t)t->slot<<24)|(p->endpoint<<16);
+    /* xHCI 4.6.8: reset host endpoint (TSP=0), clear device ENDPOINT_HALT,
+     * then move dequeue past the stalled TD. No request is resubmitted. */
+    enum xhci_test_result r=command(t,14,0,target,NULL);
+    if (r==XHCI_TEST_OK) { r=request_index(t,2,1,0,input ? disk.info.bulk_in : disk.info.bulk_out,0); }
+    if (r==XHCI_TEST_OK) { next_pipe(t,p);r=command(t,16,(p->dma+p->index*16)|p->cycle,target,NULL); }
+    if (r!=XHCI_TEST_OK) { stop_storage();return r==XHCI_TEST_TIMEOUT ? BLOCK_TIMEOUT : BLOCK_IO; }
     return BLOCK_OK;
 }
 static enum block_result read_disk(void *context,uint64_t lba,unsigned char *sector)
@@ -168,7 +193,7 @@ static enum xhci_test_result start_storage(struct session *source,struct usb_dev
     if (r!=XHCI_TEST_OK) { return r; }
     r=request(t,0,9,info->configuration,0); if (r!=XHCI_TEST_OK) { return r; }
     info->configured=true; disk.info.configured=true; disk.online=true;
-    struct usb_bot_io bot_io={bulk,NULL};
+    struct usb_bot_io bot_io={.transfer=bulk,.clear_halt=clear_halt};
     if (!usb_bot_attach(&disk.bot,&bot_io,device)) { disk.online=false; return XHCI_TEST_IO; }
     device->read=read_disk;device->write=write_disk;device->flush=flush_disk; device->context=NULL; return XHCI_TEST_OK;
 }
@@ -182,6 +207,16 @@ void xhci_storage_info(void)
     console_write("sense_key="); console_u64(disk.bot.sense_key); console_write(" ASC="); console_hex(disk.bot.asc);
     console_write(" ASCQ="); console_hex(disk.bot.ascq); console_write("\nring_wraps_in="); console_u64(disk.in.wraps);
     console_write(" out="); console_u64(disk.out.wraps); console_write(" events="); console_u64(disk.events/256); console_write("\n");
+    console_write("BOT last_opcode=");console_hex(disk.bot.trace.opcode);console_write(" stage=");console_u64(disk.bot.trace.stage);
+    console_write(" lba=");console_u64(disk.bot.trace.lba);console_write(" expected=");console_u64(disk.bot.trace.expected);
+    console_write(" actual=");console_u64(disk.bot.trace.actual);console_write(" CSW_status=");console_u64(disk.bot.trace.status);
+    console_write(" residue=");console_u64(disk.bot.trace.residue);console_write(" sense_valid=");console_write(disk.bot.sense_valid ? "yes" : "no");
+    console_write("\nCache policy=");console_write(disk.bot.write_through ? "device reports WCE=0 (write-through; rechecked at sync)" : "SYNCHRONIZE CACHE required; no assumed write-through");console_write("\n");
+    console_write("BOT stalls_recovered=");console_u64(disk.bot.stalls_recovered);console_write(" cache_query=");console_u64(disk.bot.cache_query);console_write("\n");
+    if (disk.t.s) {
+        console_write("xHCI event_type=");console_u64(disk.t.s->last_event_type);console_write(" completion=");console_u64(disk.t.s->last_completion);
+        console_write(" halted=");console_write(disk.t.s->halted ? "yes" : "no");console_write("\n");
+    }
 }
 enum xhci_test_result xhci_enumerate(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,
                                   const struct xhci_snapshot *snapshot,unsigned *event_cursor,struct usb_device_info *info,struct block_device *storage)

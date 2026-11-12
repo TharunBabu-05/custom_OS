@@ -18,4 +18,8 @@ enum fs_result vfs_write(const char *,const void *,size_t);
 enum fs_result vfs_touch(const char *);
 enum fs_result vfs_mkdir(const char *);
 enum fs_result vfs_remove(const char *,bool directory);
+enum fs_result vfs_file_size(const char *canonical,uint32_t *bytes);
+/* Trusted handle backend: caller holds an exclusive canonical-path lease.
+ * Public mutations below the handle layer must use vfs_write instead. */
+enum fs_result vfs_replace_open(const char *canonical,const void *,size_t);
 #endif

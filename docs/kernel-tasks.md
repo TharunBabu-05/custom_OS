@@ -1,5 +1,12 @@
 # Cooperative kernel tasks
 
+The next [file-handle phase](file-handles.md) adds `taskiotest`. It uses the
+same guarded cooperative contexts and keeps an exclusive RAM file plus a
+shared reader open per worker across yields/sleeps. Owner identities include
+a run epoch, foreign/stale handles fail, and explicit/implicit exit plus the
+cancellation sweep release remaining handles. Six task handles close without
+device I/O; any monitor handle stays open. This addition needs its own Pi run.
+
 The [latest Pi capture](../proofs/pi5-timer-irq-usb-2026-11-12.txt) verifies the
 previous exception/interrupt phase: synchronous and asynchronous register
 return, GICv2/PPI30, advancing timer IRQ counts, start/stop, protected memory,

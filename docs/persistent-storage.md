@@ -1,5 +1,91 @@
 # USB writes and persistent files
 
+The [new Pi write/sync capture](../proofs/pi5-usb-data-write-sync-2026-11-13.txt)
+confirms that the endpoint-stall repair below works on the tested SanDisk:
+`/data` mounts with WCE=0, accepts a write/read and sync, and advances to
+generation 2. There is no second boot banner, so actual power-cycle persistence
+remains unconfirmed. The current next phase is [owned file handles and task
+I/O](file-handles.md); the previous image/phase details below are historical.
+
+## Pi endpoint-stall fix (2026-11-13)
+
+The [new Pi diagnostic excerpt](../proofs/pi5-usb-data-stall-2026-11-13.txt)
+establishes the failing sequence: CACHE10 rejected with `05/20/00`, then
+MODE SENSE6 (`0x1a`) reaches status stage 3 and the bulk-IN endpoint stalls
+(xHCI completion 6). The previous transport treated that recoverable stall
+as a fatal controller error. The data partition itself was read and validated;
+the failure occurred at the cache-policy check. No data file writes were accepted.
+
+The current image implements the USB BOT recovery for a data/status stall:
+Reset Endpoint (TSP=0), `CLEAR_FEATURE(ENDPOINT_HALT)` addressed to the affected
+device endpoint, then Set TR Dequeue Pointer past the stalled transfer with
+the correct cycle bit. A status read retries once after clearing its stall;
+data or WRITE commands are never replayed. CBW stalls, a repeated status
+stall, invalid completions, timeouts or failed recovery still stop the session.
+Host recovery is bounded to 32 cleared stalls per boot. These sequences follow
+the [USB BOT specification, sections 5.3.3 and 6.7](https://www.usb.org/sites/default/files/usbmassbulk_10.pdf)
+and [xHCI section 4.6.8](https://cdrdv2-public.intel.com/625472/625472_xHCI_Rev1_2b.pdf).
+
+Current cache-policy queries now try MODE SENSE6 with/without DBD, all-pages,
+and MODE SENSE10 page-specific/all-pages alternatives, only after a valid
+unsupported-command response or a valid response lacking the caching page.
+`cache_query=1..5` identifies that order; `stalls_recovered` counts successful
+pipe clears. The successful query form is reused at later syncs, with its
+current WCE re-read each time. A complete current caching page must explicitly
+report WCE=0. Missing/malformed pages, WCE=1 or write protection still refuse
+writes. This repair does not assume that all Cruzer drives have the same cache
+policy. Actual persistence still needs the Pi retest below.
+
+Native tests replay the short-data/status-stall sequence, data stalls, CSW
+retry limits, clear failures, command rejection and MODE6/10 alternatives.
+A register/DMA model exercises the production xHCI transport's reset,
+device clear request and dequeue commands for both bulk directions and at
+ring wrap, plus successful subsequent transfers and cleanup failures.
+
+## Earlier mount diagnostics
+
+The first hardware test of `/data` failed with `storage I/O error` after
+`/boot` mounted with the new 258048-sector layout. No `/data` file writes
+were accepted. The old `RAM filesystem unavailable` message meant the data
+mount was unavailable; it did not demonstrate a RAM allocator failure.
+That initial capture lacked SCSI sense and failed command details. The next
+capture above established the status-stall bug. Persistence remains unverified
+on the physical Pi until writes and a power-cycle test pass.
+
+The follow-up image records the mount phase, failed read LBA and block result,
+plus BOT opcode/stage/CSW/sense validity and xHCI completion. `datainit`
+automatically prints these on failure and retains the first mount failure
+across repeated attempts; reboot before retrying. Stage 1/2/3/4 means
+CBW/data/CSW/completed command. Opcode `0x28` is READ10, `0x35` CACHE10,
+and `0x1a` MODE SENSE6. A failed mount never formats the disk.
+
+There is also a bounded compatibility path for devices rejecting CACHE10
+with current ILLEGAL REQUEST sense `05/20/00` or `05/24/00`. A read-only
+MODE SENSE6 of the current caching page must explicitly report **WCE=0**
+and no write protection. Only then can synchronous WRITE completion replace
+flush; the policy is re-read on every sync. Missing, truncated, unsupported,
+write-protected or WCE=1 responses refuse the mount/updates. No vendor-ID
+assumption, cache-disable command, or blanket ignored flush error is used.
+Other I/O errors remain errors. See the [SBC-3 caching-page definition,
+section 6.3.3](https://t10.org/ftp/t10/document.05/05-344r0.pdf): WCE=0 requires
+successful writes to reach the medium before GOOD status is returned.
+
+Flash the updated full image, cold boot, then run:
+
+```text
+storageinit
+datainit
+datainfo
+storageinfo
+```
+
+If mounted, continue with the write/sync and power-cycle test below. If it
+fails, stop and share this short output; repeating `storageinit` cannot
+restart a failed USB session. This compatibility change is tested with
+native device models; whether it resolves this particular drive still needs
+the Pi retest. Native tests cover 26 cache/sense cases and all 70 mount I/O
+failure positions, in addition to the 272 update-failure cases.
+
 The [latest Pi capture](../proofs/pi5-cooperative-tasks-usb-2026-11-12.txt)
 passes the cooperative task phase: both three-task runs exit correctly,
 register/stack/heap data survive, each task sleeps/wakes four times, IRQs run
@@ -160,19 +246,37 @@ The data format and snapshot policy are original OurOS code.
 
 ## Packaged artifact
 
-The full disk is **134217728 bytes** (128 MiB), ZIP **816242 bytes** and kernel
-`OUROS.IMG` **380588 bytes**. Full disk SHA256:
+The current full disk is **134217728 bytes** (128 MiB), ZIP **818983 bytes**
+and kernel `OUROS.IMG` **380636 bytes**. Full disk SHA256:
 
 ```text
-a14b05efbf7cec463da8da447de3bd46dc0f52c4735c0b05f7f2a05210cf5b66
+d9f63b4f30825120cef547d379beb3feb656d0e675b0369f166a6941a968b659
 ```
 
-The previous task-verified full disk and ZIP are preserved as
+The previous diagnostic image and ZIP are preserved as
+`OurOS-Pi5-header-experimental-sd-20261113-010316-581.img` and
+`OurOS-Pi5-header-experimental-sd-20261113-010319-578.zip`.
+The first data-phase image and ZIP are preserved as
+`OurOS-Pi5-header-experimental-sd-20261112-225357-531.img` and
+`OurOS-Pi5-header-experimental-sd-20261112-225400-588.zip`.
+The earlier task-verified full disk and ZIP are preserved as
 `OurOS-Pi5-header-experimental-sd-20261112-222708-100.img` and
 `OurOS-Pi5-header-experimental-sd-20261112-222711-117.zip` in `image_files`.
 Reserved kernel/BSS/stack ends at `0x15a000`, below firmware DTB `0x200000`.
 
-Completed test logs:
+Stall-fix checks pass in `build/phase-data-stall-usb-native.log`,
+`build/phase-data-stall-persistence-qemu.log` and
+`build/phase-data-stall-image-negative.log`.
+Detailed QEMU logs are `build/handoff-test/data-cortex-a53-off-*.log`,
+`data-cortex-a76-on-*.log` and `data-mount-failure.log`. Both CPU profiles
+passed three cold boots, independent committed-content/hash checks, read-only
+media failure and unchanged boot/unused sectors, alongside task/IRQ/MMU checks.
+The separate corrupt-superblock run retains the first mount diagnostic across
+retries, refuses file writes and still reads `/boot/CONFIG.TXT`. Source image
+hash stayed unchanged. Image packaging independently verified both partitions,
+boot FAT/files and the complete ZIP's decompressed SHA256.
+
+Original data-phase test logs (before the follow-up diagnostics/cache check):
 
 - `build/phase-data-final-native.log`: snapshot limits, remount, corruption,
   272 fault cases, actual disk seed and independent PowerShell-format checks.

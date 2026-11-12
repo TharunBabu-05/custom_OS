@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-enum block_result { BLOCK_OK, BLOCK_ARGUMENT, BLOCK_RANGE, BLOCK_TIMEOUT, BLOCK_IO, BLOCK_UNSUPPORTED, BLOCK_NOT_READY };
+enum block_result { BLOCK_OK, BLOCK_ARGUMENT, BLOCK_RANGE, BLOCK_TIMEOUT, BLOCK_IO, BLOCK_UNSUPPORTED, BLOCK_NOT_READY, BLOCK_STALL };
 struct block_device {
     const char *name;
     uint64_t sectors; /* Bounds, in 512-byte sectors. May be an address limit. */

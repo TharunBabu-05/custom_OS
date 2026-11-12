@@ -7,6 +7,7 @@
 #include "exception.h"
 #include "irq.h"
 #include "task.h"
+#include "kfile.h"
 #include "ramfs.h"
 #include "block.h"
 #include "usb.h"
@@ -78,7 +79,7 @@ static bool math_command(const char *line)
 }
 static void command(const char *line)
 {
-    if (task_command(line)) { return; }
+    if (task_command(line) || file_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
     if (mmu_command(line)) { return; }
     if (heap_command(line)) { return; }
@@ -95,6 +96,9 @@ static void command(const char *line)
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
         console_write("excinfo exctest irqinit irqinfo timerstart timerinfo timertest timerstop\n");
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
+        console_write("taskiotest (cooperative file I/O and automatic owner cleanup) fileinfo filetest\n");
+        console_write("fopen <path> r|rw|w | fread <handle> <1..512> | fwrite <handle> <text>\n");
+        console_write("fseek <handle> <signed offset> set|cur|end | fclose <handle>\n");
         console_write("datainit datainfo sync (persistent /data on the preformatted data partition)\n");
         console_write("heapinfo heaptest heapalloc <1..4096> heapfree <slot>\n");
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
