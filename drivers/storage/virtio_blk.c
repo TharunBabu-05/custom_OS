@@ -70,7 +70,7 @@ bool platform_storage_attach(struct block_device *device)
         if (rd(0xfc)==generation) { capacity=(uint64_t)hi<<32|lo; stable=true; break; }
     }
     if (!stable || !capacity || capacity>UINT64_MAX/512) { return false; }
-    ready=true; *device=(struct block_device){"qemu-virtio-blk",capacity,true,read_sector,NULL}; return true;
+    ready=true; *device=(struct block_device){.name="qemu-virtio-blk",.sectors=capacity,.capacity_known=true,.read=read_sector}; return true;
 }
 void platform_storage_info(void)
 {

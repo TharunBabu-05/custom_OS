@@ -1,5 +1,10 @@
 # Storage phase: block reads and a FAT32 boot mount
 
+The read path described here is verified on the tested Pi USB2 pendrive.
+The current [persistent storage phase](persistent-storage.md) adds opt-in USB
+write/flush callbacks and a separate `/data` snapshot filesystem. `/boot`
+remains read-only; Pi data writes still need their physical test.
+
 **Current hardware: the user boots from a 32 GB USB pendrive, with no microSD
 card.** The latest [physical capture](../proofs/pi5-usb-fat-and-ring-wrap-2026-11-09.txt)
 proves USB2 BOT capacity/sector reads, FAT32 listing and CONFIG.TXT reads.

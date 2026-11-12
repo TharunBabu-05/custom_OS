@@ -7,14 +7,15 @@ system can run without display, audio, Wi-Fi or even a disk. Our target is a
 usable, networked Pi OS with persistent files and applications, so those
 capabilities are tracked below.
 
-**Evidence:** the [latest Pi log](../proofs/pi5-timer-irq-usb-2026-11-12.txt)
-confirms synchronous/asynchronous exception return, GICv2/timer IRQs, MMU
-protection, heap/pages, RAMFS and USB/FAT reads while timer IRQs run.
+**Evidence:** the [latest Pi log](../proofs/pi5-cooperative-tasks-usb-2026-11-12.txt)
+confirms two cooperative task runs, private stacks/register/heap preservation,
+sleep/wakeup/exit and private-stack IRQ return, with USB/FAT and memory tests
+between runs. MMU and timer IRQs remain active without unexpected IRQs/faults.
 Earlier captures verify the heap baseline and [WPA3/DNS/Internet ping and
 cleanup](wifi-dns.md).
-**Current phase:** [cooperative kernel tasks](kernel-tasks.md), private guarded
-stacks, saved contexts, yield, timed sleep/wakeup and exit. Native/QEMU tests
-cover the implementation; its new Pi hardware test is pending. A successful QEMU run does not establish hardware
+**Current phase:** [persistent USB storage](persistent-storage.md), block
+write/flush and a separate `/data` snapshot volume. Native/QEMU tests cover
+the implementation; its new Pi write/durability test is pending. A successful QEMU run does not establish hardware
 support on a different board.
 
 ## Core OS subsystems
@@ -28,12 +29,12 @@ support on a different board.
 | Kernel heap | Zeroed 16..4096-byte buffers, calloc/realloc/free, page sharing/reclamation; Pi self-tests verified | Large allocations, IRQ/SMP synchronization and additional consumers |
 | Virtual memory/protection | Opt-in EL1 identity tables, RO code/constants/DTB/tables, RW/XN data, null/stack guard; repeated Pi protection and USB tests pass | Dynamic mappings, per-process address spaces, user/kernel split and cache maintenance |
 | Interrupts | GICv2 PPI30, raw acknowledge/EOI, IRQ return and bounded unexpected-source quarantine; opt-in, Pi verified | General peripheral handlers/registration, IRQ-safe locks and SMP |
-| Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop and IRQ-safe snapshots verified on Pi; new cooperative timed sleep/wakeup queue | Task sleep/wakeup Pi validation, wall clock/RTC/time synchronization |
-| Scheduling | New cooperative EL1 contexts, private guarded 16 KiB stacks, ready/sleep states, round-robin yield, wake/exit and repeatable self-test | Pi task validation, preemption, blocking I/O/driver ownership, general task creation, synchronization and background services |
+| Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
+| Scheduling | Cooperative EL1 contexts, private guarded 16 KiB stacks, ready/sleep states, round-robin yield, wake/exit and repeatable self-test; Pi verified | Preemption, blocking I/O/driver ownership, general task creation, synchronization and background services |
 | Processes/system calls | Everything runs in EL1 kernel context | EL0 entry, syscall ABI, user-pointer checks, exit/wait, permissions and process isolation |
 | Programs/runtime | Kernel is freestanding C/assembly; built-in monitor commands | ELF loader, user C runtime/library, executable applications, later dynamic linking if needed |
-| Filesystem namespace | Writable volatile RAMFS `/`; read-only FAT32 mounted at `/boot`; a small two-route VFS | General mount/open/read/write/close handles, offsets, richer metadata and pseudo-filesystems |
-| Persistent files | Reads from boot FAT32 work | Block writes, flush/error ordering, writable filesystem metadata, recovery/power-loss tests |
+| Filesystem namespace | Writable volatile RAMFS `/`; read-only FAT32 `/boot`; new opt-in persistent `/data` route | General mount/open/read/write/close handles, offsets, richer metadata and pseudo-filesystems |
+| Persistent files | New USB writes/synchronous flush and two checksummed snapshots in a separate 1 MiB data partition, eight flat 4 KiB files | Pi persistence validation, larger/nested files, writable general filesystem metadata, migration/export and physical power-loss tests |
 | Shell | Serial kernel monitor with file, memory, storage and network commands | A real EL0 shell, job control/pipes/redirection and program launch |
 | Networking | WPA3/SAE, keys/port, DHCP, ARP, IPv4, ICMP and UDP DNS; Pi Internet pings verified | Renewal/rekey/reconnect, background service, neighbor cache, sockets, TCP, HTTP/TLS; IPv6 if required |
 | Security | Reservation-aware allocation, hidden volatile credential input, verified handshake checks; new page permissions | User/process boundaries, filesystem permissions, access control, secure update/boot design and review |
@@ -57,7 +58,7 @@ allocation layer, not virtual memory or process isolation.
 | RNG200 | Pi hardware source, conditioning and engineering failure checks implemented; used by SAE/DNS/ping |
 | PCIe/RP1 | Uses validated firmware-selected Pi windows/DMA handoff; no general PCIe reset/enumeration/hotplug driver |
 | xHCI USB host | Experimental polled controller ownership/DMA, direct USB2 enumeration and transfers; verified with the test pendrive |
-| USB mass storage | BOT + read-only SCSI sectors/capacity; SanDisk USB2 FAT32 path verified on Pi; no writes, UAS or general USB3/hub support |
+| USB mass storage | BOT + SCSI sectors/capacity verified on Pi; new WRITE10/CACHE10 and bounded `/data` snapshot writes, Pi writes pending; no UAS or general USB3/hub support |
 | QEMU virtio block | Read-only block path tested in QEMU; not a Pi hardware driver |
 | Pi SDHCI storage | Limited firmware-selected SDHC/SDXC handoff, read-only; no complete cold card initialization; not verified without an SD card |
 | Wi-Fi SDIO | Pi power/pins/400 kHz SDIO/F1/F2/backplane/firmware/FullMAC control implemented and verified |
@@ -82,12 +83,11 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-1. **Now:** validate cooperative task contexts, private guarded stacks,
-   yield/sleep/wakeup/exit on Pi, preserving the verified IRQ/MMU/USB paths.
-   Caches remain off; task dispatch happens only at explicit calls.
-2. **Tasks and synchronization:** general task ownership, blocking/wakeup APIs,
-   critical sections and driver contracts before introducing preemption or
-   background services.
+1. **Now:** validate USB data writes/flush and persistence across Pi power-cycles,
+   preserving the verified cooperative task/IRQ/MMU/read-only boot paths.
+2. **Files and applications:** general file handles/offsets and task ownership,
+   then application loading, blocking/wakeup APIs, critical sections and driver
+   contracts before preemption or background services.
 3. **Timer/peripheral services:** carefully scoped peripheral handlers and
    timer-driven scheduling, with explicit IRQ-safe resource ownership.
 4. **User mode:** process address spaces, system calls, validated user memory,

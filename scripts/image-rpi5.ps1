@@ -25,7 +25,7 @@ $config=$config.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace('dev
 $readme=@'
 OurOS experimental Raspberry Pi 5 UART boot image
 HARDWARE BOOT UNTESTED. This is an early kernel, not a complete operating system.
-No GUI/HDMI, USB keyboard, preemption, storage writes or user-space applications.
+No GUI/HDMI, USB keyboard, preemption or user-space applications.
 Opt-in MMU identity protection and foreground Wi-Fi/DHCP/DNS/ping are implemented.
 Boot firmware reads FAT; the kernel creates a
 separate volatile RAMFS root. Run storageinit to attempt a read-only FAT32 mount.
@@ -36,16 +36,24 @@ Requires Pi 5, working EEPROM firmware and a 3.3 V serial adapter/cable at the
 Expected message: OurOS: AArch64 kernel booted
 Commands: help info cpuinfo meminfo memmap uptime echo clear halt fault
 Memory commands: pagealloc, pagefree <slot>, pagetest.
-Current phase: cooperative kernel tasks with guarded private stacks.
-Latest Pi capture verifies exception return, GICv2/PPI30 timer IRQs,
-MMU protection, RAMFS edits and USB/FAT reads with timer IRQs running.
+Current phase: USB single-sector writes/flush and persistent /data files.
+Boot FAT32 partition is read-only. A separate 1 MiB type-DA partition stores
+two SHA256-protected snapshots, eight flat files up to 4096 bytes each.
+At normal > run storageinit, datainit, datainfo, write /data/note.txt saved,
+cat /data/note.txt, sync. Wait for each command. After power-cycle, run
+storageinit, datainit, cat /data/note.txt: saved should remain. /tmp stays RAM.
+Every data update flushes and verifies its inactive bank before committing;
+no auto-format or FAT metadata writes. Reflashing a new image resets /data.
+New Pi writes/durability still need their own hardware test. See docs/persistent-storage.md.
+Latest Pi capture verifies cooperative task contexts/stacks/yield/sleep/exit,
+MMU, exception return, timer IRQs and USB reads with tasks before/after storage.
 Boot still masks IRQs. At normal > run mmuinit, irqinit, timerstart,
 schedtest, taskinfo, timertest, heaptest, pagetest, storageinit,
 cat /boot/CONFIG.TXT, storagetest, schedtest, taskinfo, timerinfo, timerstop,
 uptime. Expected: three guarded tasks PASS, last_result=passed,
 state=exited and sleeps=4 wakes=4 completed=8 for each of three workers;
 private_stack_timer_irqs positive, timer fault=no and memory counts restored.
-See docs/kernel-tasks.md. New Pi task contexts need hardware testing.
+See docs/kernel-tasks.md. Cooperative task behavior now has Pi evidence.
 GICv2/PPI30 uses validated DT profiles. Firmware must expose the NS timer PPI.
 Handlers rearm/count/EOI only; no UART/heap/storage/network I/O from the ISR.
 Task switching is cooperative at explicit yield/sleep/exit calls, not in ISR.
@@ -62,17 +70,18 @@ RO XN, data RW XN; address zero, boot/task stack guards are unmapped.
 mmutest intentionally catches five faults, then returns to the monitor.
 Unexpected faults still halt. Repeat mmuinit never rewrites active tables.
 USB accepts only MMU-off/verified identity profile with caches off and writable
-Normal-NC DMA buffers. MMU-on USB reads have Pi evidence; the new task
-phase needs its own hardware test. MMU-on Wi-Fi is not newly established.
+Normal-NC DMA buffers. MMU-on USB reads/tasks have Pi evidence; the new data
+write phase needs its own hardware test. MMU-on Wi-Fi is not newly established.
 Full feature/driver checklist: docs/os-status.md. Preemption, EL0,
-general VFS/persistent writes and long-lived networking remain future stages.
+general VFS/writable FAT metadata and long-lived networking remain future stages.
 Earlier DTB memory discovery and 4 KiB pages have Pi hardware evidence.
 MB/MiB summaries and RAMFS commands now have physical Pi evidence.
 SDIO and chip 0x4345 revision 6 have physical header-console evidence.
 USB block/FAT reads and ring cycling now have physical header-console Pi evidence.
 Dynamic reserved-memory alloc-ranges windows are conservatively excluded in full.
 File commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.
-Files disappear after reboot. See docs/ramfs.md. Seed files own 3 physical pages.
+RAM root files disappear after reboot; /data files persist after a successful
+commit/sync. See docs/ramfs.md. Seed files share two heap pages.
 Storage: storageinfo, storageinit, ls /boot, cat /boot/CONFIG.TXT.
 Pi driver inherits an active SDHC/SDXC card from firmware; no full init yet.
 Firmware USB boot works on the user's header build with a 32 GB pendrive.
@@ -288,7 +297,7 @@ if ($Console -eq 'header') {
     $readme=$readme.Replace('Only the dedicated UART10 console is used.', 'Only the RP1 UART0 header console is used.')
     $readme=$readme.Replace('3-pin UART connector between the HDMI ports.', '40-pin header: Pi pin 8 TX -> adapter RXD, pin 10 RX <- adapter TXD, pin 6 GND.')
     $readme+="`r`nLeave adapter power pins disconnected; use 3.3 V signals and Pi USB-C power.`r`nRequires firmware enable_rp1_uart=1, pciex4_reset=0; board=rpi5-header.`r`nSee docs/rpi5-header-uart.md. No PCIe reinitialization is implemented.`r`n"
-    $readme+="UART base 0x1c00030000 matches captured RP1_UART on board revision d04171.`r`nOther firmware mappings require a matching build. Prior header boot/IRQ/USB have Pi evidence; this new task phase needs its own physical run.`r`n"
+    $readme+="UART base 0x1c00030000 matches captured RP1_UART on board revision d04171.`r`nOther firmware mappings require a matching build. Prior header boot/IRQ/tasks/USB reads have Pi evidence; data writes need their own physical run.`r`n"
 }
 [IO.File]::WriteAllText((Join-Path $files 'README.TXT'),$readme,[Text.Encoding]::ASCII)
 $assets=Get-Content -Raw (Join-Path $ProjectRoot 'boot/rpi5/assets.json') | ConvertFrom-Json
@@ -298,7 +307,7 @@ $entries=@(Get-ChildItem -LiteralPath $files -File | Sort-Object Name)
 if ($entries.Count -gt 14) { throw 'Root directory capacity exceeded' }
 
 # Fixed 128 MiB disk, 1 MiB partition alignment, FAT32 with 512-byte clusters.
-$sector=512; $diskSectors=262144; $start=2048; $total=$diskSectors-$start
+$sector=512; $diskSectors=262144; $start=2048; $dataSectors=2048; $dataStart=$diskSectors-$dataSectors; $total=$dataStart-$start
 $reserved=32; $fatSectors=2048; $clusters=$total-$reserved-2*$fatSectors
 if ($clusters -lt 65525 -or ($clusters+2)*4 -gt $fatSectors*$sector) { throw 'Invalid FAT32 geometry' }
 $dataLba=$start+$reserved+2*$fatSectors
@@ -319,6 +328,8 @@ try {
     $mbr[446]=0x80; $mbr[447]=0x20; $mbr[448]=0x21; $mbr[449]=0
     $mbr[450]=0x0c; $mbr[451]=0xfe; $mbr[452]=0xff; $mbr[453]=0xff
     Put32 $mbr 454 $start; Put32 $mbr 458 $total
+    $mbr[466]=0xda; $mbr[467]=0xfe; $mbr[468]=0xff; $mbr[469]=0xff
+    Put32 $mbr 470 $dataStart; Put32 $mbr 474 $dataSectors
     $mbr[510]=0x55; $mbr[511]=0xaa
     WriteAt 0 $mbr
     $boot=New-Object byte[] 512
@@ -373,11 +384,17 @@ try {
     WriteAt (($start+7)*$sector) $fsinfo
     $extra=New-Object byte[] 512; $extra[510]=0x55; $extra[511]=0xaa
     WriteAt (($start+2)*$sector) $extra; WriteAt (($start+8)*$sector) $extra
+    . "$PSScriptRoot/data-format.ps1"
+    $dataPartition=New-OurOSDataPartition
+    WriteAt ([long]$dataStart*$sector) $dataPartition
+    $dataHasher=[Security.Cryptography.SHA256]::Create()
+    try { $dataDigest=([BitConverter]::ToString($dataHasher.ComputeHash($dataPartition))).Replace('-','').ToLowerInvariant() } finally { $dataHasher.Dispose() }
     $stream.Flush()
 } finally { $stream.Dispose() }
 $manifest=[ordered]@{board='Raspberry Pi 5 Model B';status='EXPERIMENTAL-HARDWARE-UNTESTED';
     bytes=134217728;partition_lba=$start;partition_sectors=$total;fat='FAT32';
-    asset_revision=$assets.revision;wifi_revision=$WifiAssets.revision;console=$Console;files=$records}
+    asset_revision=$assets.revision;wifi_revision=$WifiAssets.revision;console=$Console;files=$records;
+    data_format=1;data_lba=$dataStart;data_sectors=$dataSectors;data_sha256=$dataDigest}
 $manifestPath=Join-Path $work 'image-manifest.json'
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding ASCII $manifestPath
 & "$PSScriptRoot/verify-rpi5-image.ps1" -Image $temporary -Manifest $manifestPath

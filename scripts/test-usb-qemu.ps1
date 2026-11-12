@@ -58,7 +58,7 @@ try {
         'PASS: MMU null/guard translation faults, code/constants write faults, data execution fault; heap/PMM counts restored.',
         'PASS: four distinct pages written/read/freed; counters restored.',
         'Kernel heap: ready','PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.',
-        'files=3 directories=12 data_pages=2','heap_buffers=3 capacity_bytes=544',"`r`nqemu_virt`r`n", "`r`nusb-ring-monitor-ok`r`n",'CPU halted.')
+        'files=3 directories=13 data_pages=2','heap_buffers=3 capacity_bytes=544',"`r`nqemu_virt`r`n", "`r`nusb-ring-monitor-ok`r`n",'CPU halted.')
     if (!$Storage) { $fragments+=@('PASS: four xHCI No-op completions matched; controller halted.','completed=4','controller_changed=yes halted=yes','test already attempted; reboot before another attempt') }
     foreach ($fragment in $fragments) {
         if (!$text.Contains($fragment)) { throw "$name missing '$fragment'; see $out/$name.log" }

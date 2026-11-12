@@ -1,9 +1,10 @@
 # Experimental Pi 5 disk image
 
-Current OS test: [cooperative kernel tasks](kernel-tasks.md), opt-in with
-`mmuinit`, `irqinit`, `timerstart`, then `schedtest` and `taskinfo`. The latest
-Pi run passes exception return, GICv2/timer IRQs, MMU protection and USB/FAT
-reads. New private task stacks/context switching need a fresh hardware run;
+Current OS test: [persistent USB storage](persistent-storage.md), opt-in with
+`storageinit`, `datainit`, then `write`/`cat` under `/data`. The latest Pi
+run passes cooperative task contexts/stacks/sleep/exit, exception return,
+GICv2/timer IRQs, MMU protection and USB/FAT reads. New USB writes, flush and
+data persistence need a fresh hardware run;
 earlier captures verify DNS/Internet ping and cleanup.
 The full [OS/driver checklist](os-status.md) records what is still missing.
 
@@ -44,12 +45,14 @@ file, unlike `ouros-rpi5.img`, which contains only the kernel.
 This remains an experimental kernel, not a completed operating system.
 The header variant has physical Pi evidence for memory, RAMFS, USB/FAT,
 foreground WPA3/DHCP/DNS/Internet ping, MMU protection and timer interrupts.
-The current cooperative task addition needs its own physical test. The default
+The current persistent data addition needs its own physical test. The default
 UART10 variant's hardware boot and the limited SD-handoff driver remain
 unverified. See the [feature/driver checklist](os-status.md) for exact scope.
 RAMFS remains the volatile root; `storageinit` attempts a separate read-only
-mount of supported SD or USB boot FAT32 at `/boot`. There are no disk writes,
+mount of supported SD or USB boot FAT32 at `/boot`. There are no general raw writes,
 HDMI/GUI, USB keyboard, preemption, EL0 applications or package installation.
+Only the new preformatted `/data` partition accepts writes; boot FAT metadata
+and files remain read-only.
 Use the serial connector selected by the image's console profile.
 
 ## Rebuild
@@ -83,12 +86,13 @@ Get-FileHash build/rpi5/OurOS-Pi5-experimental-sd.img -Algorithm SHA256
 | --- | --- |
 | Disk length | 134,217,728 bytes (128 MiB) |
 | Sector size | 512 bytes |
-| Partition table | MBR, one FAT32 LBA partition, type `0x0c` |
+| Partition table | MBR, FAT32 type `0x0c` and OurOS data type `0xda` |
 | Partition start | LBA 2048 (1 MiB alignment) |
-| Partition length | 260,096 sectors (127 MiB) |
+| FAT partition length | 258,048 sectors (126 MiB) |
+| Data partition | LBA 260096, 2048 sectors (1 MiB); original snapshot v1 |
 | FAT reserved sectors | 32 |
 | FAT copies | Two, 2048 sectors each |
-| Cluster size/count | 512 bytes / 255,968 clusters (FAT32 by cluster count) |
+| Cluster size/count | 512 bytes / 253,920 clusters (FAT32 by cluster count) |
 | Backup boot sector / FSInfo | Partition-relative sectors 6 / 7 |
 | Volume label | `OUROSBOOT` |
 

@@ -31,6 +31,17 @@ void storage_setup(const char *board,uintptr_t dtb)
 }
 bool storage_command(const char *line)
 {
+    if (same(line,"datainit")) {
+        if (!attached || !vfs_boot_mounted()) { console_write("Run storageinit before datainit.\n");return true; }
+        enum fs_result r=vfs_mount_data(&disk);
+        if (r!=FS_OK && r!=FS_BUSY) { console_write("Data mount failed: ");console_write(ramfs_error(r));console_write(". No formatting attempted.\n"); }
+        vfs_data_info();return true;
+    }
+    if (same(line,"datainfo")) { vfs_data_info();return true; }
+    if (same(line,"sync")) {
+        enum fs_result r=vfs_data_sync();console_write(r==FS_OK ? "Data cache flushed; file updates already commit synchronously.\n" : "Data sync failed: ");
+        if (r!=FS_OK) { console_write(ramfs_error(r));console_write("\n"); }return true;
+    }
     if (same(line,"nettest")) { console_write(dhcp_selftest() ? "PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.\n" : "FAIL: DHCP packet fixtures.\n");console_write(netprobe_selftest() ? "PASS: ARP/ICMP gateway public packet fixtures; no network I/O.\n" : "FAIL: ARP/ICMP packet fixtures.\n");console_write(dns_selftest() ? "PASS: DNS A query/compressed-answer public fixtures; no network I/O.\n" : "FAIL: DNS packet fixtures.\n");return true; }
     if (same(line,"wifiinit")) { platform_wifi_init(wifi_dtb); return true; }
     if (same(line,"wificores")) { platform_wifi_cores(); return true; }

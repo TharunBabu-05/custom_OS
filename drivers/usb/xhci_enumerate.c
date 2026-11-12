@@ -96,10 +96,10 @@ static void stop_storage(void)
 static enum block_result bulk(void *context,bool input,void *data,unsigned length,unsigned *actual)
 {
     (void)context; if (!disk.online) { return BLOCK_NOT_READY; }
-    if (!data || !actual || !length || length>512 || (!input && length!=31)) { return BLOCK_ARGUMENT; }
+    if (!data || !actual || !length || length>512 || (!input && length!=31 && length!=512)) { return BLOCK_ARGUMENT; }
     struct session *t=&disk.t; struct pipe *p=input ? &disk.in : &disk.out;
-    unsigned char *buffer=input ? (length==13 ? t->m->csw : t->m->data) : t->m->cbw;
-    uint64_t dma=input ? (length==13 ? disk.csw : t->data) : disk.cbw;
+    unsigned char *buffer=input ? (length==13 ? t->m->csw : t->m->data) : (length==31 ? t->m->cbw : t->m->data);
+    uint64_t dma=input ? (length==13 ? disk.csw : t->data) : (length==31 ? disk.cbw : t->data);
     for (unsigned i=0;i<length;++i) { buffer[i]=input ? 0 : ((const unsigned char *)data)[i]; }
     if (p->index==XHCI_RING_TRBS-1) {
         p->ring[p->index].control=(6u<<10)|2|p->cycle;
@@ -121,6 +121,16 @@ static enum block_result read_disk(void *context,uint64_t lba,unsigned char *sec
     (void)context; enum block_result r=usb_bot_read(&disk.bot,lba,sector);
     if (r!=BLOCK_OK && r!=BLOCK_ARGUMENT && r!=BLOCK_RANGE && disk.online) { stop_storage(); }
     return r;
+}
+static enum block_result write_disk(void *context,uint64_t lba,const unsigned char *sector)
+{
+    (void)context;enum block_result r=usb_bot_write(&disk.bot,lba,sector);
+    if (r!=BLOCK_OK && r!=BLOCK_ARGUMENT && r!=BLOCK_RANGE && disk.online) { stop_storage(); }return r;
+}
+static enum block_result flush_disk(void *context)
+{
+    (void)context;enum block_result r=usb_bot_flush(&disk.bot);
+    if (r!=BLOCK_OK && disk.online) { stop_storage(); }return r;
 }
 static void endpoint_context(unsigned char *p,unsigned type,unsigned packet,uint64_t ring)
 {
@@ -160,7 +170,7 @@ static enum xhci_test_result start_storage(struct session *source,struct usb_dev
     info->configured=true; disk.info.configured=true; disk.online=true;
     struct usb_bot_io bot_io={bulk,NULL};
     if (!usb_bot_attach(&disk.bot,&bot_io,device)) { disk.online=false; return XHCI_TEST_IO; }
-    device->read=read_disk; device->context=NULL; return XHCI_TEST_OK;
+    device->read=read_disk;device->write=write_disk;device->flush=flush_disk; device->context=NULL; return XHCI_TEST_OK;
 }
 void xhci_storage_info(void)
 {

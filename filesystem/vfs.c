@@ -1,6 +1,24 @@
 #include "vfs.h"
 #include "console.h"
+#include "persist.h"
 static struct fat32_volume boot;
+static struct persist_volume data_volume;
+static const char *data_path(const char *p)
+{
+    const char *prefix="/data";if (!p) { return NULL; }
+    for (unsigned i=0;i<5;++i) { if (p[i]!=prefix[i]) { return NULL; } }
+    return !p[5] ? "/" : p[5]=='/' ? p+5 : NULL;
+}
+enum fs_result vfs_mount_data(const struct block_device *device)
+{ return data_volume.ready ? FS_BUSY : persist_mount(&data_volume,device); }
+enum fs_result vfs_data_sync(void) { return persist_sync(&data_volume); }
+void vfs_data_info(void)
+{
+    if (!data_volume.ready) { console_write("/data: not mounted; datainit requires the new data-partition image and USB write/flush support.\n");return; }
+    console_write("/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=");console_write(data_volume.failed ? "failed (reboot required)" : "synchronous");
+    console_write("\npartition_start_lba=");console_u64(data_volume.start);console_write(" sectors=");console_u64(data_volume.sectors);
+    console_write(" bank=");console_u64(data_volume.bank);console_write(" generation=");console_u64(data_volume.generation);console_write(" valid_banks=");console_u64(data_volume.valid_banks);console_write("\n");
+}
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a; ++b; } return *a==*b; }
 static const char *boot_path(const char *path)
 {
@@ -31,6 +49,7 @@ void vfs_boot_info(void)
 }
 static enum fs_result stat_path(const char *path,bool *directory)
 {
+    const char *dp=data_path(path);if (dp) { return persist_stat(&data_volume,dp,directory); }
     const char *relative=boot_path(path);
     if (relative && boot.ready) {
         struct fat32_entry entry; enum fs_result r=fat32_lookup(&boot,relative,&entry);
@@ -82,6 +101,7 @@ static bool fat_entry(const struct fat32_entry *entry,void *context)
 enum fs_result vfs_list(const char *absolute,ramfs_emit emit,void *context)
 {
     if (!absolute || !emit) { return FS_BAD_ARGUMENT; }
+    const char *dp=data_path(absolute);if (dp) { return persist_list(&data_volume,dp,emit,context); }
     const char *path=boot_path(absolute);
     if (path && boot.ready) { struct listing l={emit,context}; return fat32_list(&boot,path,fat_entry,&l); }
     return ramfs_list(0,absolute,emit,context);
@@ -89,6 +109,7 @@ enum fs_result vfs_list(const char *absolute,ramfs_emit emit,void *context)
 enum fs_result vfs_read(const char *absolute,uint32_t offset,void *buffer,size_t capacity,size_t *count)
 {
     if (!absolute || !buffer || !count) { return FS_BAD_ARGUMENT; }
+    const char *dp=data_path(absolute);if (dp) { return persist_read(&data_volume,dp,offset,buffer,capacity,count); }
     const char *path=boot_path(absolute);
     if (path && boot.ready) {
         struct fat32_entry entry; enum fs_result r=fat32_lookup(&boot,path,&entry); if (r!=FS_OK) { return r; }
@@ -119,4 +140,24 @@ enum fs_result vfs_prepare_write(const char *cwd,const char *path,char *absolute
     if (n>1) { absolute[n++]='/'; }
     for (size_t i=start;i<length;++i) { absolute[n++]=path[i]; } absolute[n]='\0';
     return vfs_read_only(absolute) ? FS_READ_ONLY : FS_OK;
+}
+enum fs_result vfs_write(const char *absolute,const void *bytes,size_t length)
+{
+    if (vfs_read_only(absolute)) { return FS_READ_ONLY; }const char *dp=data_path(absolute);
+    return dp ? persist_write(&data_volume,dp,bytes,length,false) : ramfs_write(0,absolute,bytes,length);
+}
+enum fs_result vfs_touch(const char *absolute)
+{
+    if (vfs_read_only(absolute)) { return FS_READ_ONLY; }const char *dp=data_path(absolute);
+    return dp ? persist_write(&data_volume,dp,NULL,0,true) : ramfs_touch(0,absolute);
+}
+enum fs_result vfs_mkdir(const char *absolute)
+{
+    if (vfs_read_only(absolute)) { return FS_READ_ONLY; }const char *dp=data_path(absolute);
+    return dp ? FS_UNSUPPORTED : ramfs_mkdir(0,absolute);
+}
+enum fs_result vfs_remove(const char *absolute,bool directory)
+{
+    if (vfs_read_only(absolute)) { return FS_READ_ONLY; }const char *dp=data_path(absolute);
+    return dp ? persist_remove(&data_volume,dp,directory) : ramfs_remove(0,absolute,directory);
 }

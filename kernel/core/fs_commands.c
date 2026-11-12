@@ -46,6 +46,7 @@ bool filesystem_command(const char *line)
             console_write("\nheap_buffers=");console_u64(stats.buffers);console_write(" capacity_bytes=");console_u64(stats.capacity_bytes);console_write(" (small files share pages)");
             console_write("\nlimits: nodes=64 file_bytes=4096 name_bytes=31 path_bytes=255\n");
             vfs_boot_info();
+            vfs_data_info();
         }
         return true;
     }
@@ -64,7 +65,7 @@ bool filesystem_command(const char *line)
         size_t path_length=0; while (path[path_length]) { ++path_length; }
         if (path[path_length-1]=='/') { report(FS_NOT_DIR); return true; }
         size_t length=0; while (p[length]) { ++length; }
-        report(ramfs_write(0,absolute,p,length)); return true;
+        report(vfs_write(absolute,p,length)); return true;
     }
     if (*p) { console_write("fs: only one path argument is supported\n"); return true; }
     if (same(verb,"ls")) { report(vfs_list(absolute,entry,NULL));
@@ -83,14 +84,14 @@ bool filesystem_command(const char *line)
             last=data[length-1]; offset+=(uint32_t)length;
         }
         if (last!='\n') { console_write("\n"); }
-    } else if (same(verb,"mkdir")) { report(ramfs_mkdir(0,absolute));
+    } else if (same(verb,"mkdir")) { report(vfs_mkdir(absolute));
     } else if (same(verb,"touch")) {
         size_t n=0; while (path[n]) { ++n; }
-        report(path[n-1]=='/' ? FS_NOT_DIR : ramfs_touch(0,absolute));
+        report(path[n-1]=='/' ? FS_NOT_DIR : vfs_touch(absolute));
     } else {
         if (same(absolute,cwd) || same(absolute,"/")) { report(FS_BUSY); }
         else if (vfs_read_only(absolute)) { report(FS_READ_ONLY); }
-        else { report(ramfs_remove(0,absolute,same(verb,"rmdir"))); }
+        else { report(vfs_remove(absolute,same(verb,"rmdir"))); }
     }
     return true;
 }

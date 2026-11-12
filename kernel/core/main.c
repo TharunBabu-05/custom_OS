@@ -95,6 +95,7 @@ static void command(const char *line)
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
         console_write("excinfo exctest irqinit irqinfo timerstart timerinfo timertest timerstop\n");
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
+        console_write("datainit datainfo sync (persistent /data on the preformatted data partition)\n");
         console_write("heapinfo heaptest heapalloc <1..4096> heapfree <slot>\n");
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
         console_write("keytest (offline AES/CMAC/unwrap/PTK/M2/M4/key-data/M3-retry vectors; no radio)\n");

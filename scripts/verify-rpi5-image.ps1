@@ -28,8 +28,28 @@ try {
     $mbr=ReadAt 0 512
     Require ($mbr[510] -eq 85 -and $mbr[511] -eq 170 -and $mbr[450] -eq 12) 'Invalid MBR/FAT32 partition type'
     $start=U32 $mbr 454; $total=U32 $mbr 458
-    Require ($start -eq 2048 -and $total -eq 260096 -and ($start+$total)*512 -eq $stream.Length) 'Partition extent mismatch'
-    Require ((U32 $mbr 470) -eq 0 -and (U32 $mbr 486) -eq 0 -and (U32 $mbr 502) -eq 0) 'Unexpected extra partitions'
+    $hasData=$null -ne $expected.PSObject.Properties['data_format']
+    if ($hasData) {
+        Require ($expected.data_format -eq 1 -and $start -eq 2048 -and $total -eq 258048 -and $mbr[466] -eq 0xda -and
+            (U32 $mbr 470) -eq 260096 -and (U32 $mbr 474) -eq 2048 -and $expected.data_lba -eq 260096 -and $expected.data_sectors -eq 2048) 'Data partition extent mismatch'
+        $data=ReadAt (260096L*512) (2048*512)
+        $dataHash=[Security.Cryptography.SHA256]::Create()
+        try {
+            $dataDigest=([BitConverter]::ToString($dataHash.ComputeHash($data))).Replace('-','').ToLowerInvariant()
+            Require ($dataDigest -eq $expected.data_sha256) 'Data partition hash mismatch'
+            Require ([Text.Encoding]::ASCII.GetString($data,0,8) -ceq 'OUROSDAT' -and (U32 $data 8) -eq 1 -and
+                (U32 $data 16) -eq 2048 -and (U32 $data 20) -eq 66 -and (U32 $data 24) -eq 8 -and (U32 $data 28) -eq 4096 -and
+                [Text.Encoding]::ASCII.GetString($data,512,8) -ceq 'OUROSBK1' -and (U32 $data 520) -eq 1 -and
+                (U32 $data 524) -eq 0 -and [BitConverter]::ToUInt64($data,528) -eq 1 -and (U32 $data 536) -eq 33280) 'Data format fields mismatch'
+            Require (Same $dataHash.ComputeHash($data,0,64) $data[64..95]) 'Data superblock checksum mismatch'
+            Require (Same $dataHash.ComputeHash($data,512,64) $data[576..607]) 'Data commit checksum mismatch'
+            Require (Same $dataHash.ComputeHash($data,1024,33280) $data[544..575]) 'Data payload checksum mismatch'
+        } finally { $dataHash.Dispose() }
+    } else {
+        Require ($start -eq 2048 -and $total -eq 260096 -and ($start+$total)*512 -eq $stream.Length) 'Partition extent mismatch'
+        Require ((U32 $mbr 470) -eq 0) 'Unexpected extra partitions'
+    }
+    Require ((U32 $mbr 486) -eq 0 -and (U32 $mbr 502) -eq 0) 'Unexpected extra partitions'
     $boot=ReadAt ([long]$start*512) 512
     $reserved=U16 $boot 14; $fatSectors=U32 $boot 36
     Require ((U16 $boot 11) -eq 512 -and $boot[13] -eq 1 -and $boot[16] -eq 2 -and
@@ -63,7 +83,16 @@ New-Item -ItemType Directory -Path $work | Out-Null
 # 7-Zip automatically descends through a single MBR partition into its FAT.
 & $seven t $path | Set-Content (Join-Path $work 'fat-test.log')
 if ($LASTEXITCODE -ne 0) { throw 'Independent FAT test failed' }
-& $seven x $path "-o$work/files" -y | Set-Content (Join-Path $work 'fat-extract.log')
+if ($hasData) {
+    & $seven x $path "-o$work/partitions" -y | Set-Content (Join-Path $work 'partition-extract.log')
+    if ($LASTEXITCODE -ne 0) { throw 'Independent partition extraction failed' }
+    $fatPartitions=@(Get-ChildItem -LiteralPath (Join-Path $work 'partitions') -File | Where-Object { $_.Length -eq [long]$total*512 })
+    Require ($fatPartitions.Count -eq 1) 'Independent FAT partition size mismatch'
+    $fatPath=$fatPartitions[0].FullName
+    & $seven t $fatPath | Set-Content (Join-Path $work 'fat-partition-test.log')
+    if ($LASTEXITCODE -ne 0) { throw 'Independent FAT partition test failed' }
+} else { $fatPath=$path }
+& $seven x $fatPath "-o$work/files" -y | Set-Content (Join-Path $work 'fat-extract.log')
 if ($LASTEXITCODE -ne 0) { throw 'Independent FAT extraction failed' }
 $actual=@(Get-ChildItem -LiteralPath (Join-Path $work 'files') -File)
 Require ($actual.Count -eq $expected.files.Count) 'Unexpected FAT file count'

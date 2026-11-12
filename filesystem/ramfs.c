@@ -234,7 +234,7 @@ enum fs_result ramfs_init(const char *board)
     if (!board) { return FS_BAD_ARGUMENT; }
     if (!heap_get_stats().ready || heap_get_stats().poisoned) { return FS_NOT_READY; }
     make_node(0,0,"",true); ready=true;
-    const char *directories[]={"/etc","/home","/home/user","/tmp","/boot","/dev","/proc","/sys","/var","/var/log","/mnt"};
+    const char *directories[]={"/etc","/home","/home/user","/tmp","/boot","/dev","/proc","/sys","/var","/var/log","/mnt","/data"};
     for (unsigned i=0;i<sizeof(directories)/sizeof(directories[0]);++i) {
         r=ramfs_mkdir(0,directories[i]); if (r!=FS_OK) { goto failed; }
     }

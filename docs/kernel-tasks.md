@@ -10,7 +10,9 @@ the delivered count with `unexpected=0` and `fault=no` is normal in this test.
 This revision adds **cooperative EL1 kernel tasks**: private stacks, saved call
 contexts, round-robin yield, timed sleep/wakeup, explicit/implicit exit and
 return to the monitor. Native policy/mapping tests and QEMU A53/A76/EL1/EL2
-checks cover the new behavior. The new task path needs its own physical Pi run.
+checks cover the behavior. The [new Pi capture](../proofs/pi5-cooperative-tasks-usb-2026-11-12.txt)
+now passes both task runs before/after USB/FAT, private-stack IRQ return,
+memory tests and timer stop. The next phase is [persistent storage](persistent-storage.md).
 
 ## Image and hardware test
 

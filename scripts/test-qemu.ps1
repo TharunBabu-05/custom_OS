@@ -70,7 +70,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
             }
             $filesystems=[regex]::Matches($text,'files=(\d+) directories=(\d+) data_pages=(\d+) data_bytes=(\d+)')
             if ($filesystems.Count -ne 2 -or $filesystems[0].Value -ne $filesystems[1].Value -or
-                $filesystems[0].Groups[1].Value -ne '3' -or $filesystems[0].Groups[2].Value -ne '12' -or
+                $filesystems[0].Groups[1].Value -ne '3' -or $filesystems[0].Groups[2].Value -ne '13' -or
                 $filesystems[0].Groups[3].Value -ne '2') { throw "$Name filesystem counters did not balance" }
             if ([regex]::Matches($text,'PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.').Count -ne 2) { throw "$Name repeatable heap tests failed" }
             $heap=[regex]::Matches($text,'pages=(\d+) objects=(\d+) capacity_bytes=(\d+)')

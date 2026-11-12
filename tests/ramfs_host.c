@@ -55,9 +55,9 @@ static void count_entry(const char *name,bool directory,size_t bytes,void *conte
 static void basics(void)
 {
     assert(ramfs_init("host-test")==FS_OK && live==2);
-    struct ramfs_stats s=ramfs_get_stats(); assert(s.ready && s.files==3 && s.directories==12 && s.pages==2 && s.buffers==3 && s.capacity_bytes==544 && heap_get_stats().objects==3);
+    struct ramfs_stats s=ramfs_get_stats(); assert(s.ready && s.files==3 && s.directories==13 && s.pages==2 && s.buffers==3 && s.capacity_bytes==544 && heap_get_stats().objects==3);
     content(0,"/etc/hostname","ouros\n"); content(0,"/etc/board","host-test\n");
-    unsigned count=0; assert(ramfs_list(0,"/",count_entry,&count)==FS_OK && count==10);
+    unsigned count=0; assert(ramfs_list(0,"/",count_entry,&count)==FS_OK && count==11);
     int cwd=-1; assert(ramfs_chdir(0,"/home//user/.././user",&cwd)==FS_OK);
     char path[RAMFS_PATH_MAX]; assert(ramfs_pwd(cwd,path,sizeof(path))==FS_OK && !strcmp(path,"/home/user"));
     assert(ramfs_chdir(cwd,"../../../../",&cwd)==FS_OK && cwd==0);
@@ -92,7 +92,7 @@ static void basics(void)
     assert(ramfs_remove(cwd,"note",false)==FS_OK && live==2);
     assert(ramfs_remove(cwd,"empty",false)==FS_OK);
     assert(ramfs_remove(0,"/tmp/work",true)==FS_OK);
-    s=ramfs_get_stats(); assert(s.files==3 && s.directories==12 && s.pages==2 && heap_check());
+    s=ramfs_get_stats(); assert(s.files==3 && s.directories==13 && s.pages==2 && heap_check());
     puts("PASS: seeded root, paths/cwd, binary files, overlapping overwrite/truncate/removal, heap ownership and small-file page sharing");
 }
 static void failures(void)
@@ -116,7 +116,7 @@ static void failures(void)
         if (result==FS_NO_NODES) { break; }
         assert(result==FS_OK); ++added; assert(added<=RAMFS_NODES);
     }
-    assert(added==RAMFS_NODES-15 && live==2);
+    assert(added==RAMFS_NODES-16 && live==2);
     assert(ramfs_write(0,"/tmp/full","data",4)==FS_NO_NODES && live==2);
     assert(ramfs_remove(0,"/tmp/f0",false)==FS_OK);
     assert(ramfs_write(0,"/tmp/reused","data",4)==FS_OK && live==2);

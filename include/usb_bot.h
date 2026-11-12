@@ -16,4 +16,6 @@ struct usb_bot {
 };
 bool usb_bot_attach(struct usb_bot *bot,const struct usb_bot_io *io,struct block_device *device);
 enum block_result usb_bot_read(void *context,uint64_t lba,unsigned char *sector);
+enum block_result usb_bot_write(void *context,uint64_t lba,const unsigned char *sector);
+enum block_result usb_bot_flush(void *context);
 #endif

@@ -119,7 +119,8 @@ static void fat_tests(void)
     put32(boot+44,UINT32_MAX); assert(fat32_mount(&v,&disk)==FS_CORRUPT); memcpy(boot,saved_boot,512);
     uint32_t size=get32(image+458); put32(image+458,UINT32_MAX); assert(fat32_mount(&v,&disk)==FS_CORRUPT); put32(image+458,size);
     image[510]^=1; assert(fat32_mount(&v,&disk)==FS_UNSUPPORTED); image[510]^=1;
-    memcpy(image+462,image+446,16); assert(fat32_mount(&v,&disk)==FS_UNSUPPORTED); memset(image+462,0,16);
+    unsigned char second_partition[16];memcpy(second_partition,image+462,16);
+    memcpy(image+462,image+446,16); assert(fat32_mount(&v,&disk)==FS_UNSUPPORTED); memcpy(image+462,second_partition,16);
     fail_lba=0; assert(fat32_mount(&v,&disk)==FS_IO); fail_lba=-1;
     puts("PASS: real-image MBR/FAT32/files, nested fragmented chains, corruption, read failures and VFS mount boundaries");
 }
@@ -204,6 +205,6 @@ int main(int argc,char **argv)
     assert(argc==2); FILE *f=fopen(argv[1],"rb"); assert(f); assert(!fseek(f,0,SEEK_END));
     long n=ftell(f); assert(n==134217728); rewind(f); image_size=(size_t)n;
     image=malloc(image_size); assert(image && fread(image,1,image_size,f)==image_size); fclose(f);
-    disk=(struct block_device){"host-image",image_size/512,true,disk_read,NULL};
+    disk=(struct block_device){.name="host-image",.sectors=image_size/512,.capacity_known=true,.read=disk_read};
     fat_tests(); sdhci_tests(); property_tests(); free(image); return 0;
 }

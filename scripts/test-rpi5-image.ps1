@@ -30,6 +30,13 @@ $cases=@(
     @{name='FAT mirror';offset=([long](2048+32+2048)*512+12);message='FAT mirror mismatch'},
     @{name='Kernel payload';offset=($kernelOffset+100);message='File mismatch: OUROS.IMG'}
 )
+$imageManifest=Get-Content -Raw -LiteralPath "$source.json" | ConvertFrom-Json
+if ($imageManifest.PSObject.Properties['data_format']) {
+    $cases+=@(
+        @{name='Data partition extent';offset=474L;message='Data partition extent mismatch'},
+        @{name='Data snapshot payload';offset=([long]$imageManifest.data_lba*512+1024);message='Data partition hash mismatch'}
+    )
+}
 foreach ($case in $cases) {
     $stream=[IO.File]::Open($scratch,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
     try {

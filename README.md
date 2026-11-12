@@ -61,8 +61,8 @@
 > Address checks, ARP, the live network console and all three gateway and
 > `1.1.1.1` replies, DNS and hostname ping pass, followed by clean disconnect.
 > Heap, MMU protection, exception return and timer IRQs now pass on Pi too.
-> The current phase adds cooperative kernel tasks, private guarded stacks,
-> yield, timed sleep/wakeup and exit;
+> Cooperative kernel tasks, guarded stacks and timed sleep/wakeup also pass on Pi.
+> The current phase adds USB write/flush and a small persistent `/data` volume;
 > renewal, rekey, background networking and application downloads remain.
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
 > driver supplies the next dependency for reading Wi-Fi firmware from disk.
@@ -93,10 +93,13 @@ The [kernel heap](docs/kernel-heap.md) provides small allocations and backs
 RAMFS file contents; repeated heap tests and counter restoration now pass on Pi.
 The [MMU phase](docs/mmu.md) and [interrupt phase](docs/interrupts.md) now have
 Pi protection/USB and synchronous/asynchronous exception/timer IRQ evidence.
-The new [kernel task phase](docs/kernel-tasks.md) adds private guarded stacks,
-saved contexts, cooperative yield, timed sleep/wakeup and exit. Run `mmuinit`,
-`irqinit`, `timerstart`, `schedtest`, then `taskinfo`. Native/QEMU checks cover
-the implementation; the new Pi task test is next. See the [full OS/driver checklist](docs/os-status.md).
+The [kernel task phase](docs/kernel-tasks.md) now has Pi evidence for guarded
+stacks, saved contexts, cooperative yield, timed sleep/wakeup and exit.
+The new [persistent storage phase](docs/persistent-storage.md) adds USB write/flush
+and `/data` files in a separate 1 MiB snapshot partition. Run `storageinit`,
+`datainit`, then `write /data/hello.txt saved` and `sync`; reboot without
+reflashing and mount/read again. New Pi writes need their hardware test.
+See the [full OS/driver checklist](docs/os-status.md).
 Renewal/rekey, background networking and package installation remain.
 Type credentials only at the hidden prompt; none are saved or embedded.
 Current development images stay local; the user handles GitHub publication.
@@ -172,7 +175,8 @@ timer interrupts and cooperative task tests are enabled explicitly by commands.
 | Wi-Fi | WPA3, keys/peer authorization, DHCP, ARP, DNS, hostname/numeric Internet ping and clean disconnect observed on Pi; long-lived maintenance remains |
 | Kernel heap | 16..4096-byte buffers, calloc/realloc/free, zeroing/page reclamation and RAMFS use; Pi self-tests/count restoration verified |
 | MMU protection | Opt-in identity maps, RO code/constants, XN data/device memory, null/boot stack guards and controlled faults verified on Pi; new private task guards |
-| Kernel tasks | New cooperative EL1 saved contexts, 16 KiB guarded stacks, yield, timed sleep/wakeup, exit and repeatable self-test; Pi task test pending |
+| Kernel tasks | Cooperative EL1 saved contexts, 16 KiB guarded stacks, yield, timed sleep/wakeup, exit and repeatable self-test; Pi verified |
+| Persistent data | New USB WRITE10/flush, separate `/data` snapshot volume with eight 4 KiB files; Pi writes pending |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
@@ -185,7 +189,8 @@ fresh boot; the latest Pi capture verifies capacity, sectors and file reads.
 [Physical memory](docs/memory.md) and RAMFS
 have hardware evidence; Pi SD reads still need their own test. The heap has Pi
 self-test evidence. MMU and timer interrupts have Pi evidence. Cooperative
-tasks have native/emulator checks; preemption and user processes remain unfinished.
+tasks now have Pi evidence; persistent writes have native/emulator checks.
+Preemption and user processes remain unfinished.
 [Wi-Fi](docs/wifi.md) provides the tested foreground connection.
 
 <details>
@@ -327,7 +332,8 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] Physical Pi kernel heap self-tests and packed RAMFS seed buffers
 - [x] Physical Pi MMU identity protection, RAMFS edits and USB/FAT reads
 - [x] Physical Pi exception return, GICv2 and timer IRQs
-- [ ] Physical Pi cooperative task contexts, guarded stacks and sleep/wakeup (new revision)
+- [x] Physical Pi cooperative task contexts, guarded stacks and sleep/wakeup
+- [ ] Physical Pi USB writes/flush and persistent `/data` across reboot (new revision)
 - [ ] Persistent supplicant, group rekey, lease renewal and background networking
 - [ ] Physical Pi SD-card handoff
 - [ ] General peripheral IRQ dispatch, IRQ-safe concurrency and dynamic/user virtual memory

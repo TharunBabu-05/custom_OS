@@ -1,5 +1,35 @@
 # Development log
 
+## 2026-11-12 - Cooperative task hardware evidence and persistent USB data
+
+- Saved `proofs/pi5-cooperative-tasks-usb-2026-11-12.txt`: both task runs pass,
+  all workers exit after four sleep/wake cycles, private-stack timer IRQs are
+  observed and heap/PMM counters restore. Protected memory, RAM files and
+  USB/FAT reads pass with the timer running; no unexpected IRQ/controller fault.
+- Added bounded block write/flush callbacks and USB2 BOT WRITE10 bulk OUT,
+  readback and SYNCHRONIZE CACHE10 with IMMED clear. Failed command/flush
+  latches unavailable; CHECK CONDITION captures sense when transport permits.
+  USB descriptor/control/read tests still pass. SD and virtio remain read-only.
+- Added an original `/data` snapshot filesystem in a separate 1 MiB type-DA
+  MBR partition. Boot FAT32 shrinks to 126 MiB but remains read-only; the whole
+  image stays 128 MiB. Eight flat 4 KiB files support read/list/replace/touch/rm.
+  Two SHA256-protected banks and ordered invalidation/payload/commit flushes
+  preserve the previous complete snapshot. No guest formatting/raw writes.
+- Native tests cover 136 I/O boundaries in two cache/failure models (272
+  cases), bounds, name/size/node limits, generation overflow, corrupt metadata
+  and fallback. The C reader mounts the actual PowerShell-generated disk seed.
+  A53/EL1 and A76/EL2 QEMU tests persist changes over three boots, independently
+  verify hashes/content/generation, preserve all non-data sectors and handle
+  read-only media errors while remaining responsive. Task/IRQ/MMU/heap pass.
+- Final disk SHA256:
+  `a14b05efbf7cec463da8da447de3bd46dc0f52c4735c0b05f7f2a05210cf5b66`.
+  Full disk 134217728 bytes, ZIP 816242 bytes, kernel 380588 bytes. Independent
+  package/FAT/partition checks and corruption/profile rejection pass. New Pi
+  writes/flush durability still require physical tests; see
+  `docs/persistent-storage.md`. Earlier full IMG/ZIP backups remain intact.
+- Next: owned file handles and task-safe I/O, then loaded applications/EL0 and
+  preemption. No physical drive or Git remote was modified by this work.
+
 ## 2026-11-12 - Timer IRQ hardware evidence and cooperative kernel tasks
 
 - Retained `proofs/pi5-timer-irq-usb-2026-11-12.txt`: physical Pi GICv2/PPI30,
