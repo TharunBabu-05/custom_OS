@@ -1,0 +1,413 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> nettest
+PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.
+PASS: ARP/ICMP gateway public packet fixtures; no network I/O.
+> keytest
+PASS: AES-128, CMAC, key unwrap, SAE PTK, offline M2/M4, key-data and M3-retry known-answer tests.
+Public fixtures only; no key installation or EAPOL transmission.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+/boot: FAT32 read-only start_lba=2048 sectors=260096 clusters=255968
+> wififiles
+Verifying pinned Wi-Fi files from /boot; no radio access.
+Wi-Fi firmware files: SHA256 pins verified
+FW43455.BIN bytes=609309 SHA256=D608F866582519C0A28D86DB43040F4F1B98DD1D153E72E9752586546B4A36C3
+WIFINV.TXT bytes=2074 SHA256=CA709BE81A78BDB6932936374F39943ACBD7AF07FAE6151011127599A3CE9E3D
+WIFICLM.BIN bytes=2676 SHA256=9823842CAE9FB9A5DD1E5FB31F595516EC7DEEE341354BEF30BB3026EEE29CC1
+Vendor firmware is separate from the OurOS kernel. WIFILIC.TXT retains its notices.
+> wificores
+Run wifiinit successfully before wificores.
+> wifiload
+Run wifiinit and wificores successfully before wifiload.
+> wifiinit
+Wi-Fi init: SDIO enumeration only; no RF association or network packets.
+Cold Wi-Fi host: preparing WLAN power, pins and 400 kHz clock.
+Board preparation: ok
+SDIO initialization: ok
+Function-1 backplane identify: ok
+Wi-Fi SDIO host=0x0000001001100000 CONTROL0=0x0000000000800f00 CONTROL1=0x00000000000efa07
+PRESENT=0x0000000001f70000 CAPS=0x0000000015eac832 CQE=0x0000000000000000
+Current host IRQ=0x0000000000000000
+Board power phase=6 result=ok stepping=0x0000000027120030 SD_clock_hz=400000
+SDIO init phase=7 result=ok selected=yes
+R4=0x00000000b0ffff00 RCA=0x0000000000000001 functions=3 CCCR=3 SDIO_revision=4
+last_irq=0x0000000000000002 last_response=0x0000000000001000
+SDIO CIS vendor=0x00000000000002d0 device=0x0000000000004345 (SDIO identity; not backplane chip/revision)
+Broadcom phase=4 result=ok clock_csr=0x0000000000000061
+Function-1 block size=64 bytes; RAM wire requests <=64 bytes
+ChipCommon ID word=0x0000000015264345 chip=0x0000000000004345 revision=6
+WPA3-Personal requested; not connected. Remaining: core discovery/upload,
+board firmware, FullMAC, SAE/PMF authentication and an IP stack.
+> wificores
+Reading AI core table and CR4 RAM banks; no CPU/D11 reset, firmware upload or RF packets.
+Wi-Fi core discovery: ok core_map=valid RAM=measured
+EROM=0x000000001810a000 words=88 cores=5
+core=0x0000000000000800 ChipCommon rev=51 base=0x0000000018000000 wrapper=0x0000000018100000
+core=0x0000000000000812 D11 WLAN rev=54 base=0x0000000018001000 wrapper=0x0000000018101000
+core=0x000000000000083e ARM CR4 rev=9 base=0x0000000018002000 wrapper=0x0000000018102000
+core=0x000000000000083c PCIe Gen2 rev=14 base=0x0000000018003000 wrapper=0x0000000018103000
+core=0x0000000000000829 SDIO device rev=21 base=0x0000000018004000 wrapper=0x0000000018104000
+CR4 discovery snapshot: ioctl=0x0000000000000021 reset=0x0000000000000000 capability=0x0000000000000b44 banks=8
+CR4 bank selector restored and verified.
+Wi-Fi RAM base (chip map)=0x0000000000198000 bytes=819200 KiB=800
+bank=0 bytes=131072
+bank=1 bytes=131072
+bank=2 bytes=131072
+bank=3 bytes=32768
+bank=4 bytes=131072
+bank=5 bytes=65536
+bank=6 bytes=131072
+bank=7 bytes=65536
+> wifiload
+wifiload: verify files, keep CR4 halted, reset D11, upload and compare every byte.
+Wait for the prompt; at 400 kHz SDIO this can take a minute or more.
+Firmware readback verified 65536/609309 bytes
+Firmware readback verified 131072/609309 bytes
+Firmware readback verified 196608/609309 bytes
+Firmware readback verified 262144/609309 bytes
+Firmware readback verified 327680/609309 bytes
+Firmware readback verified 393216/609309 bytes
+Firmware readback verified 458752/609309 bytes
+Firmware readback verified 524288/609309 bytes
+Firmware readback verified 589824/609309 bytes
+Firmware readback verified 609309/609309 bytes
+Wi-Fi firmware files: SHA256 pins verified
+FW43455.BIN bytes=609309 SHA256=D608F866582519C0A28D86DB43040F4F1B98DD1D153E72E9752586546B4A36C3
+WIFINV.TXT bytes=2074 SHA256=CA709BE81A78BDB6932936374F39943ACBD7AF07FAE6151011127599A3CE9E3D
+WIFICLM.BIN bytes=2676 SHA256=9823842CAE9FB9A5DD1E5FB31F595516EC7DEEE341354BEF30BB3026EEE29CC1
+Vendor firmware is separate from the OurOS kernel. WIFILIC.TXT retains its notices.
+Wi-Fi firmware staging: ok phase=6 upload/readback=verified
+CR4 last-confirmed halted=yes D11 held in reset=yes
+code_bytes=609309 verified_bytes=609309 NVRAM_bytes=1748 NVRAM_address=0x000000000025f92c
+Initial NVRAM token clear/readback succeeded.
+Firmware is not executing. Next: controlled startup and FullMAC; no Wi-Fi connection.
+> wifistart
+wifistart: verified staging required; install CR4 vector, release CPU, check HT/shared memory.
+No scan, association or network requests are issued. Wait for the prompt.
+Wi-Fi firmware startup: ok phase=7 shared_memory=ready
+CR4 may be executing; halt is not asserted by this status.
+reset_vector=0x00000000b83ef198 clock_csr=0x00000000000000d0 shared=0x0000000000201cc0 polls=1
+shared_flags=0x0000000000000001 console=0x000000000025debc trap=0x0000000000000000 assert_line=0 mailbox=0x0000000000000000
+Function 2 / FullMAC control not started; scan/connect/WPA3/IP unavailable.
+> wificontrol
+wificontrol: enable F2, check protocol/credits, query ioctl and firmware versions.
+No scan, association, credentials or IP requests. Wait for the prompt.
+Wi-Fi control channel: ok phase=8 queries=verified
+F2 block_size=512 IO_ENABLE=0x0000000000000006 IO_READY=0x0000000000000006 clock_csr=0x00000000000000d2 device_ready=yes
+interrupt=0x0000000020800040 mailbox=0x0000000000040002 last_address=0x0000000000008000 last_word=0x0000000000040002
+TX_frames=2 RX_frames=4 events=2 data_dropped=0 empty=2 sequence_resync=0 polls=6
+Last RX header: 0x00000000fee3011c 0x000000000c000003 0x0000000000001600
+SDPCM glom: descriptors=0 aggregates=0 subframes=0 failures=0 phase=0 result=ok
+tx_seq=2 tx_window=22 request_id=2 command=262 firmware_status=0x0000000000000000 response_bytes=256
+Firmware ioctl ABI=2
+Firmware version: wl0: Aug 29 2023 01:47:08 version 7.45.265 (28bca26 CY) FWID 01-b677b91b
+Version queries snapshot; preparation/scan/association have separate status. No authorized data port or IP.
+> wificaps
+Wi-Fi capabilities: ok phase=5 discovery=verified
+Firmware cap: ap sta wme 802.11d 802.11h rm cqa cac dualband ampdu ampdu_tx ampdu_rx amsdurx radio_pwrsave btamp p2p proptxstatus mchan p2po anqpo vht-prop-rates dfrts txpwrcache stbc-tx stbc-rx-1ss epno pfnx wnm bsstrans mfp sae_ext fbt
+Firmware MAC: 2c:cf:67:f4:99:75
+SAE advertised=no external_SAE advertised=yes
+PMF iovar replied=yes current_value=1 firmware_status=0x0000000000000000
+Firmware supplicant iovar unsupported current_value=0 firmware_status=0x00000000ffffffe9
+Capability discovery does not enable SAE/PMF or prove a WPA3 connection.
+last_firmware_status=0x00000000ffffffe9
+> wifiprepare IN
+Verifying pinned CLM before upload; then setting and reading back country. No scan/association.
+Wi-Fi regulatory preparation: ok phase=6 CLM/country=verified
+CLM pin=verified uploaded_bytes=2676 chunks=2 clmload_status=0x0000000000000000 firmware_status=0x0000000000000000
+CLM version: API: 12.2 Data: RPi.4 Compiler: 1.29.4 ClmImport: 1.39.1 Customization: v2 21/11/15 Creation: 2021-11-15 01:32:40
+Requested country=IN verified country=IN ccode=IN revision=0
+Country raw reply: 0x0000000000000049 0x000000000000004e 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000049 0x000000000000004e 0x0000000000000000 0x0000000000000000
+Preparation snapshot; wifiscan is separate. wifiassoc tests key installation/live M4, then DOWN/delete; no persistent link/IP.
+> wifiscan
+wifiscan: passive scan after verified CLM/country; no association or credentials.
+Allow up to 30 seconds plus I/O; wait for the prompt.
+Wi-Fi passive scan: ok phase=8 scan=complete
+escan_version=1 scan_ver_reply=0x0000000000000000 sync_id=0x0000000000004f53 firmware_status=0x0000000000000000 event_status=0 reason=0
+networks=4 events=11 duplicates=6 malformed=0 ignored=1 overflow=0 polls=381
+Interface DOWN acknowledged. Event mask restored and verified.
+7e:73:c6:d1:9e:25 channel=11 band=2GHz RSSI=-17dBm security=RSN+PSK+SAE PMF=capable SSID="Jack's"
+be:55:db:ae:a9:fe channel=6 band=2GHz RSSI=-86dBm security=RSN+PSK PMF=not-advertised SSID="Navin AirFiber"
+fa:54:2d:13:60:4c channel=6 band=2GHz RSSI=-86dBm security=RSN+PSK PMF=not-advertised SSID="OnePlus Nord CE 2 Lite 5G"
+0e:36:23:6e:71:59 channel=11 band=2GHz RSSI=-86dBm security=RSN+PSK PMF=not-advertised SSID="Airtel_bala_9559"
+Scan advertisements only; use a separate WPA3 handshake/network test. The scan ends DOWN.
+> wifitarget Jack's
+WPA3 target check: advertisement matches SAE/CCMP-128/BIP-CMAC-128 with PMF
+SSID="Jack's" BSSID=7e:73:c6:d1:9e:25 channel=11 band=2GHz
+RSN group=0x00000000000fac04 pairwise_CCMP128=1 SAE_AKM8=1 management=0x00000000000fac06
+AP PMF=capable; station policy=required.
+RSNXE=absent; SAE hunting-and-pecking will be selected (not WPA2).
+Cached advertisements only. No password accepted or packets sent; not authenticated or connected.
+> wifiping Jack's
+SAE method selected from scan: hunting-and-pecking (H2E not advertised); SAE-only, required PMF; no method retry or WPA2 fallback.
+One-shot association/EAPOL observation for "Jack's" BSSID=7e:73:c6:d1:9e:25. Verified SAE/M3 required, then initial M4 before TX keys, PTK/GTK/IGTK installation and identity checks; then DOWN/delete/restore. No persistent connection.
+After verified M4/keys/identity: authorize peer port, verify sta_info, then DHCP test up to 45 seconds plus I/O.
+After DHCP: three address probes, announcements, gateway ARP and three ICMP echoes; up to 30 seconds plus I/O. Temporary IP removed on exit.
+RNG200: ok phase=5 base=0x000000107d208000 configuration=inherited
+control=0x0000000000007fff status=0x0000000000020005 warmup_bits=239766684 discarded_words=16 consumed_words=80 conditioned_blocks=4
+PASS: hardware source supplied two distinct 64-byte conditioned samples; sample bytes erased.
+No random bytes printed. Engineering health checks are not entropy certification; RNG testing alone does not authenticate Wi-Fi.
+Password (hidden, printable ASCII; Enter submits, Ctrl+U clears, empty Enter cancels):
+Preparing group-19 SAE hunting-and-pecking PWE: fixed 40 candidates before radio UP. Wait for the prompt.
+Hunting-and-pecking password element ready; password erased.
+Password element ready. Preparing one fresh randomized SAE commit; no radio UP yet.
+SAE preparation elapsed_seconds=4 password/token temporaries erased; private session retained only for this confirm test.
+Starting bounded join/SAE exchange, then DOWN/restore.
+Association/EAPOL probe: ok phase=11
+SAE method=hunting-and-pecking (commit status 0)
+SAE confirm test: ok phase=12 join_phase=7
+request_seen=yes commit_TX_attempted=yes SET_ack=yes TX_status=0 offchannel=not-seen
+peer_RX=seen metadata_version=1 sequence=1 status=0 group=19 body_bytes=98 peer_commit_valid=yes reflection=no
+events=8 ignored=4 polls=9 firmware_status=0x0000000000000000
+commit_attempts=1 active_packet_id=2 observed_auth_RX=2 early_RX=0 filtered_RX=0 malformed_RX=0
+confirm_TX_attempted=yes SET_ack=yes TX_status=0 confirm_RX=seen peer_confirm_verified=yes crypto_result=0 key_math_ms=2717 firmware_status=0x0000000000000000
+Interface DOWN=acknowledged policy/mask restoration=verified transcript_buffers=erased
+Event diagnostics (last 9; stage 0=before TX, 1=commit, 2=confirm, 3=handoff):
+event=187 status=0x0000000000000000 bytes=60 stage=0 cookie=0 if=0 bss=0 filter=0 result=ok
+event=189 status=0x0000000000000000 bytes=4 stage=1 cookie=1 if=0 bss=0 filter=0 result=ok
+event=188 status=0x0000000000000000 bytes=144 stage=1 cookie=0 if=0 bss=0 filter=0 result=ok
+event=189 status=0x0000000000000000 bytes=4 stage=2 cookie=2 if=0 bss=0 filter=0 result=ok
+event=188 status=0x0000000000000000 bytes=80 stage=2 cookie=0 if=0 bss=0 filter=0 result=ok
+event=3 status=0x0000000000000000 bytes=0 stage=3 cookie=0 if=0 bss=0 filter=0 result=authentication path not ready
+event=7 status=0x0000000000000000 bytes=123 stage=3 cookie=0 if=0 bss=0 filter=0 result=authentication path not ready
+event=16 status=0x0000000000000000 bytes=26 stage=3 cookie=0 if=0 bss=0 filter=0 result=authentication path not ready
+event=0 status=0x0000000000000000 bytes=6 stage=3 cookie=0 if=0 bss=0 filter=0 result=authentication path not ready
+SAE verified; firmware handoff was attempted. See association status. Private session/keys erased.
+RSN mode=exclusive fresh-station SET/clear journal
+RSN empty_baseline_SET=acknowledged profile_SET=acknowledged cleanup_clear_SET=acknowledged
+wpaie GET diagnostic only: result=unsupported authentication format/state firmware_status=0x00000000fffffffa bytes=0 prefix_LE32:
+RSN snapshot=software-owned empty baseline bytes=0 effective_request=verified restored=clear acknowledged result=ok restore_result=ok
+firmware_auth_success_SET=acknowledged status=0x0000000000000000 private_keys_erased=yes
+SET_SSID_success=seen LINK_up=seen identity=verified SAE/AES/PMF=verified association_verified=yes
+Association request IEs=verified bytes=118 RSNXE_H2E=not-seen firmware_status=0x0000000000000000
+Association IE query phase=3 info_reply_bytes=512 request_reply_bytes=512 info_header_LE32: 0x000000000000007a 0x000000000000007b 0x0000000000000000
+Association request fixed_header_bytes=4 normalized_IE_bytes=118
+Request IE check=ok offset=109 tag=221 RSN_bytes=28 RSN_result=ok capabilities=0x00000000000000c0 PMKID_count=0 management_suite=explicit
+EAPOL_M1=observed (unauthenticated) version=2 descriptor=2 last_key_info=0x00000000000013c8 data_frames=11 ignored=0 malformed=0
+EAPOL key probe: ok phase=11 M2_SDIO_write=completed (not air ACK) bytes=141
+M3_bytes=187 MIC=verified unwrap_integrity=verified plaintext_bytes=80 (private buffers erased on exit)
+M3 key data: ok verified=yes AP_RSN_scan_match=yes RSN_bytes=26
+GTK_bytes=16 id=1 IGTK_bytes=16 id=4 padding_bytes=0 (key bytes erased)
+KDE check offset=50 tag=221 selector=9
+M4_encoded=yes bytes=113 M4_SDIO_write=completed (not air ACK)
+M3 retries: queued=0 authenticated=0 duplicates=0 pending=no
+M3 retry replay filter=none
+M4 writes=1 credit_deferrals=0 key_reinstall_attempts=0 (one-shot install journal)
+Firmware key installation: ok phase=3 issued_mask=0x0000000000000007 ack_mask=0x0000000000000007 status=0x0000000000000000 (SET acknowledgements; no key readback)
+Post-M4 identity=verified settle_polls=20
+Firmware key cleanup=acknowledged clear_mask=0x0000000000000007 result=ok status=0x0000000000000000
+association events=4 ignored=0 polls=12 identity_queries=5 last_event=0 status=0x0000000000000000 reason=0 flags=0x0000000000000000
+Probe ended DOWN. No persistent authorized data port or IP. Bounded test only; reboot before retry.
+First M4 before TX key installation=yes (SDIO ordering only, not air ACK)
+Controlled port: ok phase=4 AUTHORIZE_SET=acknowledged readback=verified firmware_status=0x0000000000000000 deferrals=0
+SCB before valid=yes version=4 bytes=200 flags=0x000000000000e01a authenticated=yes associated=yes authorized=no
+SCB counters tx=2 tx_fail=0 rx_unicast=2 rx_multicast=0 decrypt_ok=0 decrypt_fail=0
+SCB after valid=yes version=4 bytes=200 flags=0x000000000000e03a authenticated=yes associated=yes authorized=yes
+SCB counters tx=2 tx_fail=0 rx_unicast=2 rx_multicast=0 decrypt_ok=0 decrypt_fail=0
+SCB final query: ok firmware_status=0x0000000000000000
+SCB final valid=yes version=4 bytes=200 flags=0x000000000000e03a authenticated=yes associated=yes authorized=yes
+SCB counters tx=13 tx_fail=1 rx_unicast=11 rx_multicast=0 decrypt_ok=9 decrypt_fail=0
+DEAUTHORIZE_SET=acknowledged status=0x0000000000000000
+DHCP probe: ok phase=3
+DISCOVER_writes=1 REQUEST_writes=1 OFFER=observed ACK=verified for transaction/server NAK=not-seen
+DHCP RX=5 ignored=3 malformed=0 credit_deferrals=0 polls=166
+ACK address=10.21.217.100 server=10.21.217.61 lease_seconds=3599
+mask=255.255.255.0 gateway=10.21.217.61 DNS=10.21.217.61
+Gateway probe: ok phase=5
+ARP checks: probes=3 announcements=2 conflict=not-observed temporary_IP_used=yes active_now=no
+Gateway ARP requests=1 learned=yes MAC=7e:73:c6:d1:9e:25 changed=no
+ICMP to gateway 10.21.217.61 sent=3 reply_mask=0x0000000000000007
+echo sequence=1 observed_latency_ms=26 (includes polling/I/O)
+echo sequence=2 observed_latency_ms=23 (includes polling/I/O)
+echo sequence=3 observed_latency_ms=24 (includes polling/I/O)
+Network RX=4 ARP=1 IPv4=3 ignored=0 malformed=0 deferrals=0 polls=920 ARP_replies=0
+Cached gateway test only; temporary IP removed and Wi-Fi ends DOWN. No DNS, external Internet probe or persistent connection.
+> netinfo
+First M4 before TX key installation=yes (SDIO ordering only, not air ACK)
+Controlled port: ok phase=4 AUTHORIZE_SET=acknowledged readback=verified firmware_status=0x0000000000000000 deferrals=0
+SCB before valid=yes version=4 bytes=200 flags=0x000000000000e01a authenticated=yes associated=yes authorized=no
+SCB counters tx=2 tx_fail=0 rx_unicast=2 rx_multicast=0 decrypt_ok=0 decrypt_fail=0
+SCB after valid=yes version=4 bytes=200 flags=0x000000000000e03a authenticated=yes associated=yes authorized=yes
+SCB counters tx=2 tx_fail=0 rx_unicast=2 rx_multicast=0 decrypt_ok=0 decrypt_fail=0
+SCB final query: ok firmware_status=0x0000000000000000
+SCB final valid=yes version=4 bytes=200 flags=0x000000000000e03a authenticated=yes associated=yes authorized=yes
+SCB counters tx=13 tx_fail=1 rx_unicast=11 rx_multicast=0 decrypt_ok=9 decrypt_fail=0
+DEAUTHORIZE_SET=acknowledged status=0x0000000000000000
+DHCP probe: ok phase=3
+DISCOVER_writes=1 REQUEST_writes=1 OFFER=observed ACK=verified for transaction/server NAK=not-seen
+DHCP RX=5 ignored=3 malformed=0 credit_deferrals=0 polls=166
+ACK address=10.21.217.100 server=10.21.217.61 lease_seconds=3599
+mask=255.255.255.0 gateway=10.21.217.61 DNS=10.21.217.61
+Gateway probe: ok phase=5
+ARP checks: probes=3 announcements=2 conflict=not-observed temporary_IP_used=yes active_now=no
+Gateway ARP requests=1 learned=yes MAC=7e:73:c6:d1:9e:25 changed=no
+ICMP to gateway 10.21.217.61 sent=3 reply_mask=0x0000000000000007
+echo sequence=1 observed_latency_ms=26 (includes polling/I/O)
+echo sequence=2 observed_latency_ms=23 (includes polling/I/O)
+echo sequence=3 observed_latency_ms=24 (includes polling/I/O)
+Network RX=4 ARP=1 IPv4=3 ignored=0 malformed=0 deferrals=0 polls=920 ARP_replies=0
+Cached gateway test only; temporary IP removed and Wi-Fi ends DOWN. No DNS, external Internet probe or persistent connection.
+> wifiinfo
+Wi-Fi state: manual firmware/control bring-up; wifiscan is opt-in; connect/IP unavailable.
+Firmware DT Wi-Fi node: /axi/mmc@1100000/wifi@1
+DT compatible: brcm,bcm4329-fmac
+Firmware-described MAC: 2c:cf:67:f4:99:75
+Pi 5 platform plan: BCM43455-class FullMAC over separate SDIO host 0x1001100000.
+DT compatible brcm,bcm4329-fmac is a family binding, not a measured chip ID.
+Requested network security: WPA3-Personal (SAE + protected management frames).
+Commands: wifiinfo, wifiprobe, wifiinit, wificores, wififiles, wifiload, wifistart, wificontrol.
+wificaps (read features/MAC) wifiprepare <CC> (CLM + country, no scan)
+wifiscan (passive scan after country preparation; one-shot results)
+wifitarget <SSID> (cached WPA3 cipher/PMF checks; no connection)
+wifiauthprep <SSID> (verify/restore firmware SAE/PMF/events; no join)
+wifijoinprobe <SSID> (observe external-SAE request, then DOWN/restore; no password)
+wifisaeprobe <SSID> (hidden password, fresh SAE commit/reply probe; no confirm or IP)
+wifisaeauth <SSID> (hidden password, live SAE confirm test; then DOWN/restore, no association/IP)
+wifiassoc <SSID> (verified SAE/M3, key-install/live-M4 test; then DOWN/delete, no persistent link/IP)
+wifidhcp <SSID> (fresh SAE/M4, peer-port authorization/readback, DHCP test; DOWN/delete) netinfo
+wifiping <SSID> (fresh DHCP, address checks, ARP and gateway ICMP; then DOWN)
+Board power phase=6 result=ok stepping=0x0000000027120030 SD_clock_hz=400000
+SDIO init phase=7 result=ok selected=yes
+R4=0x00000000b0ffff00 RCA=0x0000000000000001 functions=3 CCCR=3 SDIO_revision=4
+last_irq=0x0000000000000002 last_response=0x0000000000001000
+SDIO CIS vendor=0x00000000000002d0 device=0x0000000000004345 (SDIO identity; not backplane chip/revision)
+Broadcom phase=4 result=ok clock_csr=0x00000000000000d2
+Function-1 block size=64 bytes; RAM wire requests <=64 bytes
+ChipCommon ID word=0x0000000015264345 chip=0x0000000000004345 revision=6
+Wi-Fi core discovery: ok core_map=valid RAM=measured
+EROM=0x000000001810a000 words=88 cores=5
+core=0x0000000000000800 ChipCommon rev=51 base=0x0000000018000000 wrapper=0x0000000018100000
+core=0x0000000000000812 D11 WLAN rev=54 base=0x0000000018001000 wrapper=0x0000000018101000
+core=0x000000000000083e ARM CR4 rev=9 base=0x0000000018002000 wrapper=0x0000000018102000
+core=0x000000000000083c PCIe Gen2 rev=14 base=0x0000000018003000 wrapper=0x0000000018103000
+core=0x0000000000000829 SDIO device rev=21 base=0x0000000018004000 wrapper=0x0000000018104000
+CR4 discovery snapshot: ioctl=0x0000000000000021 reset=0x0000000000000000 capability=0x0000000000000b44 banks=8
+CR4 bank selector restored and verified.
+Wi-Fi RAM base (chip map)=0x0000000000198000 bytes=819200 KiB=800
+bank=0 bytes=131072
+bank=1 bytes=131072
+bank=2 bytes=131072
+bank=3 bytes=32768
+bank=4 bytes=131072
+bank=5 bytes=65536
+bank=6 bytes=131072
+bank=7 bytes=65536
+Wi-Fi firmware staging: ok phase=6 upload/readback=verified
+CR4 halt not confirmed D11 reset not confirmed
+code_bytes=609309 verified_bytes=609309 NVRAM_bytes=1748 NVRAM_address=0x000000000025f92c
+Initial NVRAM token clear/readback succeeded.
+CR4 release attempted; passive upload status is historical, not current CPU/D11 state.
+Wi-Fi firmware startup: ok phase=7 shared_memory=ready
+CR4 may be executing; halt is not asserted by this status.
+reset_vector=0x00000000b83ef198 clock_csr=0x00000000000000d0 shared=0x0000000000201cc0 polls=1
+shared_flags=0x0000000000000001 console=0x000000000025debc trap=0x0000000000000000 assert_line=0 mailbox=0x0000000000000000
+Startup snapshot; see the separate control-channel status.
+Wi-Fi control channel: ok phase=8 queries=verified
+F2 block_size=512 IO_ENABLE=0x0000000000000006 IO_READY=0x0000000000000006 clock_csr=0x00000000000000d2 device_ready=yes
+interrupt=0x0000000020800040 mailbox=0x0000000000040002 last_address=0x0000000000008000 last_word=0x0000000000040002
+TX_frames=136 RX_frames=163 events=27 data_dropped=11 empty=136 sequence_resync=3 polls=268
+Last RX header: 0x00000000ffc80037 0x000000000c0000a1 0x000000000000b000
+SDPCM glom: descriptors=1 aggregates=1 subframes=2 failures=0 phase=5 result=ok
+Glom entries=2 pending=0 described_bytes=384 wire_bytes=512 outer_header: 0x0000000000000000 0x0000000000000000 0x0000000000000000
+Glom last_index=1 lengths: 256 128 subheader: 0x0000000000000000 0x0000000000000000 0x0000000000000000
+tx_seq=136 tx_window=176 request_id=123 command=262 firmware_status=0x0000000000000000 response_bytes=27
+Firmware ioctl ABI=2
+Firmware version: wl0: Aug 29 2023 01:47:08 version 7.45.265 (28bca26 CY) FWID 01-b677b91b
+Version queries snapshot; preparation/scan/association have separate status. No authorized data port or IP.
+Wi-Fi capabilities: ok phase=5 discovery=verified
+Firmware cap: ap sta wme 802.11d 802.11h rm cqa cac dualband ampdu ampdu_tx ampdu_rx amsdurx radio_pwrsave btamp p2p proptxstatus mchan p2po anqpo vht-prop-rates dfrts txpwrcache stbc-tx stbc-rx-1ss epno pfnx wnm bsstrans mfp sae_ext fbt
+Firmware MAC: 2c:cf:67:f4:99:75
+SAE advertised=no external_SAE advertised=yes
+PMF iovar replied=yes current_value=1 firmware_status=0x0000000000000000
+Firmware supplicant iovar unsupported current_value=0 firmware_status=0x00000000ffffffe9
+Capability discovery does not enable SAE/PMF or prove a WPA3 connection.
+last_firmware_status=0x00000000ffffffe9
+Wi-Fi regulatory preparation: ok phase=6 CLM/country=verified
+CLM pin=verified uploaded_bytes=2676 chunks=2 clmload_status=0x0000000000000000 firmware_status=0x0000000000000000
+CLM version: API: 12.2 Data: RPi.4 Compiler: 1.29.4 ClmImport: 1.39.1 Customization: v2 21/11/15 Creation: 2021-11-15 01:32:40
+Requested country=IN verified country=IN ccode=IN revision=0
+Country raw reply: 0x0000000000000049 0x000000000000004e 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000000 0x0000000000000049 0x000000000000004e 0x0000000000000000 0x0000000000000000
+Preparation snapshot; wifiscan is separate. wifiassoc tests key installation/live M4, then DOWN/delete; no persistent link/IP.
+Wi-Fi passive scan: ok phase=8 scan=complete
+escan_version=1 scan_ver_reply=0x0000000000000000 sync_id=0x0000000000004f53 firmware_status=0x0000000000000000 event_status=0 reason=0
+networks=4 events=11 duplicates=6 malformed=0 ignored=1 overflow=0 polls=381
+Interface DOWN acknowledged. Event mask restored and verified.
+7e:73:c6:d1:9e:25 channel=11 band=2GHz RSSI=-17dBm security=RSN+PSK+SAE PMF=capable SSID="Jack's"
+be:55:db:ae:a9:fe channel=6 band=2GHz RSSI=-86dBm security=RSN+PSK PMF=not-advertised SSID="Navin AirFiber"
+fa:54:2d:13:60:4c channel=6 band=2GHz RSSI=-86dBm security=RSN+PSK PMF=not-advertised SSID="OnePlus Nord CE 2 Lite 5G"
+0e:36:23:6e:71:59 channel=11 band=2GHz RSSI=-86dBm security=RSN+PSK PMF=not-advertised SSID="Airtel_bala_9559"
+Scan advertisements only; use a separate WPA3 handshake/network test. The scan ends DOWN.
+Association/EAPOL probe: ok phase=11
+SAE method=hunting-and-pecking (commit status 0)
+SAE confirm test: ok phase=12 join_phase=7
+request_seen=yes commit_TX_attempted=yes SET_ack=yes TX_status=0 offchannel=not-seen
+peer_RX=seen metadata_version=1 sequence=1 status=0 group=19 body_bytes=98 peer_commit_valid=yes reflection=no
+events=8 ignored=4 polls=9 firmware_status=0x0000000000000000
+commit_attempts=1 active_packet_id=2 observed_auth_RX=2 early_RX=0 filtered_RX=0 malformed_RX=0
+confirm_TX_attempted=yes SET_ack=yes TX_status=0 confirm_RX=seen peer_confirm_verified=yes crypto_result=0 key_math_ms=2717 firmware_status=0x0000000000000000
+Interface DOWN=acknowledged policy/mask restoration=verified transcript_buffers=erased
+Event diagnostics (last 9; stage 0=before TX, 1=commit, 2=confirm, 3=handoff):
+event=187 status=0x0000000000000000 bytes=60 stage=0 cookie=0 if=0 bss=0 filter=0 result=ok
+event=189 status=0x0000000000000000 bytes=4 stage=1 cookie=1 if=0 bss=0 filter=0 result=ok
+event=188 status=0x0000000000000000 bytes=144 stage=1 cookie=0 if=0 bss=0 filter=0 result=ok
+event=189 status=0x0000000000000000 bytes=4 stage=2 cookie=2 if=0 bss=0 filter=0 result=ok
+event=188 status=0x0000000000000000 bytes=80 stage=2 cookie=0 if=0 bss=0 filter=0 result=ok
+event=3 status=0x0000000000000000 bytes=0 stage=3 cookie=0 if=0 bss=0 filter=0 result=authentication path not ready
+event=7 status=0x0000000000000000 bytes=123 stage=3 cookie=0 if=0 bss=0 filter=0 result=authentication path not ready
+event=16 status=0x0000000000000000 bytes=26 stage=3 cookie=0 if=0 bss=0 filter=0 result=authentication path not ready
+event=0 status=0x0000000000000000 bytes=6 stage=3 cookie=0 if=0 bss=0 filter=0 result=authentication path not ready
+SAE verified; firmware handoff was attempted. See association status. Private session/keys erased.
+RSN mode=exclusive fresh-station SET/clear journal
+RSN empty_baseline_SET=acknowledged profile_SET=acknowledged cleanup_clear_SET=acknowledged
+wpaie GET diagnostic only: result=unsupported authentication format/state firmware_status=0x00000000fffffffa bytes=0 prefix_LE32:
+RSN snapshot=software-owned empty baseline bytes=0 effective_request=verified restored=clear acknowledged result=ok restore_result=ok
+firmware_auth_success_SET=acknowledged status=0x0000000000000000 private_keys_erased=yes
+SET_SSID_success=seen LINK_up=seen identity=verified SAE/AES/PMF=verified association_verified=yes
+Association request IEs=verified bytes=118 RSNXE_H2E=not-seen firmware_status=0x0000000000000000
+Association IE query phase=3 info_reply_bytes=512 request_reply_bytes=512 info_header_LE32: 0x000000000000007a 0x000000000000007b 0x0000000000000000
+Association request fixed_header_bytes=4 normalized_IE_bytes=118
+Request IE check=ok offset=109 tag=221 RSN_bytes=28 RSN_result=ok capabilities=0x00000000000000c0 PMKID_count=0 management_suite=explicit
+EAPOL_M1=observed (unauthenticated) version=2 descriptor=2 last_key_info=0x00000000000013c8 data_frames=11 ignored=0 malformed=0
+EAPOL key probe: ok phase=11 M2_SDIO_write=completed (not air ACK) bytes=141
+M3_bytes=187 MIC=verified unwrap_integrity=verified plaintext_bytes=80 (private buffers erased on exit)
+M3 key data: ok verified=yes AP_RSN_scan_match=yes RSN_bytes=26
+GTK_bytes=16 id=1 IGTK_bytes=16 id=4 padding_bytes=0 (key bytes erased)
+KDE check offset=50 tag=221 selector=9
+M4_encoded=yes bytes=113 M4_SDIO_write=completed (not air ACK)
+M3 retries: queued=0 authenticated=0 duplicates=0 pending=no
+M3 retry replay filter=none
+M4 writes=1 credit_deferrals=0 key_reinstall_attempts=0 (one-shot install journal)
+Firmware key installation: ok phase=3 issued_mask=0x0000000000000007 ack_mask=0x0000000000000007 status=0x0000000000000000 (SET acknowledgements; no key readback)
+Post-M4 identity=verified settle_polls=20
+Firmware key cleanup=acknowledged clear_mask=0x0000000000000007 result=ok status=0x0000000000000000
+association events=4 ignored=0 polls=12 identity_queries=5 last_event=0 status=0x0000000000000000 reason=0 flags=0x0000000000000000
+Probe ended DOWN. No persistent authorized data port or IP. Bounded test only; reboot before retry.
+Next: verify address checks and gateway ping, then external numeric reachability, DNS and persistent link/rekey.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x000000006a004021
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> uptime
+uptime_seconds=244
+>

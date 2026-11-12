@@ -1,6 +1,6 @@
 # Association IE validation and four-way-handshake foundations
 
-**Current stage: [address checks, ARP and gateway ping](wifi-gateway.md).** The latest Pi log passes corrected M4/key ordering, peer-port setup, DHCP OFFER/ACK and cleanup. The new ARP/ICMP test needs a Pi run. The implementation history below describes an earlier revision.
+**Current stage: [foreground Wi-Fi session and numeric ping](wifi-session.md).** DHCP, address checks, ARP and three gateway replies now pass on the Pi. The new live session needs a Pi run. The implementation history below describes an earlier revision.
 
 
 

@@ -176,39 +176,41 @@ alone does not prove password agreement. Check peer_confirm_verified.
 P-256 prime folding replaces slow 512-bit serial reduction; 13647 independent
 BigInt products and existing OpenSSL/H2E/SAE vectors pass. Pi preparation went
 from 95 seconds to 3 in the captures; live peer-key timing is 2900 ms.
-Latest physical Pi capture PASSES corrected first-M4/key ordering, peer-port
-121 SET/readback, DHCP OFFER/ACK and two successful decryptions. Cleanup passes.
-The observed lease was 10.21.217.100, gateway/DNS 10.21.217.61, /24, 3599 s.
-These are capture values, not hardcoded configuration.
-Current phase: wifiping <SSID> runs fresh SAE/M4/keys/port/DHCP, three ARP address
-probes with randomized timing, two announcements, gateway ARP and three ICMP
-requests. Require an on-link gateway and usable mask/address; no guesses.
-ARP/ICMP hardware behavior remains UNTESTED. A bounded local gateway test only.
-Fresh boot: nettest, keytest, storageinit, wififiles, wifiinit, wificores,
-wifiload, wifistart, wificontrol, wificaps, wifiprepare IN, wifiscan,
-wifitarget Jack's, wifiping Jack's, netinfo, wifiinfo, storagetest, pagetest, uptime.
-Run separately and wait for each prompt. Skip wifidhcp/wifiassoc/other join probes.
-Enter credentials only at the hidden prompt. Nothing is embedded or saved.
-PuTTY Local echo and Local line editing: Force off. Reboot before retrying.
-DHCP remains bounded by 45 s plus I/O. New ARP/ICMP scope: 30 s/3000 polls plus
-bounded I/O, three probes, two announcements, three gateway requests, three
-ICMP echoes, eight credit deferrals and eight queued ARP reply writes at most.
-No conflict observed is limited evidence. Recheck lease validity before writes.
-On conflict remove the temporary IP and attempt DHCPDECLINE, then stop.
-Allow at least ten seconds before retrying. No automatic acquisition retry.
-Always remove the temporary IP, DEAUTHORIZE every attempted port, DOWN/delete
-keys/clear RSN/restore policy and erase private state. Unconfirmed cleanup
-poisons I/O. M3 retry service never reinstalls keys.
-Success: overall phase=11, DHCP phase=3, Gateway probe ok phase=5, three probes,
-two announcements, learned gateway MAC, sent=3 and nonzero reply_mask.
-reply_mask=7 means all three replied. Observed latency includes polling/I/O.
-netinfo caches public results. Active_now must be no after the test finishes.
-nettest now checks public DHCP and ARP/ICMP known answers, without radio I/O.
-No persistent connection, DNS, external Internet probe, renewal, TCP/TLS or
-package installation. No DHCP RELEASE yet. ping www.google.com is unavailable.
-SAE H&P/CCMP/required PMF remains the live profile; no WPA2 fallback. H2E M2
-binding and group rekey remain later work. Long math tests are optional here.
-See docs/wifi-gateway.md for exact limits, validation and the current procedure.
+Latest physical Pi capture PASSES DHCP, address checks, gateway ARP and all
+three gateway ICMP replies (observed latency 26/23/24 ms including polling/I/O).
+The earlier wifiping test deliberately disconnected afterward; cleanup passed.
+Current phase: wificonnect <SSID> runs verified SAE/M4/keys/port/DHCP/address
+checks/gateway pings, then keeps a foreground net> console OPEN.
+Fresh boot: meminfo, memmap, pagetest, nettest, keytest, storageinit, wififiles,
+wifiinit, wificores, wifiload, wifistart, wificontrol, wificaps, wifiprepare IN,
+wifiscan, wifitarget Jack's, wificonnect Jack's.
+Run separately. Skip wifiping/wifidhcp/wifiassoc and other join probes this boot.
+Password is accepted only at the hidden prompt and is not saved or embedded.
+At net>: netinfo, ping (gateway), ping 1.1.1.1 (numeric off-link), disconnect.
+Wait for Ping complete before another ping. An unanswered ping leaves Wi-Fi
+open. Leave idle one minute, check the phone still lists the Pi, then ping again.
+Ctrl+C also requests disconnect. Only network commands run inside net>.
+After disconnect, at normal >: netinfo, wifiinfo, storagetest, pagetest, uptime.
+Reboot before joining again. One-shot initialization/install journals remain.
+Initial DHCP and address/gateway checks retain their 45 s/30 s plus I/O limits.
+The open session ends on explicit disconnect, lease expiry, one-hour/360000-poll
+limit, unsupported rekey, lost peer/authorization, conflict or I/O/RNG failure.
+No renewal, automatic reconnect, DNS, TCP, sockets or package installation yet.
+ping www.google.com is refused. Other on-link neighbors are not implemented.
+External numeric IP replies and the new foreground behavior are hardware UNTESTED.
+Each user ping uses fresh random ID/token, exact endpoint/payload/checksum
+matching and three requests. RX/ARP/M3 continue while input is polled. Peer
+identity/security/SCB flags are inspected every 15 s and on netinfo.
+Every exit removes IP, attempts DECLINE on conflict, deauthorizes, DOWN/deletes
+keys/clears RSN/restores policy and erases private keys. No key reinstallation.
+RX has bounded per-operation budgets in the console; setup retains its cap.
+ARP replies: one queued, at most 64/minute. Existing M3/M4/credit limits remain.
+The 1 MiB page bitmap now occupies an explicit reserved RAM arena instead of
+kernel BSS. meminfo/memmap show it; managed RAM may be 1 MiB lower. Physical
+address limit stays 32 GiB. Native tests pass; new placement needs Pi testing.
+Firmware entry, DTB placement and Image-size checks are unchanged.
+PuTTY: 115200 8N1, no flow control; force Local echo/Local line editing off.
+See docs/wifi-session.md. Long P256/H2E/SAE tests are optional for this run.
 rngtest manually checks the DT-gated RNG200 source and erases its samples.
 No random bytes are printed, and no timer/MAC fallback is allowed.
 Native crypto/RNG tests, physical RNG checks and live SAE confirms pass. No IP.

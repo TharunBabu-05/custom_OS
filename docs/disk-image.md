@@ -1,9 +1,10 @@
 # Experimental Pi 5 disk image
 
-Current Wi-Fi test: [address checks, ARP and gateway ping](wifi-gateway.md).
-The latest Pi run passes peer-port authorization and DHCP OFFER/ACK. The new
-`wifiping` command tests ARP and gateway ICMP, then removes its temporary IP
-and ends DOWN. That new behavior needs a fresh Pi test.
+Current Wi-Fi test: [foreground session and numeric ping](wifi-session.md).
+The latest Pi run passes address checks, ARP and three gateway replies; its
+disconnect was deliberate cleanup. New `wificonnect` stays open at `net>` until
+disconnect/expiry/failure. That behavior and the external bitmap arena need
+a fresh Pi test.
 
 Builds now preserve previous and newly generated images in the local
 [`image_files` folder](image-archive.md), then clean known stale build outputs.

@@ -1,10 +1,12 @@
 /* Native tests use Win32 guard pages only in the host test executable. */
-#include <assert.h>
+#include "host_assert.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
 #include "memory.h"
+static uint64_t test_bitmap[PMM_BITMAP_BYTES/8];
+#define INIT(map) pages_init((map),test_bitmap,sizeof(test_bitmap))
 
 struct builder {
     unsigned char bytes[65536], structure[32768], strings[8192];
@@ -112,7 +114,7 @@ static void parser_cases(void)
     assert(memory_reserve(&m,0,0x200000,"boot guard"));
     assert(memory_reserve(&m,0x80000,0x120000,"kernel"));
     assert(memory_reserve(&m,0x200000,0x14000,"DTB"));
-    assert(pages_init(&m)); assert(pages_stats().managed_pages==15ULL*1024*1024*1024/PAGE_SIZE);
+    assert(INIT(&m)); assert(pages_stats().managed_pages==15ULL*1024*1024*1024/PAGE_SIZE);
     uint64_t first; assert(page_alloc(&first) && first==0x40000000); assert(page_free(first));
     puts("PASS: DT cells, multi-bank/high RAM, overlap normalization, fixed/dynamic reservations, initrd and fail-closed cases");
 }
@@ -124,7 +126,7 @@ static void allocator_cases(void)
     assert(memory_reserve(&m,0x2001,1,"partial"));
     assert(memory_reserve(&m,0x3000,0x2000,"first"));
     assert(memory_reserve(&m,0x4000,0x2000,"overlap"));
-    assert(memory_normalize(&m)); assert(pages_init(&m));
+    assert(memory_normalize(&m)); assert(INIT(&m));
     assert(pages_stats().managed_pages==6 && pages_stats().free_pages==6);
     assert(!page_alloc(NULL));
     for (unsigned i=0;i<6;++i) {
@@ -142,16 +144,36 @@ static void allocator_cases(void)
 
     memset(&m,0,sizeof(m)); m.ram_count=1;
     m.ram[0]=(struct memory_range){PMM_ADDRESS_LIMIT-PAGE_SIZE,2*PAGE_SIZE};
-    assert(memory_normalize(&m) && pages_init(&m));
+    assert(memory_normalize(&m) && INIT(&m));
     assert(pages_stats().managed_pages==1); assert(page_alloc(&replacement) && replacement==PMM_ADDRESS_LIMIT-PAGE_SIZE);
     assert(!page_alloc(&replacement));
-    m.ram[0]=(struct memory_range){PMM_ADDRESS_LIMIT,2*PAGE_SIZE}; assert(!pages_init(&m));
+    m.ram[0]=(struct memory_range){PMM_ADDRESS_LIMIT,2*PAGE_SIZE}; assert(!INIT(&m));
     assert(!page_alloc(&replacement) && !page_free(p[0]));
-    m.ram[0]=(struct memory_range){1,PAGE_SIZE-1}; assert(!pages_init(&m));
+    m.ram[0]=(struct memory_range){1,PAGE_SIZE-1}; assert(!INIT(&m));
     m.ram[0]=(struct memory_range){0x1000,PAGE_SIZE};
-    assert(memory_reserve(&m,0x1000,PAGE_SIZE,"all")); assert(!pages_init(&m));
+    assert(memory_reserve(&m,0x1000,PAGE_SIZE,"all")); assert(!INIT(&m));
     assert(!memory_reserve(&m,UINT64_MAX,1,"overflow"));
     puts("PASS: page uniqueness, holes, overlapping/partial reservations, high addresses, exhaustion, reuse, double-free and cap");
+}
+static void bitmap_cases(void)
+{
+    struct memory_map m={0};m.ram_count=1;m.ram[0]=(struct memory_range){0x40000000,4*PMM_BITMAP_BYTES};assert(memory_normalize(&m));
+    assert(memory_reserve(&m,0x40000000,0x20001,"unaligned guard"));assert(memory_reserve(&m,0x40010000,0x30000,"overlap"));
+    uint64_t address=0xdeadbeef;assert(memory_claim_bitmap(&m,&address) && address==0x40040000 && m.reserved_count==3);
+    assert(!strcmp(m.reserved[2].reason,"physical page bitmap") && m.reserved[2].range.size==PMM_BITMAP_BYTES);
+    assert(INIT(&m) && !page_free(address));uint64_t p;unsigned count=0;
+    while (page_alloc(&p)) { assert(p<address || p>=address+PMM_BITMAP_BYTES);++count; }
+    assert(count==(4*PMM_BITMAP_BYTES-0x40000-PMM_BITMAP_BYTES)/PAGE_SIZE);
+    struct memory_map bad=m;bad.ram[0].size=PMM_BITMAP_BYTES-1;address=0xdeadbeef;unsigned reservations=bad.reserved_count;
+    assert(!memory_claim_bitmap(&bad,&address) && address==0xdeadbeef && bad.reserved_count==reservations);
+    bad=m;bad.reserved_count=MEMORY_MAX_RESERVED;assert(!memory_claim_bitmap(&bad,&address));
+    bad=m;bad.ram[0]=(struct memory_range){PMM_ADDRESS_LIMIT,2*PMM_BITMAP_BYTES};assert(!memory_claim_bitmap(&bad,&address));
+    bad=m;bad.reserved[0].range=(struct memory_range){UINT64_MAX,2};assert(!memory_claim_bitmap(&bad,&address));
+    bad=m;bad.ram_count=2;bad.ram[1]=bad.ram[0];assert(!memory_claim_bitmap(&bad,&address));
+    memset(test_bitmap,0xa5,sizeof(test_bitmap));assert(!pages_init(&m,test_bitmap,sizeof(test_bitmap)-1) && test_bitmap[0]==0xa5a5a5a5a5a5a5a5ULL);
+    assert(!pages_init(&m,(unsigned char *)test_bitmap+1,sizeof(test_bitmap)) && !page_alloc(&p));
+    assert(!pages_init(&m,NULL,PMM_BITMAP_BYTES));
+    puts("PASS: external 1 MiB bitmap claim, overlap/alignment/cap/exhaustion checks, self-reservation excluded from every allocation/free, bounded storage and no static kernel bitmap");
 }
 static void guarded_cases(void)
 {
@@ -186,7 +208,7 @@ static void real_dtb(const char *path)
 }
 int main(int argc,char **argv)
 {
-    parser_cases(); allocator_cases(); guarded_cases();
+    parser_cases(); allocator_cases();bitmap_cases(); guarded_cases();
     for (int i=1;i<argc;++i) { real_dtb(argv[i]); }
     return 0;
 }

@@ -76,6 +76,7 @@ static void command(const char *line)
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
         console_write("keytest (offline AES/CMAC/unwrap/PTK/M2/M4/key-data/M3-retry vectors; no radio)\n");
         console_write("nettest (offline DHCP packet fixtures) wifidhcp <SSID> (DHCP test) wifiping <SSID> (gateway test) netinfo\n");
+        console_write("wificonnect <SSID> (foreground network console; ping numeric IPv4, netinfo, disconnect)\n");
         console_write("p256test (SAE group-19 arithmetic/public vectors; no authentication)\n");
         console_write("h2etest (H2E token/password-element public fixtures; no connection)\n");
         console_write("saetest (in-memory SAE commit/confirm public exchange; no radio)\n");

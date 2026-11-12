@@ -7,6 +7,7 @@
 #include "brcm_keys.h"
 #include "dhcp.h"
 #include "netprobe.h"
+#include "network_session.h"
 #define BRCM_ASSOC_IE_MAX 256
 struct brcm_assoc_io {
     struct brcm_join_probe_io join;
@@ -25,6 +26,7 @@ struct brcm_assoc_io {
     enum block_result (*peer_info)(void *,const unsigned char peer[6],struct brcm_station_info *,uint32_t *);
     enum block_result (*port_set)(void *,const unsigned char peer[6],bool authorize,uint32_t *);
     bool gateway_probe;enum block_result (*net_tx)(void *,enum netprobe_packet,unsigned,const void *,size_t);
+    bool session_mode;int (*session_getc)(void *);void (*session_write)(void *,const char *);void (*session_info)(void *);
 };
 struct brcm_assoc_probe {
     struct brcm_sae_probe sae;struct brcm_auth_peer peer;
@@ -47,6 +49,7 @@ struct brcm_assoc_probe {
     bool gateway_probe,gateway_attempted,decline_active,decline_attempted,decline_written;
     enum block_result gateway_result,decline_result;uint64_t lease_origin;
     struct netprobe network;
+    bool session_mode;struct network_session session;
     bool first_m4_before_keys,port_attempted,port_issued,port_ack,port_verified,port_close_active,port_closed;
     unsigned port_phase,port_queries,port_deferrals;
     enum block_result port_result,port_final_result,port_close_result;

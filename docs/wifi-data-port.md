@@ -1,5 +1,8 @@
 # Wi-Fi data port and DHCP reply correction
 
+Current guide: [foreground Wi-Fi session and numeric ping](wifi-session.md).
+Gateway ARP/ICMP now passes on the Pi; older phase details remain below.
+
 **This phase passes on the Pi:** [physical capture](../proofs/pi5-dhcp-ack-port-verified-2026-11-11.txt).
 Authorization readback, DHCP OFFER/ACK, two successful decryptions and cleanup
 pass. The current phase is [address checks, ARP and gateway ping](wifi-gateway.md).

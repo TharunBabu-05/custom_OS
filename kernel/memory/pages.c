@@ -1,6 +1,6 @@
 #include "memory.h"
 #define BITMAP_WORDS (PMM_ADDRESS_LIMIT/PAGE_SIZE/64)
-static uint64_t used[BITMAP_WORDS];
+static uint64_t *used;
 static struct memory_range usable[MEMORY_MAX_USABLE];
 static struct page_stats stats;
 static unsigned usable_count;
@@ -18,12 +18,11 @@ static bool add_usable(uint64_t start, uint64_t end)
     }
     return true;
 }
-bool pages_init(const struct memory_map *map)
+bool pages_init(const struct memory_map *map,void *bitmap,size_t bytes)
 {
-    stats=(struct page_stats){0}; usable_count=0; next_word=0;
-    if (!map || !map->ram_count || map->ram_count > MEMORY_MAX_RAM ||
+    stats=(struct page_stats){0}; usable_count=0; next_word=0;used=NULL;
+    if (!bitmap || ((uintptr_t)bitmap&7) || bytes<PMM_BITMAP_BYTES || !map || !map->ram_count || map->ram_count > MEMORY_MAX_RAM ||
         map->reserved_count > MEMORY_MAX_RESERVED) { return false; }
-    for (size_t i=0; i<BITMAP_WORDS; ++i) { used[i]=UINT64_MAX; }
     /* Input must be normalized; reject overlap instead of double-counting it. */
     uint64_t previous_end=0, total=0;
     for (unsigned i=0; i<map->ram_count; ++i) {
@@ -36,6 +35,7 @@ bool pages_init(const struct memory_map *map)
         struct memory_range r=map->reserved[i].range;
         if (!r.size || r.base > UINT64_MAX-r.size) { return false; }
     }
+    used=bitmap;for (size_t i=0;i<BITMAP_WORDS;++i) { used[i]=UINT64_MAX; }
     for (unsigned i=0; i<map->ram_count; ++i) {
         uint64_t at=up(map->ram[i].base), end=down(map->ram[i].base+map->ram[i].size);
         if (end > PMM_ADDRESS_LIMIT) { end=PMM_ADDRESS_LIMIT; }

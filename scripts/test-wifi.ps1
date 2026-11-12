@@ -6,6 +6,7 @@ try {
     New-Item -ItemType Directory -Force build/wifi-tests | Out-Null
     & "$PSScriptRoot/test-dhcp.ps1" -HostCompiler $HostCompiler
     & "$PSScriptRoot/test-netprobe.ps1" -HostCompiler $HostCompiler
+    & "$PSScriptRoot/test-network-session.ps1" -HostCompiler $HostCompiler
     & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_port_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c -o build/wifi-tests/test-brcm-port.exe
     if ($LASTEXITCODE -ne 0) { throw 'Peer port test compilation failed' }
     & ./build/wifi-tests/test-brcm-port.exe

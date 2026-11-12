@@ -1,5 +1,13 @@
 # Physical memory discovery and pages
 
+**Current bitmap layout:** the [foreground Wi-Fi revision](wifi-session.md#allocator-bitmap-relocation)
+removes the static 1 MiB bitmap from kernel BSS and claims a separately reserved,
+aligned RAM arena from the DT map. `meminfo` shows it and `memmap` lists
+`reason=physical page bitmap`. The 32 GiB address limit is unchanged. Managed
+RAM can be 1 MiB below older screenshots because that cost is now explicit.
+Native tests pass; the new placement needs the next Pi memory/storage test.
+The historical measurements below predate this change.
+
 OurOS has shared firmware-DTB RAM discovery and a single-core 4 KiB physical
 page allocator. The user's Pi screenshot confirms memory discovery, page
 patterns, allocation/release counters and double-free rejection on hardware;

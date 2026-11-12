@@ -4,6 +4,7 @@ extern unsigned char __kernel_start[], __kernel_end[];
 static struct memory_map boot_map;
 static const char *status="not initialized";
 static bool map_valid;
+static uint64_t bitmap_address;
 void memory_boot_init(uintptr_t dtb)
 {
     /* Firmware-provided pointer is trusted to reference readable RAM. The
@@ -16,12 +17,13 @@ void memory_boot_init(uintptr_t dtb)
     if (guard > 0x200000) { guard=0x200000; }
     if (kernel_end <= kernel_start ||
         !memory_reserve(&boot_map,first,guard,"boot guard (first 2 MiB)") ||
-        !memory_reserve(&boot_map,kernel_start,kernel_end-kernel_start,"kernel/BSS/stack/bitmap") ||
+        !memory_reserve(&boot_map,kernel_start,kernel_end-kernel_start,"kernel/BSS/stack") ||
         !memory_reserve(&boot_map,dtb,boot_map.dtb_size,"DTB")) {
         status="boot reservation limit or overflow; allocator disabled"; return;
     }
     map_valid=true;
-    if (!pages_init(&boot_map)) { status="unsupported or exhausted usable RAM; allocator disabled"; return; }
+    if (!memory_claim_bitmap(&boot_map,&bitmap_address)) { status="no safe RAM arena for page bitmap; allocator disabled";return; }
+    if (!pages_init(&boot_map,(void *)(uintptr_t)bitmap_address,PMM_BITMAP_BYTES)) { status="unsupported or exhausted usable RAM; allocator disabled"; return; }
     status="ready";
 }
 void memory_print_info(void)
@@ -39,6 +41,7 @@ void memory_print_info(void)
     console_write(" bytes="); console_u64(boot_map.ram_bytes);
     console_write(" (firmware-described, not free memory)\n");
     console_write("page_size=4096 address_limit_bytes="); console_u64(PMM_ADDRESS_LIMIT);
+    console_write("\nBitmap arena=");console_hex(bitmap_address);console_write(" bytes=");console_u64(PMM_BITMAP_BYTES);console_write(" (reserved outside kernel image)");
     console_write("\nmanaged_pages="); console_u64(s.managed_pages);
     console_write(" free_pages="); console_u64(s.free_pages);
     console_write(" allocated_pages="); console_u64(s.allocated_pages);

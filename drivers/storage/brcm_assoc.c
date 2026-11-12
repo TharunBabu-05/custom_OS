@@ -75,7 +75,7 @@ void brcm_assoc_event(void *ctx,const void *payload,size_t bytes)
 void brcm_assoc_data(void *ctx,const void *payload,size_t n)
 {
     struct brcm_assoc_probe *s=ctx;if (!s || !s->armed || !s->status_issued || !s->sae.confirmed || !s->sae.handoff_attempted || s->event_error!=BLOCK_OK) { return; }
-    if (++s->data_frames>256) { s->event_error=BLOCK_RANGE;return; }
+    if (++s->data_frames>256 && !s->session.attempted) { s->event_error=BLOCK_RANGE;return; }
     const unsigned char *p=payload;
     if (!p || n<4 || (p[0]>>4)!=2) { ++s->data_bad;return; }
     if (p[2]&15) { ++s->data_ignored;return; }
@@ -335,9 +335,28 @@ static enum block_result gateway_probe(struct adapter *a)
     struct brcm_assoc_probe *s=a->s;unsigned char entropy[32]={0};s->gateway_attempted=true;enum block_result r=BLOCK_IO;
     if (a->base->random(a->base->join.policy.context,entropy)) {
         const struct netprobe_io io={a,gateway_tx,network_poll,delay,milliseconds,network_ready};
-        r=netprobe_run(&io,s->peer.local,&s->dhcp.lease,entropy,s->lease_origin,&s->network);
+        r=s->session_mode ? netprobe_open(&io,s->peer.local,&s->dhcp.lease,entropy,s->lease_origin,&s->network) : netprobe_run(&io,s->peer.local,&s->dhcp.lease,entropy,s->lease_origin,&s->network);
     }
     crypto_wipe(entropy,sizeof(entropy));s->gateway_result=r;if (s->network.conflict) { decline_lease(a); }return r;
+}
+static int session_getc(void *ctx)
+{ struct adapter *a=ctx;return a->base->session_getc(a->base->join.policy.context); }
+static void session_write(void *ctx,const char *text)
+{ struct adapter *a=ctx;a->base->session_write(a->base->join.policy.context,text); }
+static void session_info(void *ctx)
+{ struct adapter *a=ctx;a->base->session_info(a->base->join.policy.context); }
+static bool session_random(void *ctx,unsigned char out[32])
+{ struct adapter *a=ctx;return a->base->random(a->base->join.policy.context,out); }
+static enum block_result session_inspect(void *ctx)
+{
+    struct adapter *a=ctx;struct brcm_assoc_probe *s=a->s;s->port_final_result=peer_info(a,&s->port_final,&s->port_final_status);
+    if (s->port_final_result==BLOCK_OK && !(s->port_final.flags&0x20)) { s->port_final_result=BLOCK_NOT_READY; }
+    if (s->port_final_result!=BLOCK_OK) { return s->port_final_result; }return identity(a);
+}
+static enum block_result session_run(struct adapter *a)
+{
+    const struct network_session_io io={{a,gateway_tx,network_poll,delay,milliseconds,network_ready},session_getc,session_write,session_random,session_inspect,session_info};
+    enum block_result r=network_session_run(&io,&a->s->network,&a->s->session);if (a->s->network.conflict && !a->s->decline_attempted) { decline_lease(a); }return r;
 }
 static enum block_result verified(void *ctx,struct sae_session *session,const struct brcm_auth_peer *peer)
 {
@@ -412,13 +431,14 @@ static enum block_result verified(void *ctx,struct sae_session *session,const st
                         if (r==BLOCK_OK) {
                             r=network_probe(a);
                             if (r==BLOCK_OK && s->gateway_probe) { s->key_phase=10;r=gateway_probe(a); }
+                            if (r==BLOCK_OK && s->session_mode) { s->key_phase=12;r=session_run(a); }
                             s->port_final_result=peer_info(a,&s->port_final,&s->port_final_status);
                             if (s->port_final_result==BLOCK_OK && !(s->port_final.flags&0x20)) { s->port_final_result=BLOCK_NOT_READY; }
                             if (r==BLOCK_OK) { r=s->port_final_result; }
                         }
                         if (r==BLOCK_OK) { r=identity(a); }if (r==BLOCK_OK) { r=network_poll(a); }
                     }
-                    if (r==BLOCK_OK) { s->phase=s->gateway_probe ? 11 : s->dhcp_probe ? 10 : 9;s->key_phase=s->gateway_probe ? 11 : s->dhcp_probe ? 9 : 7; }break;
+                    if (r==BLOCK_OK) { s->phase=s->session_mode ? 12 : s->gateway_probe ? 11 : s->dhcp_probe ? 10 : 9;s->key_phase=s->session_mode ? 12 : s->gateway_probe ? 11 : s->dhcp_probe ? 9 : 7; }break;
                 }
                 s->key_result=wpa_probe_m4(&a->exchange,s->peer.local,s->peer.peer,frame,sizeof(frame),&bytes);
                 s->m4_encoded=a->exchange.m4_encoded;s->m4_bytes=(unsigned)bytes;
@@ -443,9 +463,10 @@ enum block_result brcm_assoc_run(const struct brcm_assoc_io *io,const struct brc
     if (io->install_probe && (!io->key_data_probe || !io->key_set || !io->m4_tx)) { return BLOCK_ARGUMENT; }
     if (io->dhcp_probe && (!io->install_probe || !io->dhcp_tx || !io->peer_info || !io->port_set)) { return BLOCK_ARGUMENT; }
     if (io->gateway_probe && (!io->dhcp_probe || !io->net_tx)) { return BLOCK_ARGUMENT; }
+    if (io->session_mode && (!io->gateway_probe || !io->session_getc || !io->session_write || !io->session_info)) { return BLOCK_ARGUMENT; }
     if (s->attempted) { return s->error; }if (!prerequisites) { return BLOCK_NOT_READY; }
     unsigned char check[70];enum block_result r=brcm_join_encode(peer,check);if (r!=BLOCK_OK) { return r; }
-    *s=(struct brcm_assoc_probe){.attempted=true,.peer=*peer,.error=BLOCK_NOT_READY,.ie_owned=io->fresh_ie_owner,.request_fixed_bytes=io->request_fixed_bytes,.key_probe=io->key_probe,.key_data_probe=io->key_data_probe,.install_probe=io->install_probe,.dhcp_probe=io->dhcp_probe,.gateway_probe=io->gateway_probe};
+    *s=(struct brcm_assoc_probe){.attempted=true,.peer=*peer,.error=BLOCK_NOT_READY,.ie_owned=io->fresh_ie_owner,.request_fixed_bytes=io->request_fixed_bytes,.key_probe=io->key_probe,.key_data_probe=io->key_data_probe,.install_probe=io->install_probe,.dhcp_probe=io->dhcp_probe,.gateway_probe=io->gateway_probe,.session_mode=io->session_mode};
     struct adapter a={.base=io,.s=s};if (s->key_probe) { s->private_exchange=&a.exchange; }
     /* SET_SSID, AUTH, DEAUTH/IND, ASSOC/REASSOC, DISASSOC/IND and LINK. */
     uint32_t events=(1u<<0)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<7)|(1u<<9)|(1u<<11)|(1u<<12)|(1u<<16);
@@ -461,6 +482,6 @@ enum block_result brcm_assoc_run(const struct brcm_assoc_io *io,const struct brc
     if (s->ie_changed && !s->ie_restored) { poison(&a,s->restore_error==BLOCK_OK ? BLOCK_IO : s->restore_error);if (r==BLOCK_OK) { r=BLOCK_IO; } }
     if (s->keys.issued_mask && !s->keys.cleared) { poison(&a,s->keys.clear_error==BLOCK_OK ? BLOCK_IO : s->keys.clear_error);if (r==BLOCK_OK) { r=BLOCK_IO; } }
     if (s->port_issued && !s->port_closed) { poison(&a,s->port_close_result==BLOCK_OK ? BLOCK_IO : s->port_close_result);if (r==BLOCK_OK) { r=BLOCK_IO; } }
-    retry_status(&a);s->armed=false;s->network.active=s->network.armed=s->decline_active=false;if (s->key_probe && a.exchange.seeded) { s->keys_erased=true; }
+    retry_status(&a);s->armed=false;s->network.live=s->network.active=s->network.armed=s->decline_active=false;if (s->key_probe && a.exchange.seeded) { s->keys_erased=true; }
     wpa_probe_clear(&a.exchange);s->private_exchange=NULL;s->error=r;return r;
 }

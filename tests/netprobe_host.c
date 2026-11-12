@@ -56,7 +56,7 @@ int main(int argc,char **argv)
 {
     assert(argc==2 && netprobe_selftest());FILE *f=fopen(argv[1],"r");assert(f);char line[5000];unsigned rows=0;
     while (fgets(line,sizeof(line),f)) {
-        char *v[14];unsigned fields=0;for (char *p=strtok(line," \r\n");p;p=strtok(NULL," \r\n")) { assert(fields<14);v[fields++]=p; }assert(fields==14);
+        char *v[16];unsigned fields=0;for (char *p=strtok(line," \r\n");p;p=strtok(NULL," \r\n")) { assert(fields<16);v[fields++]=p; }assert(fields==16);
         unhex(v[1],local,6);unhex(v[2],entropy,32);lease=(struct dhcp_lease){.have_mask=true,.have_router=true,.seconds=3600};unhex(v[3],lease.address,4);unhex(v[4],lease.router,4);unhex(v[5],lease.mask,4);
         for (unsigned i=0;i<8;++i) { lengths[i]=unhex(v[6+i],packets[i],100); }
         seed(0);assert(netprobe_init(&s,local,&lease,entropy,0)==BLOCK_OK);unsigned char out[75];size_t bytes=0;memset(out,0xa5,sizeof(out));
@@ -68,6 +68,10 @@ int main(int argc,char **argv)
         receive(packets[5],74);assert(!s.seen_mask);s.issued_mask=1;receive(packets[5],74);assert(s.seen_mask==1 && !s.written_mask && !s.received_mask);
         receive(packets[5],74);assert(s.seen_mask==1);receive(packets[6],60);assert(s.reply_pending);
         assert(netprobe_encode(&s,NP_ARP_REPLY,0,out,sizeof(out),&bytes)==BLOCK_OK && bytes==60 && !memcmp(out,packets[7],bytes));
+        unsigned char external[100],reply_external[100],fresh[32],target[4]={1,1,1,1};size_t external_n=unhex(v[14],external,sizeof(external)),reply_n=unhex(v[15],reply_external,sizeof(reply_external));
+        memcpy(fresh,entropy,32);fresh[24]^=0x55;s.live=true;s.phase=NP_READY;
+        assert(netprobe_ping_start(&s,target,fresh,0)==BLOCK_OK && netprobe_encode(&s,NP_ECHO,1,out,sizeof(out),&bytes)==BLOCK_OK && bytes==external_n && !memcmp(out,external,bytes));
+        s.issued_mask=1;receive(packets[5],74);assert(!s.seen_mask);receive(reply_external,reply_n);assert(s.seen_mask==1 && !s.received_mask);
         for (unsigned cut=0;cut<74;++cut) { struct netprobe n=s;n.seen_mask=0;netprobe_receive(&n,packets[5],cut);assert(!n.seen_mask); }
         seed(0);assert(run()==BLOCK_OK && s.phase==NP_DONE && s.received_mask==7 && s.echoes==3 && s.probes==3 && s.announcements==2 && s.resolutions==1 && s.arp_replies==1 && !s.active && !s.armed && s.was_active);
         unsigned total=m.calls,calls=m.calls;assert(run()==BLOCK_NOT_READY && m.calls==calls);

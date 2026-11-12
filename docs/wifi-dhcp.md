@@ -1,7 +1,7 @@
 # DHCP over the verified WPA3 handshake
 
 **DHCP now passes on the Pi.** Follow the current
-[address-check/ARP/gateway guide](wifi-gateway.md) for the next test.
+[foreground-session guide](wifi-session.md) for the next test.
 
 The [peer-port correction](wifi-data-port.md) resolved the earlier no-reply stop:
 first-M4/key ordering, authorization/readback and DHCP now have physical Pi

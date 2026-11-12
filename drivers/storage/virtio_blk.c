@@ -96,4 +96,5 @@ void platform_wifi_sae_auth(const char *ssid) { (void)ssid;console_write("No Pi 
 void platform_wifi_assoc(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; association probe unavailable. No password requested.\n"); }
 void platform_wifi_dhcp(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; DHCP probe unavailable. No password requested.\n"); }
 void platform_wifi_ping(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; gateway ping unavailable. No password requested.\n"); }
+void platform_wifi_connect(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; live session unavailable. No password requested.\n"); }
 void platform_network_info(void) { console_write("No live Pi Wi-Fi DHCP lease on QEMU virt.\n"); }

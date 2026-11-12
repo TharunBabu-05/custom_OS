@@ -349,6 +349,7 @@ static enum block_result scan_radio(void *ctx,bool up,uint32_t *status)
 static enum block_result scan_poll(void *ctx)
 {
     (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    if (association_probe.session.active) { if (control.rx_frames>UINT32_MAX-64) { return BLOCK_RANGE; }control.rx_limit=control.rx_frames+64; }
     return brcm_control_poll(&io,&control);
 }
 static uint64_t scan_milliseconds(void *ctx)
@@ -619,6 +620,7 @@ static void assoc_status(void)
     console_write("Association/EAPOL probe: ");console_write(s->port_attempted ? block_error(s->error) : brcm_auth_error(s->error));console_write(" phase=");console_u64(s->phase);console_write("\n");
     if (s->dhcp.attempted && s->dhcp.error!=BLOCK_OK) { console_write("Failure stage: DHCP/data path after verified SAE; see netinfo and SCB snapshots.\n"); }
     else if (s->gateway_attempted && s->gateway_result!=BLOCK_OK) { console_write("Failure stage: address checks/ARP/gateway ICMP; see netinfo.\n"); }
+    else if (s->session.ended && s->session.result!=BLOCK_OK) { console_write("Failure stage: live session; see termination reason in netinfo.\n"); }
     sae_status(&s->sae);
     console_write("RSN mode=");console_write(s->ie_owned ? "exclusive fresh-station SET/clear journal" : "snapshot/readback");console_write("\n");
     if (s->ie_owned) {
@@ -758,6 +760,9 @@ static enum block_result assoc_net_tx(void *ctx,enum netprobe_packet kind,unsign
     (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
     return brcm_control_netprobe(&io,&control,&association_probe.network,kind,sequence,frame,n,assoc_net_permitted,NULL);
 }
+static int session_input(void *ctx) { (void)ctx;return console_getc(); }
+static void session_output(void *ctx,const char *text) { (void)ctx;console_write(text); }
+static void session_information(void *ctx) { (void)ctx;platform_network_info(); }
 static bool assoc_port_permitted(void *ctx)
 {
     (void)ctx;const struct brcm_assoc_probe *s=&association_probe;if (s->port_close_active) { return s->port_issued; }
@@ -793,7 +798,7 @@ void platform_network_info(void)
     console_write(" readback=");console_write(s->port_verified ? "verified" : "not-verified");console_write(" firmware_status=");console_hex(s->port_status);console_write(" deferrals=");console_u64(s->port_deferrals);console_write("\n");
     if (s->port_attempted) { peer_status("SCB before",&s->port_before);peer_status("SCB after",&s->port_after); }
     if (s->dhcp.attempted) { console_write("SCB final query: ");console_write(block_error(s->port_final_result));console_write(" firmware_status=");console_hex(s->port_final_status);console_write("\n");peer_status("SCB final",&s->port_final); }
-    console_write("DEAUTHORIZE_SET=");console_write(s->port_closed ? "acknowledged" : s->port_issued ? "UNCONFIRMED" : "not-needed");console_write(" status=");console_hex(s->port_close_status);console_write("\n");
+    console_write("DEAUTHORIZE_SET=");console_write(s->session.active ? "pending until disconnect" : s->port_closed ? "acknowledged" : s->port_issued ? "UNCONFIRMED" : "not-needed");console_write(" status=");console_hex(s->port_close_status);console_write("\n");
     const struct dhcp_client *d=&association_probe.dhcp;
     console_write("DHCP probe: ");console_write(d->attempted ? d->error==BLOCK_TIMEOUT ? "reply deadline expired" : block_error(d->error) : "not-attempted");console_write(" phase=");console_u64(d->phase);console_write("\n");
     console_write("DISCOVER_writes=");console_u64(d->discover_sent);console_write(" REQUEST_writes=");console_u64(d->request_sent);console_write(" OFFER=");console_write(d->have_offer ? "observed" : "not-seen");
@@ -812,11 +817,15 @@ void platform_network_info(void)
         console_write("ARP checks: probes=");console_u64(n->probes);console_write(" announcements=");console_u64(n->announcements);console_write(" conflict=");console_write(n->conflict ? "yes" : "not-observed");
         console_write(" temporary_IP_used=");console_write(n->was_active ? "yes" : "no");console_write(" active_now=");console_write(n->active ? "yes" : "no");console_write("\n");
         console_write("Gateway ARP requests=");console_u64(n->resolutions);console_write(" learned=");console_write(n->gateway_known ? "yes" : "no");console_write(" MAC=");print_mac(n->gateway_mac);console_write(" changed=");console_write(n->gateway_changed ? "yes" : "no");console_write("\n");
-        console_write("ICMP to gateway ");ipv4(n->lease.router);console_write(" sent=");console_u64(n->echoes);console_write(" reply_mask=");console_hex(n->received_mask);console_write("\n");
+        console_write(s->session_mode ? "ICMP target " : "ICMP to gateway ");ipv4(n->target);console_write(" sent=");console_u64(n->echoes);console_write(" reply_mask=");console_hex(n->received_mask);console_write("\n");
         for (unsigned j=0;j<3;++j) { if (n->received_mask&(1u<<j)) { console_write("echo sequence=");console_u64(j+1);console_write(" observed_latency_ms=");console_u64(n->latency_ms[j]);console_write(" (includes polling/I/O)\n"); } }
         console_write("Network RX=");console_u64(n->received);console_write(" ARP=");console_u64(n->arp_rx);console_write(" IPv4=");console_u64(n->ipv4_rx);console_write(" ignored=");console_u64(n->ignored);console_write(" malformed=");console_u64(n->malformed);console_write(" deferrals=");console_u64(n->deferrals);console_write(" polls=");console_u64(n->polls);console_write(" ARP_replies=");console_u64(n->arp_replies);console_write("\n");
         if (n->conflict) { console_write("Conflicting MAC=");print_mac(n->conflict_mac);console_write(" DHCPDECLINE_write=");console_write(s->decline_written ? "completed" : "unconfirmed");console_write(" result=");console_write(block_error(s->decline_result));console_write("\n"); }
-        console_write("Cached gateway test only; temporary IP removed and Wi-Fi ends DOWN. No DNS, external Internet probe or persistent connection.\n");
+        if (s->session_mode) {
+            console_write("Session active=");console_write(s->session.active ? "yes" : "no");console_write(" ended=");console_write(s->session.ended ? "yes" : "no");console_write(" reason=");console_u64(s->session.reason);console_write(" pings_started=");console_u64(s->session.pings_started);console_write(" completed=");console_u64(s->session.pings_ok);console_write(" timed_out=");console_u64(s->session.pings_timeout);console_write("\n");
+            console_write(s->session.active ? "Wi-Fi remains open in net> console. Numeric ping and disconnect available; lease is not renewed.\n" : "Session ended; address removed and cleanup follows/completed.\n");
+            console_write("No DNS/TCP/package installation, group rekey or automatic reconnect yet.\n");
+        }else { console_write("Cached gateway test only; temporary IP removed and Wi-Fi ends DOWN. No DNS, external Internet probe or persistent connection.\n"); }
     }else { console_write("Cached DHCP metadata only; no address installed. Use wifiping on a fresh boot for ARP/gateway testing. Wi-Fi ends DOWN.\n"); }
 }
 static void run_sae(const char *ssid,unsigned mode)
@@ -836,13 +845,14 @@ static void run_sae(const char *ssid,unsigned mode)
     struct brcm_auth_peer peer={.ssid_length=ap->ssid_length,.channel=ap->channel,.band=ap->band,.hunting=method==WIFI_SAE_HUNT};
     for (unsigned i=0;i<6;++i) { peer.local[i]=capabilities.mac[i];peer.peer[i]=ap->bssid[i]; }for (unsigned i=0;i<ap->ssid_length;++i) { peer.ssid[i]=ap->ssid[i]; }
     console_write("SAE method selected from scan: ");console_write(peer.hunting ? "hunting-and-pecking (H2E not advertised)" : "H2E");console_write("; SAE-only, required PMF; no method retry or WPA2 fallback.\n");
-    console_write(association ? "One-shot association/EAPOL observation for " : authenticate ? "One-shot SAE commit/confirm test for " : "One-shot SAE commit probe for ");print_ssid(ap);console_write(" BSSID=");print_mac(ap->bssid);
-    console_write(association ? ". Verified SAE/M3 required, then initial M4 before TX keys, PTK/GTK/IGTK installation and identity checks; then DOWN/delete/restore. No persistent connection.\n" : authenticate ? ". Will verify a peer confirm, then DOWN/restore; no association or IP.\n" : ". No confirm, auth success, keys or IP will be sent.\n");
+    console_write(mode==5 ? "Opening foreground Wi-Fi session for " : association ? "One-shot association/EAPOL observation for " : authenticate ? "One-shot SAE commit/confirm test for " : "One-shot SAE commit probe for ");print_ssid(ap);console_write(" BSSID=");print_mac(ap->bssid);
+    console_write(mode==5 ? ". Requires verified SAE/M3/M4/keys, port, DHCP and gateway checks; then the session stays open in net>.\n" : association ? ". Verified SAE/M3 required, then initial M4 before TX keys, PTK/GTK/IGTK installation and identity checks; then DOWN/delete/restore. No persistent connection.\n" : authenticate ? ". Will verify a peer confirm, then DOWN/restore; no association or IP.\n" : ". No confirm, auth success, keys or IP will be sent.\n");
     if (mode>=3) { console_write("After verified M4/keys/identity: authorize peer port, verify sta_info, then DHCP test up to 45 seconds plus I/O.\n"); }
-    if (mode==4) { console_write("After DHCP: three address probes, announcements, gateway ARP and three ICMP echoes; up to 30 seconds plus I/O. Temporary IP removed on exit.\n"); }
+    if (mode>=4) { console_write("After DHCP: three address probes, announcements, gateway ARP and three ICMP echoes; up to 30 seconds plus I/O.\n"); }
+    if (mode==5) { console_write("Then net> stays connected until disconnect, lease expiry, one-hour limit or link/rekey error. Foreground session; no automatic renewal or reconnect.\n"); }
     unsigned char commit[98]={0};struct sae_session session={0};
     if (!prepare_sae_commit(&peer,commit,authenticate ? &session : NULL)) { crypto_wipe(commit,sizeof(commit));sae_session_clear(&session);return; }
-    console_write("Starting bounded join/SAE exchange, then DOWN/restore.\n");
+    console_write(mode==5 ? "Starting verified join/SAE and network setup. Session cleanup waits for disconnect, expiry or failure.\n" : "Starting bounded join/SAE exchange, then DOWN/restore.\n");
     void (*saved_event)(void *,const void *,size_t)=control.event;void *saved_context=control.event_context;
     void (*saved_data)(void *,const void *,size_t)=control.data_observer;void *saved_data_context=control.data_context;
     control.event=brcm_sae_probe_event;control.event_context=&sae_probe;control.rx_limit=control.rx_frames+1024;
@@ -851,7 +861,7 @@ static void run_sae(const char *ssid,unsigned mode)
         control.event=brcm_assoc_event;control.event_context=&association_probe;control.data_observer=brcm_assoc_data;control.data_context=&association_probe;
         /* Only this guarded one-shot path sets wpaie. Fresh control, clean
          * scan/DOWN and no earlier join/SAE attempt establish IE ownership. */
-        const struct brcm_assoc_io aio={.join=io,.identity=assoc_identity,.fresh_ie_owner=true,.request_fixed_bytes=4,.key_probe=true,.data_tx=assoc_data_tx,.random=sae_random,.key_data_probe=true,.ap_rsn=ap->rsn,.ap_rsn_bytes=ap->rsn_bytes,.install_probe=true,.key_set=assoc_key_set,.m4_tx=assoc_m4_tx,.dhcp_probe=mode>=3,.dhcp_tx=assoc_dhcp_tx,.peer_info=assoc_peer_info,.port_set=assoc_port_set,.gateway_probe=mode==4,.net_tx=assoc_net_tx};
+        const struct brcm_assoc_io aio={.join=io,.identity=assoc_identity,.fresh_ie_owner=true,.request_fixed_bytes=4,.key_probe=true,.data_tx=assoc_data_tx,.random=sae_random,.key_data_probe=true,.ap_rsn=ap->rsn,.ap_rsn_bytes=ap->rsn_bytes,.install_probe=true,.key_set=assoc_key_set,.m4_tx=assoc_m4_tx,.dhcp_probe=mode>=3,.dhcp_tx=assoc_dhcp_tx,.peer_info=assoc_peer_info,.port_set=assoc_port_set,.gateway_probe=mode>=4,.net_tx=assoc_net_tx,.session_mode=mode==5,.session_getc=session_input,.session_write=session_output,.session_info=session_information};
         (void)brcm_assoc_run(&aio,&peer,&session,true,&association_probe);
     }
     else if (authenticate) { (void)brcm_sae_auth_run(&io,&peer,&session,1,true,&sae_probe); }
@@ -866,6 +876,7 @@ void platform_wifi_sae_auth(const char *ssid) { run_sae(ssid,1); }
 void platform_wifi_assoc(const char *ssid) { run_sae(ssid,2); }
 void platform_wifi_dhcp(const char *ssid) { run_sae(ssid,3); }
 void platform_wifi_ping(const char *ssid) { run_sae(ssid,4); }
+void platform_wifi_connect(const char *ssid) { run_sae(ssid,5); }
 static uint32_t rd(void *context,unsigned offset)
 {
     (void)context; uint32_t value=*(volatile uint32_t *)(WIFI_HOST+offset);

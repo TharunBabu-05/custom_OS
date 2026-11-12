@@ -28,7 +28,7 @@ try {
     $usbCommand=if ($Enumerate) { 'usbenum' } else { 'usbtest' }
     $commands=@($usbCommand,$usbCommand,'uptime','cat /etc/board','pagetest','fsinfo','echo usb-ring-monitor-ok','halt')
     if ($Storage) { $commands=@('storageinit','storageinit','storageinfo','ls /boot','cat /boot/CONFIG.TXT','storagetest','storageinfo','cat /boot/SOURCE.TXT','uptime','cat /etc/board','pagetest','fsinfo','echo usb-ring-monitor-ok','halt') }
-    if ($WifiFiles) { $commands=@('storageinit','cryptotest','keytest','nettest','p256test','h2etest','saetest','rngtest','wififiles','wifiload','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's","wifijoinprobe Jack's","wifisaeprobe Jack's","wifisaeauth Jack's","wifiassoc Jack's","wifidhcp Jack's","wifiping Jack's",'netinfo')+$commands[1..($commands.Count-1)] }
+    if ($WifiFiles) { $commands=@('storageinit','cryptotest','keytest','nettest','p256test','h2etest','saetest','rngtest','wififiles','wifiload','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's","wifijoinprobe Jack's","wifisaeprobe Jack's","wifisaeauth Jack's","wifiassoc Jack's","wifidhcp Jack's","wifiping Jack's","wificonnect Jack's",'netinfo')+$commands[1..($commands.Count-1)] }
     foreach ($line in $commands) {
         if ($process.HasExited) { throw $stderr.Result }
         foreach ($character in ($line+"`r`n").ToCharArray()) {
@@ -61,6 +61,7 @@ try {
     if ($WifiFiles) {
         if (!$text.Contains('PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.')) { throw 'QEMU DHCP packet self-test failed' }
         if (!$text.Contains('PASS: ARP/ICMP gateway public packet fixtures; no network I/O.') -or !$text.Contains('No Pi Wi-Fi radio on QEMU virt; gateway ping unavailable. No password requested.')) { throw 'QEMU ARP/ICMP fixtures or missing-radio refusal failed' }
+        if (!$text.Contains('No Pi Wi-Fi radio on QEMU virt; live session unavailable. No password requested.') -or !$text.Contains('Physical page allocator ready;')) { throw 'QEMU live-session refusal or external bitmap allocator failed' }
         if (!$text.Contains('No Pi Wi-Fi radio on QEMU virt; DHCP probe unavailable. No password requested.') -or !$text.Contains('No live Pi Wi-Fi DHCP lease on QEMU virt.')) { throw 'QEMU DHCP refusal/status failed' }
         if (!$text.Contains('PASS: AES-128, CMAC, key unwrap, SAE PTK, offline M2/M4, key-data and M3-retry known-answer tests.')) { throw 'QEMU WPA key self-test failed' }
         if (!$text.Contains('PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.') -or !$text.Contains('No Pi RNG200 source on QEMU virt; randomness unavailable.')) { throw 'QEMU crypto test / RNG refusal failed' }

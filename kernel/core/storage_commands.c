@@ -56,6 +56,8 @@ bool storage_command(const char *line)
     if (begins(line,"wifidhcp ")) { platform_wifi_dhcp(line+9);return true; }
     if (same(line,"wifiping")) { platform_wifi_ping("");return true; }
     if (begins(line,"wifiping ")) { platform_wifi_ping(line+9);return true; }
+    if (same(line,"wificonnect")) { platform_wifi_connect("");return true; }
+    if (begins(line,"wificonnect ")) { platform_wifi_connect(line+12);return true; }
     if (same(line,"netinfo")) { platform_network_info();return true; }
     if (same(line,"wifiprepare")) { platform_wifi_prepare(""); return true; }
     if (begins(line,"wifiprepare ")) { platform_wifi_prepare(line+12);return true; }
@@ -95,7 +97,7 @@ bool storage_command(const char *line)
         vfs_boot_info(); return true;
     }
     if (same(line,"wifiinfo") || same(line,"wifi")) {
-        console_write("Wi-Fi state: manual firmware/control bring-up; wifiscan is opt-in; connect/IP unavailable.\n");
+        console_write("Wi-Fi state: manual firmware/control bring-up; wificonnect opens a foreground session.\n");
         if (wifi_path[0]) {
             console_write("Firmware DT Wi-Fi node: "); console_write(wifi_path);
             console_write("\nDT compatible: "); console_write(wifi_compatible); console_write("\n");
@@ -123,8 +125,9 @@ bool storage_command(const char *line)
         console_write("wifiassoc <SSID> (verified SAE/M3, key-install/live-M4 test; then DOWN/delete, no persistent link/IP)\n");
         console_write("wifidhcp <SSID> (fresh SAE/M4, peer-port authorization/readback, DHCP test; DOWN/delete) netinfo\n");
         console_write("wifiping <SSID> (fresh DHCP, address checks, ARP and gateway ICMP; then DOWN)\n");
+        console_write("wificonnect <SSID> (foreground network console: ping, netinfo, disconnect)\n");
         platform_wifi_status();
-        console_write("Next: verify address checks and gateway ping, then external numeric reachability, DNS and persistent link/rekey.\n"); return true;
+        console_write("Next: verify live session and external numeric reachability; DNS, renewal/rekey and background networking remain.\n"); return true;
     }
     return false;
 }

@@ -97,7 +97,7 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
     'No Pi RNG200 source on QEMU virt; randomness unavailable.',
     'help info cpuinfo meminfo uptime','timer_hz=',"`r`nnative-windows-ok`r`n", "`r`nbackspace`r`n",'uptime_seconds=',
     'Unknown command. Type help.','Input too long; command discarded.',"`r`nrecovered`r`n",'CPU halted.',
-    'Memory: ready','reason=kernel/BSS/stack/bitmap','reason=DTB',
+    'Memory: ready','reason=kernel/BSS/stack','reason=DTB','reason=physical page bitmap','Bitmap arena=',
     'PASS: four distinct pages written/read/freed; counters restored.',
     'Allocated slot=0','Allocated slot=1','Freed slot=0','Freed slot=1','Invalid or unallocated page slot.',
     'Root filesystem ready: RAMFS at / (volatile).','rootfs=ramfs (volatile; files disappear after reboot)',
@@ -109,7 +109,7 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
 if ($StorageImage) {
     $commands=$commands[0..($commands.Count-2)]+@('storageinit','storageinfo','ls /boot','cd /boot',
         'pwd','cat CONFIG.TXT','cat SOURCE.TXT','write CONFIG.TXT blocked','touch new.txt',
-        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','wificores','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's","wifijoinprobe Jack's","wifisaeprobe Jack's","wifisaeauth Jack's","wifiassoc Jack's","wifidhcp Jack's","wifiping Jack's",'netinfo','halt')
+        'mkdir newdir','rm CONFIG.TXT','cd /boot/CONFIG.TXT/..','cd ..','pwd','wifi','wifiinfo','wifiprobe','wifiinit','wificores','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's","wifijoinprobe Jack's","wifisaeprobe Jack's","wifisaeauth Jack's","wifiassoc Jack's","wifidhcp Jack's","wifiping Jack's","wificonnect Jack's",'netinfo','halt')
     $expected+=@('/boot: FAT32 read-only','device=qemu-virtio-blk','CONFIG.TXT','kernel=OUROS.IMG',
         'Official DTB and notices:','fs: read-only filesystem','Wi-Fi state: manual firmware/control bring-up',
         'Requested network security: WPA3-Personal','No Pi Wi-Fi SDIO device on QEMU virt.',
@@ -128,6 +128,7 @@ if ($StorageImage) {
         'No Pi Wi-Fi radio on QEMU virt; association probe unavailable. No password requested.',
         'No Pi Wi-Fi radio on QEMU virt; DHCP probe unavailable. No password requested.',
         'No Pi Wi-Fi radio on QEMU virt; gateway ping unavailable. No password requested.',
+        'No Pi Wi-Fi radio on QEMU virt; live session unavailable. No password requested.',
         'No live Pi Wi-Fi DHCP lease on QEMU virt.')
 }
 if ($Handoff) {

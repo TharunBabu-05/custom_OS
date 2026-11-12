@@ -58,7 +58,8 @@
 > SAE, association, M2/M3, key SET/deletion ACKs, authenticated M3 retries and
 > live M4 writes now pass on hardware. Corrected M4/key ordering, peer-port
 > authorization/readback and DHCP OFFER/ACK also pass, with two successful decryptions.
-> The new address-check/ARP/gateway-ICMP test needs a Pi run;
+> Address checks, ARP and all three gateway replies also pass. The previous
+> test disconnected deliberately; the new foreground session needs a Pi run;
 > persistent IP and Internet access remain unfinished.
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
 > driver supplies the next dependency for reading Wi-Fi firmware from disk.
@@ -74,16 +75,17 @@ Builds preserve previous versions before cleaning stale output. See
 [Pi 5 header-console disk ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip).
 Extract the `.img` before flashing your pendrive. Every completed disk-image
 build now creates a verified ZIP for GitHub; raw 128 MiB images stay local.
-The [latest Pi transcript](proofs/pi5-dhcp-ack-port-verified-2026-11-11.txt)
-passes corrected M4/key ordering, firmware peer-port authorization/readback and
-DHCP OFFER/ACK. Two packets decrypt successfully, and cleanup passes.
+The [latest Pi transcript](proofs/pi5-gateway-three-replies-2026-11-11.txt)
+passes DHCP, address checks, gateway ARP and all three ICMP replies, with normal
+deauthorization/DOWN cleanup afterward.
 
-The new [`wifiping` phase](docs/wifi-gateway.md) checks the leased address for
-conflicts, announces a temporary IP, resolves the gateway with ARP and sends
-three ICMP echo requests. Native packet/transport/handshake models cover the
-path; a fresh Pi test is needed. It removes the temporary IP and ends
-deauthorized/DOWN/delete/restore. Persistent networking, external Internet
-access, DNS queries and package installation remain later work.
+The new [`wificonnect` phase](docs/wifi-session.md) keeps that connection open
+in a foreground `net>` console. It services RX/ARP while idle and supports
+gateway/off-link numeric pings, status and explicit disconnect. Lease expiry,
+unsupported rekey or link failure closes it. The page bitmap moves from kernel
+BSS into separately reserved RAM to make room for networking. Native models
+cover these changes; the new session and external reachability need a Pi test.
+DNS, renewal/rekey, background networking and package installation remain.
 Type credentials only at the hidden prompt; none are saved or embedded.
 Current development images stay local; the user handles GitHub publication.
 <p align="center">
@@ -301,7 +303,8 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] Physical Pi authenticated key-data validation and offline M4
 - [x] Physical Pi firmware key installation/live M4 with authenticated M3 retries
 - [x] Physical Pi peer-port authorization/readback and DHCP DORA
-- [ ] Physical Pi address checks, ARP and gateway ICMP (new bounded probe)
+- [x] Physical Pi address checks, ARP and three gateway ICMP replies
+- [ ] Physical Pi foreground session and numeric external ping (new revision)
 - [ ] Persistent supplicant, group rekey, lease renewal and external IP networking
 - [ ] Physical Pi SD-card handoff
 - [ ] Interrupt controller, timer interrupts and virtual memory

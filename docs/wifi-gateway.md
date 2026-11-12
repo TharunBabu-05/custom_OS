@@ -1,5 +1,10 @@
 # Address checks, ARP and gateway ping
 
+**This phase now passes on the Pi:** [three verified gateway replies](../proofs/pi5-gateway-three-replies-2026-11-11.txt).
+Its normal end-of-test cleanup explains the phone's brief connection. The
+current phase is the [foreground Wi-Fi session](wifi-session.md), which stays
+open at `net>` until an explicit disconnect, expiry or failure.
+
 The [latest physical Pi capture](../proofs/pi5-dhcp-ack-port-verified-2026-11-11.txt)
 passes the corrected first-M4/key ordering and peer-port setup. The firmware's
 peer flags change from authenticated/associated to also authorized; the final

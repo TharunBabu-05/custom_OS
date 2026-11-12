@@ -1,16 +1,17 @@
 # Wi-Fi bring-up status
 
-**Current phase: [address checks, ARP and gateway ping](wifi-gateway.md).**
-The [latest Pi capture](../proofs/pi5-dhcp-ack-port-verified-2026-11-11.txt)
-passes corrected M4/key ordering, peer-port authorization/readback, DHCP
-OFFER/ACK and two successful decryptions. It observes a lease and ends cleanly
-DOWN/deauthorized with keys deleted. Storage/pages still pass.
+**Current phase: [foreground Wi-Fi session and numeric ping](wifi-session.md).**
+The [latest Pi capture](../proofs/pi5-gateway-three-replies-2026-11-11.txt)
+passes DHCP, address checks, gateway ARP and all three gateway ICMP replies
+(26/23/24 ms including polling/I/O). It disconnects deliberately at the end
+of the old bounded test; deauthorization/key deletion/DOWN pass.
 
-The new `wifiping <SSID>` command performs a fresh handshake/DHCP, checks for
-address conflicts, announces a temporary IP, resolves the gateway and sends
-three ICMP echoes. It removes the IP and deauthorizes/DOWN/deletes/restores on
-exit. ARP/ICMP hardware behavior needs a new Pi test. No persistent connection,
-external Internet probe, DNS or package installation yet.
+The new `wificonnect <SSID>` command runs that setup, then stays open in a
+`net>` console. It services RX/ARP while idle and supports gateway/off-link
+numeric pings, `netinfo` and `disconnect`. Lease expiry, unsupported rekey or
+link/transport failure closes it. No renewal, automatic reconnect, DNS, TCP or
+package installation yet. The new live session and external reachability need
+a Pi test. The page bitmap also moves to a separately reserved RAM arena.
 
 Use the current guide's fresh-boot sequence. No credentials are saved/embedded.
 Earlier stages: [key installation](wifi-key-install.md),
@@ -30,8 +31,9 @@ Earlier verified stages include SDIO identity, function-1 backplane access,
 The USB/FAT firmware-file path, radio startup, passive scan, crypto/RNG,
 exact-target preflight and external-SAE request scope now pass physically.
 Live SAE, association, authenticated M3 retries, key SETs and M4 writes now pass.
-DHCP also passes now. Test [address checks and gateway ping](wifi-gateway.md)
-next. It uses a temporary address and ends DOWN; persistent networking follows.
+DHCP, address checking and all three gateway pings also pass now. Test the
+[foreground session and numeric external ping](wifi-session.md) next. DNS,
+renewal/rekey and background networking remain separate stages.
 
 The [first upload capture](../proofs/pi5-firmware-first-transfer-failure-2026-11-09.txt)
 passes file hashes and D11/CPU checks but fails on the first code transfer at
@@ -51,9 +53,9 @@ The acceptance sequence is:
    Check exact target cipher/AKM/PMF advertisements before host SAE.
 4. Live SAE, association, M2/M3, PTK/GTK/IGTK SETs, authenticated retries and M4
    writes pass on the Pi. The bounded tests still tear down the connection.
-5. DHCP DORA now passes on the Pi. Verify the new address checks and gateway
-   ICMP test. Add persistent link/rekey and broader IP routing. First reach the local gateway,
-   then a reachable external numeric address. Add DNS for `ping www.google.com`.
+5. DHCP/address checks/gateway ICMP now pass on the Pi. Verify the foreground
+   session and external numeric reachability. Add DNS for `ping www.google.com`,
+   then renewal/rekey and background networking.
 
 ICMP replies can be filtered by a network, so a ping timeout alone does not
 establish that Wi-Fi failed. Report association, address, gateway, DNS and packet
