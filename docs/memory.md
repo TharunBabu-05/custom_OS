@@ -1,11 +1,21 @@
 # Physical memory discovery and pages
 
+**Current OS phase: [exceptions and timer IRQs](interrupts.md).** MMU protection
+and USB/FAT now have Pi evidence. The [kernel heap](kernel-heap.md)
+has Pi self-test and counter-restoration evidence. Small kernel buffers now
+use shared size-class pages. RAMFS's three seed files own three buffers but
+only two PMM pages; `heapinfo`/`heaptest` inspect and exercise the new layer.
+MMU identity protection is opt-in and needs Pi validation; synchronization and
+process address spaces remain future work.
+
 **Current bitmap layout:** the [foreground Wi-Fi revision](wifi-session.md#allocator-bitmap-relocation)
 removes the static 1 MiB bitmap from kernel BSS and claims a separately reserved,
 aligned RAM arena from the DT map. `meminfo` shows it and `memmap` lists
 `reason=physical page bitmap`. The 32 GiB address limit is unchanged. Managed
 RAM can be 1 MiB below older screenshots because that cost is now explicit.
-Native tests pass; the new placement needs the next Pi memory/storage test.
+The [12 November Pi capture](../proofs/pi5-live-session-internet-ping-2026-11-12.txt)
+confirms the new arena at `0x40000000`, managed RAM 7167 MiB, and a passing
+page test before successful USB/FAT and live Wi-Fi/Internet pings.
 The historical measurements below predate this change.
 
 OurOS has shared firmware-DTB RAM discovery and a single-core 4 KiB physical
@@ -53,8 +63,8 @@ meminfo
 
 Expect `Memory: ready`, two additional allocated pages after the allocations,
 rejection of the repeated free, and the original free-page count after both pages
-are released. The new RAMFS boot files already own three pages at startup, so the
-allocated count now changes from 3 to 5 and returns to 3 in an otherwise idle boot.
+are released. The heap-backed RAMFS boot files now share two pages, so the
+allocated count changes from 2 to 4 and returns to 2 in an otherwise idle boot.
 `pagetest` should print `PASS: four distinct pages written/read/freed; counters restored.`
 Save the complete serial log, especially the map if allocation is disabled.
 
@@ -90,18 +100,20 @@ It is not a general bus translation or peripheral discovery library.
 
 ## Allocator limits
 
-- Static 1 MiB bitmap, covering physical addresses below **32 GiB**.
+- Separately reserved 1 MiB bitmap arena, covering physical addresses below **32 GiB**.
 - RAM beyond the limit is reported in described RAM but remains unavailable.
 - Only whole 4 KiB pages within declared RAM and outside every reservation are managed.
 - Up to 16 RAM tuples before merging, 64 reservations and 128 usable extents.
-- No heap, MMU, virtual address mapping, synchronization or process ownership.
+- The page-backed kernel heap is now implemented. MMU, virtual address mapping,
+  synchronization and process ownership remain future work.
 - The allocator rejects reserved, unaligned, out-of-range and already freed pages.
 - Invalid/unsupported DT structure or exceeded capacities disable allocation;
   the UART monitor remains available to report the problem.
 - Kexec-style usable-memory restrictions and translated/nested reserved-memory
   layouts are rejected instead of being ignored.
 
-The bitmap is part of the kernel's BSS, not a separate unreserved allocation.
+The bitmap occupies its own reserved RAM arena, selected from the DT map;
+it is no longer part of kernel BSS and cannot be allocated or freed by the PMM.
 The Pi linker still enforces that the full kernel footprint stays below the
 DTB window at `0x200000`. Nothing writes to physical storage during these tests.
 

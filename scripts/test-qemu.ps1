@@ -39,6 +39,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
                 Start-Sleep -Milliseconds 5
             }
             if ($line -eq 'keytest') { Start-Sleep -Seconds 2 }
+            elseif ($line -eq 'timertest') { Start-Sleep -Milliseconds 1000 }
             elseif ($mathSeen.ContainsKey($line)) { Start-Sleep -Milliseconds 200 }
             elseif ($line -eq 'saetest') { Start-Sleep -Seconds 20;$mathSeen[$line]=$true }
             elseif ($line -eq 'p256test' -or $line -eq 'h2etest') { Start-Sleep -Seconds 12;$mathSeen[$line]=$true } else { Start-Sleep -Milliseconds 200 }
@@ -59,9 +60,9 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
             if ([regex]::Matches($text,'Cached self-test result from this boot').Count -ne 3 -or
                 [regex]::Matches($text,'Self-test elapsed_seconds=').Count -ne 3) { throw "$Name math self-test caching/timing failed" }
             $snapshots=[regex]::Matches($text,'managed_pages=(\d+) free_pages=(\d+) allocated_pages=(\d+)')
-            if ($snapshots.Count -ne 4 -or $snapshots[0].Groups[3].Value -ne '3' -or
-                $snapshots[1].Groups[3].Value -ne '5' -or $snapshots[2].Groups[3].Value -ne '3' -or
-                $snapshots[3].Groups[3].Value -ne '3' -or
+            if ($snapshots.Count -ne 4 -or $snapshots[0].Groups[3].Value -ne '2' -or
+                $snapshots[1].Groups[3].Value -ne '4' -or $snapshots[2].Groups[3].Value -ne '2' -or
+                $snapshots[3].Groups[3].Value -ne '2' -or
                 $snapshots[0].Groups[2].Value -ne $snapshots[2].Groups[2].Value -or
                 $snapshots[0].Groups[2].Value -ne $snapshots[3].Groups[2].Value -or
                 ([long]$snapshots[0].Groups[2].Value-2) -ne [long]$snapshots[1].Groups[2].Value) {
@@ -70,7 +71,12 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
             $filesystems=[regex]::Matches($text,'files=(\d+) directories=(\d+) data_pages=(\d+) data_bytes=(\d+)')
             if ($filesystems.Count -ne 2 -or $filesystems[0].Value -ne $filesystems[1].Value -or
                 $filesystems[0].Groups[1].Value -ne '3' -or $filesystems[0].Groups[2].Value -ne '12' -or
-                $filesystems[0].Groups[3].Value -ne '3') { throw "$Name filesystem counters did not balance" }
+                $filesystems[0].Groups[3].Value -ne '2') { throw "$Name filesystem counters did not balance" }
+            if ([regex]::Matches($text,'PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.').Count -ne 2) { throw "$Name repeatable heap tests failed" }
+            $heap=[regex]::Matches($text,'pages=(\d+) objects=(\d+) capacity_bytes=(\d+)')
+            if ($heap.Count -ne 3 -or $heap[0].Value -ne $heap[2].Value -or
+                $heap[0].Groups[1].Value -ne '2' -or $heap[0].Groups[2].Value -ne '3' -or $heap[0].Groups[3].Value -ne '544' -or
+                $heap[1].Groups[1].Value -ne '4' -or $heap[1].Groups[2].Value -ne '5' -or $heap[1].Groups[3].Value -ne '640') { throw "$Name heap counters did not balance" }
         }
         Write-Output "PASS: $Name"
     } finally {
@@ -78,7 +84,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
         $process.Dispose()
     }
 }
-$commands=@('help','info','cpuinfo','cryptotest','keytest','nettest','p256test','h2etest','saetest','p256test','h2etest','saetest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
+$commands=@('help','mmuinfo','mmuinit','exctest','mmutest','mmuinfo','irqinit','timerstart','info','cpuinfo','heapinfo','heaptest','heapalloc 17','heapalloc 33','heapinfo','heapfree 0','heapfree 0','heapfree 1','heapfree 999','heapalloc 4097','heaptest','heapinfo','cryptotest','keytest','nettest','p256test','h2etest','saetest','p256test','h2etest','saetest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
     'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo',
     'fsinfo','pwd','ls /','cat /etc/board','cat /README.txt','cd /tmp','mkdir work','cd work','pwd',
     'touch empty.txt','write note.txt filesystem-ok','cat ./note.txt','ls .','cd ..','rmdir work',
@@ -86,6 +92,10 @@ $commands=@('help','info','cpuinfo','cryptotest','keytest','nettest','p256test',
     'cd /etc/hostname','rmdir /','rm /tmp','fsinfo','meminfo','echo native-windows-ok',
     "echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
 $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt | EL1',
+    'GICv2 initialization: ok timer_INTID=30','PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.',
+    'PASS: synchronous exception returned with all 31 GPRs, SP and NZCV preserved.','Periodic timer stopped; CPU IRQ masked.',
+    'MMU: on; verified identity profile','last_pass_mask=0x000000000000001f',
+    'PASS: MMU null/guard translation faults, code/constants write faults, data execution fault; heap/PMM counts restored.',
     'PASS: HMAC-SHA256 and HKDF-SHA256 published known-answer tests.',
     'PASS: AES-128, CMAC, key unwrap, SAE PTK, offline M2/M4, key-data and M3-retry known-answer tests.',
     'PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.',
@@ -98,9 +108,12 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
     'help info cpuinfo meminfo uptime','timer_hz=',"`r`nnative-windows-ok`r`n", "`r`nbackspace`r`n",'uptime_seconds=',
     'Unknown command. Type help.','Input too long; command discarded.',"`r`nrecovered`r`n",'CPU halted.',
     'Memory: ready','reason=kernel/BSS/stack','reason=DTB','reason=physical page bitmap','Bitmap arena=',
+    'Kernel heap ready; type heapinfo or heaptest.','Kernel heap: ready','Heap slot=0 requested=17 capacity=32','Heap slot=1 requested=33 capacity=64',
+    'Freed heap slot=0','Freed heap slot=1','Invalid or unallocated heap slot.','Usage: heapalloc <1..4096>',
     'PASS: four distinct pages written/read/freed; counters restored.',
     'Allocated slot=0','Allocated slot=1','Freed slot=0','Freed slot=1','Invalid or unallocated page slot.',
     'Root filesystem ready: RAMFS at / (volatile).','rootfs=ramfs (volatile; files disappear after reboot)',
+    'heap_buffers=3 capacity_bytes=544',
     '/tmp/work',"`r`nfilesystem-ok`r`n",'Welcome to OurOS. This root filesystem lives in RAM.',
     'fs: directory not empty','fs: path not found','fs: not a directory',
     'fs: root or current directory is busy','fs: is a directory',
@@ -129,8 +142,10 @@ if ($StorageImage) {
         'No Pi Wi-Fi radio on QEMU virt; DHCP probe unavailable. No password requested.',
         'No Pi Wi-Fi radio on QEMU virt; gateway ping unavailable. No password requested.',
         'No Pi Wi-Fi radio on QEMU virt; live session unavailable. No password requested.',
+        'PASS: DNS A query/compressed-answer public fixtures; no network I/O.',
         'No live Pi Wi-Fi DHCP lease on QEMU virt.')
 }
+$commands=$commands[0..($commands.Count-2)]+@('timertest','timerinfo','timerstop','exctest','halt')
 if ($Handoff) {
     Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1','Reported RAM: 134.217 MB (128.000 MiB)'))
     Run-Case 'handoff-el2' 'cortex-a76' 128 $commands ($expected+@('entered EL2 running EL1','Reported RAM: 134.217 MB (128.000 MiB)')) $true

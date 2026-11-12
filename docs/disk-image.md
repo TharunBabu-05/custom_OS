@@ -1,10 +1,10 @@
 # Experimental Pi 5 disk image
 
-Current Wi-Fi test: [foreground session and numeric ping](wifi-session.md).
-The latest Pi run passes address checks, ARP and three gateway replies; its
-disconnect was deliberate cleanup. New `wificonnect` stays open at `net>` until
-disconnect/expiry/failure. That behavior and the external bitmap arena need
-a fresh Pi test.
+Current OS test: [exceptions/GICv2/timer IRQs](interrupts.md), opt-in after
+`mmuinit` with `irqinit` and `timerstart`. The latest Pi run passes MMU
+protection and USB/FAT reads. New IRQ delivery and driver regression need a
+fresh hardware run; earlier captures verify DNS/Internet ping and cleanup.
+The full [OS/driver checklist](os-status.md) records what is still missing.
 
 Builds now preserve previous and newly generated images in the local
 [`image_files` folder](image-archive.md), then clean known stale build outputs.

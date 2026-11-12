@@ -58,9 +58,12 @@
 > SAE, association, M2/M3, key SET/deletion ACKs, authenticated M3 retries and
 > live M4 writes now pass on hardware. Corrected M4/key ordering, peer-port
 > authorization/readback and DHCP OFFER/ACK also pass, with two successful decryptions.
-> Address checks, ARP and all three gateway replies also pass. The previous
-> test disconnected deliberately; the new foreground session needs a Pi run;
-> persistent IP and Internet access remain unfinished.
+> Address checks, ARP, the live network console and all three gateway and
+> `1.1.1.1` replies, DNS and hostname ping pass, followed by clean disconnect.
+> Heap allocation/free and repeated self-tests now pass on Pi too. The next
+> MMU protection and USB reads now pass on Pi too. The current phase is
+> exception/IRQ return and periodic timer interrupts;
+> renewal, rekey, background networking and application downloads remain.
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
 > driver supplies the next dependency for reading Wi-Fi firmware from disk.
 
@@ -75,17 +78,24 @@ Builds preserve previous versions before cleaning stale output. See
 [Pi 5 header-console disk ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip).
 Extract the `.img` before flashing your pendrive. Every completed disk-image
 build now creates a verified ZIP for GitHub; raw 128 MiB images stay local.
-The [latest Pi transcript](proofs/pi5-gateway-three-replies-2026-11-11.txt)
-passes DHCP, address checks, gateway ARP and all three ICMP replies, with normal
-deauthorization/DOWN cleanup afterward.
+The [latest Pi transcript](proofs/pi5-dns-hostname-ping-clean-disconnect-2026-11-12.txt)
+passes DHCP, address checks, gateway ARP, DNS, the live console and all three
+ICMP replies each from `www.google.com` and `1.1.1.1`, followed by clean disconnect.
 
-The new [`wificonnect` phase](docs/wifi-session.md) keeps that connection open
+The verified [`wificonnect` phase](docs/wifi-session.md) keeps that connection open
 in a foreground `net>` console. It services RX/ARP while idle and supports
 gateway/off-link numeric pings, status and explicit disconnect. Lease expiry,
 unsupported rekey or link failure closes it. The page bitmap moves from kernel
 BSS into separately reserved RAM to make room for networking. Native models
-cover these changes; the new session and external reachability need a Pi test.
-DNS, renewal/rekey, background networking and package installation remain.
+cover these changes; the Pi capture also confirms the reserved page bitmap.
+The verified [DNS phase](docs/wifi-dns.md) provides `nslookup` and hostname ping.
+The [kernel heap](docs/kernel-heap.md) provides small allocations and backs
+RAMFS file contents; repeated heap tests and counter restoration now pass on Pi.
+The [MMU phase](docs/mmu.md) now has Pi protection/USB evidence. The new
+[interrupt phase](docs/interrupts.md) adds full saved exception frames, GICv2
+and opt-in 100 Hz timer IRQs, with synchronous/asynchronous register tests.
+Native/QEMU checks pass; the Pi IRQ test is next. See the [full OS/driver checklist](docs/os-status.md).
+Renewal/rekey, background networking and package installation remain.
 Type credentials only at the hidden prompt; none are saved or embedded.
 Current development images stay local; the user handles GitHub publication.
 <p align="center">
@@ -148,15 +158,17 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 | Working today | Implementation |
 | :--- | :--- |
 | AArch64 entry | Stack setup, BSS clearing, masked exceptions and EL1/EL2 handoff |
-| Early diagnostics | Fatal exception vectors with register output |
+| Exceptions and IRQs | Full saved EL1 frames, fatal diagnostics, controlled BRK/MMU recovery and timer dispatch; new IRQ Pi test pending |
 | Serial console | Polling PL011; firmware-preserved RP1 UART setup on the tested Pi |
 | Device-tree subset | Bounded UART/clock/RAM discovery for **QEMU virt** |
-| Time and CPU | Architectural counter reads, uptime and MIDR inspection |
+| Time and CPU | Counter/uptime/MIDR plus new GICv2/PPI30 periodic timer with start/stop and register-return tests |
 | Physical memory | DTB RAM/reservations and 4 KiB pages, also observed on the real Pi |
 | Root filesystem | Writable RAMFS with paths and monitor commands, also observed on the real Pi |
 | Storage | USB BOT capacity/sectors and FAT32 `/boot` observed on Pi, including reads after ring wrap; virtio tested in QEMU |
 | USB | Pi DMA/descriptors observed; configuration, bulk/event ring cycling and SCSI reads tested in QEMU |
-| Wi-Fi groundwork | SAE, keys, peer authorization and DHCP ACK observed on Pi; address checks/ARP/gateway ping added; persistent networking remains |
+| Wi-Fi | WPA3, keys/peer authorization, DHCP, ARP, DNS, hostname/numeric Internet ping and clean disconnect observed on Pi; long-lived maintenance remains |
+| Kernel heap | 16..4096-byte buffers, calloc/realloc/free, zeroing/page reclamation and RAMFS use; Pi self-tests/count restoration verified |
+| MMU protection | New opt-in identity maps, RO code/constants, XN data/device memory, null/stack guards and controlled fault tests; Pi test pending |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
@@ -167,8 +179,10 @@ separate [RAM root filesystem](docs/ramfs.md). `storageinit` attempts a read-onl
 on Pi, and virtio or USB on QEMU. Follow the [pendrive test](docs/usb.md) on a
 fresh boot; the latest Pi capture verifies capacity, sectors and file reads.
 [Physical memory](docs/memory.md) and RAMFS
-have hardware evidence; Pi SD reads still need their own test. MMU, heap and user
-processes remain unfinished. [Wi-Fi diagnostics](docs/wifi.md) do not provide a connection.
+have hardware evidence; Pi SD reads still need their own test. The heap has Pi
+self-test evidence. New MMU mappings have native/emulator checks; interrupts
+and user processes remain unfinished.
+[Wi-Fi](docs/wifi.md) provides the tested foreground connection.
 
 <details>
 <summary><strong>Explore the source map</strong></summary>
@@ -304,10 +318,14 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] Physical Pi firmware key installation/live M4 with authenticated M3 retries
 - [x] Physical Pi peer-port authorization/readback and DHCP DORA
 - [x] Physical Pi address checks, ARP and three gateway ICMP replies
-- [ ] Physical Pi foreground session and numeric external ping (new revision)
-- [ ] Persistent supplicant, group rekey, lease renewal and external IP networking
+- [x] Physical Pi foreground session and numeric external ping
+- [x] Physical Pi DNS lookup, hostname ping and clean disconnect
+- [x] Physical Pi kernel heap self-tests and packed RAMFS seed buffers
+- [x] Physical Pi MMU identity protection, RAMFS edits and USB/FAT reads
+- [ ] Physical Pi exception return, GICv2 and timer IRQs (new revision)
+- [ ] Persistent supplicant, group rekey, lease renewal and background networking
 - [ ] Physical Pi SD-card handoff
-- [ ] Interrupt controller, timer interrupts and virtual memory
+- [ ] General peripheral IRQ dispatch, IRQ-safe concurrency and dynamic/user virtual memory
 - [ ] Scheduling, EL0 processes and a syscall interface
 - [ ] VFS, storage and persistent filesystems
 - [ ] GPIO, display, USB input and networking

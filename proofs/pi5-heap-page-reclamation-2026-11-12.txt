@@ -1,0 +1,110 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> meminfo
+Memory: ready
+Reported RAM: 8585.740 MB (8188.000 MiB)
+Managed RAM:  7515.144 MB (7167.000 MiB)
+Free RAM:     7515.136 MB (7166.992 MiB)
+Allocated:    0.008 MB (0.007 MiB)
+Unavailable:  1070.596 MB (1021.000 MiB)
+MB=1,000,000 bytes; MiB=1,048,576 bytes (fractions truncated).
+DTB RAM banks=2 bytes=8585740288 (firmware-described, not free memory)
+page_size=4096 address_limit_bytes=34359738368
+Bitmap arena=0x0000000040000000 bytes=1048576 (reserved outside kernel image)
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+managed_bytes=7515144192 unavailable_bytes=1070596096 (reservations, alignment, address limit)
+usable_ranges=1 reservations=7
+PMM pages include the page-backed kernel heap; use heapinfo. MMU off.
+> heapinfo
+Kernel heap: ready
+pages=2 objects=3 capacity_bytes=544
+Backing RAM: 0.008 MB (0.007 MiB)
+peak_pages=2 peak_objects=3 allocations=3 frees=0 failures=0 rejected_frees=0
+class_bytes=16 pages=1 objects=2
+class_bytes=512 pages=1 objects=1
+16-byte alignment; allocation limit=4096; page limit=128 (512 KiB).
+Capacity counts rounded live buffers; it is not free RAM. Empty pages return to PMM.
+Single core; MMU off; not an IRQ, user-space or DMA allocator.
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> heapalloc 17
+Heap slot=0 requested=17 capacity=32 address=0x0000000040102000
+> heapalloc 33
+Heap slot=1 requested=33 capacity=64 address=0x0000000040103000
+> heapinfo
+Kernel heap: ready
+pages=4 objects=5 capacity_bytes=640
+Backing RAM: 0.016 MB (0.015 MiB)
+peak_pages=10 peak_objects=14 allocations=16 frees=11 failures=0 rejected_frees=1
+class_bytes=16 pages=1 objects=2
+class_bytes=32 pages=1 objects=1
+class_bytes=64 pages=1 objects=1
+class_bytes=512 pages=1 objects=1
+16-byte alignment; allocation limit=4096; page limit=128 (512 KiB).
+Capacity counts rounded live buffers; it is not free RAM. Empty pages return to PMM.
+Single core; MMU off; not an IRQ, user-space or DMA allocator.
+> heapfree 0
+Freed heap slot=0
+> heapfree 0
+Invalid or unallocated heap slot.
+> heapfree 1
+Freed heap slot=1
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> heapinfo
+Kernel heap: ready
+pages=2 objects=3 capacity_bytes=544
+Backing RAM: 0.008 MB (0.007 MiB)
+peak_pages=10 peak_objects=14 allocations=27 frees=24 failures=0 rejected_frees=2
+class_bytes=16 pages=1 objects=2
+class_bytes=512 pages=1 objects=1
+16-byte alignment; allocation limit=4096; page limit=128 (512 KiB).
+Capacity counts rounded live buffers; it is not free RAM. Empty pages return to PMM.
+Single core; MMU off; not an IRQ, user-space or DMA allocator.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> heapinfo
+Kernel heap: ready
+pages=2 objects=3 capacity_bytes=544
+Backing RAM: 0.008 MB (0.007 MiB)
+peak_pages=10 peak_objects=14 allocations=27 frees=24 failures=0 rejected_frees=2
+class_bytes=16 pages=1 objects=2
+class_bytes=512 pages=1 objects=1
+16-byte alignment; allocation limit=4096; page limit=128 (512 KiB).
+Capacity counts rounded live buffers; it is not free RAM. Empty pages return to PMM.
+Single core; MMU off; not an IRQ, user-space or DMA allocator.
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> fsinfo
+rootfs=ramfs (volatile; files disappear after reboot)
+files=3 directories=12 data_pages=2 data_bytes=370
+heap_buffers=3 capacity_bytes=544 (small files share pages)
+limits: nodes=64 file_bytes=4096 name_bytes=31 path_bytes=255
+/boot: not mounted; run storageinit
+> meminfo
+Memory: ready
+Reported RAM: 8585.740 MB (8188.000 MiB)
+Managed RAM:  7515.144 MB (7167.000 MiB)
+Free RAM:     7515.136 MB (7166.992 MiB)
+Allocated:    0.008 MB (0.007 MiB)
+Unavailable:  1070.596 MB (1021.000 MiB)
+MB=1,000,000 bytes; MiB=1,048,576 bytes (fractions truncated).
+DTB RAM banks=2 bytes=8585740288 (firmware-described, not free memory)
+page_size=4096 address_limit_bytes=34359738368
+Bitmap arena=0x0000000040000000 bytes=1048576 (reserved outside kernel image)
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+managed_bytes=7515144192 unavailable_bytes=1070596096 (reservations, alignment, address limit)
+usable_ranges=1 reservations=7
+PMM pages include the page-backed kernel heap; use heapinfo. MMU off.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+>

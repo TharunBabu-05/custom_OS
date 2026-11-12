@@ -3,6 +3,7 @@
 #include "console.h"
 #include "cpu.h"
 #include "dt_property.h"
+#include "mmu.h"
 static struct xhci_test_memory memory;
 static struct xhci_test_state state;
 static uint64_t be64(const unsigned char *p)
@@ -18,7 +19,7 @@ static bool wr(void *context,uint32_t offset,uint32_t value)
     __asm__ volatile("dsb sy" ::: "memory"); return true;
 }
 static bool dma(void *context,const void *address,size_t length,uint64_t *bus)
-{ (void)context; if (!length) { return false; } *bus=(uintptr_t)address; return true; }
+{ (void)context; if (!bus || !mmu_dma_buffer((uintptr_t)address,length)) { return false; } *bus=(uintptr_t)address; return true; }
 static void barrier(void *context) { (void)context; __asm__ volatile("dsb sy" ::: "memory"); }
 static uint64_t ticks(void *context) { (void)context; return timer_ticks(); }
 static bool run(uintptr_t dtb,uintptr_t uart_base,bool enumerate,struct block_device *storage)

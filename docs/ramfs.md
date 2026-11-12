@@ -1,5 +1,12 @@
 # First root filesystem: RAMFS
 
+**Current revision:** [kernel heap buffers](kernel-heap.md) replace the original
+one-page-per-file storage. Three boot files now share two pages (544 bytes of
+live buffer capacity). `fsinfo` reports actual distinct pages and heap buffers.
+The [new Pi capture](../proofs/pi5-heap-page-reclamation-2026-11-12.txt) confirms
+that baseline and heap tests. Heap-backed edit/isolation tests pass natively
+and in QEMU; earlier RAMFS file commands also have hardware evidence below.
+
 The kernel now builds a small root filesystem in RAM and exposes it through
 the serial monitor. **The original RAMFS revision now has physical Pi evidence**:
 the user's screenshot shows file creation, cat, cwd navigation and MB/MiB memory
@@ -32,8 +39,9 @@ revision additionally creates `/boot`, `/dev`, `/proc`, `/sys`, `/var/log` and
 `/mnt`, for twelve directories total including root. The empty `/dev`, `/proc`
 and `/sys` directories reserve names; device nodes and pseudo-files are not yet
 implemented. Three nonempty files are still created at boot.
-Each nonempty file owns one allocated 4 KiB physical page. Therefore `meminfo`
-initially shows **three allocated pages**, before any manual page allocations.
+Each nonempty file now owns a 16..4096-byte heap buffer; small files share
+physical pages. Therefore `meminfo` initially shows **two allocated pages**,
+and `fsinfo` shows three buffers with 544 bytes rounded capacity, before manual allocations.
 The allocator bitmap, stack and kernel metadata are separately reserved memory.
 
 **Files disappear on reset or power loss.** Boot recreates the initial files
@@ -52,9 +60,9 @@ shell, and these files are not executable applications.
 | `touch <path>` | Create an empty file, or preserve an existing regular file |
 | `write <path> <text>` | Create or replace a file's contents with the rest of the line |
 | `write <path>` | Truncate/create an empty file |
-| `rm <path>` | Delete one regular file and release its data page |
+| `rm <path>` | Delete one regular file and free its heap buffer; empty pages return to PMM |
 | `rmdir <path>` | Delete an empty directory; root/current directory are protected |
-| `fsinfo` | Show volatile status, file/directory/page counts and limits |
+| `fsinfo` | Show volatile status, file/directory/unique-page/buffer counts and limits |
 
 Paths are case-sensitive. Absolute paths, relative paths, `.` and `..` work;
 `..` at root stays at root. Repeated slashes are accepted. A regular file cannot
@@ -119,14 +127,14 @@ baseline remains `OurOS-Pi5-header-boot-verified.img`.
 - `filesystem/ramfs.c`: nodes, traversal, reads/writes, resource ownership and limits.
 - `include/ramfs.h`: bounded filesystem operations and error codes.
 - `kernel/core/fs_commands.c`: serial-monitor commands and current directory.
-- File contents use `page_alloc`/`page_free`; no heap is needed.
+- File contents use `kmalloc`/`kfree`; short files share heap class pages.
 - A failed write cannot create a partial file or consume a node/page. Existing
   contents are preserved when allocation or size validation fails.
 - Initialization failure reclaims acquired pages and leaves the filesystem
   unavailable while preserving the rest of the monitor for diagnosis.
 
-Limits: 64 nodes total, 31-byte names, 255-byte canonical paths and one 4096-byte
-data page per nonempty file. Empty files/directories use metadata only. The
+Limits: 64 nodes total, 31-byte names, 255-byte canonical paths and up to 4096
+bytes of contents per file. Empty files/directories use metadata only. The
 monitor's 127-byte input line imposes a smaller limit on one interactive write.
 There are no permissions, symlinks, file descriptors, seek/append, general VFS
 mount layer, concurrent access, crash recovery or persistent storage yet.
@@ -149,6 +157,6 @@ physical page counters before and after cleanup.
 
 This bounded RAMFS gives useful files now without waiting for virtual memory
 or user processes. Those features still need their own implementation: virtual
-memory/device mappings and a heap, interrupt controllers and timer interrupts,
+memory/device mappings, interrupt controllers and timer interrupts,
 context switching, scheduling, EL0 and system calls. Persistent files later need
 an SD/block driver, a suitable filesystem driver and integration with a VFS.

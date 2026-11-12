@@ -9,6 +9,7 @@
 #include "host_assert.h"
 #include "dhcp_fixture.h"
 #include "netprobe_fixture.h"
+#include "dns_reply_fixture.h"
 /* Public fixtures only. The model acts as an AP using the SAE engine; its
  * deterministic randomness never enters a kernel/hardware path. */
 static struct brcm_auth_peer peer={.local={2,0,0,0,0,1},.peer={2,0,0,0,0,2},.ssid="public-probe",.ssid_length=12,.channel=6,.band=2};
@@ -489,7 +490,7 @@ static enum block_result port_set(void *ctx,const unsigned char mac[6],bool auth
 static unsigned inet_sum(const unsigned char *p,size_t n)
 { unsigned s=0;for (size_t i=0;i<n;i+=2) { s+=(unsigned)p[i]<<8|(i+1<n ? p[i+1] : 0); }while (s>>16) { s=(s&65535)+(s>>16); }return (~s)&65535; }
 static void gateway_receive(const void *frame,size_t n)
-{ unsigned char bcdc[78]={0x20};assert(n<=74);memcpy(bcdc+4,frame,n);m.in_callback=true;brcm_assoc_data(&assoc,bcdc,n+4);m.in_callback=false; }
+{ unsigned char bcdc[604]={0x20};assert(n<=600);memcpy(bcdc+4,frame,n);m.in_callback=true;brcm_assoc_data(&assoc,bcdc,n+4);m.in_callback=false; }
 static enum block_result net_tx(void *ctx,enum netprobe_packet kind,unsigned sequence,const void *frame,size_t n)
 {
     assert(ctx==&m && !m.in_callback && m.gateway_probe && m.authorized && assoc.port_verified && assoc.dhcp.phase==DHCP_ACKED && netprobe_packet_valid(&assoc.network,kind,sequence,frame,n) && netprobe_can_tx(&assoc.network,m.clock));
@@ -501,6 +502,10 @@ static enum block_result net_tx(void *ctx,enum netprobe_packet kind,unsigned seq
         unsigned char conflict[60];memcpy(conflict,np_gateway_fixture,60);memcpy(conflict+28,assoc.dhcp.lease.address,4);gateway_receive(conflict,60);assert(assoc.network.conflict);return BLOCK_OK;
     }
     if (kind==NP_ARP_RESOLVE && m.gateway_case!=2) { gateway_receive(np_gateway_fixture,60);assert(assoc.network.gateway_known); }
+    if (kind==NP_DNS_QUERY && m.session_case!=10 && m.session_case!=11) {
+        unsigned char response[600];size_t bytes=dns_reply_fixture(frame,response,m.session_case==8 ? 3 : 0);gateway_receive(response,bytes);
+        assert(assoc.network.dns.status==DNS_PENDING && assoc.network.dns.seen);if (m.session_case==9) { assert(!assoc.network.dns.written);return BLOCK_IO; }
+    }
     if (kind==NP_ECHO && m.gateway_case!=3 && !(assoc.session.active && m.session_case==6)) {
         unsigned char reply[74];memcpy(reply,frame,74);memcpy(reply,peer.local,6);memcpy(reply+6,assoc.network.gateway_mac,6);memcpy(reply+26,assoc.network.target,4);memcpy(reply+30,assoc.network.lease.address,4);
         reply[34]=reply[36]=reply[37]=reply[24]=reply[25]=0;be16(reply+36,inet_sum(reply+34,40));be16(reply+24,inet_sum(reply+14,20));
@@ -514,7 +519,9 @@ static int session_input(void *ctx)
     assert(ctx==&m && assoc.session.active && assoc.network.active && !m.in_callback && m.authorized);
     if (m.session_case==1 || m.session_case==7) { return m.clock-assoc.session.started>=1000 ? 3 : -1; }
     if (m.session_case==2 || m.session_case==4 || m.session_case==5) { return -1; }
-    const char *p=m.session_stage==0 ? "ping 1.1.1.1\n" : m.session_stage==1 ? "ping\n" : "netinfo\ndisconnect\n";
+    if (m.session_case==10 && assoc.network.dns.written) { return 3; }
+    const char *p=m.session_stage==0 ? "ping www.google.com\n" : (m.session_case==8 || m.session_case==11) ? "netinfo\ndisconnect\n" : m.session_stage==1 ? "ping\n" : "netinfo\ndisconnect\n";
+    if ((m.session_case==8 || m.session_case==11) && m.session_stage && !assoc.network.dns_finished) { return -1; }
     if (m.session_stage==1 && m.clock-assoc.session.started<35000) { return -1; }
     if (m.session_stage==2 && assoc.network.ping_finished<2) { return -1; }
     if (!p[m.session_input]) { ++m.session_stage;m.session_input=0;return -1; }return p[m.session_input++];
@@ -851,21 +858,25 @@ int main(void)
         assert(assoc.port_closed || m.poisoned);assert(assoc.keys.cleared || m.poisoned);
     }
     puts("PASS: complete SAE/M4/port/DHCP -> address checks/ARP/three gateway echoes; conflicts and DHCPDECLINE, missing ARP/echo, no router, expired lease, RNG/write/deauth failures, early echo then failed write, bad checksum, credit-time M3 without reinstallation, packet-stage failure cleanup; temporary IP removed");
-    for (unsigned mode=0;mode<8;++mode) {
+    for (unsigned mode=0;mode<12;++mode) {
         assoc_seed(ASSOC_NORMAL);m.ie_owner=m.fixed_request=m.key_probe=m.key_data_probe=m.install_probe=m.dhcp_probe=m.gateway_probe=m.session_mode=true;m.session_case=mode;if (mode==7) { m.port_case=5; }
         enum block_result r=assoc_run();assert(m.session_opened && assoc.session.ended && !assoc.session.active && !assoc.network.active && !assoc.network.live && !assoc.network.armed && !assoc.private_exchange && m.key_sets==3 && assoc.keys.cleared);
-        if (mode==0 || mode==1 || mode==6) { assert(r==BLOCK_OK && assoc.phase==12 && assoc.session.reason==NS_USER); }
+        if (mode==0 || mode==1 || mode==6 || mode==8 || mode==10 || mode==11) { assert(r==BLOCK_OK && assoc.phase==12 && assoc.session.reason==NS_USER); }
         else { assert(r!=BLOCK_OK); }
-        if (!mode) { assert(assoc.session.pings_ok==2 && assoc.session.ended_at-assoc.session.started>35000 && m.session_infos==2 && assoc.network.received_mask==7 && m.session_frames==300 && assoc.data_frames>256); }
+        if (!mode) { assert(assoc.session.pings_ok==2 && assoc.session.dns_ok==1 && assoc.session.ended_at-assoc.session.started>35000 && m.session_infos==2 && assoc.network.received_mask==7 && m.session_frames==300 && assoc.data_frames>256); }
         if (mode==2) { assert(assoc.session.reason==NS_LINK); }
         if (mode==3) { assert(assoc.session.reason==NS_IO && !assoc.session.pings_started); }
         if (mode==4) { assert(assoc.session.reason==NS_CONFLICT && assoc.decline_written); }
         if (mode==5) { assert(assoc.session.reason==NS_LEASE); }
         if (mode==6) { assert(assoc.session.pings_timeout==2 && !assoc.session.pings_ok); }
+        if (mode==8) { assert(assoc.session.dns_failed==1 && assoc.network.dns.status==DNS_NXDOMAIN && !assoc.session.pings_started); }
+        if (mode==9) { assert(assoc.session.reason==NS_LINK && assoc.network.dns.status==DNS_CANCELLED && !assoc.session.dns_ok && !assoc.session.pings_started); }
+        if (mode==10) { assert(assoc.network.dns.status==DNS_CANCELLED && !assoc.session.pings_started); }
+        if (mode==11) { assert(assoc.session.dns_failed==1 && assoc.network.dns.status==DNS_TIMEOUT && !assoc.session.pings_started); }
         if (mode==7) { assert(m.poisoned && !assoc.port_closed); }else { assert(assoc.port_closed && !m.authorized); }
         restored();erased();
     }
-    puts("PASS: full verified Wi-Fi foreground session with routed/gateway pings beyond 30 seconds, live peer checks, explicit disconnect, unanswered pings stay connected, link/conflict/lease/RNG/cleanup failures, DHCPDECLINE, no key reinstallation and private erasure");
+    puts("PASS: full verified Wi-Fi session with DNS -> routed hostname/gateway pings beyond 30 seconds, NXDOMAIN/DNS timeout stay open, DNS failed-write/cancel cleanup, live peer checks, explicit disconnect, lease/link/RNG/conflict/cleanup failures, no key reinstallation and private erasure");
     struct brcm_auth_peer saved_peer=peer;memset(peer.ssid,0,sizeof(peer.ssid));memcpy(peer.ssid,"Jack's",6);peer.ssid_length=6;
     unsigned char dump[122],id[16]={0};captured(dump);struct brcm_assoc_probe diag={0};bool h2e;
     assert(brcm_assoc_request_check(&peer,id,dump,118,&h2e,&diag)==BLOCK_OK && diag.request_rsn_offset==32);

@@ -1,6 +1,7 @@
 #include "xhci_test.h"
 #include "console.h"
 #include "cpu.h"
+#include "mmu.h"
 static struct xhci_test_memory memory;
 static struct xhci_test_state state;
 static struct pi5_dma_window window;
@@ -19,13 +20,12 @@ static bool wr(void *context,uint32_t offset,uint32_t value)
 static void barrier(void *context) { (void)context; __asm__ volatile("dsb sy" ::: "memory"); }
 static uint64_t ticks(void *context) { (void)context; return timer_ticks(); }
 static bool dma(void *context,const void *address,size_t length,uint64_t *bus)
-{ (void)context; return pi5_dma_address(&window,(uintptr_t)address,length,bus); }
+{ (void)context; return mmu_dma_buffer((uintptr_t)address,length) && pi5_dma_address(&window,(uintptr_t)address,length,bus); }
 static bool run(uintptr_t dtb,uintptr_t uart_base,bool enumerate,struct block_device *storage)
 {
     if (state.attempted) { xhci_test_report(XHCI_TEST_USED,&state); return false; }
-    uint64_t sctlr; __asm__ volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
-    if (uart_base!=0x1c00030000ULL || (sctlr&5) || !pi5_dma_description((const void *)dtb,0x200000)) {
-        console_write("USB test refused: requires known Pi header mapping, MMU/cache off and supported RP1 DMA description.\n"); return false;
+    if (uart_base!=0x1c00030000ULL || !mmu_dma_compatible() || !pi5_dma_description((const void *)dtb,0x200000)) {
+        console_write("USB test refused: requires known Pi header mapping, caches off, MMU off/verified identity profile and supported RP1 DMA description.\n"); return false;
     }
     struct xhci_observer bridge={rd,(void *)0x1000120000ULL,0x9310};
     bool valid=pi5_dma_window_read(&bridge,&window);

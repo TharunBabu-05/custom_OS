@@ -9,8 +9,11 @@ SECTIONS
     /* Leave 2 MiB at RAM start for the QEMU-provided DTB. */
     . = 0x40200000;
     __kernel_start = .;
-    .text : { KEEP(*(.text.boot)) *(.text .text.*) } :code
-    .rodata : { *(.rodata .rodata.*) } :code
+    __text_start = .;
+    .text : { KEEP(*(.text.boot)) *(.text .text.*) . = ALIGN(4096); } :code
+    __text_end = .;
+    .rodata : { *(.rodata .rodata.*) . = ALIGN(4096); } :code
+    __rodata_end = .;
     . = ALIGN(4096);
     .data : { *(.data .data.*) } :data
     .bss (NOLOAD) : {
@@ -20,8 +23,11 @@ SECTIONS
         . = ALIGN(8);
         __bss_end = .;
     } :data
+    .stack_guard (NOLOAD) : {
+        . = ALIGN(4096); __stack_guard = .; . += 4096;
+    } :data
     .stack (NOLOAD) : {
-        . = ALIGN(16);
+        . = ALIGN(4096);
         __stack_bottom = .;
         . += 0x10000;
         __stack_top = .;

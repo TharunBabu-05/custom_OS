@@ -9,7 +9,7 @@ enum fs_result {
     FS_FILE_TOO_LARGE, FS_NOT_EMPTY, FS_BUSY, FS_NOT_READY, FS_BAD_ARGUMENT,
     FS_READ_ONLY, FS_IO, FS_CORRUPT, FS_UNSUPPORTED
 };
-struct ramfs_stats { unsigned files, directories, pages; size_t bytes; bool ready; };
+struct ramfs_stats { unsigned files, directories, pages,buffers; size_t bytes,capacity_bytes; bool ready; };
 typedef void (*ramfs_emit)(const char *name, bool directory, size_t bytes, void *context);
 /* A single volatile root filesystem. Node IDs are internal, not open handles. */
 enum fs_result ramfs_init(const char *board);

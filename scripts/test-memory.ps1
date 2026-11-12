@@ -9,4 +9,6 @@ try {
     $dtbs=@('.dist/rpi5-firmware/bcm2712-rpi-5-b.dtb','build/qemu_virt/virt.dtb') | Where-Object { Test-Path -LiteralPath $_ }
     & ./build/memory-tests/test-memory.exe @dtbs
     if ($LASTEXITCODE -ne 0) { throw 'Memory host tests failed' }
+    & "$PSScriptRoot/test-heap.ps1" -HostCompiler $HostCompiler
+    & "$PSScriptRoot/test-mmu.ps1" -HostCompiler $HostCompiler
 } finally { Pop-Location }

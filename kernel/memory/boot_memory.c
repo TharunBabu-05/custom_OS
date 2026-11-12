@@ -1,5 +1,6 @@
 #include "memory.h"
 #include "console.h"
+#include "mmu.h"
 extern unsigned char __kernel_start[], __kernel_end[];
 static struct memory_map boot_map;
 static const char *status="not initialized";
@@ -50,8 +51,10 @@ void memory_print_info(void)
     console_write(" (reservations, alignment, address limit)\n");
     console_write("usable_ranges="); console_u64(s.usable_ranges);
     console_write(" reservations="); console_u64(boot_map.reserved_count);
-    console_write("\nPhysical pages only; MMU/heap not implemented.\n");
+    console_write("\nPMM pages include the page-backed kernel heap; use heapinfo. MMU ");console_write(mmu_enabled() ? "on.\n" : "off; mmuinit enables protection.\n");
 }
+bool memory_boot_map(struct memory_map *out)
+{ if (!out || !map_valid || !pages_stats().ready) { return false; }*out=boot_map;return true; }
 void memory_print_map(void)
 {
     if (!map_valid) { memory_print_info(); return; }

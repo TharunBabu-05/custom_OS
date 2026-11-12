@@ -53,7 +53,7 @@ int main(void)
     seed();m.inject=m.cancel_on_rx=true;assert(brcm_control_dhcp(&io,&s,dhcp,n,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
     seed();dhcp[40]^=1;assert(brcm_control_dhcp(&io,&s,dhcp,n,permitted,&m)==BLOCK_ARGUMENT && !m.calls);
     struct netprobe np={0};unsigned char random[32],net[74];for (unsigned i=0;i<32;++i) { random[i]=(unsigned char)(i+1); }
-    const struct dhcp_lease lease={.address={192,0,2,10},.router={192,0,2,1},.server={192,0,2,1},.mask={255,255,255,0},.seconds=3600,.have_mask=true,.have_router=true};
+    const struct dhcp_lease lease={.address={192,0,2,10},.router={192,0,2,1},.server={192,0,2,1},.dns={192,0,2,1},.mask={255,255,255,0},.seconds=3600,.have_mask=true,.have_router=true,.have_dns=true};
     assert(netprobe_init(&np,mac,&lease,random,0)==BLOCK_OK && netprobe_encode(&np,NP_ARP_PROBE,0,net,sizeof(net),&n)==BLOCK_OK);
     seed();assert(brcm_control_netprobe(&io,&s,&np,NP_ARP_PROBE,0,net,n,permitted,&m)==BLOCK_OK && m.writes==1 && m.bytes==76 && s.request_id==51 && !s.waiting);
     assert(brcm_sdpcm_header(m.sent,m.bytes,&h)==BLOCK_OK && h.length==76 && h.channel==2 && !memcmp(m.sent+16,net,n));
@@ -62,6 +62,13 @@ int main(void)
     assert(netprobe_encode(&np,NP_ECHO,1,net,sizeof(net),&n)==BLOCK_OK);seed();assert(brcm_control_netprobe(&io,&s,&np,NP_ECHO,1,net,n,permitted,&m)==BLOCK_OK && m.bytes==92 && !m.sent[90] && !m.sent[91] && !memcmp(m.sent+16,net,n));
     seed();m.inject=m.cancel_on_rx=true;assert(brcm_control_netprobe(&io,&s,&np,NP_ECHO,1,net,n,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
     seed();net[36]^=1;assert(brcm_control_netprobe(&io,&s,&np,NP_ECHO,1,net,n,permitted,&m)==BLOCK_ARGUMENT && !m.calls);
+    unsigned char dns[NETPROBE_FRAME_BYTES];char hostname[254];for (unsigned i=0;i<253;++i) { hostname[i]=(i==63 || i==127 || i==191) ? '.' : 'a'; }hostname[253]=0;
+    np.live=true;np.phase=NP_READY;assert(netprobe_dns_start(&np,hostname,random,0)==BLOCK_OK && netprobe_encode(&np,NP_DNS_QUERY,0,dns,sizeof(dns),&n)==BLOCK_OK && n==313);
+    seed();assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_OK && m.writes==1 && m.bytes==332 && !memcmp(m.sent+16,dns,n) && !m.sent[329] && !m.sent[330] && !m.sent[331]);
+    total=m.calls;for (unsigned fail=1;fail<=total;++fail) { seed();m.fail_at=fail;assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_IO && !s.ready && s.tx_seq==7); }
+    seed();m.inject=m.cancel_on_rx=true;assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
+    seed();dns[36]^=1;assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_ARGUMENT && !m.calls);dns[36]^=1;
+    seed();np.dns.status=DNS_CANCELLED;assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_ARGUMENT && !m.calls);
     client.phase=DHCP_ACKED;client.ack_seen=client.request_written=true;client.lease=lease;
     assert(dhcp_encode_decline(&client,dhcp,sizeof(dhcp),&n)==BLOCK_OK);seed();assert(brcm_control_dhcp(&io,&s,dhcp,n,permitted,&m)==BLOCK_OK && m.sent[300]==4 && m.bytes==360 && s.request_id==51);
     puts("PASS: guarded SAE M2/M4, typed DHCP/DECLINE and owned ARP/ICMP BCDC/SDPCM frames, padding, credit wait, shared-RX staging, cancellation after RX, no CDC request/reply, failure poisoning and invalid-frame refusal; no generic data interface");return 0;

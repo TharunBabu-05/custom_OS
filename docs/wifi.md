@@ -1,19 +1,20 @@
 # Wi-Fi bring-up status
 
-**Current phase: [foreground Wi-Fi session and numeric ping](wifi-session.md).**
-The [latest Pi capture](../proofs/pi5-gateway-three-replies-2026-11-11.txt)
-passes DHCP, address checks, gateway ARP and all three gateway ICMP replies
-(26/23/24 ms including polling/I/O). It disconnects deliberately at the end
-of the old bounded test; deauthorization/key deletion/DOWN pass.
+**First Wi-Fi milestone verified; current OS phase: [exceptions and timer IRQs](interrupts.md).**
+The [latest Pi capture](../proofs/pi5-dns-hostname-ping-clean-disconnect-2026-11-12.txt)
+passes the live WPA3 session, DHCP, ARP, two DNS lookups and all three ICMP
+replies each from `www.google.com` and `1.1.1.1`. Explicit disconnect then
+deauthorizes the peer, deletes keys and restores policy successfully.
 
 The new `wificonnect <SSID>` command runs that setup, then stays open in a
 `net>` console. It services RX/ARP while idle and supports gateway/off-link
-numeric pings, `netinfo` and `disconnect`. Lease expiry, unsupported rekey or
-link/transport failure closes it. No renewal, automatic reconnect, DNS, TCP or
-package installation yet. The new live session and external reachability need
-a Pi test. The page bitmap also moves to a separately reserved RAM arena.
+numeric/hostname pings, `nslookup`, `netinfo` and `disconnect`. Lease expiry,
+unsupported rekey or link/transport failure closes it. No renewal, automatic
+reconnect, group rekey, background networking, TCP or package installation yet.
+The core Wi-Fi/Internet milestone is complete for this tested setup; those
+long-lived/general networking capabilities remain future work.
 
-Use the current guide's fresh-boot sequence. No credentials are saved/embedded.
+Use the [DNS guide's fresh-boot sequence](wifi-dns.md). No credentials are saved/embedded.
 Earlier stages: [key installation](wifi-key-install.md),
 [authenticated key data](wifi-key-data.md), [M2/M3](wifi-eapol-probe.md),
 [association](wifi-association.md) and [aggregate RX](wifi-sdpcm-glom.md).
@@ -31,9 +32,9 @@ Earlier verified stages include SDIO identity, function-1 backplane access,
 The USB/FAT firmware-file path, radio startup, passive scan, crypto/RNG,
 exact-target preflight and external-SAE request scope now pass physically.
 Live SAE, association, authenticated M3 retries, key SETs and M4 writes now pass.
-DHCP, address checking and all three gateway pings also pass now. Test the
-[foreground session and numeric external ping](wifi-session.md) next. DNS,
-renewal/rekey and background networking remain separate stages.
+DHCP, address checking, the live console and three gateway/external numeric
+ping replies and [DNS/hostname ping](wifi-dns.md) also pass now.
+Renewal/rekey and background networking remain separate stages.
 
 The [first upload capture](../proofs/pi5-firmware-first-transfer-failure-2026-11-09.txt)
 passes file hashes and D11/CPU checks but fails on the first code transfer at
@@ -53,9 +54,9 @@ The acceptance sequence is:
    Check exact target cipher/AKM/PMF advertisements before host SAE.
 4. Live SAE, association, M2/M3, PTK/GTK/IGTK SETs, authenticated retries and M4
    writes pass on the Pi. The bounded tests still tear down the connection.
-5. DHCP/address checks/gateway ICMP now pass on the Pi. Verify the foreground
-   session and external numeric reachability. Add DNS for `ping www.google.com`,
-   then renewal/rekey and background networking.
+5. DHCP/address checks/gateway ICMP, foreground session and external numeric
+   reachability, DNS and `ping www.google.com` pass on the Pi. Continue with
+   other kernel foundations; renewal/rekey and background service remain later work.
 
 ICMP replies can be filtered by a network, so a ping timeout alone does not
 establish that Wi-Fi failed. Report association, address, gateway, DNS and packet

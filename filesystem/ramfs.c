@@ -1,12 +1,13 @@
 /* Bounded single-core RAM filesystem. Metadata is static; nonempty files own
- * one physical page each. There is no disk, mount table, permissions or heap. */
+ * heap buffers. Short files can share a PMM page without sharing ownership. */
 #include "ramfs.h"
 #include "memory.h"
+#include "heap.h"
 struct node {
-    bool used, directory, has_page;
+    bool used, directory;
     int parent;
     char name[RAMFS_NAME_MAX+1];
-    uint64_t page;
+    char *data;
     size_t length;
 };
 static struct node nodes[RAMFS_NODES];
@@ -138,7 +139,7 @@ enum fs_result ramfs_read(int cwd,const char *path,const char **data,size_t *len
     int node; enum fs_result r=ramfs_lookup(cwd,path,&node);
     if (r!=FS_OK) { return r; }
     if (nodes[node].directory) { return FS_IS_DIR; }
-    *data=nodes[node].has_page ? (const char *)(uintptr_t)nodes[node].page : "";
+    *data=nodes[node].data ? nodes[node].data : "";
     *length=nodes[node].length; return FS_OK;
 }
 enum fs_result ramfs_mkdir(int cwd,const char *path)
@@ -163,19 +164,19 @@ enum fs_result ramfs_write(int cwd,const char *path,const char *data,size_t leng
         node=free_node(); if (node<0) { return FS_NO_NODES; } create=true;
     } else if (r!=FS_OK) { return r;
     } else if (nodes[node].directory) { return FS_IS_DIR; }
-    uint64_t page=0;
+    char *old=create ? NULL : nodes[node].data,*destination=NULL;size_t capacity=old ? heap_usable_size(old) : 0;
+    if (old && !capacity) { return FS_BAD_ARGUMENT; }
     if (length) {
-        if (!create && nodes[node].has_page) { page=nodes[node].page; }
-        else { if (!page_alloc(&page)) { return FS_NO_MEMORY; } }
-    }
-    if (!length && !create && nodes[node].has_page && !page_free(nodes[node].page)) { return FS_BAD_ARGUMENT; }
-    if (create) { make_node(node,parent,name,false); }
-    if (length) {
-        char *destination=(char *)(uintptr_t)page;
+        destination=length<=capacity ? old : kmalloc(length);if (!destination) { return FS_NO_MEMORY; }
+        /* Copy before releasing old storage: callers may be overwriting a
+         * file with a slice of its own current contents. Allocation failure
+         * leaves the previous data, node table and length unchanged. */
         for (size_t i=0;i<length;++i) { destination[i]=data[i]; }
-        nodes[node].page=page; nodes[node].has_page=true;
-    } else { nodes[node].page=0; nodes[node].has_page=false; }
-    nodes[node].length=length;
+        size_t allocated=heap_usable_size(destination);for (size_t i=length;i<allocated;++i) { destination[i]=0; }
+    }
+    if (old && old!=destination && !kfree(old)) { return FS_BAD_ARGUMENT; }
+    if (create) { make_node(node,parent,name,false); }
+    nodes[node].data=destination;nodes[node].length=length;
     return FS_OK;
 }
 enum fs_result ramfs_touch(int cwd,const char *path)
@@ -195,7 +196,7 @@ enum fs_result ramfs_remove(int cwd,const char *path,bool directory)
     if (directory) {
         for (int i=1;i<RAMFS_NODES;++i) { if (nodes[i].used && nodes[i].parent==node) { return FS_NOT_EMPTY; } }
     }
-    if (nodes[node].has_page && !page_free(nodes[node].page)) { return FS_BAD_ARGUMENT; }
+    if (nodes[node].data && !kfree(nodes[node].data)) { return FS_BAD_ARGUMENT; }
     nodes[node]=(struct node){0}; return FS_OK;
 }
 struct ramfs_stats ramfs_get_stats(void)
@@ -204,7 +205,12 @@ struct ramfs_stats ramfs_get_stats(void)
     for (int i=0;i<RAMFS_NODES;++i) {
         if (!nodes[i].used) { continue; }
         if (nodes[i].directory) { ++s.directories; } else { ++s.files; }
-        if (nodes[i].has_page) { ++s.pages; }
+        if (nodes[i].data) {
+            ++s.buffers;s.capacity_bytes+=heap_usable_size(nodes[i].data);bool first=true;
+            uintptr_t base=(uintptr_t)nodes[i].data&~(uintptr_t)(PAGE_SIZE-1);
+            for (int j=0;j<i;++j) { if (nodes[j].used && nodes[j].data && ((uintptr_t)nodes[j].data&~(uintptr_t)(PAGE_SIZE-1))==base) { first=false;break; } }
+            if (first) { ++s.pages; }
+        }
         s.bytes+=nodes[i].length;
     }
     return s;
@@ -213,9 +219,9 @@ static enum fs_result reset(void)
 {
     ready=false; bool good=true;
     for (int i=0;i<RAMFS_NODES;++i) {
-        if (nodes[i].used && nodes[i].has_page) {
-            if (!page_free(nodes[i].page)) { good=false; }
-            else { nodes[i].has_page=false; }
+        if (nodes[i].used && nodes[i].data) {
+            if (!kfree(nodes[i].data)) { good=false; }
+            else { nodes[i].data=NULL; }
         }
     }
     if (!good) { return FS_BAD_ARGUMENT; }
@@ -226,6 +232,7 @@ enum fs_result ramfs_init(const char *board)
 {
     enum fs_result r=reset(); if (r!=FS_OK) { return r; }
     if (!board) { return FS_BAD_ARGUMENT; }
+    if (!heap_get_stats().ready || heap_get_stats().poisoned) { return FS_NOT_READY; }
     make_node(0,0,"",true); ready=true;
     const char *directories[]={"/etc","/home","/home/user","/tmp","/boot","/dev","/proc","/sys","/var","/var/log","/mnt"};
     for (unsigned i=0;i<sizeof(directories)/sizeof(directories[0]);++i) {
@@ -235,8 +242,8 @@ enum fs_result ramfs_init(const char *board)
         "Welcome to OurOS. This root filesystem lives in RAM.\n"
         "Commands: pwd, ls, cd, cat, mkdir, touch, write, rm, rmdir, fsinfo.\n"
         "Try these commands on separate lines:\nmkdir /tmp/demo\nwrite /tmp/demo/note.txt hello\n"
-        "RAM files disappear after reset. storageinit tries SD/FAT32 on Pi or virtio on QEMU.\n"
-        "USB boot uses firmware; USB disk I/O is pending. Try usbinfo and usbprobe.\n";
+        "RAM files disappear after reset. storageinit mounts read-only FAT32 at /boot.\n"
+        "Pi USB2 pendrive reads work; RAM file contents use the kernel heap.\n";
     r=ramfs_write(0,"/README.txt",readme,sizeof(readme)-1); if (r!=FS_OK) { goto failed; }
     r=ramfs_write(0,"/etc/hostname","ouros\n",6); if (r!=FS_OK) { goto failed; }
     char board_text[64]; size_t n=0;
@@ -251,7 +258,7 @@ failed:
 const char *ramfs_error(enum fs_result result)
 {
     static const char *const messages[]={"ok","path not found","not a directory","is a directory","already exists",
-        "invalid path","name too long","path too long","node table full","out of physical pages",
+        "invalid path","name too long","path too long","node table full","out of kernel heap memory",
         "file too large for this operation","directory not empty","root or current directory is busy","RAM filesystem unavailable","invalid argument",
         "read-only filesystem","storage I/O error","corrupt FAT32 filesystem","unsupported filesystem format"};
     if ((unsigned)result>=sizeof(messages)/sizeof(messages[0])) { return "unknown filesystem error"; }

@@ -11,6 +11,12 @@ static bool mac(const unsigned char *p) { return p && !(p[0]&1) && !zero(p,6); }
 static bool ip(const unsigned char *p) { return p[0] && p[0]!=127 && p[0]<224; }
 static unsigned checksum(const unsigned char *p,size_t n)
 { uint32_t s=0;for (size_t i=0;i<n;i+=2) { s+=(unsigned)p[i]<<8|(i+1<n ? p[i+1] : 0); }while (s>>16) { s=(s&65535)+(s>>16); }return (~s)&65535; }
+static unsigned udp_checksum(const unsigned char *v,const unsigned char *u,size_t n)
+{
+    uint32_t sum=17+(unsigned)n;for (unsigned i=12;i<20;i+=2) { sum+=be16(v+i); }
+    for (size_t i=0;i<n;i+=2) { sum+=(unsigned)u[i]<<8|(i+1<n ? u[i+1] : 0); }
+    while (sum>>16) { sum=(sum&65535)+(sum>>16); }return (~sum)&65535;
+}
 static const unsigned char broadcast[6]={255,255,255,255,255,255};
 static const unsigned char suffix[16]={'O','u','r','O','S',' ','I','C','M','P',' ','p','r','o','b','e'};
 static bool onlink(const struct dhcp_lease *l,const unsigned char p[4])
@@ -26,13 +32,19 @@ enum block_result netprobe_init(struct netprobe *s,const unsigned char local[6],
 }
 enum block_result netprobe_encode(const struct netprobe *s,enum netprobe_packet kind,unsigned sequence,void *output,size_t cap,size_t *actual)
 {
-    if (actual) { *actual=0; }if (!s || !output || !actual || (unsigned)kind>NP_ECHO || cap<(kind==NP_ECHO ? 74u : 60u)) { return BLOCK_ARGUMENT; }
+    if (actual) { *actual=0; }if (!s || !output || !actual || (unsigned)kind>NP_DNS_QUERY || cap<(kind==NP_ECHO ? 74u : 60u)) { return BLOCK_ARGUMENT; }
     if (!s->armed || s->conflict || !mac(s->mac) || (kind==NP_ARP_PROBE ? s->phase!=NP_PROBING || s->active : kind==NP_ARP_ANNOUNCE ? s->phase!=NP_ANNOUNCING : !s->active)) { return BLOCK_NOT_READY; }
     if (kind==NP_ARP_RESOLVE && (s->phase!=NP_RESOLVING || (s->gateway_known && s->resolutions))) { return BLOCK_NOT_READY; }
     if (kind==NP_ARP_REPLY && (!s->reply_pending || !mac(s->reply_mac))) { return BLOCK_NOT_READY; }
     if (kind==NP_ECHO && (s->phase!=NP_PING || !s->gateway_known || !mac(s->gateway_mac) || !sequence || sequence>3)) { return BLOCK_NOT_READY; }
-    unsigned char p[74]={0};copy(p,kind==NP_ECHO ? s->gateway_mac : kind==NP_ARP_REPLY ? s->reply_mac : broadcast,6);copy(p+6,s->mac,6);
-    if (kind==NP_ECHO) {
+    if (kind==NP_DNS_QUERY && (sequence || !s->live || s->phase!=NP_DNS || !s->gateway_known || !mac(s->gateway_mac) || s->dns.status!=DNS_PENDING)) { return BLOCK_NOT_READY; }
+    unsigned char p[NETPROBE_FRAME_BYTES]={0};copy(p,kind==NP_ECHO || kind==NP_DNS_QUERY ? s->gateway_mac : kind==NP_ARP_REPLY ? s->reply_mac : broadcast,6);copy(p+6,s->mac,6);
+    if (kind==NP_DNS_QUERY) {
+        size_t bytes=0;enum block_result r=dns_encode(&s->dns,p+42,sizeof(p)-42,&bytes);if (r!=BLOCK_OK) { return r; }
+        put16(p+12,0x800);unsigned char *v=p+14,*u=v+20;v[0]=0x45;put16(v+2,28+(unsigned)bytes);put16(v+4,s->dns.id);put16(v+6,0x4000);v[8]=64;v[9]=17;
+        copy(v+12,s->lease.address,4);copy(v+16,s->lease.dns,4);put16(u,s->dns.port);put16(u+2,53);put16(u+4,8+(unsigned)bytes);
+        unsigned sum=udp_checksum(v,u,8+bytes);put16(u+6,sum ? sum : 65535);put16(v+10,checksum(v,20));*actual=42+bytes;if (*actual<60) { *actual=60; }
+    }else if (kind==NP_ECHO) {
         put16(p+12,0x800);unsigned char *v=p+14,*e=v+20;v[0]=0x45;put16(v+2,60);put16(v+4,sequence);put16(v+6,0x4000);v[8]=64;v[9]=1;copy(v+12,s->lease.address,4);copy(v+16,s->target,4);
         e[0]=8;put16(e+4,s->identifier);put16(e+6,sequence);copy(e+8,s->token,16);copy(e+24,suffix,16);put16(e+2,checksum(e,40));put16(v+10,checksum(v,20));*actual=74;
     }else {
@@ -41,10 +53,10 @@ enum block_result netprobe_encode(const struct netprobe *s,enum netprobe_packet 
         if (kind==NP_ARP_REPLY) { copy(a+18,s->reply_mac,6);copy(a+24,s->reply_ip,4); }
         else { copy(a+24,kind==NP_ARP_RESOLVE ? s->lease.router : s->lease.address,4); }*actual=60;
     }
-    copy(output,p,*actual);return BLOCK_OK;
+    if (cap<*actual) { *actual=0;return BLOCK_RANGE; }copy(output,p,*actual);return BLOCK_OK;
 }
 bool netprobe_packet_valid(const struct netprobe *s,enum netprobe_packet kind,unsigned sequence,const void *p,size_t n)
-{ unsigned char expected[74];size_t bytes=0;return p && netprobe_encode(s,kind,sequence,expected,sizeof(expected),&bytes)==BLOCK_OK && bytes==n && eq(p,expected,n); }
+{ unsigned char expected[NETPROBE_FRAME_BYTES];size_t bytes=0;return p && netprobe_encode(s,kind,sequence,expected,sizeof(expected),&bytes)==BLOCK_OK && bytes==n && eq(p,expected,n); }
 bool netprobe_can_tx(const struct netprobe *s,uint64_t now)
 { return s && s->armed && !s->conflict && !s->gateway_changed && now-s->start<(s->live ? 3600000u : 30000u) && now-s->lease_origin<(uint64_t)s->lease.seconds*1000; }
 void netprobe_receive(struct netprobe *s,const void *buffer,size_t n)
@@ -68,7 +80,14 @@ void netprobe_receive(struct netprobe *s,const void *buffer,size_t n)
         }
         ++s->ignored;return;
     }
-    if (type!=0x800 || !s->active || s->phase!=NP_PING || !s->gateway_known || !eq(p,s->mac,6) || !eq(p+6,s->gateway_mac,6)) { ++s->ignored;return; }
+    if (type!=0x800 || !s->active || (s->phase!=NP_PING && s->phase!=NP_DNS) || !s->gateway_known || !eq(p,s->mac,6) || !eq(p+6,s->gateway_mac,6)) { ++s->ignored;return; }
+    if (s->phase==NP_DNS) {
+        ++s->ipv4_rx;if (n<54 || n>1514) { goto malformed; }const unsigned char *v=p+14,*u=v+20;unsigned total=be16(v+2);
+        if (v[0]!=0x45 || total<40 || total>20+8+DNS_MESSAGE_MAX || total>n-14 || (be16(v+6)&~0x4000) || !v[8] || checksum(v,20)) { goto malformed; }
+        if (v[9]!=17 || !eq(v+12,s->lease.dns,4) || !eq(v+16,s->lease.address,4) || be16(u)!=53 || be16(u+2)!=s->dns.port) { ++s->ignored;return; }
+        if (be16(u+4)!=total-20 || (be16(u+6) && udp_checksum(v,u,total-20))) { goto malformed; }
+        dns_receive(&s->dns,u+8,total-28);return;
+    }
     ++s->ipv4_rx;if (n<74 || n>1514) { goto malformed; }const unsigned char *v=p+14,*e=v+20;
     if (v[0]!=0x45 || be16(v+2)!=60 || (be16(v+6)&~0x4000) || !v[8] || v[9]!=1 || checksum(v,20) || !eq(v+12,s->target,4) || !eq(v+16,s->lease.address,4) || checksum(e,40)) { goto malformed; }
     if (e[0] || e[1] || be16(e+4)!=s->identifier || !eq(e+8,s->token,16) || !eq(e+24,suffix,16)) { ++s->ignored;return; }
@@ -120,13 +139,25 @@ enum block_result netprobe_run(const struct netprobe_io *io,const unsigned char 
 { return run(io,mac,l,e,origin,s,false); }
 enum block_result netprobe_open(const struct netprobe_io *io,const unsigned char mac[6],const struct dhcp_lease *l,const unsigned char e[32],uint64_t origin,struct netprobe *s)
 { return run(io,mac,l,e,origin,s,true); }
-void netprobe_close(struct netprobe *s) { if (s) { s->live=s->active=s->armed=s->reply_pending=false; } }
+void netprobe_close(struct netprobe *s) { if (s) { s->live=s->active=s->armed=s->reply_pending=false;if (s->dns.status==DNS_PENDING) { s->dns.status=DNS_CANCELLED; } } }
+
+static bool route_supported(const struct netprobe *s,const unsigned char target[4])
+{
+    if (!ip(target) || eq(target,s->lease.address,4) || (onlink(&s->lease,target) && !eq(target,s->lease.router,4))) { return false; }
+    uint32_t mask=be32(s->lease.mask);return (be32(target)&mask)!=(be32(s->lease.address)&mask) || onlink(&s->lease,target);
+}
+enum block_result netprobe_dns_start(struct netprobe *s,const char *name,const unsigned char e[32],uint64_t now)
+{
+    if (!s || !name || !e) { return BLOCK_ARGUMENT; }
+    if (!s->live || !s->active || !s->gateway_known || !netprobe_can_tx(s,now) || s->phase!=NP_READY) { return BLOCK_NOT_READY; }
+    if (!s->lease.have_dns || !route_supported(s,s->lease.dns)) { return BLOCK_UNSUPPORTED; }
+    enum block_result r=dns_begin(&s->dns,name,e);if (r==BLOCK_OK) { s->dns_started=s->dns_next=now;s->dns_polls=0;s->phase=NP_DNS; }return r;
+}
 enum block_result netprobe_ping_start(struct netprobe *s,const unsigned char target[4],const unsigned char e[32],uint64_t now)
 {
     if (!s || !target || !e || !ip(target) || zero(e+8,16) || !be16(e+24)) { return BLOCK_ARGUMENT; }
     if (!s->live || !s->active || !netprobe_can_tx(s,now) || s->phase!=NP_READY) { return BLOCK_NOT_READY; }
-    if (eq(target,s->lease.address,4) || (onlink(&s->lease,target) && !eq(target,s->lease.router,4))) { return BLOCK_UNSUPPORTED; }
-    uint32_t mask=be32(s->lease.mask);if ((be32(target)&mask)==(be32(s->lease.address)&mask) && !onlink(&s->lease,target)) { return BLOCK_UNSUPPORTED; }
+    if (!route_supported(s,target)) { return BLOCK_UNSUPPORTED; }
     if (be16(e+24)==s->identifier && eq(e+8,s->token,16)) { return BLOCK_ARGUMENT; }
     copy(s->target,target,4);copy(s->token,e+8,16);s->identifier=be16(e+24);s->issued_mask=s->written_mask=s->seen_mask=s->received_mask=s->echoes=0;
     for (unsigned i=0;i<3;++i) { s->latency_ms[i]=s->echo_started[i]=0; }
@@ -139,19 +170,27 @@ enum block_result netprobe_service(const struct netprobe_io *io,struct netprobe 
     if (s->conflict || s->gateway_changed) { return BLOCK_IO; }if (!io->ready(io->context)) { return BLOCK_NOT_READY; }
     if (!netprobe_can_tx(s,now)) { return BLOCK_TIMEOUT; }
     if (now-s->arp_window>=60000) { s->arp_window=now;s->arp_window_replies=0; }
+    if (s->phase==NP_DNS) {
+        ++s->dns_polls;
+        if (s->dns.seen && s->dns.written) { s->dns.status=s->dns.observed_status; }
+        else if (now-s->dns_started>=10000 || s->dns_polls>=1001 || (s->dns.sent==3 && now>=s->dns_next)) { s->dns.status=DNS_TIMEOUT; }
+        if (s->dns.status!=DNS_PENDING) { ++s->dns_finished;s->phase=NP_READY; }
+    }
     if (s->phase==NP_PING) {
         for (unsigned j=0;j<3;++j) { unsigned bit=1u<<j;if ((s->seen_mask&s->written_mask&bit) && !(s->received_mask&bit)) { s->received_mask|=bit;s->latency_ms[j]=now-s->echo_started[j]; } }
         if ((s->received_mask==7 && s->written_mask==7) || (s->echoes==3 && now>=s->ping_next) || now-s->ping_started>=10000) {
             s->ping_result=s->received_mask && s->written_mask==7 ? BLOCK_OK : BLOCK_TIMEOUT;++s->ping_finished;s->phase=NP_READY;
         }
     }
-    enum netprobe_packet kind=s->reply_pending ? NP_ARP_REPLY : NP_ECHO;
-    if (!s->reply_pending && (s->phase!=NP_PING || s->echoes==3 || now<s->ping_next)) { return BLOCK_OK; }
+    enum netprobe_packet kind=s->reply_pending ? NP_ARP_REPLY : s->phase==NP_DNS ? NP_DNS_QUERY : NP_ECHO;
+    if (!s->reply_pending && (kind==NP_DNS_QUERY ? s->dns.sent==3 || now<s->dns_next : s->phase!=NP_PING || s->echoes==3 || now<s->ping_next)) { return BLOCK_OK; }
     if (kind==NP_ARP_REPLY && s->arp_window_replies>=64) { return BLOCK_RANGE; }
-    unsigned sequence=kind==NP_ECHO ? s->echoes+1 : 0;unsigned char frame[74];size_t bytes=0;r=netprobe_encode(s,kind,sequence,frame,sizeof(frame),&bytes);if (r!=BLOCK_OK) { return r; }
+    unsigned sequence=kind==NP_ECHO ? s->echoes+1 : 0;unsigned char frame[NETPROBE_FRAME_BYTES];size_t bytes=0;r=netprobe_encode(s,kind,sequence,frame,sizeof(frame),&bytes);if (r!=BLOCK_OK) { return r; }
     if (kind==NP_ECHO) { s->issued_mask|=1u<<(sequence-1);s->echo_started[sequence-1]=now; }
+    if (kind==NP_DNS_QUERY) { s->dns.issued=true; }
     r=io->tx(io->context,kind,sequence,frame,bytes);if (r==BLOCK_NOT_READY && !s->conflict && ++s->deferrals<=8) { return BLOCK_OK; }if (r!=BLOCK_OK) { return r; }
     if (s->conflict || s->gateway_changed) { return BLOCK_IO; }
     if (kind==NP_ARP_REPLY) { ++s->arp_replies;++s->arp_window_replies;s->reply_pending=false; }
+    else if (kind==NP_DNS_QUERY) { s->dns.written=true;++s->dns.sent;s->dns_next=io->milliseconds(io->context)+(s->dns.sent==1 ? 2000 : 4000); }
     else { ++s->echoes;s->written_mask|=1u<<(sequence-1);s->ping_next=io->milliseconds(io->context)+(s->echoes==3 ? 2000 : 1000); }return BLOCK_OK;
 }

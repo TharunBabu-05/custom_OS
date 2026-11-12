@@ -25,8 +25,9 @@ $config=$config.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace('dev
 $readme=@'
 OurOS experimental Raspberry Pi 5 UART boot image
 HARDWARE BOOT UNTESTED. This is an early kernel, not a complete operating system.
-No GUI/HDMI, USB keyboard, multitasking, virtual memory, storage writes, networking
-or user-space applications. Boot firmware reads FAT; the kernel creates a
+No GUI/HDMI, USB keyboard, multitasking, storage writes or user-space applications.
+Opt-in MMU identity protection and foreground Wi-Fi/DHCP/DNS/ping are implemented.
+Boot firmware reads FAT; the kernel creates a
 separate volatile RAMFS root. Run storageinit to attempt a read-only FAT32 mount.
 Only the dedicated UART10 console is used.
 
@@ -35,6 +36,29 @@ Requires Pi 5, working EEPROM firmware and a 3.3 V serial adapter/cable at the
 Expected message: OurOS: AArch64 kernel booted
 Commands: help info cpuinfo meminfo memmap uptime echo clear halt fault
 Memory commands: pagealloc, pagefree <slot>, pagetest.
+Current phase: EL1 exception/IRQ return, GICv2 and 100 Hz physical timer IRQ.
+Latest Pi capture verifies MMU protection, RAMFS edits and USB/FAT reads.
+Boot still masks IRQs. At normal > run mmuinit, exctest, mmutest, irqinit,
+irqinfo, timerstart, timertest, timerinfo, heaptest, pagetest, storageinit,
+cat /boot/CONFIG.TXT, storagetest, timertest, timerinfo, timerstop, timerinfo,
+exctest, mmutest, uptime. Expected: initialization ok, delivered increases,
+fault=no, timertest/exctest PASS; timerstop stops counts and masks CPU IRQ.
+See docs/interrupts.md. New Pi IRQ behavior needs hardware testing.
+GICv2/PPI30 uses validated DT profiles. Firmware must expose the NS timer PPI.
+Handlers rearm/count/EOI only; no UART/heap/storage/network I/O from the ISR.
+No scheduling, preemption, EL0 processes, nested IRQs or peripheral handlers.
+At the normal > prompt run: mmuinfo, mmuinit, mmuinfo, mmutest, heaptest,
+pagetest, fsinfo, meminfo, storageinit, cat /boot/CONFIG.TXT, storagetest,
+pagetest, mmutest, uptime. Wait for each prompt. See docs/mmu.md.
+mmuinit is opt-in; boot starts with MMU off. Caches stay off, RAM is Normal-NC,
+device windows are Device-nGnRnE. Code is RO executable, constants/DTB/tables
+RO XN, data RW XN; address zero and the stack guard are unmapped.
+mmutest intentionally catches five faults, then returns to the monitor.
+Unexpected faults still halt. Repeat mmuinit never rewrites active tables.
+USB accepts only MMU-off/verified identity profile with caches off and writable
+Normal-NC DMA buffers. New MMU-on USB/Wi-Fi behavior needs Pi testing.
+Full feature/driver checklist: docs/os-status.md. Scheduling, EL0,
+general VFS/persistent writes and long-lived networking remain future stages.
 Earlier DTB memory discovery and 4 KiB pages have Pi hardware evidence.
 MB/MiB summaries and RAMFS commands now have physical Pi evidence.
 SDIO and chip 0x4345 revision 6 have physical header-console evidence.
@@ -176,18 +200,31 @@ alone does not prove password agreement. Check peer_confirm_verified.
 P-256 prime folding replaces slow 512-bit serial reduction; 13647 independent
 BigInt products and existing OpenSSL/H2E/SAE vectors pass. Pi preparation went
 from 95 seconds to 3 in the captures; live peer-key timing is 2900 ms.
-Latest physical Pi capture PASSES DHCP, address checks, gateway ARP and all
-three gateway ICMP replies (observed latency 26/23/24 ms including polling/I/O).
-The earlier wifiping test deliberately disconnected afterward; cleanup passed.
-Current phase: wificonnect <SSID> runs verified SAE/M4/keys/port/DHCP/address
+Latest physical Pi capture PASSES WPA3, DHCP, ARP, DNS, three replies each
+from www.google.com and 1.1.1.1, and explicit disconnect with clean teardown.
+The previous kernel heap phase now passes Pi repeated self-tests/counts.
+For a heap regression at normal > run:
+meminfo, heapinfo, heaptest, heapalloc 17, heapalloc 33, heapinfo,
+heapfree 0, heapfree 0 (expected rejection), heapfree 1, heaptest, heapinfo.
+Expect live heap baseline 2 pages / 3 objects / 544 capacity bytes afterward.
+Use fsinfo, write/cat/rm under /tmp, heapinfo, pagetest, storageinit,
+cat /boot/CONFIG.TXT, storagetest and uptime. See docs/kernel-heap.md.
+RAMFS files use 16..4096-byte heap buffers; small files share pages. No disk
+writes or persistent RAM files. Heap alignment=16, page cap=128 (512 KiB).
+New buffers are zeroed, freed buffers wiped; empty pages return to PMM.
+The prior heap/Pi startup and Wi-Fi baseline pass. New MMU mappings need a Pi test.
+For a network regression, wificonnect <SSID> runs verified SAE/M4/keys/port/DHCP/address
 checks/gateway pings, then keeps a foreground net> console OPEN.
 Fresh boot: meminfo, memmap, pagetest, nettest, keytest, storageinit, wififiles,
 wifiinit, wificores, wifiload, wifistart, wificontrol, wificaps, wifiprepare IN,
 wifiscan, wifitarget Jack's, wificonnect Jack's.
 Run separately. Skip wifiping/wifidhcp/wifiassoc and other join probes this boot.
 Password is accepted only at the hidden prompt and is not saved or embedded.
-At net>: netinfo, ping (gateway), ping 1.1.1.1 (numeric off-link), disconnect.
-Wait for Ping complete before another ping. An unanswered ping leaves Wi-Fi
+At net>: netinfo, nslookup www.google.com, ping www.google.com, ping 1.1.1.1,
+netinfo, disconnect. Wait for each DNS/Ping complete result before another query.
+DNS uses the DHCP server, A/IN over UDP, fresh random ID/source port, validated
+question/endpoints/checksums and bounded compressed CNAME answers. No cache.
+A DNS error/timeout does not start ping and leaves Wi-Fi open. A ping timeout leaves Wi-Fi
 open. Leave idle one minute, check the phone still lists the Pi, then ping again.
 Ctrl+C also requests disconnect. Only network commands run inside net>.
 After disconnect, at normal >: netinfo, wifiinfo, storagetest, pagetest, uptime.
@@ -195,9 +232,9 @@ Reboot before joining again. One-shot initialization/install journals remain.
 Initial DHCP and address/gateway checks retain their 45 s/30 s plus I/O limits.
 The open session ends on explicit disconnect, lease expiry, one-hour/360000-poll
 limit, unsupported rekey, lost peer/authorization, conflict or I/O/RNG failure.
-No renewal, automatic reconnect, DNS, TCP, sockets or package installation yet.
-ping www.google.com is refused. Other on-link neighbors are not implemented.
-External numeric IP replies and the new foreground behavior are hardware UNTESTED.
+No renewal, automatic reconnect, DNSSEC, TCP, sockets or package installation yet.
+No DNS TCP fallback, AAAA, EDNS or incomplete-CNAME follow-up. Other on-link
+neighbors are not implemented. DNS/hostname ping pass in the prior Pi image.
 Each user ping uses fresh random ID/token, exact endpoint/payload/checksum
 matching and three requests. RX/ARP/M3 continue while input is polled. Peer
 identity/security/SCB flags are inspected every 15 s and on netinfo.
@@ -207,10 +244,12 @@ RX has bounded per-operation budgets in the console; setup retains its cap.
 ARP replies: one queued, at most 64/minute. Existing M3/M4/credit limits remain.
 The 1 MiB page bitmap now occupies an explicit reserved RAM arena instead of
 kernel BSS. meminfo/memmap show it; managed RAM may be 1 MiB lower. Physical
-address limit stays 32 GiB. Native tests pass; new placement needs Pi testing.
+address limit stays 32 GiB. Native tests and the Pi bitmap/page test pass.
 Firmware entry, DTB placement and Image-size checks are unchanged.
 PuTTY: 115200 8N1, no flow control; force Local echo/Local line editing off.
-See docs/wifi-session.md. Long P256/H2E/SAE tests are optional for this run.
+Network partial input is redrawn after asynchronous DNS/ping output; continue
+the displayed command prefix instead of retyping it. This console fix is new.
+See docs/kernel-heap.md and docs/wifi-dns.md. Long math self-tests are optional.
 rngtest manually checks the DT-gated RNG200 source and erases its samples.
 No random bytes are printed, and no timer/MAC fallback is allowed.
 Native crypto/RNG tests, physical RNG checks and live SAE confirms pass. No IP.

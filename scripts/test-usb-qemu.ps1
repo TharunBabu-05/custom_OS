@@ -26,9 +26,10 @@ try {
     $stdout=$process.StandardOutput.ReadToEndAsync(); $stderr=$process.StandardError.ReadToEndAsync()
     Start-Sleep -Milliseconds 1000
     $usbCommand=if ($Enumerate) { 'usbenum' } else { 'usbtest' }
-    $commands=@($usbCommand,$usbCommand,'uptime','cat /etc/board','pagetest','fsinfo','echo usb-ring-monitor-ok','halt')
-    if ($Storage) { $commands=@('storageinit','storageinit','storageinfo','ls /boot','cat /boot/CONFIG.TXT','storagetest','storageinfo','cat /boot/SOURCE.TXT','uptime','cat /etc/board','pagetest','fsinfo','echo usb-ring-monitor-ok','halt') }
+    $commands=@($usbCommand,$usbCommand,'uptime','cat /etc/board','pagetest','heaptest','heapinfo','fsinfo','echo usb-ring-monitor-ok','halt')
+    if ($Storage) { $commands=@('storageinit','storageinit','storageinfo','ls /boot','cat /boot/CONFIG.TXT','storagetest','storageinfo','cat /boot/SOURCE.TXT','uptime','cat /etc/board','pagetest','heaptest','heapinfo','fsinfo','echo usb-ring-monitor-ok','halt') }
     if ($WifiFiles) { $commands=@('storageinit','cryptotest','keytest','nettest','p256test','h2etest','saetest','rngtest','wififiles','wifiload','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's","wifijoinprobe Jack's","wifisaeprobe Jack's","wifisaeauth Jack's","wifiassoc Jack's","wifidhcp Jack's","wifiping Jack's","wificonnect Jack's",'netinfo')+$commands[1..($commands.Count-1)] }
+    $commands=@('mmuinit','exctest','mmutest','irqinit','timerstart','timertest','irqinfo')+$commands[0..($commands.Count-2)]+@('timertest','timerinfo','timerstop','exctest','halt')
     foreach ($line in $commands) {
         if ($process.HasExited) { throw $stderr.Result }
         foreach ($character in ($line+"`r`n").ToCharArray()) {
@@ -39,7 +40,7 @@ try {
         elseif ($line -eq 'keytest') { Start-Sleep -Seconds 2 }
         elseif ($line -eq 'saetest') { Start-Sleep -Seconds 20 }
         elseif ($line -eq 'p256test' -or $line -eq 'h2etest') { Start-Sleep -Seconds 12 }
-        elseif ($line -eq 'storagetest') { Start-Sleep -Milliseconds 3000 } else { Start-Sleep -Milliseconds 700 }
+        elseif ($line -eq 'storagetest') { Start-Sleep -Milliseconds 3000 } elseif ($line -eq 'timertest') { Start-Sleep -Milliseconds 1000 } else { Start-Sleep -Milliseconds 700 }
     }
     Start-Sleep -Milliseconds 500
     if (!$process.HasExited) { $process.Kill() }; $process.WaitForExit()
@@ -51,15 +52,23 @@ try {
     $text | Set-Content -Encoding ASCII (Join-Path $out "$name.log")
     $stderr.Result | Set-Content -Encoding ASCII (Join-Path $out "$name.stderr.log")
     $fragments=@('QEMU qemu-xhci BAR0=0x10000000',
+        'GICv2 initialization: ok timer_INTID=30','PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.',
+        'PASS: synchronous exception returned with all 31 GPRs, SP and NZCV preserved.','Periodic timer stopped; CPU IRQ masked.',
+        'PASS: MMU null/guard translation faults, code/constants write faults, data execution fault; heap/PMM counts restored.',
         'PASS: four distinct pages written/read/freed; counters restored.',
-        'files=3 directories=12 data_pages=3',"`r`nqemu_virt`r`n", "`r`nusb-ring-monitor-ok`r`n",'CPU halted.')
+        'Kernel heap: ready','PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.',
+        'files=3 directories=12 data_pages=2','heap_buffers=3 capacity_bytes=544',"`r`nqemu_virt`r`n", "`r`nusb-ring-monitor-ok`r`n",'CPU halted.')
     if (!$Storage) { $fragments+=@('PASS: four xHCI No-op completions matched; controller halted.','completed=4','controller_changed=yes halted=yes','test already attempted; reboot before another attempt') }
     foreach ($fragment in $fragments) {
         if (!$text.Contains($fragment)) { throw "$name missing '$fragment'; see $out/$name.log" }
     }
     if ($text.Contains('FATAL')) { throw 'Unexpected exception in USB test' }
+    if ($text.Contains('FAIL:') -or $text.Contains('fault=yes') -or
+        [regex]::Matches($text,'PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.').Count -ne 2 -or
+        [regex]::Matches($text,'PASS: synchronous exception returned with all 31 GPRs, SP and NZCV preserved.').Count -ne 2) { throw 'USB timer/exception regression failed' }
     if ($WifiFiles) {
         if (!$text.Contains('PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.')) { throw 'QEMU DHCP packet self-test failed' }
+        if (!$text.Contains('PASS: DNS A query/compressed-answer public fixtures; no network I/O.')) { throw 'QEMU DNS packet self-test failed' }
         if (!$text.Contains('PASS: ARP/ICMP gateway public packet fixtures; no network I/O.') -or !$text.Contains('No Pi Wi-Fi radio on QEMU virt; gateway ping unavailable. No password requested.')) { throw 'QEMU ARP/ICMP fixtures or missing-radio refusal failed' }
         if (!$text.Contains('No Pi Wi-Fi radio on QEMU virt; live session unavailable. No password requested.') -or !$text.Contains('Physical page allocator ready;')) { throw 'QEMU live-session refusal or external bitmap allocator failed' }
         if (!$text.Contains('No Pi Wi-Fi radio on QEMU virt; DHCP probe unavailable. No password requested.') -or !$text.Contains('No live Pi Wi-Fi DHCP lease on QEMU virt.')) { throw 'QEMU DHCP refusal/status failed' }

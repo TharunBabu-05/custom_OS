@@ -5,8 +5,11 @@ SECTIONS
     /* BOOT_TEST_BASE is defined only by the QEMU handoff-test build. */
     . = DEFINED(BOOT_TEST_BASE) ? BOOT_TEST_BASE : 0x80000;
     __kernel_start = .;
-    .text : { KEEP(*(.text.boot)) *(.text .text.*) } :code
-    .rodata : { *(.rodata .rodata.*) } :code
+    __text_start = .;
+    .text : { KEEP(*(.text.boot)) *(.text .text.*) . = ALIGN(4096); } :code
+    __text_end = .;
+    .rodata : { *(.rodata .rodata.*) . = ALIGN(4096); } :code
+    __rodata_end = .;
     . = ALIGN(4096);
     .data : { *(.data .data.*) } :data
     .bss (NOLOAD) : {
@@ -14,8 +17,11 @@ SECTIONS
         *(.bss .bss.*) *(COMMON)
         . = ALIGN(8); __bss_end = .;
     } :data
+    .stack_guard (NOLOAD) : {
+        . = ALIGN(4096); __stack_guard = .; . += 4096;
+    } :data
     .stack (NOLOAD) : {
-        . = ALIGN(16); __stack_bottom = .;
+        . = ALIGN(4096); __stack_bottom = .;
         . += 0x10000; __stack_top = .;
     } :data
     __kernel_end = .;

@@ -823,8 +823,13 @@ void platform_network_info(void)
         if (n->conflict) { console_write("Conflicting MAC=");print_mac(n->conflict_mac);console_write(" DHCPDECLINE_write=");console_write(s->decline_written ? "completed" : "unconfirmed");console_write(" result=");console_write(block_error(s->decline_result));console_write("\n"); }
         if (s->session_mode) {
             console_write("Session active=");console_write(s->session.active ? "yes" : "no");console_write(" ended=");console_write(s->session.ended ? "yes" : "no");console_write(" reason=");console_u64(s->session.reason);console_write(" pings_started=");console_u64(s->session.pings_started);console_write(" completed=");console_u64(s->session.pings_ok);console_write(" timed_out=");console_u64(s->session.pings_timeout);console_write("\n");
-            console_write(s->session.active ? "Wi-Fi remains open in net> console. Numeric ping and disconnect available; lease is not renewed.\n" : "Session ended; address removed and cleanup follows/completed.\n");
-            console_write("No DNS/TCP/package installation, group rekey or automatic reconnect yet.\n");
+            console_write("DNS: ");console_write(dns_status_text(n->dns.status));console_write(" queries=");console_u64(s->session.dns_started);console_write(" resolved=");console_u64(s->session.dns_ok);console_write(" failed=");console_u64(s->session.dns_failed);console_write("\n");
+            if (n->dns.attempted) {
+                console_write("DNS name=");console_write(n->dns.name);console_write(" server=");ipv4(n->lease.dns);console_write(" writes=");console_u64(n->dns.sent);console_write(" ignored=");console_u64(n->dns.ignored);console_write(" malformed=");console_u64(n->dns.malformed);console_write(" RCODE=");console_u64(n->dns.rcode);console_write("\n");
+                if (n->dns.status==DNS_SUCCESS) { console_write("DNS answer=");ipv4(n->dns.address);console_write(" TTL=");console_u64(n->dns.ttl);console_write(" CNAME_hops=");console_u64(n->dns.cnames);console_write("\n"); }
+            }
+            console_write(s->session.active ? "Wi-Fi remains open in net> console. Hostname/numeric ping, nslookup and disconnect available; lease is not renewed.\n" : "Session ended; address removed and cleanup follows/completed.\n");
+            console_write("DNS A/IN over UDP only; no DNSSEC/TCP/package installation, group rekey or automatic reconnect yet.\n");
         }else { console_write("Cached gateway test only; temporary IP removed and Wi-Fi ends DOWN. No DNS, external Internet probe or persistent connection.\n"); }
     }else { console_write("Cached DHCP metadata only; no address installed. Use wifiping on a fresh boot for ARP/gateway testing. Wi-Fi ends DOWN.\n"); }
 }

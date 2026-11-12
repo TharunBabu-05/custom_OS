@@ -2,6 +2,10 @@
 #include "console.h"
 #include "cpu.h"
 #include "memory.h"
+#include "heap.h"
+#include "mmu.h"
+#include "exception.h"
+#include "irq.h"
 #include "ramfs.h"
 #include "block.h"
 #include "usb.h"
@@ -27,6 +31,7 @@ static bool equal(const char *a, const char *b)
 }
 void exception_fatal(unsigned long vector, unsigned long esr, unsigned long elr, unsigned long far)
 {
+    irq_fatal_stop();
     if (console_ready) {
         console_write("\nFATAL exception vector="); console_u64(vector);
         console_write(" ESR="); console_hex(esr);
@@ -35,6 +40,15 @@ void exception_fatal(unsigned long vector, unsigned long esr, unsigned long elr,
         console_write("\nCPU halted.\n");
     }
     cpu_halt();
+}
+void exception_frame_fatal(const struct exception_frame *frame)
+{
+    if (console_ready) {
+        console_write("\nException class: ");unsigned kind=(unsigned)frame->vector&3;
+        console_write(kind==0 ? exception_class(frame->esr) : kind==1 ? "IRQ" : kind==2 ? "FIQ" : "SError");console_write(" SPSR=");console_hex(frame->spsr);console_write(" SP=");console_hex((uintptr_t)frame+sizeof(*frame));console_write("\n");
+        for (unsigned i=0;i<31;++i) { console_write("x");console_u64(i);console_write("=");console_hex(frame->x[i]);console_write(i%4==3 ? "\n" : " "); }console_write("\n");
+    }
+    exception_fatal(frame->vector,frame->esr,frame->elr,frame->far);
 }
 static bool math_command(const char *line)
 {
@@ -63,6 +77,9 @@ static bool math_command(const char *line)
 }
 static void command(const char *line)
 {
+    if (exception_command(line) || irq_command(line)) { return; }
+    if (mmu_command(line)) { return; }
+    if (heap_command(line)) { return; }
     if (filesystem_command(line)) { return; }
     if (storage_command(line)) { return; }
     if (usb_command(line)) { return; }
@@ -73,10 +90,13 @@ static void command(const char *line)
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
+        console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
+        console_write("excinfo exctest irqinit irqinfo timerstart timerinfo timertest timerstop\n");
+        console_write("heapinfo heaptest heapalloc <1..4096> heapfree <slot>\n");
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
         console_write("keytest (offline AES/CMAC/unwrap/PTK/M2/M4/key-data/M3-retry vectors; no radio)\n");
-        console_write("nettest (offline DHCP packet fixtures) wifidhcp <SSID> (DHCP test) wifiping <SSID> (gateway test) netinfo\n");
-        console_write("wificonnect <SSID> (foreground network console; ping numeric IPv4, netinfo, disconnect)\n");
+        console_write("nettest (offline DHCP/ARP/ICMP/DNS fixtures) wifidhcp <SSID> (DHCP test) wifiping <SSID> (gateway test) netinfo\n");
+        console_write("wificonnect <SSID> (foreground network console; ping IPv4/hostname, nslookup, netinfo, disconnect)\n");
         console_write("p256test (SAE group-19 arithmetic/public vectors; no authentication)\n");
         console_write("h2etest (H2E token/password-element public fixtures; no connection)\n");
         console_write("saetest (in-memory SAE commit/confirm public exchange; no radio)\n");
@@ -103,7 +123,7 @@ static void command(const char *line)
         console_write(" | EL"); console_u64(cpu_el());
         console_write(" | entered EL"); console_u64(entry_el);
         console_write("\nFirmware DTB pointer="); console_hex(firmware_dtb);
-        console_write("\nSingle core; polling UART; MMU off; no user processes.\n");
+        console_write("\nSingle core; polling UART; MMU ");console_write(mmu_enabled() ? "on" : "off");console_write("; no user processes.\n");
         console_write(ramfs_get_stats().ready ? "Root filesystem: RAMFS (volatile).\n" : "Root filesystem unavailable.\n");
     } else if (equal(line,"cpuinfo")) {
         uint64_t midr;
@@ -147,6 +167,7 @@ static void command(const char *line)
     } else if (equal(line,"clear")) {
         console_write("\033[2J\033[H");
     } else if (equal(line,"halt")) {
+        irq_fatal_stop();
         console_write("CPU halted. Reset the board or close the emulator.\n"); cpu_halt();
     } else if (equal(line,"fault")) {
         __asm__ volatile ("brk #0x42");
@@ -170,8 +191,11 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     console_write(" entered EL"); console_u64(entry_el);
     console_write(" running EL"); console_u64(cpu_el()); console_write("\n");
     memory_boot_init(dtb);
+    mmu_setup(board.name,dtb);
+    irq_setup(board.name,dtb);
     console_write(pages_stats().ready ? "Physical page allocator ready; type meminfo or memmap.\n" :
         "Physical page allocator disabled; type meminfo for the reason.\n");
+    console_write(heap_init() ? "Kernel heap ready; type heapinfo or heaptest.\n" : "Kernel heap disabled: physical allocator unavailable.\n");
     enum fs_result fs=ramfs_init(board.name);
     if (fs==FS_OK) { console_write("Root filesystem ready: RAMFS at / (volatile).\n"); }
     else { console_write("Root filesystem unavailable: "); console_write(ramfs_error(fs)); console_write("\n"); }

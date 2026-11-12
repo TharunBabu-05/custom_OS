@@ -9,6 +9,7 @@
 #include "sdhci.h"
 #include "console.h"
 #include "memory.h"
+#include "heap.h"
 #include "dt_property.h"
 #include "host_assert.h"
 static unsigned char *image; static size_t image_size;
@@ -20,7 +21,8 @@ static enum block_result disk_read(void *context,uint64_t lba,unsigned char *sec
     memcpy(sector,image+lba*512,512); return BLOCK_OK;
 }
 static struct block_device disk;
-static unsigned char pages[32][4096]; static bool allocated[32];
+_Alignas(4096) static unsigned char pages[32][4096]; static bool allocated[32];
+struct page_stats pages_stats(void) { return (struct page_stats){.ready=true}; }
 bool page_alloc(uint64_t *physical)
 {
     for (unsigned i=0;i<32;++i) { if (!allocated[i]) { allocated[i]=true; *physical=(uintptr_t)pages[i]; return true; } }
@@ -98,7 +100,7 @@ static void fat_tests(void)
     assert(fat32_open(&v,"/testdir/frag.txt",&opened)==FS_OK);
     fail_lba=v.data_lba+(c1-2)*v.spc;assert(fat32_file_read(&opened,0,data,10,&n)==FS_IO);fail_lba=-1;
     fail_lba=v.data_lba+(c1-2)*v.spc; assert(fat32_read(&v,&e,0,data,10,&n)==FS_IO); fail_lba=-1;
-    assert(ramfs_init("test")==FS_OK);
+    assert(heap_init() && ramfs_init("test")==FS_OK && heap_check());
     assert(vfs_mount_boot(&disk)==FS_OK); assert(vfs_mount_boot(&disk)==FS_BUSY);
     char path[RAMFS_PATH_MAX]; bool dir;
     assert(vfs_resolve("/","/boot/testdir/../CONFIG.TXT",path,&dir)==FS_OK && !dir && !strcmp(path,"/boot/CONFIG.TXT"));

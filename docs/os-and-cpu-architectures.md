@@ -119,16 +119,18 @@ instructions need architecture-specific replacements in another CPU port.
 
 Firmware-described RAM discovery and physical pages now have Pi evidence.
 A first RAM root filesystem and file commands now also have physical evidence.
-The new read-only SD/FAT32 stage and Wi-Fi SDIO diagnostics await separate
-physical captures. The remaining dependencies are:
+Read-only USB/FAT32 and Wi-Fi through WPA3, DHCP, DNS and Internet pings now
+also have Pi captures. The heap now has Pi self-test evidence; [MMU identity
+protection](mmu.md) is the current phase.
+The remaining dependencies are:
 
-1. Validate the Pi SD handoff/FAT mount and the separate SDIO diagnostic.
-2. Add virtual-memory mappings, device-memory attributes, protection and a heap.
+1. Validate MMU-on mappings/protection and USB/radio regressions on the Pi.
+2. Extend identity mappings into dynamic/user address spaces and cache handling.
 3. Add interrupt-controller support and timer interrupts.
 4. Add context switching and scheduling, then EL0 processes and system calls.
 5. Extend the two-route RAMFS/FAT mount layer into a general VFS, executable
    loading and applications; add storage writes with metadata/recovery tests.
-6. Add board-specific GPIO/display/USB/networking support and later SMP.
+6. Extend board-specific GPIO/display/USB input, long-lived networking and later SMP.
 
 Memory allocation alone is not process isolation or a complete OS. Every new
 layer needs verification in emulation and on the physical platform it claims.

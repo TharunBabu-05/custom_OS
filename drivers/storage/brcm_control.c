@@ -256,7 +256,7 @@ enum block_result brcm_control_netprobe(const struct brcm_control_io *io,struct 
 {
     if (!io || !s || !guard || !io->read32 || !io->write32 || !io->packet || !io->delay_us || !netprobe_packet_valid(owner,kind,sequence,p,n)) { return BLOCK_ARGUMENT; }
     if (!s->ready || !s->f2_ready || s->waiting || s->error!=BLOCK_OK) { return BLOCK_NOT_READY; }
-    unsigned char frame[92]={0};for (size_t i=0;i<n;++i) { frame[16+i]=((const unsigned char *)p)[i]; }
+    unsigned char frame[(16+NETPROBE_FRAME_BYTES+3)&~3u]={0};for (size_t i=0;i<n;++i) { frame[16+i]=((const unsigned char *)p)[i]; }
     enum block_result r=wait_for(io,s,false);if (r==BLOCK_OK) {
         if (!guard(ctx)) { return BLOCK_NOT_READY; }
         unsigned length=16+(unsigned)n;put32(frame,((uint32_t)(uint16_t)~length<<16)|length);frame[4]=s->tx_seq;frame[5]=2;frame[7]=12;frame[12]=0x20;

@@ -6,8 +6,9 @@ try {
     New-Item -ItemType Directory -Force build/wifi-tests | Out-Null
     & "$PSScriptRoot/test-dhcp.ps1" -HostCompiler $HostCompiler
     & "$PSScriptRoot/test-netprobe.ps1" -HostCompiler $HostCompiler
+    & "$PSScriptRoot/test-dns.ps1" -HostCompiler $HostCompiler
     & "$PSScriptRoot/test-network-session.ps1" -HostCompiler $HostCompiler
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_port_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c -o build/wifi-tests/test-brcm-port.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_port_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c network/dns.c -o build/wifi-tests/test-brcm-port.exe
     if ($LASTEXITCODE -ne 0) { throw 'Peer port test compilation failed' }
     & ./build/wifi-tests/test-brcm-port.exe
     if ($LASTEXITCODE -ne 0) { throw 'Peer port tests failed' }
@@ -47,24 +48,24 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi startup test compilation failed' }
     & ./build/wifi-tests/test-start.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi startup tests failed' }
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_control_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c -o build/wifi-tests/test-control.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_control_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c network/dns.c -o build/wifi-tests/test-control.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi control test compilation failed' }
     & ./build/wifi-tests/test-control.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi control tests failed' }
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_glom_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c -o build/wifi-tests/test-glom.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_glom_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c network/dns.c -o build/wifi-tests/test-glom.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi aggregate test compilation failed' }
     & ./build/wifi-tests/test-glom.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi aggregate tests failed' }
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_iovar_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c drivers/storage/brcm_auth_probe.c drivers/storage/brcm_join_probe.c drivers/storage/brcm_auth.c -o build/wifi-tests/test-iovar.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_iovar_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c network/dns.c drivers/storage/brcm_auth_probe.c drivers/storage/brcm_join_probe.c drivers/storage/brcm_auth.c -o build/wifi-tests/test-iovar.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi IOVAR test compilation failed' }
     & ./build/wifi-tests/test-iovar.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi IOVAR tests failed' }
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_data_tx_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c -o build/wifi-tests/test-brcm-data-tx.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_data_tx_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c network/dns.c -o build/wifi-tests/test-brcm-data-tx.exe
     if ($LASTEXITCODE -ne 0) { throw 'EAPOL data transport compilation failed' }
     & ./build/wifi-tests/test-brcm-data-tx.exe
     if ($LASTEXITCODE -ne 0) { throw 'EAPOL data transport tests failed' }
     & "$PSScriptRoot/test-brcm-auth.ps1" -HostCompiler $HostCompiler
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_keys_host.c drivers/storage/brcm_keys.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c lib/crypto.c lib/sha256.c -o build/wifi-tests/test-brcm-keys.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_keys_host.c drivers/storage/brcm_keys.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c network/dns.c lib/crypto.c lib/sha256.c -o build/wifi-tests/test-brcm-keys.exe
     if ($LASTEXITCODE -ne 0) { throw 'Firmware key driver compilation failed' }
     & ./build/wifi-tests/test-brcm-keys.exe
     if ($LASTEXITCODE -ne 0) { throw 'Firmware key driver tests failed' }
@@ -80,7 +81,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi target test compilation failed' }
     & ./build/wifi-tests/test-target.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi target tests failed' }
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_scan_transport_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c drivers/storage/brcm_scan.c drivers/storage/brcm_prepare.c drivers/storage/brcm_firmware.c lib/sha256.c -o build/wifi-tests/test-scan-transport.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/brcm_scan_transport_host.c drivers/storage/brcm_control.c network/dhcp.c network/netprobe.c network/dns.c drivers/storage/brcm_scan.c drivers/storage/brcm_prepare.c drivers/storage/brcm_firmware.c lib/sha256.c -o build/wifi-tests/test-scan-transport.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi scan transport test compilation failed' }
     & ./build/wifi-tests/test-scan-transport.exe
     if ($LASTEXITCODE -ne 0) { throw 'Wi-Fi scan transport tests failed' }

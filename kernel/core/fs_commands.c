@@ -43,6 +43,7 @@ bool filesystem_command(const char *line)
             console_write("rootfs=ramfs (volatile; files disappear after reboot)\n");
             console_write("files="); console_u64(stats.files); console_write(" directories="); console_u64(stats.directories);
             console_write(" data_pages="); console_u64(stats.pages); console_write(" data_bytes="); console_u64(stats.bytes);
+            console_write("\nheap_buffers=");console_u64(stats.buffers);console_write(" capacity_bytes=");console_u64(stats.capacity_bytes);console_write(" (small files share pages)");
             console_write("\nlimits: nodes=64 file_bytes=4096 name_bytes=31 path_bytes=255\n");
             vfs_boot_info();
         }

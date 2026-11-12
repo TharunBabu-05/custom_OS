@@ -4,7 +4,7 @@
 enum network_session_reason { NS_NONE,NS_USER,NS_LEASE,NS_LINK,NS_LIMIT,NS_IO,NS_CONFLICT };
 struct network_session {
     bool attempted,active,ended;enum network_session_reason reason;enum block_result result;
-    unsigned polls,commands,pings_started,pings_ok,pings_timeout;uint64_t started,ended_at;
+    unsigned polls,commands,pings_started,pings_ok,pings_timeout,dns_started,dns_ok,dns_failed;uint64_t started,ended_at;
 };
 struct network_session_io {
     struct netprobe_io link;

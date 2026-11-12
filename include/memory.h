@@ -29,12 +29,13 @@ bool memory_normalize(struct memory_map *map);
 /* Claim a page-aligned bitmap arena from normalized RAM, excluding every
  * reservation. Does not touch RAM; map/output change only on success. */
 bool memory_claim_bitmap(struct memory_map *,uint64_t *physical);
-/* Single-core physical pages; no MMU, heap, synchronization or ownership model yet. */
+/* Single-core physical pages; no MMU, synchronization or per-caller ownership. */
 bool pages_init(const struct memory_map *map,void *bitmap,size_t bytes);
 bool page_alloc(uint64_t *physical);
 bool page_free(uint64_t physical);
 struct page_stats pages_stats(void);
 void memory_boot_init(uintptr_t dtb);
+bool memory_boot_map(struct memory_map *out);
 void memory_print_info(void);
 void memory_print_map(void);
 bool memory_page_test(void);

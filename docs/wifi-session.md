@@ -1,5 +1,11 @@
 # Foreground Wi-Fi session and numeric IPv4 ping
 
+**This phase now has a [physical Pi capture](../proofs/pi5-live-session-internet-ping-2026-11-12.txt):
+gateway and `1.1.1.1` each returned three replies at `net>`, and the external
+bitmap/page test passed. The new image and next test are [DNS/hostname ping](wifi-dns.md).**
+The measurements and prospective test instructions below describe the earlier
+numeric-session revision, before that capture; they are retained as phase history.
+
 The [new Pi transcript](../proofs/pi5-gateway-three-replies-2026-11-11.txt)
 passes DHCP, address checks, announcements, gateway ARP and **all three gateway
 echo replies**, with observed latencies of 26, 23 and 24 ms. The phone screenshot

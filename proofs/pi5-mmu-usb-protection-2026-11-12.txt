@@ -1,0 +1,163 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> mmuinfo
+MMU: off (run mmuinit)
+SCTLR_EL1=0x0000000030d00800 caches I/D=off in supported profile; IRQs remain masked.
+> mmuinit
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> mmuinfo
+MMU: on; verified identity profile
+SCTLR_EL1=0x0000000030d80801 caches I/D=off in supported profile; IRQs remain masked.
+Activation=ok MMFR0=0x0000000000101122 TCR_EL1=0x0000000280993019
+TTBR0=0x00000000000d7000 MAIR_EL1=0x0000000000004400 tables_used=5 table_capacity=32 (kernel-reserved)
+MAP base=0x0000000000001000 bytes=520192 Normal-NC EL1 RW XN
+MAP base=0x0000000000080000 bytes=241664 Normal-NC EL1 RO executable
+MAP base=0x00000000000bb000 bytes=53248 Normal-NC EL1 RO XN
+MAP base=0x00000000000c8000 bytes=61440 Normal-NC EL1 RW XN
+MAP base=0x00000000000d7000 bytes=131072 Normal-NC EL1 RO XN
+MAP base=0x00000000000f7000 bytes=147456 Normal-NC EL1 RW XN
+MAP base=0x000000000011c000 bytes=933888 Normal-NC EL1 RW XN
+MAP base=0x0000000000200000 bytes=81920 Normal-NC EL1 RO XN
+MAP base=0x0000000000214000 bytes=1067368448 Normal-NC EL1 RW XN
+MAP base=0x0000000040000000 bytes=7516192768 Normal-NC EL1 RW XN
+MAP base=0x0000001000000000 bytes=2147483648 Device-nGnRnE EL1 RW XN
+MAP base=0x0000001c00000000 bytes=4194304 Device-nGnRnE EL1 RW XN
+Guard page=0x000000000011b000 null page=unmapped tests=0 last_pass_mask=0x0000000000000000
+No EL0 address spaces, remapping, cache acceleration or process isolation yet.
+> mmutest
+probe=unmapped read address=0x0000000000000000 ESR=0x0000000096000007 caught
+probe=unmapped read address=0x000000000011b000 ESR=0x0000000096000007 caught
+probe=read-only write address=0x0000000000081148 ESR=0x000000009600004f caught
+probe=read-only write address=0x00000000000bb000 ESR=0x000000009600004f caught
+probe=data execute address=0x0000000040101020 ESR=0x000000008600000d caught
+PASS: MMU null/guard translation faults, code/constants write faults, data execution fault; heap/PMM counts restored.
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> fsinfo
+rootfs=ramfs (volatile; files disappear after reboot)
+files=3 directories=12 data_pages=2 data_bytes=370
+heap_buffers=3 capacity_bytes=544 (small files share pages)
+limits: nodes=64 file_bytes=4096 name_bytes=31 path_bytes=255
+/boot: not mounted; run storageinit
+> meminfo
+Memory: ready
+Reported RAM: 8585.740 MB (8188.000 MiB)
+Managed RAM:  7515.144 MB (7167.000 MiB)
+Free RAM:     7515.136 MB (7166.992 MiB)
+Allocated:    0.008 MB (0.007 MiB)
+Unavailable:  1070.596 MB (1021.000 MiB)
+MB=1,000,000 bytes; MiB=1,048,576 bytes (fractions truncated).
+DTB RAM banks=2 bytes=8585740288 (firmware-described, not free memory)
+page_size=4096 address_limit_bytes=34359738368
+Bitmap arena=0x0000000040000000 bytes=1048576 (reserved outside kernel image)
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+managed_bytes=7515144192 unavailable_bytes=1070596096 (reservations, alignment, address limit)
+usable_ranges=1 reservations=7
+PMM pages include the page-backed kernel heap; use heapinfo. MMU on.
+> write /tmp/mmu.txt memory-protection-ok
+> cat /tmp/mmu.txt
+memory-protection-ok
+> rm /tmp/mmu.txt
+> heapinfo
+Kernel heap: ready
+pages=2 objects=3 capacity_bytes=544
+Backing RAM: 0.008 MB (0.007 MiB)
+peak_pages=10 peak_objects=14 allocations=16 frees=13 failures=0 rejected_frees=1
+class_bytes=16 pages=1 objects=2
+class_bytes=512 pages=1 objects=1
+16-byte alignment; allocation limit=4096; page limit=128 (512 KiB).
+Capacity counts rounded live buffers; it is not free RAM. Empty pages return to PMM.
+Single core; MMU on; not an IRQ, user-space or DMA allocator.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+/boot: FAT32 read-only start_lba=2048 sectors=260096 clusters=255968
+> cat /boot/CONFIG.TXT
+# OurOS Pi 5: RP1 UART0 on GPIO14/15 (physical pins 8/10), 115200 8N1.
+[pi5]
+kernel=OUROS.IMG
+kernel_address=0x80000
+device_tree=PI5.DTB
+device_tree_address=0x200000
+device_tree_end=0x300000
+uart_2ndstage=1
+init_uart_baud=115200
+# Firmware initializes UART0 and retains RP1/PCIe for bare-metal use.
+enable_rp1_uart=1
+pciex4_reset=0
+auto_initramfs=0
+kernel_watchdog_timeout=0
+bootloader_update=0
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x000000006a004021
+> mmutest
+probe=unmapped read address=0x0000000000000000 ESR=0x0000000096000007 caught
+probe=unmapped read address=0x000000000011b000 ESR=0x0000000096000007 caught
+probe=read-only write address=0x0000000000081148 ESR=0x000000009600004f caught
+probe=read-only write address=0x00000000000bb000 ESR=0x000000009600004f caught
+probe=data execute address=0x0000000040101020 ESR=0x000000008600000d caught
+PASS: MMU null/guard translation faults, code/constants write faults, data execution fault; heap/PMM counts restored.
+> uptime
+uptime_seconds=64
+> mmuinit
+MMU activation already attempted or MMU already on; use mmuinfo. No table rebuild.
+> mmuinfo
+MMU: on; verified identity profile
+SCTLR_EL1=0x0000000030d80801 caches I/D=off in supported profile; IRQs remain masked.
+Activation=ok MMFR0=0x0000000000101122 TCR_EL1=0x0000000280993019
+TTBR0=0x00000000000d7000 MAIR_EL1=0x0000000000004400 tables_used=5 table_capacity=32 (kernel-reserved)
+MAP base=0x0000000000001000 bytes=520192 Normal-NC EL1 RW XN
+MAP base=0x0000000000080000 bytes=241664 Normal-NC EL1 RO executable
+MAP base=0x00000000000bb000 bytes=53248 Normal-NC EL1 RO XN
+MAP base=0x00000000000c8000 bytes=61440 Normal-NC EL1 RW XN
+MAP base=0x00000000000d7000 bytes=131072 Normal-NC EL1 RO XN
+MAP base=0x00000000000f7000 bytes=147456 Normal-NC EL1 RW XN
+MAP base=0x000000000011c000 bytes=933888 Normal-NC EL1 RW XN
+MAP base=0x0000000000200000 bytes=81920 Normal-NC EL1 RO XN
+MAP base=0x0000000000214000 bytes=1067368448 Normal-NC EL1 RW XN
+MAP base=0x0000000040000000 bytes=7516192768 Normal-NC EL1 RW XN
+MAP base=0x0000001000000000 bytes=2147483648 Device-nGnRnE EL1 RW XN
+MAP base=0x0000001c00000000 bytes=4194304 Device-nGnRnE EL1 RW XN
+Guard page=0x000000000011b000 null page=unmapped tests=2 last_pass_mask=0x000000000000001f
+No EL0 address spaces, remapping, cache acceleration or process isolation yet.
+> mmutest
+probe=unmapped read address=0x0000000000000000 ESR=0x0000000096000007 caught
+probe=unmapped read address=0x000000000011b000 ESR=0x0000000096000007 caught
+probe=read-only write address=0x0000000000081148 ESR=0x000000009600004f caught
+probe=read-only write address=0x00000000000bb000 ESR=0x000000009600004f caught
+probe=data execute address=0x0000000040101020 ESR=0x000000008600000d caught
+PASS: MMU null/guard translation faults, code/constants write faults, data execution fault; heap/PMM counts restored.
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> storageinit
+/boot: FAT32 read-only start_lba=2048 sectors=260096 clusters=255968
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x000000006a004021
+> uptime
+uptime_seconds=101
+>
