@@ -91,9 +91,25 @@ static void controls_and_faults(void)
     }
     puts("PASS: CPU 4K/PA/TCR checks, TTBR1 disabled, no cache enable, exact PC/FAR/EC/FSC/write matching and refusal of BRK/unarmed/unrelated faults");
 }
+static void task_guards(void)
+{
+    struct memory_map m=ram(true);struct mmu_layout l=layout(true);struct mmu_plan p;
+    l.guard=l.text_start+0xb0000;l.stack_bottom=l.guard+4096;l.stack_top=l.kernel_end=l.stack_bottom+65536;
+    l.task_base=l.text_start+0x90000;l.task_count=4;
+    assert(mmu_plan_make(&m,MMU_PI5,&l,&p)==MMU_OK && mmu_tables_build(tables,l.tables,&p)==MMU_OK);
+    for (unsigned i=0;i<4;++i) {
+        uint64_t base=l.task_base+(uint64_t)i*20480;
+        assert(!mmu_plan_range(&p,base,4096,MMU_RW) && mmu_plan_range(&p,base+4096,16384,MMU_RW));
+        translation(&p,base);translation(&p,base+4095);translation(&p,base+4096);translation(&p,base+20479);
+    }
+    const uint64_t bad_base[]={l.text_start,l.tables,l.guard,MMU_VA_LIMIT-4096,l.task_base+1};
+    for (unsigned i=0;i<sizeof(bad_base)/sizeof(bad_base[0]);++i) { l.task_base=bad_base[i];assert(mmu_plan_make(&m,MMU_PI5,&l,&p)!=MMU_OK); }
+    l=layout(true);l.task_count=5;l.task_base=l.text_start+0x90000;assert(mmu_plan_make(&m,MMU_PI5,&l,&p)!=MMU_OK);
+    puts("PASS: independent task stack guards unmapped, full stack extents RW/XN, adjacent byte boundaries and invalid/overlapping/out-of-kernel task arenas refused");
+}
 int main(void)
 {
     SYSTEM_INFO system;GetSystemInfo(&system);size_t rounded=(sizeof(*tables)+4095)&~(size_t)4095;
     unsigned char *allocation=VirtualAlloc(NULL,rounded+4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(allocation && system.dwPageSize==4096);DWORD old;assert(VirtualProtect(allocation+rounded,4096,PAGE_NOACCESS,&old));tables=(struct mmu_tables *)allocation;
-    profiles();invalid();controls_and_faults();assert(VirtualFree(allocation,0,MEM_RELEASE));return 0;
+    profiles();invalid();controls_and_faults();task_guards();assert(VirtualFree(allocation,0,MEM_RELEASE));return 0;
 }

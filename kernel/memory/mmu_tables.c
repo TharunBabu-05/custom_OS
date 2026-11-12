@@ -1,6 +1,7 @@
 /* Original 39-bit stage-1 identity policy and AArch64 4 KiB descriptors.
  * See docs/mmu.md for Arm descriptor/control-register references. */
 #include "mmu.h"
+#include "task.h"
 #define ADDRESS_MASK 0x0000fffffffff000ULL
 #define AF (1ULL<<10)
 #define PXN (1ULL<<53)
@@ -58,6 +59,12 @@ enum mmu_result mmu_plan_make(const struct memory_map *map,enum mmu_profile prof
         !change(&p,l->dtb&~(PAGE_SIZE-1),up(l->dtb+l->dtb_bytes)-(l->dtb&~(PAGE_SIZE-1)),MMU_RO)) { return MMU_RAM; }
     /* Address zero remains unmapped even when the Pi's first RAM bank starts there. */
     if (map->ram[0].base==0 && !change(&p,0,PAGE_SIZE,MMU_NONE)) { return MMU_RAM; }
+    if (l->task_count>TASK_LIMIT || (!!l->task_count!=!!l->task_base)) { return MMU_ARGUMENT; }
+    if (l->task_count) {
+        uint64_t bytes=(uint64_t)l->task_count*TASK_STACK_STRIDE;
+        if (!aligned(l->task_base) || !span(l->task_base,bytes) || l->task_base<l->rodata_end || l->task_base+bytes>l->guard || !mmu_plan_range(&p,l->task_base,(size_t)bytes,MMU_RW)) { return MMU_ARGUMENT; }
+        for (unsigned i=0;i<l->task_count;++i) { if (!change(&p,l->task_base+(uint64_t)i*TASK_STACK_STRIDE,TASK_GUARD_BYTES,MMU_NONE)) { return MMU_RAM; } }
+    }
     const struct mmu_region pi[]={{0x1000000000ULL,0x80000000ULL,MMU_DEVICE},{0x1c00000000ULL,0x400000,MMU_DEVICE}};
     const struct mmu_region qemu[]={{0x08000000,0x04000000,MMU_DEVICE},{0x10000000,0x4000,MMU_DEVICE},{0x4010000000ULL,0x10000000,MMU_DEVICE}};
     const struct mmu_region *devices=profile==MMU_PI5 ? pi : qemu;unsigned count=profile==MMU_PI5 ? 2 : 3;

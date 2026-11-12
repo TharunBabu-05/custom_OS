@@ -11,4 +11,5 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Memory host tests failed' }
     & "$PSScriptRoot/test-heap.ps1" -HostCompiler $HostCompiler
     & "$PSScriptRoot/test-mmu.ps1" -HostCompiler $HostCompiler
+    & "$PSScriptRoot/test-tasks.ps1" -HostCompiler $HostCompiler
 } finally { Pop-Location }

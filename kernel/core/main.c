@@ -6,6 +6,7 @@
 #include "mmu.h"
 #include "exception.h"
 #include "irq.h"
+#include "task.h"
 #include "ramfs.h"
 #include "block.h"
 #include "usb.h"
@@ -77,6 +78,7 @@ static bool math_command(const char *line)
 }
 static void command(const char *line)
 {
+    if (task_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
     if (mmu_command(line)) { return; }
     if (heap_command(line)) { return; }
@@ -92,6 +94,7 @@ static void command(const char *line)
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
         console_write("excinfo exctest irqinit irqinfo timerstart timerinfo timertest timerstop\n");
+        console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
         console_write("heapinfo heaptest heapalloc <1..4096> heapfree <slot>\n");
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
         console_write("keytest (offline AES/CMAC/unwrap/PTK/M2/M4/key-data/M3-retry vectors; no radio)\n");

@@ -3,6 +3,7 @@
 #include "cpu.h"
 #include "heap.h"
 #include "irq.h"
+#include "task.h"
 extern unsigned char __text_start[],__text_end[],__rodata_end[],__kernel_end[],__stack_guard[],__stack_bottom[],__stack_top[];
 extern unsigned char mmu_probe_read_fault[],mmu_probe_read_resume[],mmu_probe_write_fault[],mmu_probe_write_resume[],mmu_probe_exec_resume[],mmu_text_marker[],mmu_rodata_marker[];
 extern void mmu_arch_enable(uint64_t root,uint64_t tcr,uint64_t mair);
@@ -44,7 +45,7 @@ static void initialize(void)
     const struct mmu_layout layout={
         (uintptr_t)__text_start,(uintptr_t)__text_end,(uintptr_t)__rodata_end,(uintptr_t)__kernel_end,
         (uintptr_t)__stack_guard,(uintptr_t)__stack_bottom,(uintptr_t)__stack_top,
-        (uintptr_t)tables.entries,state.dtb,map.dtb_size
+        (uintptr_t)tables.entries,state.dtb,map.dtb_size,(uintptr_t)task_stacks,TASK_LIMIT
     };
     state.result=mmu_plan_make(&map,profile,&layout,&plan);if (state.result!=MMU_OK) { goto failed; }
     uint64_t end=plan.regions[plan.count-1].base+plan.regions[plan.count-1].size;

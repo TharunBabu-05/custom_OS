@@ -1,16 +1,16 @@
 # Exceptions, GICv2 and periodic timer interrupts
 
-The [latest Pi capture](../proofs/pi5-mmu-usb-protection-2026-11-12.txt) passes
-MMU activation, all five protection faults repeatedly, heap/page tests, RAMFS
-edits and read-only USB/FAT sector/file reads. That verifies the previous MMU
-phase on the tested board. This revision adds the **EL1 exception/IRQ return
-foundation, GICv2 controller setup and periodic physical timer interrupts**.
-The new IRQ behavior still needs its own Pi test.
+The [latest Pi capture](../proofs/pi5-timer-irq-usb-2026-11-12.txt) passes
+synchronous/asynchronous exception return, GICv2/PPI30, advancing 100 Hz IRQ
+counts, timer start/stop, MMU protection, heap/pages, RAMFS edits and USB/FAT
+sector/file reads while IRQs run. This verifies this phase on the tested board.
+The next phase is [cooperative kernel tasks](kernel-tasks.md); its new private
+stacks and context switching still need their own physical run.
 
 This remains a single-core, non-preemptive kernel monitor. Timer interrupts
 update counters and schedule the next hardware deadline; they do not switch
-tasks. No EL0 processes, general user-fault recovery, peripheral IRQ drivers,
-nested IRQ support or scheduler are implemented by this phase. The complete
+tasks. No EL0 processes, general user-fault recovery, peripheral IRQ drivers or
+nested IRQ support are implemented by the IRQ phase itself. The complete
 [OS/driver checklist](os-status.md) tracks the remaining subsystems.
 
 ## Image and Pi test

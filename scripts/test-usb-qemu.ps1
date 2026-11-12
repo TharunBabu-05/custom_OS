@@ -29,7 +29,7 @@ try {
     $commands=@($usbCommand,$usbCommand,'uptime','cat /etc/board','pagetest','heaptest','heapinfo','fsinfo','echo usb-ring-monitor-ok','halt')
     if ($Storage) { $commands=@('storageinit','storageinit','storageinfo','ls /boot','cat /boot/CONFIG.TXT','storagetest','storageinfo','cat /boot/SOURCE.TXT','uptime','cat /etc/board','pagetest','heaptest','heapinfo','fsinfo','echo usb-ring-monitor-ok','halt') }
     if ($WifiFiles) { $commands=@('storageinit','cryptotest','keytest','nettest','p256test','h2etest','saetest','rngtest','wififiles','wifiload','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's","wifijoinprobe Jack's","wifisaeprobe Jack's","wifisaeauth Jack's","wifiassoc Jack's","wifidhcp Jack's","wifiping Jack's","wificonnect Jack's",'netinfo')+$commands[1..($commands.Count-1)] }
-    $commands=@('mmuinit','exctest','mmutest','irqinit','timerstart','timertest','irqinfo')+$commands[0..($commands.Count-2)]+@('timertest','timerinfo','timerstop','exctest','halt')
+    $commands=@('mmuinit','exctest','mmutest','irqinit','timerstart','schedtest','taskinfo','timertest','irqinfo')+$commands[0..($commands.Count-2)]+@('schedtest','taskinfo','timertest','timerinfo','timerstop','exctest','halt')
     foreach ($line in $commands) {
         if ($process.HasExited) { throw $stderr.Result }
         foreach ($character in ($line+"`r`n").ToCharArray()) {
@@ -40,7 +40,7 @@ try {
         elseif ($line -eq 'keytest') { Start-Sleep -Seconds 2 }
         elseif ($line -eq 'saetest') { Start-Sleep -Seconds 20 }
         elseif ($line -eq 'p256test' -or $line -eq 'h2etest') { Start-Sleep -Seconds 12 }
-        elseif ($line -eq 'storagetest') { Start-Sleep -Milliseconds 3000 } elseif ($line -eq 'timertest') { Start-Sleep -Milliseconds 1000 } else { Start-Sleep -Milliseconds 700 }
+        elseif ($line -eq 'storagetest') { Start-Sleep -Milliseconds 3000 } elseif ($line -eq 'timertest' -or $line -eq 'schedtest') { Start-Sleep -Milliseconds 1000 } else { Start-Sleep -Milliseconds 700 }
     }
     Start-Sleep -Milliseconds 500
     if (!$process.HasExited) { $process.Kill() }; $process.WaitForExit()
@@ -51,6 +51,7 @@ try {
     if ($WifiFiles) { $name=$name.Replace('storage','wifi-files') }
     $text | Set-Content -Encoding ASCII (Join-Path $out "$name.log")
     $stderr.Result | Set-Content -Encoding ASCII (Join-Path $out "$name.stderr.log")
+    if ([regex]::Matches($text,'PASS: three guarded kernel tasks yielded/slept/exited; callee registers/stack/heap data preserved; PMM/heap counts restored.').Count -ne 2 -or [regex]::Matches($text,'private_stack_timer_irqs=[1-9][0-9]*').Count -ne 2 -or $text.Contains('FAIL:')) { throw "$name tasks/USB regression; see $out/$name.log" }
     $fragments=@('QEMU qemu-xhci BAR0=0x10000000',
         'GICv2 initialization: ok timer_INTID=30','PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.',
         'PASS: synchronous exception returned with all 31 GPRs, SP and NZCV preserved.','Periodic timer stopped; CPU IRQ masked.',

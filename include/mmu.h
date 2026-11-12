@@ -12,6 +12,7 @@ struct mmu_plan { struct mmu_region regions[MMU_MAX_REGIONS];unsigned count; };
 struct mmu_layout {
     uint64_t text_start,text_end,rodata_end,kernel_end,guard,stack_bottom,stack_top;
     uint64_t tables,dtb,dtb_bytes;
+    uint64_t task_base;unsigned task_count;
 };
 struct mmu_tables {
     _Alignas(4096) uint64_t entries[MMU_TABLE_PAGES][512];

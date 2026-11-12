@@ -7,14 +7,14 @@ system can run without display, audio, Wi-Fi or even a disk. Our target is a
 usable, networked Pi OS with persistent files and applications, so those
 capabilities are tracked below.
 
-**Evidence:** the [latest Pi log](../proofs/pi5-mmu-usb-protection-2026-11-12.txt)
-confirms MMU activation, repeated protection tests, heap/page restoration,
-RAMFS file edits and read-only USB/FAT sectors while the MMU remains enabled.
+**Evidence:** the [latest Pi log](../proofs/pi5-timer-irq-usb-2026-11-12.txt)
+confirms synchronous/asynchronous exception return, GICv2/timer IRQs, MMU
+protection, heap/pages, RAMFS and USB/FAT reads while timer IRQs run.
 Earlier captures verify the heap baseline and [WPA3/DNS/Internet ping and
 cleanup](wifi-dns.md).
-**Current phase:** [exceptions, interrupts and periodic timer IRQs](interrupts.md).
-The implementation passes native/QEMU A53/A76 tests; the new Pi IRQ/timer
-hardware test is pending. A successful QEMU run does not establish hardware
+**Current phase:** [cooperative kernel tasks](kernel-tasks.md), private guarded
+stacks, saved contexts, yield, timed sleep/wakeup and exit. Native/QEMU tests
+cover the implementation; its new Pi hardware test is pending. A successful QEMU run does not establish hardware
 support on a different board.
 
 ## Core OS subsystems
@@ -23,13 +23,13 @@ support on a different board.
 | --- | --- | --- |
 | Boot/firmware handoff | AArch64 entry, BSS/stack, primary-core selection, EL2 to EL1; Pi 5 UART boot observed | Pi Zero 2 W bring-up, other boot protocols/architectures |
 | CPU/platform discovery | MIDR, current/entry EL, architectural timer frequency, selected DT properties | Broader DT bus/device discovery and feature handling |
-| Exceptions | Common 288-byte frame saves x0..x30/ELR/SPSR/ESR/FAR/vector; full fatal diagnostics and exact armed BRK/MMU test return; native/QEMU tested | Pi validation of the new frame/IRQ return, EL0 faults, signal/process policy and robust emergency stack |
+| Exceptions | Common 288-byte frame saves x0..x30/ELR/SPSR/ESR/FAR/vector; fatal diagnostics and exact armed BRK/MMU return; synchronous/asynchronous return verified on Pi | EL0 faults, signal/process policy and robust emergency stack |
 | Physical memory | DT RAM/reservations, 4 KiB page bitmap allocator, allocation/free tests; Pi verified | Per-owner accounting, richer allocation policies and contiguous multi-page allocation |
 | Kernel heap | Zeroed 16..4096-byte buffers, calloc/realloc/free, page sharing/reclamation; Pi self-tests verified | Large allocations, IRQ/SMP synchronization and additional consumers |
 | Virtual memory/protection | Opt-in EL1 identity tables, RO code/constants/DTB/tables, RW/XN data, null/stack guard; repeated Pi protection and USB tests pass | Dynamic mappings, per-process address spaces, user/kernel split and cache maintenance |
-| Interrupts | New GICv2 PPI30 setup, raw acknowledge/EOI, IRQ return and bounded unexpected-source quarantine; opt-in, native/QEMU tested | Pi validation, general peripheral handlers/registration, IRQ-safe locks and SMP |
-| Time | Counter/uptime/poll deadlines plus new opt-in 100 Hz CNTP timer IRQs, start/stop/restart and IRQ-safe counter snapshots; native/QEMU tested | Pi timer validation, sleep/wakeup queues, wall clock/RTC/time synchronization |
-| Scheduling | One synchronous kernel monitor | Saved task contexts, kernel stacks, runnable/blocked queues, preemption and task lifecycle |
+| Interrupts | GICv2 PPI30, raw acknowledge/EOI, IRQ return and bounded unexpected-source quarantine; opt-in, Pi verified | General peripheral handlers/registration, IRQ-safe locks and SMP |
+| Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop and IRQ-safe snapshots verified on Pi; new cooperative timed sleep/wakeup queue | Task sleep/wakeup Pi validation, wall clock/RTC/time synchronization |
+| Scheduling | New cooperative EL1 contexts, private guarded 16 KiB stacks, ready/sleep states, round-robin yield, wake/exit and repeatable self-test | Pi task validation, preemption, blocking I/O/driver ownership, general task creation, synchronization and background services |
 | Processes/system calls | Everything runs in EL1 kernel context | EL0 entry, syscall ABI, user-pointer checks, exit/wait, permissions and process isolation |
 | Programs/runtime | Kernel is freestanding C/assembly; built-in monitor commands | ELF loader, user C runtime/library, executable applications, later dynamic linking if needed |
 | Filesystem namespace | Writable volatile RAMFS `/`; read-only FAT32 mounted at `/boot`; a small two-route VFS | General mount/open/read/write/close handles, offsets, richer metadata and pseudo-filesystems |
@@ -51,8 +51,8 @@ allocation layer, not virtual memory or process isolation.
 | Driver/interface | Status and scope |
 | --- | --- |
 | PL011 serial UART | Working on QEMU and the tested Pi 5 RP1 GPIO14/15 header console; firmware setup preserved on Pi |
-| Architectural timer | Counter/frequency access works; new 100 Hz NS physical timer IRQ via PPI30, `timerstart`/`timerstop` and asynchronous register-preservation self-test; Pi validation pending |
-| Interrupt controller (GIC) | New bounded GICv2 nonsecure CPU-interface/PPI30 driver for explicit Pi/QEMU DT profiles; raw IAR/EOIR tokens and unexpected-source quarantine; Pi validation pending, no general peripheral/SMP routing |
+| Architectural timer | Counter/frequency and 100 Hz NS physical timer IRQ via PPI30, `timerstart`/`timerstop` and asynchronous register-preservation test verified on Pi |
+| Interrupt controller (GIC) | Bounded GICv2 nonsecure CPU-interface/PPI30 driver for explicit Pi/QEMU DT profiles; raw IAR/EOIR tokens and unexpected-source quarantine; Pi verified, no general peripheral/SMP routing |
 | Device-tree reader | Bounded memory/reservation and selected device/property readers; not a general driver bus |
 | RNG200 | Pi hardware source, conditioning and engineering failure checks implemented; used by SAE/DNS/ping |
 | PCIe/RP1 | Uses validated firmware-selected Pi windows/DMA handoff; no general PCIe reset/enumeration/hotplug driver |
@@ -82,12 +82,14 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-1. **Now:** validate new exception frames, GICv2 and periodic timer IRQs on Pi,
-   retaining the verified MMU/serial/memory/heap/USB/FAT paths. Caches remain off.
-2. **Timer-driven services:** extend the bounded timer/IRQ foundation into
-   sleep/wakeup queues and carefully scoped peripheral interrupt handlers.
-3. **Tasks and synchronization:** saved contexts and stacks, scheduler, lifecycle,
-   locks/critical sections. Keep the polling driver contracts explicit.
+1. **Now:** validate cooperative task contexts, private guarded stacks,
+   yield/sleep/wakeup/exit on Pi, preserving the verified IRQ/MMU/USB paths.
+   Caches remain off; task dispatch happens only at explicit calls.
+2. **Tasks and synchronization:** general task ownership, blocking/wakeup APIs,
+   critical sections and driver contracts before introducing preemption or
+   background services.
+3. **Timer/peripheral services:** carefully scoped peripheral handlers and
+   timer-driven scheduling, with explicit IRQ-safe resource ownership.
 4. **User mode:** process address spaces, system calls, validated user memory,
    executable loader and a small user runtime/shell.
 5. **Persistent storage:** safe device writes/flush, writable filesystem,

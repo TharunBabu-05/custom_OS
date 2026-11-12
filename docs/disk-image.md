@@ -1,9 +1,10 @@
 # Experimental Pi 5 disk image
 
-Current OS test: [exceptions/GICv2/timer IRQs](interrupts.md), opt-in after
-`mmuinit` with `irqinit` and `timerstart`. The latest Pi run passes MMU
-protection and USB/FAT reads. New IRQ delivery and driver regression need a
-fresh hardware run; earlier captures verify DNS/Internet ping and cleanup.
+Current OS test: [cooperative kernel tasks](kernel-tasks.md), opt-in with
+`mmuinit`, `irqinit`, `timerstart`, then `schedtest` and `taskinfo`. The latest
+Pi run passes exception return, GICv2/timer IRQs, MMU protection and USB/FAT
+reads. New private task stacks/context switching need a fresh hardware run;
+earlier captures verify DNS/Internet ping and cleanup.
 The full [OS/driver checklist](os-status.md) records what is still missing.
 
 Builds now preserve previous and newly generated images in the local
@@ -40,19 +41,16 @@ The deliverable is `build/rpi5/OurOS-Pi5-experimental-sd.img`, a 128 MiB
 partitioned disk image for Raspberry Pi 5 Model B. This is a real disk-image
 file, unlike `ouros-rpi5.img`, which contains only the kernel.
 
-**This is not a completed operating system, and hardware boot is untested.**
-It contains the original kernel monitor and a Pi 5 firmware/UART boot candidate.
-The header build's DTB RAM/reservations and physical pages now have Pi evidence;
-see [memory.md](memory.md). MB/MiB display and the [RAMFS root](ramfs.md) now
-also have physical Pi evidence. The latest [storage revision](storage.md) adds
-read-only block I/O, FAT32 and `/boot` mount routing, tested on host/QEMU;
-the Pi SD-handoff driver awaits its own capture. No storage writes, HDMI/GUI,
-USB keyboard support, scheduling, virtual memory, networking or user applications
-are implemented. [Wi-Fi diagnostics](wifi.md) do not implement association/IP.
+This remains an experimental kernel, not a completed operating system.
+The header variant has physical Pi evidence for memory, RAMFS, USB/FAT,
+foreground WPA3/DHCP/DNS/Internet ping, MMU protection and timer interrupts.
+The current cooperative task addition needs its own physical test. The default
+UART10 variant's hardware boot and the limited SD-handoff driver remain
+unverified. See the [feature/driver checklist](os-status.md) for exact scope.
 RAMFS remains the volatile root; `storageinit` attempts a separate read-only
-mount of the SD or supported USB boot FAT32 partition at `/boot`.
-The current Pi port uses the dedicated 3-pin UART10 connector. Without a serial
-adapter, you cannot observe or interact with this kernel on the board.
+mount of supported SD or USB boot FAT32 at `/boot`. There are no disk writes,
+HDMI/GUI, USB keyboard, preemption, EL0 applications or package installation.
+Use the serial connector selected by the image's console profile.
 
 ## Rebuild
 
@@ -118,9 +116,11 @@ EEPROM version on the user's board has not been recorded.
 
 The complete disk image includes the four radio assets; the separate
 boot-files-only ZIP does not. `wififiles` verifies the three input hashes.
-The new `wifiload` keeps the Wi-Fi CPU halted and uploads/reads back firmware
-and packed board settings. Firmware startup/FullMAC/WPA3/IP remain unfinished;
-see [the firmware-stage procedure](wifi-firmware.md). The image verifier checks
+`wifiload` keeps the Wi-Fi CPU halted and uploads/reads back firmware
+and packed board settings. Later startup, FullMAC and foreground WPA3/IP now
+have Pi evidence; use the current [network guide](wifi-dns.md) for the full
+sequence. Long-lived renewal/rekey/background networking remain unfinished.
+The image verifier checks
 the radio revision, exact file lengths and SHA256 pins, including the notices.
 
 ## Verification and limits

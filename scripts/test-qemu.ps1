@@ -39,7 +39,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
                 Start-Sleep -Milliseconds 5
             }
             if ($line -eq 'keytest') { Start-Sleep -Seconds 2 }
-            elseif ($line -eq 'timertest') { Start-Sleep -Milliseconds 1000 }
+            elseif ($line -eq 'timertest' -or $line -eq 'schedtest') { Start-Sleep -Milliseconds 1000 }
             elseif ($mathSeen.ContainsKey($line)) { Start-Sleep -Milliseconds 200 }
             elseif ($line -eq 'saetest') { Start-Sleep -Seconds 20;$mathSeen[$line]=$true }
             elseif ($line -eq 'p256test' -or $line -eq 'h2etest') { Start-Sleep -Seconds 12;$mathSeen[$line]=$true } else { Start-Sleep -Milliseconds 200 }
@@ -84,7 +84,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
         $process.Dispose()
     }
 }
-$commands=@('help','mmuinfo','mmuinit','exctest','mmutest','mmuinfo','irqinit','timerstart','info','cpuinfo','heapinfo','heaptest','heapalloc 17','heapalloc 33','heapinfo','heapfree 0','heapfree 0','heapfree 1','heapfree 999','heapalloc 4097','heaptest','heapinfo','cryptotest','keytest','nettest','p256test','h2etest','saetest','p256test','h2etest','saetest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
+$commands=@('help','mmuinfo','mmuinit','exctest','mmutest','mmuinfo','irqinit','timerstart','schedtest','taskinfo','info','cpuinfo','heapinfo','heaptest','heapalloc 17','heapalloc 33','heapinfo','heapfree 0','heapfree 0','heapfree 1','heapfree 999','heapalloc 4097','heaptest','heapinfo','cryptotest','keytest','nettest','p256test','h2etest','saetest','p256test','h2etest','saetest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
     'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo',
     'fsinfo','pwd','ls /','cat /etc/board','cat /README.txt','cd /tmp','mkdir work','cd work','pwd',
     'touch empty.txt','write note.txt filesystem-ok','cat ./note.txt','ls .','cd ..','rmdir work',
@@ -92,6 +92,8 @@ $commands=@('help','mmuinfo','mmuinit','exctest','mmutest','mmuinfo','irqinit','
     'cd /etc/hostname','rmdir /','rm /tmp','fsinfo','meminfo','echo native-windows-ok',
     "echo bacX`bkspace",'uptime','bogus',('x'*140),'echo recovered','halt')
 $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt | EL1',
+    'PASS: three guarded kernel tasks yielded/slept/exited; callee registers/stack/heap data preserved; PMM/heap counts restored.',
+    'task=2 state=exited','last_result=passed',
     'GICv2 initialization: ok timer_INTID=30','PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.',
     'PASS: synchronous exception returned with all 31 GPRs, SP and NZCV preserved.','Periodic timer stopped; CPU IRQ masked.',
     'MMU: on; verified identity profile','last_pass_mask=0x000000000000001f',

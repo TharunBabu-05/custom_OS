@@ -1,5 +1,39 @@
 # Development log
 
+## 2026-11-12 - Timer IRQ hardware evidence and cooperative kernel tasks
+
+- Retained `proofs/pi5-timer-irq-usb-2026-11-12.txt`: physical Pi GICv2/PPI30,
+  synchronous/asynchronous exception return, advancing IRQ counters, timer
+  stop, MMU faults, heap/pages, RAMFS and USB/FAT reads all pass. The terminal
+  special/spurious acknowledgement in each IRQ drain is expected, with zero
+  unexpected sources and no controller fault.
+- Added cooperative EL1 task context switches, private 16 KiB stacks with
+  separate unmapped 4 KiB guards, a four-slot round-robin queue, explicit
+  yield, timed sleep/wakeup, exit/cancel and monitor return. Task switches
+  mask IRQs during queue/stack ownership transfer and restore each task's
+  own saved mask. The timer ISR continues rearming/counting only.
+- Added repeatable `schedtest` and `taskinfo`: three workers preserve live
+  stack/heap patterns and callee-saved registers, sleep/wake four times each,
+  and terminate through explicit exit or return. IRQ register sentinels also
+  run on a private task stack and require a positive delivered count. Cleanup
+  wipes contexts/stacks, checks canaries and restores heap/PMM counts.
+- Native independent scheduling/deadline model and descriptor oracle cover
+  policy limits, wake timing, fairness, overflow/refusal, cancellation/reuse,
+  all four guard holes and stack permission/overlap boundaries. QEMU cases
+  cover A53/A76 and firmware-style EL1/EL2, repeated task runs, memory tests,
+  timer stop/restart and continued fatal behavior of unexpected BRK.
+- This is a cooperative kernel foundation, not preemptive scheduling or
+  isolated processes. Polling drivers/monitor remain synchronous. New Pi task
+  hardware behavior is pending; see `docs/kernel-tasks.md`. Full IMG/ZIP
+  preservation remains automatic. No physical device, commit or push.
+- Final packaged disk is 134217728 bytes; verified ZIP is 811229 bytes and
+  kernel 372396 bytes. SHA256:
+  `8a2126d102c517368512ad30afbeb065dcb592c657b0e6859ccdc0a19ff2d0a9`.
+  Reserved kernel end is `0x148000`, below DTB `0x200000`. Independent
+  extraction, ZIP decompression/hash, 7-Zip integrity, corruption/profile
+  rejection and final EL2 USB/FAT/firmware-file tests pass. Task runs before
+  and after USB retain memory counts and positive private-stack IRQ counts.
+
 ## 2026-11-08 — Phase 1 preparation
 
 - Read the original specification and applied the user's corrected Zero 2 W model.

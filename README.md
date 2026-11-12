@@ -60,9 +60,9 @@
 > authorization/readback and DHCP OFFER/ACK also pass, with two successful decryptions.
 > Address checks, ARP, the live network console and all three gateway and
 > `1.1.1.1` replies, DNS and hostname ping pass, followed by clean disconnect.
-> Heap allocation/free and repeated self-tests now pass on Pi too. The next
-> MMU protection and USB reads now pass on Pi too. The current phase is
-> exception/IRQ return and periodic timer interrupts;
+> Heap, MMU protection, exception return and timer IRQs now pass on Pi too.
+> The current phase adds cooperative kernel tasks, private guarded stacks,
+> yield, timed sleep/wakeup and exit;
 > renewal, rekey, background networking and application downloads remain.
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
 > driver supplies the next dependency for reading Wi-Fi firmware from disk.
@@ -91,10 +91,12 @@ cover these changes; the Pi capture also confirms the reserved page bitmap.
 The verified [DNS phase](docs/wifi-dns.md) provides `nslookup` and hostname ping.
 The [kernel heap](docs/kernel-heap.md) provides small allocations and backs
 RAMFS file contents; repeated heap tests and counter restoration now pass on Pi.
-The [MMU phase](docs/mmu.md) now has Pi protection/USB evidence. The new
-[interrupt phase](docs/interrupts.md) adds full saved exception frames, GICv2
-and opt-in 100 Hz timer IRQs, with synchronous/asynchronous register tests.
-Native/QEMU checks pass; the Pi IRQ test is next. See the [full OS/driver checklist](docs/os-status.md).
+The [MMU phase](docs/mmu.md) and [interrupt phase](docs/interrupts.md) now have
+Pi protection/USB and synchronous/asynchronous exception/timer IRQ evidence.
+The new [kernel task phase](docs/kernel-tasks.md) adds private guarded stacks,
+saved contexts, cooperative yield, timed sleep/wakeup and exit. Run `mmuinit`,
+`irqinit`, `timerstart`, `schedtest`, then `taskinfo`. Native/QEMU checks cover
+the implementation; the new Pi task test is next. See the [full OS/driver checklist](docs/os-status.md).
 Renewal/rekey, background networking and package installation remain.
 Type credentials only at the hidden prompt; none are saved or embedded.
 Current development images stay local; the user handles GitHub publication.
@@ -153,12 +155,13 @@ establish that the new Pi SD-card handoff or Wi-Fi query has passed.
 
 OurOS uses a modular monolithic design. Board code selects the hardware interface;
 shared kernel code implements the console, timer access and command monitor.
-The current monitor runs in privileged EL1, with one active core and the MMU off.
+The current monitor runs in privileged EL1 on one active core. MMU protection,
+timer interrupts and cooperative task tests are enabled explicitly by commands.
 
 | Working today | Implementation |
 | :--- | :--- |
 | AArch64 entry | Stack setup, BSS clearing, masked exceptions and EL1/EL2 handoff |
-| Exceptions and IRQs | Full saved EL1 frames, fatal diagnostics, controlled BRK/MMU recovery and timer dispatch; new IRQ Pi test pending |
+| Exceptions and IRQs | Full saved EL1 frames, fatal diagnostics, controlled BRK/MMU recovery and timer dispatch; Pi verified |
 | Serial console | Polling PL011; firmware-preserved RP1 UART setup on the tested Pi |
 | Device-tree subset | Bounded UART/clock/RAM discovery for **QEMU virt** |
 | Time and CPU | Counter/uptime/MIDR plus new GICv2/PPI30 periodic timer with start/stop and register-return tests |
@@ -168,7 +171,8 @@ The current monitor runs in privileged EL1, with one active core and the MMU off
 | USB | Pi DMA/descriptors observed; configuration, bulk/event ring cycling and SCSI reads tested in QEMU |
 | Wi-Fi | WPA3, keys/peer authorization, DHCP, ARP, DNS, hostname/numeric Internet ping and clean disconnect observed on Pi; long-lived maintenance remains |
 | Kernel heap | 16..4096-byte buffers, calloc/realloc/free, zeroing/page reclamation and RAMFS use; Pi self-tests/count restoration verified |
-| MMU protection | New opt-in identity maps, RO code/constants, XN data/device memory, null/stack guards and controlled fault tests; Pi test pending |
+| MMU protection | Opt-in identity maps, RO code/constants, XN data/device memory, null/boot stack guards and controlled faults verified on Pi; new private task guards |
+| Kernel tasks | New cooperative EL1 saved contexts, 16 KiB guarded stacks, yield, timed sleep/wakeup, exit and repeatable self-test; Pi task test pending |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
@@ -180,8 +184,8 @@ on Pi, and virtio or USB on QEMU. Follow the [pendrive test](docs/usb.md) on a
 fresh boot; the latest Pi capture verifies capacity, sectors and file reads.
 [Physical memory](docs/memory.md) and RAMFS
 have hardware evidence; Pi SD reads still need their own test. The heap has Pi
-self-test evidence. New MMU mappings have native/emulator checks; interrupts
-and user processes remain unfinished.
+self-test evidence. MMU and timer interrupts have Pi evidence. Cooperative
+tasks have native/emulator checks; preemption and user processes remain unfinished.
 [Wi-Fi](docs/wifi.md) provides the tested foreground connection.
 
 <details>
@@ -322,11 +326,12 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [x] Physical Pi DNS lookup, hostname ping and clean disconnect
 - [x] Physical Pi kernel heap self-tests and packed RAMFS seed buffers
 - [x] Physical Pi MMU identity protection, RAMFS edits and USB/FAT reads
-- [ ] Physical Pi exception return, GICv2 and timer IRQs (new revision)
+- [x] Physical Pi exception return, GICv2 and timer IRQs
+- [ ] Physical Pi cooperative task contexts, guarded stacks and sleep/wakeup (new revision)
 - [ ] Persistent supplicant, group rekey, lease renewal and background networking
 - [ ] Physical Pi SD-card handoff
 - [ ] General peripheral IRQ dispatch, IRQ-safe concurrency and dynamic/user virtual memory
-- [ ] Scheduling, EL0 processes and a syscall interface
+- [ ] Preemptive scheduling, EL0 processes and a syscall interface
 - [ ] VFS, storage and persistent filesystems
 - [ ] GPIO, display, USB input and networking
 - [ ] Pi Zero 2 W physical bring-up and later multicore support

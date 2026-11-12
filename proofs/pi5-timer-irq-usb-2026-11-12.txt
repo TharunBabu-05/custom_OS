@@ -1,0 +1,118 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> mmuinit
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> exctest
+PASS: synchronous exception returned with all 31 GPRs, SP and NZCV preserved.
+> mmutest
+probe=unmapped read address=0x0000000000000000 ESR=0x0000000096000007 caught
+probe=unmapped read address=0x000000000011f000 ESR=0x0000000096000007 caught
+probe=read-only write address=0x0000000000083a90 ESR=0x000000009600004f caught
+probe=read-only write address=0x00000000000c8d50 ESR=0x000000009600004f caught
+probe=data execute address=0x0000000040101020 ESR=0x000000008600000d caught
+PASS: MMU null/guard translation faults, code/constants write faults, data execution fault; heap/PMM counts restored.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> irqinfo
+IRQ controller: GICv2 ready fault=no
+PIDR2=0x000000000000002b TYPER=0x000000000000fc69 CPU_targets=0x0000000001010101 PMR=0x00000000000000f0 distributor=0x000000107fff9000 cpu_interface=0x000000107fffa000
+Timer: stopped CPU_IRQ=masked INTID=30 CNTP_CTL=0x0000000000000000
+frequency=0 period_ticks=0 delivered=0 elapsed_periods=0 skipped=0
+acknowledgements=0 completions=0 special/spurious=0 unexpected=0 last_unexpected=0 early=0
+Single CPU; no scheduling or peripheral IRQ drivers yet.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> timertest
+PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.
+> timeinfo
+Unknown command. Type help.
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> timerinfo
+IRQ controller: GICv2 ready fault=no
+PIDR2=0x000000000000002b TYPER=0x000000000000fc69 CPU_targets=0x0000000001010101 PMR=0x00000000000000f0 distributor=0x000000107fff9000 cpu_interface=0x000000107fffa000
+Timer: running CPU_IRQ=unmasked INTID=30 CNTP_CTL=0x0000000000000001
+frequency=54000000 period_ticks=540000 delivered=857 elapsed_periods=857 skipped=0
+acknowledgements=1714 completions=857 special/spurious=857 unexpected=0 last_unexpected=0 early=0
+Single CPU; no scheduling or peripheral IRQ drivers yet.
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> write /tmp/irq.txt timer-interrupts-ok
+> cat /tmp/irq.txt
+timer-interrupts-ok
+> rm /tmp/irq.txt
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+/boot: FAT32 read-only start_lba=2048 sectors=260096 clusters=255968
+> cat /boot/CONFIG.TXT
+# OurOS Pi 5: RP1 UART0 on GPIO14/15 (physical pins 8/10), 115200 8N1.
+[pi5]
+kernel=OUROS.IMG
+kernel_address=0x80000
+device_tree=PI5.DTB
+device_tree_address=0x200000
+device_tree_end=0x300000
+uart_2ndstage=1
+init_uart_baud=115200
+# Firmware initializes UART0 and retains RP1/PCIe for bare-metal use.
+enable_rp1_uart=1
+pciex4_reset=0
+auto_initramfs=0
+kernel_watchdog_timeout=0
+bootloader_update=0
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x000000006a004021
+> timertest
+PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.
+> timerinfo
+IRQ controller: GICv2 ready fault=no
+PIDR2=0x000000000000002b TYPER=0x000000000000fc69 CPU_targets=0x0000000001010101 PMR=0x00000000000000f0 distributor=0x000000107fff9000 cpu_interface=0x000000107fffa000
+Timer: running CPU_IRQ=unmasked INTID=30 CNTP_CTL=0x0000000000000001
+frequency=54000000 period_ticks=540000 delivered=6558 elapsed_periods=6558 skipped=0
+acknowledgements=13116 completions=6558 special/spurious=6558 unexpected=0 last_unexpected=0 early=0
+Single CPU; no scheduling or peripheral IRQ drivers yet.
+> timerstop
+Periodic timer stopped; CPU IRQ masked.
+> timerinfo
+IRQ controller: GICv2 ready fault=no
+PIDR2=0x000000000000002b TYPER=0x000000000000fc69 CPU_targets=0x0000000001010101 PMR=0x00000000000000f0 distributor=0x000000107fff9000 cpu_interface=0x000000107fffa000
+Timer: stopped CPU_IRQ=masked INTID=30 CNTP_CTL=0x0000000000000000
+frequency=54000000 period_ticks=540000 delivered=6782 elapsed_periods=6782 skipped=0
+acknowledgements=13564 completions=6782 special/spurious=6782 unexpected=0 last_unexpected=0 early=0
+Single CPU; no scheduling or peripheral IRQ drivers yet.
+> exctest
+PASS: synchronous exception returned with all 31 GPRs, SP and NZCV preserved.
+> mmutest
+probe=unmapped read address=0x0000000000000000 ESR=0x0000000096000007 caught
+probe=unmapped read address=0x000000000011f000 ESR=0x0000000096000007 caught
+probe=read-only write address=0x0000000000083a90 ESR=0x000000009600004f caught
+probe=read-only write address=0x00000000000c8d50 ESR=0x000000009600004f caught
+probe=data execute address=0x0000000040101020 ESR=0x000000008600000d caught
+PASS: MMU null/guard translation faults, code/constants write faults, data execution fault; heap/PMM counts restored.
+> uptime
+uptime_seconds=97
+>

@@ -34,6 +34,7 @@ static bool write32(void *ctx,bool cpu,unsigned offset,uint32_t value)
 void irq_setup(const char *name,uintptr_t blob) { board=name;dtb=blob; }
 void irq_fatal_stop(void) { __asm__ volatile("msr daifset, #2; isb" ::: "memory");if (running) { timer_control(0); }running=false; }
 bool irq_timer_running(void) { uint64_t f=irq_save();bool value=running;irq_restore(f);return value; }
+uint64_t irq_timer_delivered(void) { uint64_t f=irq_save(),value=tick.delivered;irq_restore(f);return value; }
 static bool initialize(void)
 {
     (void)irq_save();
@@ -87,7 +88,7 @@ static void info(void)
     console_write("\nPIDR2=");console_hex(g.pidr2);console_write(" TYPER=");console_hex(g.typer);console_write(" CPU_targets=");console_hex(g.cpu_targets);console_write(" PMR=");console_hex(g.priority_mask);
     console_write(" distributor=");console_hex(g.description.distributor);console_write(" cpu_interface=");console_hex(g.description.cpu);console_write("\nTimer: ");console_write(active ? "running" : "stopped");console_write(" CPU_IRQ=");console_write(flags&0x80 ? "masked" : "unmasked");
     console_write(" INTID=");console_u64(g.description.timer_irq);console_write(" CNTP_CTL=");console_hex(ctl);console_write("\nfrequency=");console_u64(t.frequency);console_write(" period_ticks=");console_u64(t.period);console_write(" delivered=");console_u64(t.delivered);console_write(" elapsed_periods=");console_u64(t.periods);console_write(" skipped=");console_u64(t.late);
-    console_write("\nacknowledgements=");console_u64(g.acknowledgements);console_write(" completions=");console_u64(g.completions);console_write(" special/spurious=");console_u64(empty);console_write(" unexpected=");console_u64(bad);console_write(" last_unexpected=");console_u64(last_unexpected);console_write(" early=");console_u64(e);console_write("\nSingle CPU; no scheduling or peripheral IRQ drivers yet.\n");
+    console_write("\nacknowledgements=");console_u64(g.acknowledgements);console_write(" completions=");console_u64(g.completions);console_write(" special/spurious=");console_u64(empty);console_write(" unexpected=");console_u64(bad);console_write(" last_unexpected=");console_u64(last_unexpected);console_write(" early=");console_u64(e);console_write("\nSingle CPU; timer ISR does not schedule tasks; no peripheral IRQ drivers yet.\n");
 }
 static void test(void)
 {

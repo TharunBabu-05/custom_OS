@@ -9,4 +9,6 @@ uint64_t irq_save(void);
 void irq_restore(uint64_t saved);
 void irq_fatal_stop(void);
 bool irq_timer_running(void);
+/* Delivered IRQs since timerstart; snapshot with CPU IRQs briefly masked. */
+uint64_t irq_timer_delivered(void);
 #endif

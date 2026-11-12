@@ -25,7 +25,7 @@ $config=$config.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace('dev
 $readme=@'
 OurOS experimental Raspberry Pi 5 UART boot image
 HARDWARE BOOT UNTESTED. This is an early kernel, not a complete operating system.
-No GUI/HDMI, USB keyboard, multitasking, storage writes or user-space applications.
+No GUI/HDMI, USB keyboard, preemption, storage writes or user-space applications.
 Opt-in MMU identity protection and foreground Wi-Fi/DHCP/DNS/ping are implemented.
 Boot firmware reads FAT; the kernel creates a
 separate volatile RAMFS root. Run storageinit to attempt a read-only FAT32 mount.
@@ -36,28 +36,35 @@ Requires Pi 5, working EEPROM firmware and a 3.3 V serial adapter/cable at the
 Expected message: OurOS: AArch64 kernel booted
 Commands: help info cpuinfo meminfo memmap uptime echo clear halt fault
 Memory commands: pagealloc, pagefree <slot>, pagetest.
-Current phase: EL1 exception/IRQ return, GICv2 and 100 Hz physical timer IRQ.
-Latest Pi capture verifies MMU protection, RAMFS edits and USB/FAT reads.
-Boot still masks IRQs. At normal > run mmuinit, exctest, mmutest, irqinit,
-irqinfo, timerstart, timertest, timerinfo, heaptest, pagetest, storageinit,
-cat /boot/CONFIG.TXT, storagetest, timertest, timerinfo, timerstop, timerinfo,
-exctest, mmutest, uptime. Expected: initialization ok, delivered increases,
-fault=no, timertest/exctest PASS; timerstop stops counts and masks CPU IRQ.
-See docs/interrupts.md. New Pi IRQ behavior needs hardware testing.
+Current phase: cooperative kernel tasks with guarded private stacks.
+Latest Pi capture verifies exception return, GICv2/PPI30 timer IRQs,
+MMU protection, RAMFS edits and USB/FAT reads with timer IRQs running.
+Boot still masks IRQs. At normal > run mmuinit, irqinit, timerstart,
+schedtest, taskinfo, timertest, heaptest, pagetest, storageinit,
+cat /boot/CONFIG.TXT, storagetest, schedtest, taskinfo, timerinfo, timerstop,
+uptime. Expected: three guarded tasks PASS, last_result=passed,
+state=exited and sleeps=4 wakes=4 completed=8 for each of three workers;
+private_stack_timer_irqs positive, timer fault=no and memory counts restored.
+See docs/kernel-tasks.md. New Pi task contexts need hardware testing.
 GICv2/PPI30 uses validated DT profiles. Firmware must expose the NS timer PPI.
 Handlers rearm/count/EOI only; no UART/heap/storage/network I/O from the ISR.
-No scheduling, preemption, EL0 processes, nested IRQs or peripheral handlers.
+Task switching is cooperative at explicit yield/sleep/exit calls, not in ISR.
+Four static slots, 16 KiB stack + unmapped 4 KiB guard per slot; three workers
+exercise contexts, stack/heap data, timed wake, implicit/explicit exit and IRQ
+return on a private stack. schedtest is bounded and returns to the monitor.
+No preemption, background commands, EL0, nested IRQs or peripheral handlers.
 At the normal > prompt run: mmuinfo, mmuinit, mmuinfo, mmutest, heaptest,
 pagetest, fsinfo, meminfo, storageinit, cat /boot/CONFIG.TXT, storagetest,
 pagetest, mmutest, uptime. Wait for each prompt. See docs/mmu.md.
 mmuinit is opt-in; boot starts with MMU off. Caches stay off, RAM is Normal-NC,
 device windows are Device-nGnRnE. Code is RO executable, constants/DTB/tables
-RO XN, data RW XN; address zero and the stack guard are unmapped.
+RO XN, data RW XN; address zero, boot/task stack guards are unmapped.
 mmutest intentionally catches five faults, then returns to the monitor.
 Unexpected faults still halt. Repeat mmuinit never rewrites active tables.
 USB accepts only MMU-off/verified identity profile with caches off and writable
-Normal-NC DMA buffers. New MMU-on USB/Wi-Fi behavior needs Pi testing.
-Full feature/driver checklist: docs/os-status.md. Scheduling, EL0,
+Normal-NC DMA buffers. MMU-on USB reads have Pi evidence; the new task
+phase needs its own hardware test. MMU-on Wi-Fi is not newly established.
+Full feature/driver checklist: docs/os-status.md. Preemption, EL0,
 general VFS/persistent writes and long-lived networking remain future stages.
 Earlier DTB memory discovery and 4 KiB pages have Pi hardware evidence.
 MB/MiB summaries and RAMFS commands now have physical Pi evidence.
@@ -212,7 +219,7 @@ cat /boot/CONFIG.TXT, storagetest and uptime. See docs/kernel-heap.md.
 RAMFS files use 16..4096-byte heap buffers; small files share pages. No disk
 writes or persistent RAM files. Heap alignment=16, page cap=128 (512 KiB).
 New buffers are zeroed, freed buffers wiped; empty pages return to PMM.
-The prior heap/Pi startup and Wi-Fi baseline pass. New MMU mappings need a Pi test.
+Heap/MMU/IRQ/USB and earlier Wi-Fi baselines pass. New task contexts need a Pi test.
 For a network regression, wificonnect <SSID> runs verified SAE/M4/keys/port/DHCP/address
 checks/gateway pings, then keeps a foreground net> console OPEN.
 Fresh boot: meminfo, memmap, pagetest, nettest, keytest, storageinit, wififiles,
@@ -252,7 +259,7 @@ the displayed command prefix instead of retyping it. This console fix is new.
 See docs/kernel-heap.md and docs/wifi-dns.md. Long math self-tests are optional.
 rngtest manually checks the DT-gated RNG200 source and erases its samples.
 No random bytes are printed, and no timer/MAC fallback is allowed.
-Native crypto/RNG tests, physical RNG checks and live SAE confirms pass. No IP.
+Native crypto/RNG tests, physical RNG checks, live SAE, DHCP/DNS and ping pass.
 wifitarget <SSID> checks cached RSN group/pairwise/SAE/PMF/management suites,
 and retains RSNXE/H2E advertisements. It sends no packets and accepts no password.
 Run wifitarget Jack's after wifiscan; no surrounding quotes. Physical preflight
@@ -261,7 +268,9 @@ The first failing SDIO command/R5/IRQ/FIFO snapshot is retained for diagnosis.
 It can take a minute or more at 400 kHz SDIO; wait for progress and the prompt.
 WIFILIC.TXT retains vendor asset notices; SOURCE.TXT records the pinned source.
 CLM is verified/staged on disk for later FullMAC use, not loaded by wifiload.
-WPA3-Personal is the requested target; the new DHCP test ends DOWN. No persistent IP.
+WPA3-Personal is the tested target; wificonnect keeps its foreground session
+open until disconnect/failure/lease expiry. Standalone DHCP probes end DOWN.
+No background networking, lease renewal or long-lived key management yet.
 Reboot before retrying a partial CLM/country operation.
 Then storagetest, storageinfo, pagetest and uptime to check continued operation.
 Root dirs: /boot /dev /etc /home /mnt /proc /sys /tmp /var/log.
@@ -279,7 +288,7 @@ if ($Console -eq 'header') {
     $readme=$readme.Replace('Only the dedicated UART10 console is used.', 'Only the RP1 UART0 header console is used.')
     $readme=$readme.Replace('3-pin UART connector between the HDMI ports.', '40-pin header: Pi pin 8 TX -> adapter RXD, pin 10 RX <- adapter TXD, pin 6 GND.')
     $readme+="`r`nLeave adapter power pins disconnected; use 3.3 V signals and Pi USB-C power.`r`nRequires firmware enable_rp1_uart=1, pciex4_reset=0; board=rpi5-header.`r`nSee docs/rpi5-header-uart.md. No PCIe reinitialization is implemented.`r`n"
-    $readme+="UART base 0x1c00030000 matches captured RP1_UART on board revision d04171.`r`nOther firmware mappings require a matching build; physical kernel boot remains unverified.`r`n"
+    $readme+="UART base 0x1c00030000 matches captured RP1_UART on board revision d04171.`r`nOther firmware mappings require a matching build. Prior header boot/IRQ/USB have Pi evidence; this new task phase needs its own physical run.`r`n"
 }
 [IO.File]::WriteAllText((Join-Path $files 'README.TXT'),$readme,[Text.Encoding]::ASCII)
 $assets=Get-Content -Raw (Join-Path $ProjectRoot 'boot/rpi5/assets.json') | ConvertFrom-Json
