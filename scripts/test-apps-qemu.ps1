@@ -1,7 +1,7 @@
 # Runs ELF applications only against regular project-local USB disk copies.
 # It never writes the delivery image or opens a physical device.
 [CmdletBinding()]
-param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img')
+param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Tools)
 . "$PSScriptRoot/windows-tools.ps1"
 $source=(Resolve-Path -LiteralPath $Image).Path
 $sourceHash=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
@@ -36,7 +36,7 @@ function Run-Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[str
         $stdout=$p.StandardOutput.ReadToEndAsync();$stderr=$p.StandardError.ReadToEndAsync();Start-Sleep -Milliseconds 1000
         foreach ($line in $Commands) {
             foreach ($c in ($line+"`r`n").ToCharArray()) { $p.StandardInput.Write($c);$p.StandardInput.Flush();Start-Sleep -Milliseconds 6 }
-            $delay=if ($line -eq 'apptest') { 4000 } elseif ($line -eq 'taskiotest' -or $line.StartsWith('appinstall ') -or $line.StartsWith('apprun ')) { 1500 } else { 450 }
+            $delay=if ($line -eq 'apptest' -or $line -eq 'tooltest') { 4500 } elseif ($line -eq 'taskiotest' -or $line.StartsWith('appinstall ') -or $line.StartsWith('apprun ') -or $line.StartsWith('appexec ')) { 1500 } else { 450 }
             Start-Sleep -Milliseconds $delay
         }
         Start-Sleep -Milliseconds 500
@@ -64,7 +64,25 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
         'appinstall /boot/CONFIG.TXT /data/bad','appinstall /boot/HELLO.ELF /tmp/refuse',
         'apprun /data/hello.elf','apprun /boot/COUNTER.ELF /boot/COUNTER.ELF /boot/COUNTER.ELF','apprun /boot/HELLO.ELF /boot/CONFIG.TXT',
         'appinfo','datainfo','fileinfo','heaptest','pagetest','heapinfo','timerinfo','timerstop','echo apps-monitor-ok','halt')
-    Run-Session $disk "$stem-create" $case[0] $case[1] $create @($appPass,$taskPass,
+    $more=@();$restorations=7
+    if ($Tools) {
+        $extra=@('tooltest','appexec /boot/ECHO.ELF "hello from EL0" "Jack''s" ""',
+            'cd /etc','appexec /boot/PWD.ELF','appexec /boot/CAT.ELF hostname','appexec /boot/LS.ELF .',
+            'appexec /boot/LS.ELF hostname','pwd','cd /',
+            'appexec /boot/LS.ELF /boot','appexec /boot/SLEEP.ELF 100','appexec /boot/CAT.ELF /missing',
+            'appexec /boot/ECHO.ELF "unterminated','appexec /boot/ECHO.ELF a b c d e f g h',
+            'fileinfo','heaptest','pagetest','heapinfo','appinfo')
+        $at=[Array]::IndexOf($create,'timerstop')
+        $create=@($create[0..($at-1)])+$extra+@($create[$at..($create.Length-1)])
+        $restorations+=12
+        $more=@('PASS: user arguments, private cwd, metadata, sleep/wake, idle resume and cleanup.',
+            'PASS: EL0 argument bounds, private cwd and checked directory metadata.',
+            'PASS: EL0 sleep retained stack, PID and file ownership.',
+            'path=/boot/DOZER.ELF state=timeout code=124','sleeps=3 wakes=3',
+            "hello from EL0 Jack's ",'f 6 hostname','f 528 HELLO.ELF','sleep complete',
+            'cat: cannot open file','Usage: appexec <ELF> [arguments]')
+    }
+    Run-Session $disk "$stem-create" $case[0] $case[1] $create (@($appPass,$taskPass,
         'Hello from an OurOS EL0 application.','EL0 counter step=3 time_ms=',
         'PASS: EL0 owned file open/read/write/seek/close.',
         'PASS: EL0 syscall pointers rejected kernel/null/overflow ranges; valid cursor unchanged.',
@@ -77,7 +95,7 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
         'app: already exists','app: installation refused:','app: invalid path',
         'path=/data/hello.elf state=exited code=0','process=2 path=/boot/COUNTER.ELF state=exited code=0',
         'App run refused: require mmuinit, irqinit, timerstart and 1..3 valid paths.',
-        'ELF rejected: unsupported ELF header','generation=2','Open files: 0/16','pages=2 objects=3 capacity_bytes=544','apps-monitor-ok') 7
+        'ELF rejected: unsupported ELF header','generation=2','Open files: 0/16','pages=2 objects=3 capacity_bytes=544','apps-monitor-ok')+$more) $restorations
     # Reopen the same disk file in a fresh emulator process, without copying
     # or reflashing. Executing the installed ELF tests persistent binary I/O.
     $reopen=@('storageinit','datainit','mmuinit','irqinit','timerstart','apprun /data/hello.elf',

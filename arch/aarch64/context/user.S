@@ -11,48 +11,34 @@ process_arch_root:
     ret
 .size process_arch_root, .-process_arch_root
 .type process_arch_enter, %function
-process_arch_enter:               /* x0=entry, x1=user SP; IRQs masked */
+process_arch_enter:               /* x0=frame, x1=user SP; IRQs masked */
     stp x19, x20, [sp, #-96]!
     stp x21, x22, [sp, #16]
     stp x23, x24, [sp, #32]
     stp x25, x26, [sp, #48]
     stp x27, x28, [sp, #64]
     stp x29, x30, [sp, #80]
-    msr elr_el1, x0
+    mov x30, x0                 /* complete saved integer frame */
     msr sp_el0, x1
-    mov x2, #0x340               /* EL0t, D/A/F masked, IRQ unmasked */
-    msr spsr_el1, x2
-    mov x0, xzr
-    mov x1, xzr
-    mov x2, xzr
-    mov x3, xzr
-    mov x4, xzr
-    mov x5, xzr
-    mov x6, xzr
-    mov x7, xzr
-    mov x8, xzr
-    mov x9, xzr
-    mov x10, xzr
-    mov x11, xzr
-    mov x12, xzr
-    mov x13, xzr
-    mov x14, xzr
-    mov x15, xzr
-    mov x16, xzr
-    mov x17, xzr
-    mov x18, xzr
-    mov x19, xzr
-    mov x20, xzr
-    mov x21, xzr
-    mov x22, xzr
-    mov x23, xzr
-    mov x24, xzr
-    mov x25, xzr
-    mov x26, xzr
-    mov x27, xzr
-    mov x28, xzr
-    mov x29, xzr
-    mov x30, xzr
+    ldp x2, x3, [x30, #248]
+    msr elr_el1, x2
+    msr spsr_el1, x3
+    ldp x0, x1, [x30, #0]
+    ldp x2, x3, [x30, #16]
+    ldp x4, x5, [x30, #32]
+    ldp x6, x7, [x30, #48]
+    ldp x8, x9, [x30, #64]
+    ldp x10, x11, [x30, #80]
+    ldp x12, x13, [x30, #96]
+    ldp x14, x15, [x30, #112]
+    ldp x16, x17, [x30, #128]
+    ldp x18, x19, [x30, #144]
+    ldp x20, x21, [x30, #160]
+    ldp x22, x23, [x30, #176]
+    ldp x24, x25, [x30, #192]
+    ldp x26, x27, [x30, #208]
+    ldp x28, x29, [x30, #224]
+    ldr x30, [x30, #240]
     eret
 process_arch_return:
     ldp x19, x20, [sp, #0]

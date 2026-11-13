@@ -1,5 +1,38 @@
 # Development log
 
+## 2026-11-13 - User utilities, arguments, directories and sleeping processes
+
+- Preserved proofs/pi5-el0-applications-2026-11-13.txt: previous EL0 normal,
+  pointer/protection/fault/preemption/timeout/cleanup tests and local install/run
+  pass on Pi. There is still no second boot proving physical persistence.
+- Added bounded quoted `appexec` launch arguments and private inherited cwd.
+  Added argument, cwd, stat/readdir, PID and sleep calls without changing ABI
+  calls 0..8. Output buffers require writable user mappings; records are fully
+  initialized, failures preserve output and directory indices are documented
+  as fresh traversals rather than stable handles.
+- Added READY/SLEEPING wake policy and complete-frame re-entry after all-user
+  sleep. Idle returns to the kernel root outside exception dispatch, then waits
+  for IRQs. Existing whole-batch two-second timeout covers sleepers too. Kernel
+  drivers remain synchronous; no background processes or terminal input yet.
+- Added eight <=1816-byte ELFs (19 total): ECHO/PWD/CAT/LS/SLEEP plus SLEEPER,
+  DOZER and TOOLCHK. `tooltest` checks argument/refusal contracts, private cwd,
+  metadata, simultaneous sleepers, mixed compute/sleep, timeout and cleanup.
+- Native quoted-argument boundary/rejection/20,000 mutation checks pass; all
+  ELF/mapping tests pass. Both A53/EL1 and A76/EL2 QEMU runs pass old and new
+  application tests, user utilities, install refusal/cold-boot execution and
+  independent snapshot/unchanged source-image checks. Storage fault-injection
+  and eight image-corruption/profile cases pass. A host fixture now accepts
+  using the last directory slot at FAT EOC without an out-of-cluster marker.
+- Full IMG remains 134217728 bytes; verified single-image ZIP is 832611 bytes.
+  Kernel is 409316 bytes, reserved end 0x185000 below DTB 0x200000.
+  Disk SHA256: a6d05639b3e3a57b8cfe9e1ad88e0ffe76eb3d0fd15dba87776ac77dce70abb5.
+  Logs: build/phase-tools-{args,elf,mmu,qemu,storage,image,negative}.log.
+  Previous full IMG/ZIP preserved; current delivery archived; no physical
+  flash, Git commit or push. New Pi tool/sleep acceptance remains pending.
+- Updated docs/user-tools.md and current status/roadmap. General persistent
+  filesystem/recovery/export, packages/installer, process lifecycle/IPC/input,
+  display/HID/GPU/audio and other drivers remain substantive future stages.
+
 ## 2026-11-13 - Private EL0 applications, preemption and local installation
 
 - Saved proofs/pi5-file-task-io-verified-2026-11-13.txt: filetest and taskiotest

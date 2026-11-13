@@ -1,13 +1,14 @@
 # Experimental Pi 5 disk image
 
-Current OS test: [EL0 applications and local installation](user-applications.md).
-The latest Pi capture verifies file handles and task I/O with storage attached;
-the new ELF/process/syscall/installer image needs a fresh Pi run. Storage remains
+Current OS test: [user utilities, arguments and sleep/wake](user-tools.md).
+The latest Pi capture verifies ELF processes, protection, preemption and local
+installation; new tools/sleep changes need a fresh Pi run. Storage remains
 opt-in with `storageinit`, `datainit`, then `write`/`cat` or file handles under
 `/data`. BOT endpoint recovery and the WCE=0 cache check now pass on the Pi.
 Earlier Pi runs also verify cooperative contexts/stacks/sleep/exit, exception
 return, GICv2/timer IRQs, MMU protection, USB/FAT reads and DNS/Internet ping.
-Physical power-cycle persistence and the new EL0 application test remain.
+EL0 application/protection/preemption tests now pass on Pi. Physical power-cycle
+persistence and the new user-tool/sleep tests remain.
 The full [OS/driver checklist](os-status.md) records what is still missing.
 
 Builds now preserve previous and newly generated images in the local
@@ -47,13 +48,14 @@ file, unlike `ouros-rpi5.img`, which contains only the kernel.
 This remains an experimental kernel, not a completed operating system.
 The header variant has physical Pi evidence for memory, RAMFS, USB/FAT,
 foreground WPA3/DHCP/DNS/Internet ping, MMU protection and timer interrupts.
-Data mount/write/read/sync and task I/O now have Pi evidence. EL0 execution and
-data persistence across power-cycle need their own physical tests. The default
+Data mount/write/read/sync, task I/O and EL0 execution now have Pi evidence.
+Data persistence across power-cycle needs its own physical test. The default
 UART10 variant's hardware boot and the limited SD-handoff driver remain
 unverified. See the [feature/driver checklist](os-status.md) for exact scope.
 RAMFS remains the volatile root; `storageinit` attempts a separate read-only
 mount of supported SD or USB boot FAT32 at `/boot`. The current image adds
-EL0 applications, timer preemption of user code and local ELF installation.
+EL0 applications, timer preemption, quoted arguments, private cwd, user utilities,
+sleep/wake and local ELF installation.
 General raw writes, HDMI/GUI, USB keyboard and a package manager remain absent.
 Only the new preformatted `/data` partition accepts writes; boot FAT metadata
 and files remain read-only.

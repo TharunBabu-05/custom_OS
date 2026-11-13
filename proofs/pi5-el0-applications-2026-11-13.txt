@@ -1,0 +1,97 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> mmuinit
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> timersstart
+Unknown command. Type help.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> apptest
+EL0 counter step=1 time_ms=24633
+ouros
+PASS: EL0 owned file open/read/write/seek/close.
+Hello from an OurOS EL0 application.
+EL0 counter step=2 time_ms=24642
+EL0 counter step=3 time_ms=24645
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=6 preemptions=2 yields=3 cleanup=restored
+process=0 path=/boot/HELLO.ELF state=exited code=0 syscalls=2 dispatches=2
+process=1 path=/boot/COUNTER.ELF state=exited code=0 syscalls=10 dispatches=5
+process=2 path=/boot/FILES.ELF state=exited code=0 syscalls=13 dispatches=2
+App resources restored; monitor ready.
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 fault test: reading unmapped address zero.
+PASS: EL0 syscall pointers rejected kernel/null/overflow ranges; valid cursor unchanged.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=3 preemptions=1 yields=0 cleanup=restored
+process=0 path=/boot/BADPTR.ELF state=exited code=0 syscalls=10 dispatches=3
+process=1 path=/boot/LEAK.ELF state=exited code=0 syscalls=3 dispatches=1
+process=2 path=/boot/FAULT.ELF state=faulted code=125 syscalls=2 dispatches=1 ESR=0x0000000092000007 FAR=0x0000000000000000
+App resources restored; monitor ready.
+EL0 protection test: writing its read-only executable page.
+EL0 protection test: executing its non-executable stack.
+EL0 protection test: reading an EL1-only kernel mapping.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=3 switches=4 preemptions=2 yields=0 cleanup=restored
+process=0 path=/boot/KERN.ELF state=faulted code=125 syscalls=2 dispatches=2 ESR=0x000000009200000d FAR=0x0000000040080000
+process=1 path=/boot/TEXT.ELF state=faulted code=125 syscalls=2 dispatches=1 ESR=0x000000009200004f FAR=0x0000002000000000
+process=2 path=/boot/XSTACK.ELF state=faulted code=125 syscalls=2 dispatches=2 ESR=0x000000008200000f FAR=0x0000002000013ffc
+App resources restored; monitor ready.
+EL0 timeout test: infinite user loop.
+PASS: EL0 busy loop completed under timer preemption.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=4 switches=147 preemptions=146 yields=0 cleanup=restored
+process=0 path=/boot/BUSY.ELF state=exited code=0 syscalls=2 dispatches=74
+process=1 path=/boot/SPIN.ELF state=timeout code=124 syscalls=1 dispatches=129
+App resources restored; monitor ready.
+PASS: EL0 applications, isolated memory, checked syscalls, preemption, contained faults/timeouts and resource cleanup.
+> appinfo
+EL0 processes: limit=3; private pages; timer preempts users only; runs=4 switches=147 preemptions=146 yields=0 cleanup=restored
+process=0 path=/boot/BUSY.ELF state=exited code=0 syscalls=2 dispatches=74
+process=1 path=/boot/SPIN.ELF state=timeout code=124 syscalls=1 dispatches=129
+> appinstall /boot/HELLO.ELF /data/hello.elf
+Installed validated ELF: /data/hello.elf bytes=528; synchronous commit and full readback verified.
+> apprun /data/hello.elf
+Hello from an OurOS EL0 application.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=5 switches=0 preemptions=0 yields=0 cleanup=restored
+process=0 path=/data/hello.elf state=exited code=0 syscalls=2 dispatches=2
+App resources restored; monitor ready.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> timerstop
+Periodic timer stopped; CPU IRQ masked.
+>

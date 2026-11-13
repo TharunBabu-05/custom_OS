@@ -13,7 +13,7 @@ try {
         '-fno-tree-loop-distribute-patterns','-ffunction-sections','-fdata-sections',
         '-mcpu=cortex-a53','-Iinclude','-Iuser/runtime')
     Invoke-Tool gcc @('-mcpu=cortex-a53','-c','user/runtime/start.S','-o',"$out/start.o")
-    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack')) {
+    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk')) {
         $name=$app.ToUpperInvariant()
         Invoke-Tool gcc ($flags+@('-c',"user/applications/$app.c",'-o',"$out/$app.o"))
         Invoke-Tool ld @('--build-id=none','--no-undefined','--gc-sections','-z','max-page-size=4096',

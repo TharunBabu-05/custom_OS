@@ -28,5 +28,13 @@ static inline int64_t uos_write_file(uint64_t h,const void *p,size_t n)
 static inline int64_t uos_seek(uint64_t h,int64_t n,unsigned base)
 { return uos_call(UOS_SYS_SEEK,h,(uint64_t)n,base,0,0,0); }
 static inline int64_t uos_close(uint64_t h) { return uos_call(UOS_SYS_CLOSE,h,0,0,0,0,0); }
+static inline int64_t uos_argc(void) { return uos_call(UOS_SYS_ARGC,0,0,0,0,0,0); }
+static inline int64_t uos_arg(unsigned i,char *p,size_t n) { return uos_call(UOS_SYS_ARG,i,(uintptr_t)p,n,0,0,0); }
+static inline int64_t uos_getcwd(char *p,size_t n) { return uos_call(UOS_SYS_GETCWD,(uintptr_t)p,n,0,0,0,0); }
+static inline int64_t uos_chdir(const char *p) { return uos_call(UOS_SYS_CHDIR,(uintptr_t)p,uos_length(p),0,0,0,0); }
+static inline int64_t uos_stat(const char *p,struct uos_entry *e) { return uos_call(UOS_SYS_STAT,(uintptr_t)p,uos_length(p),(uintptr_t)e,0,0,0); }
+static inline int64_t uos_readdir(const char *p,unsigned index,struct uos_entry *e) { return uos_call(UOS_SYS_READDIR,(uintptr_t)p,uos_length(p),index,(uintptr_t)e,0,0); }
+static inline int64_t uos_sleep_ms(unsigned ms) { return uos_call(UOS_SYS_SLEEP_MS,ms,0,0,0,0,0); }
+static inline int64_t uos_getpid(void) { return uos_call(UOS_SYS_GETPID,0,0,0,0,0,0); }
 int app_main(void);
 #endif

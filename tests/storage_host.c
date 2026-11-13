@@ -76,13 +76,16 @@ static void fat_tests(void)
     uint32_t root_cluster=v.root;unsigned char *root=NULL;unsigned slot=0;
     for (unsigned hop=0;hop<4;++hop) {
         root=image+(v.data_lba+(uint64_t)(root_cluster-2)*v.spc)*512;
-        slot=0;while (slot<16 && root[slot*32]) { ++slot; }if (slot<15) { break; }
+        slot=0;while (slot<16 && root[slot*32]) { ++slot; }if (slot<16) { break; }
         root_cluster=get32(image+v.fat_lba*512ULL+root_cluster*4)&0x0fffffff;assert(root_cluster>=2 && root_cluster<v.clusters+2);
-    }assert(slot<15);
+    }assert(slot<16);
     uint32_t folder=200000,c1=200001,c2=200003;
     assert(folder+4<v.clusters && get32(image+v.fat_lba*512ULL+folder*4)==0);
     unsigned char saved_root[512]; memcpy(saved_root,root,512);
-    entry(root+slot*32,"TESTDIR    ",folder,0,true); root[(slot+1)*32]=0;
+    entry(root+slot*32,"TESTDIR    ",folder,0,true);
+    /* A full last directory cluster ends at FAT EOC; no extra terminator
+     * slot is required. Never overwrite beyond the in-memory cluster. */
+    if (slot<15) { root[(slot+1)*32]=0; }
     fat_set(&v,folder,0x0fffffff); fat_set(&v,c1,c2); fat_set(&v,c2,0x0fffffff);
     unsigned char *directory=image+(v.data_lba+(uint64_t)(folder-2)*v.spc)*512;
     entry(directory,"FRAG    TXT",c1,700,false); directory[32]=0;

@@ -64,8 +64,10 @@
 > Cooperative kernel tasks, guarded stacks and timed sleep/wakeup also pass on Pi.
 > Pi now verifies `/data` mount, write/read and sync after BOT stall recovery.
 > Pi also verifies owned file handles and task I/O with automatic cleanup.
-> The new phase adds ELF loading, private EL0 pages, checked syscalls,
-> user timer preemption and local application installation. Pi acceptance is pending.
+> Pi now verifies ELF loading, private EL0 pages, checked syscalls,
+> user timer preemption and local application installation. The next
+> [user-tools phase](docs/user-tools.md) adds quoted arguments, private cwd,
+> directory queries, EL0 LS/CAT/PWD/ECHO and sleeping processes; Pi testing is pending.
 > Physical data power-cycle checks, renewal/rekey, background networking and
 > downloads remain; see [the remaining roadmap](docs/remaining-os-roadmap.md).
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
@@ -180,7 +182,7 @@ timer interrupts and cooperative task tests are enabled explicitly by commands.
 | Kernel heap | 16..4096-byte buffers, calloc/realloc/free, zeroing/page reclamation and RAMFS use; Pi self-tests/count restoration verified |
 | MMU protection | Opt-in identity maps, RO code/constants, XN data/device memory, null/boot stack guards and controlled faults verified on Pi; new private task guards |
 | Kernel tasks | Cooperative EL1 saved contexts, 16 KiB guarded stacks, yield, timed sleep/wakeup, exit and repeatable self-test; Pi verified |
-| Persistent data | New USB WRITE10/flush, separate `/data` snapshot volume with eight 4 KiB files; Pi writes pending |
+| Persistent data | USB WRITE10/WCE=0 sync, separate `/data` snapshot volume with eight 4 KiB files; Pi writes verified, power-cycle check pending |
 | Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
 | Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
 | Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
@@ -195,7 +197,9 @@ have hardware evidence; Pi SD reads still need their own test. The heap has Pi
 self-test evidence. MMU and timer interrupts have Pi evidence. Cooperative
 task/file I/O now has Pi evidence, as do data write/read/sync. EL0 programs,
 private mappings, checked syscalls, user preemption and local ELF installation
-have native/emulator checks; see [application tests](docs/user-applications.md).
+now pass on Pi; see [application tests](docs/user-applications.md).
+[User tools](docs/user-tools.md), arguments, private cwd, metadata calls and
+sleep/wake are implemented and emulator-tested; their Pi acceptance is pending.
 [Wi-Fi](docs/wifi.md) provides the tested foreground connection.
 
 <details>
@@ -346,9 +350,10 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [ ] Persistent supplicant, group rekey, lease renewal and background networking
 - [ ] Physical Pi SD-card handoff
 - [ ] General peripheral IRQ dispatch, IRQ-safe concurrency and dynamic/user virtual memory
-- [x] ELF loader, private EL0 processes, checked syscalls and user preemption (QEMU)
+- [x] ELF loader, private EL0 processes, checked syscalls and user preemption (Pi verified)
 - [x] Tiny user runtime and verified local ELF installation (QEMU)
-- [ ] Physical Pi EL0 execution/install acceptance, background services and general packages
+- [x] User utilities, quoted arguments, cwd/metadata and sleep/wake (QEMU verified)
+- [ ] Pi user-tools acceptance, physical persistence across reboot, background services and general packages
 - [ ] VFS, storage and persistent filesystems
 - [ ] GPIO, display, USB input and networking
 - [ ] Pi Zero 2 W physical bring-up and later multicore support

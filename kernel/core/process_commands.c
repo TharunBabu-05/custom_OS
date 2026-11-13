@@ -60,6 +60,15 @@ done:
 bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
+    if (same(verb,"appexec")) {
+        struct app_args args;
+        if (!app_args_parse(p,&args)) { console_write("Usage: appexec <ELF> [arguments]; max 8 words/511 input bytes, quotes and backslash supported.\n"); }
+        else { (void)process_exec(&args); }return true;
+    }
+    if (same(verb,"tooltest")) {
+        space(&p);if (*p) { console_write("Usage: tooltest\n");return true; }
+        console_write(process_tools_test() ? "PASS: user arguments, private cwd, metadata, sleep/wake, idle resume and cleanup.\n" : "FAIL: user tools test.\n");return true;
+    }
     if (same(verb,"appinfo") || same(verb,"apptest")) {
         space(&p);if (*p) { console_write("Usage: appinfo | apptest\n");return true; }
         if (same(verb,"appinfo")) { process_info(); }

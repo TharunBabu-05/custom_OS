@@ -1,11 +1,17 @@
 # ELF applications, EL0 processes and the user runtime
 
+**Update:** [Pi acceptance now passes](../proofs/pi5-el0-applications-2026-11-13.txt)
+for this stage, including installation and same-session execution. A physical
+power-cycle check is still outstanding. The current image adds
+[user utilities, arguments, directory queries and sleep/wake](user-tools.md);
+the artifact details below describe this earlier eleven-program phase.
+
 The [Pi file/task-I/O capture](../proofs/pi5-file-task-io-verified-2026-11-13.txt)
 passes `filetest` and both cooperative `taskiotest` runs, before and after USB
 storage attachment. The file table returns to zero open handles and heap/page
 checks pass. The new phase builds on that verified foundation: bounded ELF
 loading, private EL0 pages, a syscall ABI, timer-preempted foreground batches
-and a small original user runtime. The new EL0 path still needs its own Pi run.
+and a small original user runtime. This EL0 path now has its own passing Pi run.
 
 This phase implements the first application and installation foundations.
 The remaining filesystem, package and local-device work is tracked in
@@ -181,8 +187,8 @@ tests. After installation, HELLO runs from `/data` in a fresh emulator process.
 Independent host decoding verifies both snapshot hashes and every installed
 ELF byte; boot/superblock/unused sectors and the delivery image remain unchanged.
 Existing EL1/EL2 task/register/IRQ/protection and storage failure checks pass.
-The new execution/installation path remains physically unverified until the Pi
-run above passes.
+The linked Pi capture now verifies execution/installation in one session.
+Fresh-boot execution remains emulator evidence until a physical reboot capture.
 
 ## Delivered image and checks
 

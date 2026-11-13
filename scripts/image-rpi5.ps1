@@ -1,4 +1,4 @@
-﻿# Writes a regular project-local disk-image file; never opens a physical device.
+# Writes a regular project-local disk-image file; never opens a physical device.
 [CmdletBinding()]
 param([ValidateSet('debug','header')][string]$Console = 'debug')
 . "$PSScriptRoot/windows-tools.ps1"
@@ -29,7 +29,7 @@ $config=$config.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace('dev
 $readme=@'
 OurOS experimental Raspberry Pi 5 UART image
 Original AArch64 kernel and user runtime; early OS, not a complete desktop.
-Current EL0 application image: physical Pi acceptance is pending.
+Pi verifies ELF/EL0/preemption and local installation. New user tools/sleep await Pi acceptance.
 
 Console: 3-pin UART connector between the HDMI ports. Terminal 115200 8N1.
 Only the dedicated UART10 console is used. No flow control.
@@ -41,7 +41,7 @@ WPA3/DHCP/DNS/Internet ping have earlier physical evidence. Networking is an
 explicit foreground console; no background renewal/rekey or downloads.
 
 CURRENT APPLICATION TEST: one command per line; wait for each prompt:
-storageinit, datainit, mmuinit, irqinit, timerstart, apptest, appinfo,
+storageinit, datainit, mmuinit, irqinit, timerstart, apptest, tooltest, appinfo,
 taskiotest, fileinfo, heaptest, pagetest, timerstop.
 apptest runs original static ELF programs with private EL0 pages, checked
 syscalls and timer preemption. It contains deliberate null/kernel-access,
@@ -49,7 +49,10 @@ RX-write and NX-stack faults and times out a runaway user loop.
 Expect final PASS, cleanup=restored, zero handles, responsive monitor and
 passing task/memory checks. Only user frames switch; kernel drivers remain
 synchronous. Batch budget 2 seconds; image max32KiB, guarded stack16KiB.
-See docs/user-applications.md and docs/remaining-os-roadmap.md in the source.
+User tools: appexec /boot/LS.ELF /boot; appexec /boot/CAT.ELF /etc/hostname
+appexec /boot/ECHO.ELF "hello from EL0"; appexec /boot/SLEEP.ELF 100
+Arguments and cwd are private; sleep yields the CPU, including idle resume.
+See docs/user-tools.md and docs/remaining-os-roadmap.md in the source.
 
 LOCAL INSTALLATION (MMU and timer running):
 appinstall /boot/HELLO.ELF /data/hello.elf
@@ -82,7 +85,7 @@ if ($Console -eq 'header') {
     $readme=$readme.Replace('Only the dedicated UART10 console is used.', 'Only the RP1 UART0 header console is used.')
     $readme=$readme.Replace('3-pin UART connector between the HDMI ports.', '40-pin header: Pi pin 8 TX -> adapter RXD, pin 10 RX <- adapter TXD, pin 6 GND.')
     $readme+="`r`nLeave adapter power pins disconnected; use 3.3 V signals and Pi USB-C power.`r`nRequires firmware enable_rp1_uart=1, pciex4_reset=0; board=rpi5-header.`r`nSee docs/rpi5-header-uart.md. No PCIe reinitialization is implemented.`r`n"
-    $readme+="UART base 0x1c00030000 matches captured RP1_UART on board revision d04171.`r`nOther firmware mappings require a matching build. Pi verifies file/task I/O and USB data writes; new EL0 execution still needs its own physical run.`r`n"
+    $readme+="UART base 0x1c00030000 matches captured RP1_UART on board revision d04171.`r`nOther firmware mappings require a matching build. Pi verifies file/task I/O, USB data writes and EL0 execution; new tools/sleep require their own run.`r`n"
 }
 [IO.File]::WriteAllText((Join-Path $files 'README.TXT'),$readme,[Text.Encoding]::ASCII)
 $assets=Get-Content -Raw (Join-Path $ProjectRoot 'boot/rpi5/assets.json') | ConvertFrom-Json
