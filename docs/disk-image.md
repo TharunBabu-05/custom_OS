@@ -1,13 +1,13 @@
 # Experimental Pi 5 disk image
 
-Current OS test: [owned file handles and cooperative task I/O](file-handles.md).
-The latest Pi capture confirms data mount/write/read/sync; no second boot is
-shown. The new handle/task-I/O image needs a fresh Pi run. Storage remains
+Current OS test: [EL0 applications and local installation](user-applications.md).
+The latest Pi capture verifies file handles and task I/O with storage attached;
+the new ELF/process/syscall/installer image needs a fresh Pi run. Storage remains
 opt-in with `storageinit`, `datainit`, then `write`/`cat` or file handles under
 `/data`. BOT endpoint recovery and the WCE=0 cache check now pass on the Pi.
 Earlier Pi runs also verify cooperative contexts/stacks/sleep/exit, exception
 return, GICv2/timer IRQs, MMU protection, USB/FAT reads and DNS/Internet ping.
-Physical power-cycle persistence and the new handle/task-I/O test remain.
+Physical power-cycle persistence and the new EL0 application test remain.
 The full [OS/driver checklist](os-status.md) records what is still missing.
 
 Builds now preserve previous and newly generated images in the local
@@ -47,12 +47,14 @@ file, unlike `ouros-rpi5.img`, which contains only the kernel.
 This remains an experimental kernel, not a completed operating system.
 The header variant has physical Pi evidence for memory, RAMFS, USB/FAT,
 foreground WPA3/DHCP/DNS/Internet ping, MMU protection and timer interrupts.
-The current persistent data addition needs its own physical test. The default
+Data mount/write/read/sync and task I/O now have Pi evidence. EL0 execution and
+data persistence across power-cycle need their own physical tests. The default
 UART10 variant's hardware boot and the limited SD-handoff driver remain
 unverified. See the [feature/driver checklist](os-status.md) for exact scope.
 RAMFS remains the volatile root; `storageinit` attempts a separate read-only
-mount of supported SD or USB boot FAT32 at `/boot`. There are no general raw writes,
-HDMI/GUI, USB keyboard, preemption, EL0 applications or package installation.
+mount of supported SD or USB boot FAT32 at `/boot`. The current image adds
+EL0 applications, timer preemption of user code and local ELF installation.
+General raw writes, HDMI/GUI, USB keyboard and a package manager remain absent.
 Only the new preformatted `/data` partition accepts writes; boot FAT metadata
 and files remain read-only.
 Use the serial connector selected by the image's console profile.

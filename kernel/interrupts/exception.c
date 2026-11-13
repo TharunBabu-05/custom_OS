@@ -2,6 +2,7 @@
 #include "mmu.h"
 #include "irq.h"
 #include "console.h"
+#include "process.h"
 static bool dispatching,testing,observed;
 static uint64_t sync_count,irq_count;
 extern unsigned char exception_test_trap[],exception_test_resume[];
@@ -18,6 +19,11 @@ void exception_dispatch(struct exception_frame *f)
 {
     if (!f || dispatching) { if (f) { exception_frame_fatal(f); }for (;;) { __asm__ volatile("wfi"); } }
     dispatching=true;
+    if (f->vector==9) {
+        ++irq_count;uint64_t before=irq_timer_delivered();bool good=irq_dispatch();
+        if (process_exception(f,irq_timer_delivered()!=before,good)) { dispatching=false;return; }
+    }
+    if (f->vector==8) { ++sync_count;if (process_exception(f,false,true)) { dispatching=false;return; } }
     if (f->vector==5) { ++irq_count;if (!irq_dispatch()) { f->spsr|=0x80; }dispatching=false;return; }
     if (f->vector==4) {
         ++sync_count;
@@ -32,7 +38,7 @@ bool exception_command(const char *line)
 {
     if (same(line,"excinfo")) {
         uint64_t flags=irq_save(),sync=sync_count,irqs=irq_count;irq_restore(flags);
-        console_write("Exception frames: x0..x30, ELR/SPSR/ESR/FAR/vector; 288 bytes, 16-byte aligned.\nsynchronous=");console_u64(sync);console_write(" IRQ=");console_u64(irqs);console_write("\nOnly armed BRK/MMU tests resume. Unexpected exceptions halt; no EL0/process recovery yet.\n");return true;
+        console_write("Exception frames: x0..x30, ELR/SPSR/ESR/FAR/vector; 288 bytes, 16-byte aligned.\nsynchronous=");console_u64(sync);console_write(" IRQ=");console_u64(irqs);console_write("\nEL0 SVC/IRQ/faults use process policy. Armed EL1 probes resume; unexpected kernel exceptions halt.\n");return true;
     }
     if (same(line,"exctest")) {
         uint64_t flags=irq_save();testing=true;observed=false;uint64_t bad=exception_test_registers();bool good=observed && !testing && !bad;testing=false;irq_restore(flags);

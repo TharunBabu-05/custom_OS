@@ -1,5 +1,46 @@
 # Development log
 
+## 2026-11-13 - Private EL0 applications, preemption and local installation
+
+- Saved proofs/pi5-file-task-io-verified-2026-11-13.txt: filetest and taskiotest
+  pass with MMU/timer before and after USB attachment; zero handles and restored
+  heap/pages. No new physical power-cycle persistence evidence is inferred.
+- Added strict static AArch64 ELF loading, private user mappings, guarded
+  16 KiB stacks and up to three round-robin EL0 processes. Timer IRQs preempt
+  users at exception return; synchronous kernel drivers remain non-preemptive.
+  A two-second foreground batch budget contains runaway user loops.
+- Added checked original syscalls for console/time/yield/exit and owned file
+  open/read/write/seek/close. Pointer validation checks every user mapping and
+  writable permission before file/cursor changes; copies use physical aliases.
+  User faults stop a process, while unexpected kernel exceptions still halt.
+  Process exit/fault/batch cleanup closes owned handles and wipes/frees pages.
+- Added original tiny runtime plus eleven <=1088-byte ELF programs: HELLO,
+  COUNTER, FILES, BADPTR, LEAK, FAULT, BUSY, SPIN, KERN, TEXT and XSTACK.
+  appinstall validates a <=4 KiB ELF, creates a new flat /data file, commits
+  synchronously and verifies full readback. Existing targets are never replaced.
+  This is local executable installation, not a package manager or OS installer.
+- Expanded generated FAT32 root to a bounded multi-cluster directory for user
+  executables. Verifier independently validates all root/file chains, ownership,
+  manifest records, end marker and orphan/cyclic/crosslinked allocations before
+  independent 7-Zip extraction. Legacy storage/corruption tests walk root chains.
+- ELF parser tests pass (25000 mutations), user-descriptor tests pass, and all
+  actual ELF files validate. A53/EL1 and A76/EL2 QEMU pass execution, checked
+  pointers, user preemption, permission faults, timeout/handle cleanup and
+  installed ELF execution after a cold reboot. Host decoding checks snapshot
+  hashes and exact ELF contents; boot/superblock/unused sectors/source unchanged.
+  Existing task/IRQ/register/protection and storage failure checks still pass.
+- Pi EL0 acceptance remains pending. General writable FS/recovery/export,
+  installer/package/repository networking and display/HID/GPU/audio remain in
+  docs/remaining-os-roadmap.md. User currently has serial console only.
+- Full disk: 134217728 bytes; verified ZIP 828984 bytes; kernel 405220 bytes;
+  reserved end 0x184000 remains below DTB 0x200000. SHA256:
+  `ffb3d1f6573540a474fadde3878d4472a269d8e8bb8d2c7d7aaa7478f136bd61`.
+  Revised README removes stale bring-up statements; executable kernel hash
+  matches the fully tested build. Two-cluster root and all file/partition/hash
+  checks pass, including corrupted root-cycle/root-file-crosslink rejection.
+  Prior full image and ZIP backups remain in image_files; cleanup targets only
+  known generated build artifacts. No Git push or physical-device write.
+
 ## 2026-11-13 - Owned file handles and cooperative task I/O
 
 - Preserved proofs/pi5-usb-data-write-sync-2026-11-13.txt: the tested SanDisk

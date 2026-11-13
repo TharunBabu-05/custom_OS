@@ -67,13 +67,72 @@ try {
         $info[510] -eq 85 -and $info[511] -eq 170) 'Invalid FSInfo signatures'
     $fat=ReadAt (($start+$reserved)*512) ($fatSectors*512)
     Require (Same $fat (ReadAt (($start+$reserved+$fatSectors)*512) ($fatSectors*512))) 'FAT mirror mismatch'
-    Require ((U32 $fat 0) -eq 0x0ffffff8 -and (U32 $fat 4) -eq 0x0fffffff -and
-        (U32 $fat 8) -eq 0x0fffffff) 'Reserved/root FAT entries invalid'
+    Require ((U32 $fat 0) -eq 0x0ffffff8 -and (U32 $fat 4) -eq 0x0fffffff) 'Reserved FAT entries invalid'
     $free=0
     for ($cluster=2;$cluster -lt $clusters+2;$cluster++) { if ([BitConverter]::ToUInt32($fat,$cluster*4) -eq 0) { $free++ } }
     Require ($free -eq (U32 $info 488)) 'FSInfo free count mismatch'
     $next=U32 $info 492
     Require ($next -ge 2 -and $next -lt $clusters+2 -and (U32 $fat ($next*4)) -eq 0) 'Invalid next-free hint'
+    # Walk root metadata separately from the independent 7-Zip reader below.
+    # Root and file clusters have one owner; chains cannot alias, cycle, run
+    # outside this partition or leave unaccounted allocated clusters behind.
+    $dataLba=$start+$reserved+2*$fatSectors
+    $owned=New-Object 'System.Collections.Generic.HashSet[uint32]'
+    $rootChain=@();$cluster=2
+    while ($true) {
+        Require ($cluster -ge 2 -and $cluster -lt $clusters+2 -and $rootChain.Count -lt 4) 'Invalid or oversized root chain'
+        Require ($owned.Add([uint32]$cluster)) 'Cyclic root chain'
+        $rootChain+=$cluster
+        $link=U32 $fat ($cluster*4)
+        if ($link -ge 0x0ffffff8 -and $link -le 0x0fffffff) { break }
+        Require ($link -ge 2 -and $link -lt $clusters+2) 'Invalid root FAT link'
+        $cluster=$link
+    }
+    $expectedRoots=[int][Math]::Ceiling(($expected.files.Count+2)/16.0)
+    Require ($expectedRoots -ge 1 -and $expectedRoots -le 4 -and $rootChain.Count -eq $expectedRoots) 'Root directory chain length mismatch'
+    $directory=New-Object byte[] ($rootChain.Count*512)
+    for ($i=0;$i -lt $rootChain.Count;$i++) {
+        $block=ReadAt (([long]$dataLba+$rootChain[$i]-2)*512) 512
+        [Buffer]::BlockCopy($block,0,$directory,$i*512,512)
+    }
+    Require ([Text.Encoding]::ASCII.GetString($directory,0,11) -ceq 'OUROSBOOT  ' -and $directory[11] -eq 8 -and
+        (U16 $directory 20) -eq 0 -and (U16 $directory 26) -eq 0 -and (U32 $directory 28) -eq 0) 'Invalid root volume label'
+    $manifestFiles=@{}
+    foreach ($record in $expected.files) {
+        Require ($record.name -cmatch '^[A-Z0-9_]{1,8}\.[A-Z0-9_]{1,3}$' -and !$manifestFiles.ContainsKey($record.name) -and
+            $record.bytes -gt 0 -and $record.bytes -le [long]$total*512) 'Invalid/duplicate file manifest record'
+        $manifestFiles[$record.name]=$record
+    }
+    $found=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    $ended=$false
+    for ($at=32;$at -lt $directory.Length;$at+=32) {
+        if (!$directory[$at]) {
+            $ended=$true
+            for ($j=$at;$j -lt $directory.Length;$j++) { Require ($directory[$j] -eq 0) 'Nonzero root bytes after end marker' }
+            break
+        }
+        Require ($directory[$at+11] -eq 0x20) 'Unexpected root directory attributes'
+        $base=[Text.Encoding]::ASCII.GetString($directory,$at,8).TrimEnd(' ')
+        $extension=[Text.Encoding]::ASCII.GetString($directory,$at+8,3).TrimEnd(' ')
+        $name=$base+'.'+$extension
+        Require ($name -cmatch '^[A-Z0-9_]{1,8}\.[A-Z0-9_]{1,3}$' -and
+            [Text.Encoding]::ASCII.GetString($directory,$at,11) -ceq ($base.PadRight(8)+$extension.PadRight(3)) -and
+            $found.Add($name) -and $manifestFiles.ContainsKey($name)) 'Invalid/duplicate/unexpected root file'
+        $bytes=U32 $directory ($at+28)
+        Require ($bytes -eq $manifestFiles[$name].bytes) 'Root file size mismatch'
+        $cluster=[uint32](([uint64](U16 $directory ($at+20))*65536)+(U16 $directory ($at+26)))
+        $count=[int][Math]::Ceiling($bytes/512.0)
+        for ($i=0;$i -lt $count;$i++) {
+            Require ($cluster -ge 2 -and $cluster -lt $clusters+2) 'File cluster outside FAT data bounds'
+            Require ($owned.Add($cluster)) 'Cross-linked or cyclic file/root cluster'
+            $link=U32 $fat ($cluster*4)
+            if ($i -eq $count-1) { Require ($link -ge 0x0ffffff8 -and $link -le 0x0fffffff) 'File chain length mismatch' }
+            else { Require ($link -ge 2 -and $link -lt $clusters+2) 'Truncated/invalid file chain' }
+            $cluster=$link
+        }
+    }
+    Require ($ended -and $found.Count -eq $manifestFiles.Count) 'Root file count or end marker mismatch'
+    Require ($owned.Count -eq $clusters-$free) 'Unowned allocated FAT clusters'
 } finally { $stream.Dispose() }
 
 # Independent reader: 7-Zip decodes the MBR, then the FAT32 filesystem and chains.

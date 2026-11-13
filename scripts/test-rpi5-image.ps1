@@ -14,14 +14,21 @@ $stream=[IO.File]::OpenRead($scratch)
 try {
     $root=New-Object byte[] 512
     $dataStart=[long](2048+32+4096)*512
-    $stream.Position=$dataStart
-    if ($stream.Read($root,0,512) -ne 512) { throw 'Missing root directory' }
     $kernelOffset=0L
-    for ($at=0;$at -lt 512;$at+=32) {
-        if ([Text.Encoding]::ASCII.GetString($root,$at,11) -eq 'OUROS   IMG') {
-            $cluster=([uint32][BitConverter]::ToUInt16($root,$at+20) -shl 16) -bor [BitConverter]::ToUInt16($root,$at+26)
-            $kernelOffset=$dataStart+([long]$cluster-2)*512
+    $rootCluster=2L
+    for ($hop=0;$hop -lt 4 -and $rootCluster -lt 0x0ffffff8;$hop++) {
+        if ($rootCluster -lt 2 -or $rootCluster -ge 253922) { throw 'Invalid root chain' }
+        $stream.Position=$dataStart+($rootCluster-2)*512
+        if ($stream.Read($root,0,512) -ne 512) { throw 'Missing root directory' }
+        for ($at=0;$at -lt 512;$at+=32) {
+            if ([Text.Encoding]::ASCII.GetString($root,$at,11) -eq 'OUROS   IMG') {
+                $cluster=([uint32][BitConverter]::ToUInt16($root,$at+20) -shl 16) -bor [BitConverter]::ToUInt16($root,$at+26)
+                $kernelOffset=$dataStart+([long]$cluster-2)*512
+            }
         }
+        $fatWord=New-Object byte[] 4;$stream.Position=[long](2048+32)*512+$rootCluster*4
+        if ($stream.Read($fatWord,0,4) -ne 4) { throw 'Missing root link' }
+        $rootCluster=[BitConverter]::ToUInt32($fatWord,0) -band 0x0fffffff
     }
     if (!$kernelOffset) { throw 'Kernel entry missing' }
 } finally { $stream.Dispose() }
@@ -37,11 +44,21 @@ if ($imageManifest.PSObject.Properties['data_format']) {
         @{name='Data snapshot payload';offset=([long]$imageManifest.data_lba*512+1024);message='Data partition hash mismatch'}
     )
 }
+if ($imageManifest.files.Count -gt 14) {
+    $cases+=@(
+        @{name='Root chain cycle';offsets=@(([long](2048+32)*512+8),([long](2048+32+2048)*512+8));message='Cyclic root chain'},
+        @{name='Root/file crosslink';offset=($dataStart+32+26);xor=6;message='Cross-linked or cyclic file/root cluster'}
+    )
+}
 foreach ($case in $cases) {
+    $offsets=if ($case.ContainsKey('offsets')) { @($case.offsets) } else { @($case.offset) }
+    $originals=@();$mask=if ($case.ContainsKey('xor')) { $case.xor } else { 1 }
     $stream=[IO.File]::Open($scratch,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
     try {
-        $stream.Position=$case.offset; $original=$stream.ReadByte()
-        $stream.Position=$case.offset; $stream.WriteByte([byte]($original -bxor 1))
+        foreach ($offset in $offsets) {
+            $stream.Position=$offset;$original=$stream.ReadByte();$originals+=$original
+            $stream.Position=$offset;$stream.WriteByte([byte]($original -bxor $mask))
+        }
     } finally { $stream.Dispose() }
     try {
         $rejected=$false
@@ -54,7 +71,7 @@ foreach ($case in $cases) {
         Write-Output "PASS: rejected corrupted $($case.name)"
     } finally {
         $stream=[IO.File]::Open($scratch,[IO.FileMode]::Open,[IO.FileAccess]::Write,[IO.FileShare]::None)
-        try { $stream.Position=$case.offset; $stream.WriteByte([byte]$original) }
+        try { for ($i=0;$i -lt $offsets.Count;$i++) { $stream.Position=$offsets[$i];$stream.WriteByte([byte]$originals[$i]) } }
         finally { $stream.Dispose() }
     }
 }

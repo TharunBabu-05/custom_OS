@@ -63,9 +63,11 @@
 > Heap, MMU protection, exception return and timer IRQs now pass on Pi too.
 > Cooperative kernel tasks, guarded stacks and timed sleep/wakeup also pass on Pi.
 > Pi now verifies `/data` mount, write/read and sync after BOT stall recovery.
-> A physical power-cycle check remains. The new phase adds 16 owned file
-> handles, independent cursors and cooperative task file I/O with exit cleanup.
-> renewal, rekey, background networking and application downloads remain.
+> Pi also verifies owned file handles and task I/O with automatic cleanup.
+> The new phase adds ELF loading, private EL0 pages, checked syscalls,
+> user timer preemption and local application installation. Pi acceptance is pending.
+> Physical data power-cycle checks, renewal/rekey, background networking and
+> downloads remain; see [the remaining roadmap](docs/remaining-os-roadmap.md).
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
 > driver supplies the next dependency for reading Wi-Fi firmware from disk.
 
@@ -191,8 +193,9 @@ fresh boot; the latest Pi capture verifies capacity, sectors and file reads.
 [Physical memory](docs/memory.md) and RAMFS
 have hardware evidence; Pi SD reads still need their own test. The heap has Pi
 self-test evidence. MMU and timer interrupts have Pi evidence. Cooperative
-tasks now have Pi evidence; persistent writes have native/emulator checks.
-Preemption and user processes remain unfinished.
+task/file I/O now has Pi evidence, as do data write/read/sync. EL0 programs,
+private mappings, checked syscalls, user preemption and local ELF installation
+have native/emulator checks; see [application tests](docs/user-applications.md).
 [Wi-Fi](docs/wifi.md) provides the tested foreground connection.
 
 <details>
@@ -338,11 +341,14 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [ ] Physical Pi USB writes/flush and persistent `/data` across reboot (new revision)
 - [x] Pi `/data` mount, write/read and WCE=0 sync (same-session evidence)
 - [x] Kernel owned file handles, cursors, path leases and automatic task cleanup
-- [ ] Physical Pi file-handle/task-I/O acceptance and data power-cycle check
+- [x] Physical Pi file handles and task I/O before/after USB attachment
+- [ ] Physical Pi data power-cycle persistence check
 - [ ] Persistent supplicant, group rekey, lease renewal and background networking
 - [ ] Physical Pi SD-card handoff
 - [ ] General peripheral IRQ dispatch, IRQ-safe concurrency and dynamic/user virtual memory
-- [ ] Preemptive scheduling, EL0 processes and a syscall interface
+- [x] ELF loader, private EL0 processes, checked syscalls and user preemption (QEMU)
+- [x] Tiny user runtime and verified local ELF installation (QEMU)
+- [ ] Physical Pi EL0 execution/install acceptance, background services and general packages
 - [ ] VFS, storage and persistent filesystems
 - [ ] GPIO, display, USB input and networking
 - [ ] Pi Zero 2 W physical bring-up and later multicore support

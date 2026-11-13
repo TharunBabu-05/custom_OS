@@ -1,0 +1,31 @@
+Excerpt supplied by the user on 2026-11-13. Hardware Pi 5 header console.
+One boot; physical power-cycle data persistence is not established by this log.
+
+> mmuinit
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> filetest
+PASS: owned file handles, independent cursors, seek/overwrite, stale/foreign rejection, path pins and owner cleanup; memory restored.
+> taskiotest
+PASS: three guarded kernel tasks yielded/slept/exited; callee registers/stack/heap data preserved; PMM/heap counts restored.
+PASS: three tasks kept independent owned file cursors across yields/sleeps; foreign access rejected, six handles auto-closed and memory restored.
+> storageinit
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> taskiotest
+PASS: three guarded kernel tasks yielded/slept/exited; callee registers/stack/heap data preserved; PMM/heap counts restored.
+PASS: three tasks kept independent owned file cursors across yields/sleeps; foreign access rejected, six handles auto-closed and memory restored.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> timerstop
+Periodic timer stopped; CPU IRQ masked.

@@ -1,5 +1,10 @@
 # Cooperative kernel tasks
 
+Task-owned file I/O now has [Pi hardware evidence](../proofs/pi5-file-task-io-verified-2026-11-13.txt).
+The new [EL0 application phase](user-applications.md) adds separate user
+contexts and timer preemption at lower-EL exception returns; kernel drivers
+and these EL1 tasks remain cooperative.
+
 The next [file-handle phase](file-handles.md) adds `taskiotest`. It uses the
 same guarded cooperative contexts and keeps an exclusive RAM file plus a
 shared reader open per worker across yields/sleeps. Owner identities include

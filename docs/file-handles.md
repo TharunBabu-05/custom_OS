@@ -1,5 +1,10 @@
 # Owned file handles and cooperative task I/O
 
+The [latest Pi excerpt](../proofs/pi5-file-task-io-verified-2026-11-13.txt)
+now verifies filetest, taskiotest before/after USB attachment, automatic close,
+zero remaining handles and heap/page restoration with MMU/timer enabled.
+The next milestone is [EL0 applications](user-applications.md).
+
 This phase gives kernel applications an open/read/write/seek/close interface
 over the existing RAM root, read-only `/boot`, and persistent `/data` routes.
 Each open handle has its own offset, access mode and owner. This is the next

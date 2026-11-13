@@ -134,7 +134,7 @@ static void information(void)
 static void run_test(bool files)
 {
     if (active) { console_write("Task test already running.\n");return; }
-    if (run_count>=(UINT64_MAX-9)/8 || (files && kfile_count()>KFILE_LIMIT-6)) { console_write("Task test refused: owner identity or file capacity exhausted.\n");return; }
+    if (run_count>=(1ULL<<59)-2 || (files && kfile_count()>KFILE_LIMIT-6)) { console_write("Task test refused: owner identity or file capacity exhausted.\n");return; }
     if (!mmu_enabled() || !irq_timer_running() || !mmu_dma_compatible() || !heap_check()) { console_write("Task test refused: run mmuinit, irqinit and timerstart first.\n");return; }
     uint64_t flags=irq_save();
     if (flags&0x80) { console_write("Task test refused: CPU IRQs must be unmasked.\n");return; }
