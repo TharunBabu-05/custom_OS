@@ -16,17 +16,27 @@ It is the foundation for broader applications. The available physical setup
 currently has only a serial console. The [Pi EL0 capture](../proofs/pi5-el0-applications-2026-11-13.txt)
 now passes execution, protection, preemption and local installation. The next
 [user-tools phase](user-tools.md) adds arguments, private cwd, directory queries
-and sleeping processes; its physical acceptance remains pending.
+and sleeping processes; its [Pi acceptance also passes](../proofs/pi5-user-tools-2026-11-13.txt).
+The current [interactive EL0 shell](user-shell.md) adds terminal input and
+filesystem builtins. [Physical shell acceptance now passes](../proofs/pi5-user-shell-2026-11-13.txt).
+The [file tools](file-tools.md) add binary copy, SHA-256 and sync;
+[physical acceptance now passes](../proofs/pi5-file-tools-2026-11-14.txt).
+The [current foreground program stage](shell-programs.md) adds bounded child
+spawn/wait and shell run/status; the [latest Pi capture](../proofs/pi5-shell-programs-2026-11-14.txt)
+passes SPAWNCHK/TTYPAR, normal launches and timeout cleanup. The current
+[file-stream stage](stdio.md) adds runio and binary stdin/stdout; new physical
+acceptance is pending. General process trees/jobs, storage/recovery, packages
+and hardware/UI remain outstanding.
 
 ## Applications and multitasking
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Scheduling | Cooperative EL1 tasks; timer-preempted EL0 batches of up to three processes; new sleep/wake and all-asleep idle/resume | General creation/wait, longer-lived jobs, blocking I/O, priorities, fairness/soak tests and background services |
+| Scheduling | Cooperative EL1 tasks; timer-preempted EL0 batches; sleep/wake, blocked terminal input and direct-child spawn/wait with Pi evidence | Broader physical lifecycle tests, process trees, longer-lived jobs, broader blocking I/O, priorities, fairness/soak tests and background services |
 | Process memory | Private bounded user image/stack pages, kernel-only mappings, RX/RO/RW and NX permissions | Dynamic mappings, larger address spaces, memory accounting, copy-on-write if needed and robust OOM policy |
 | Exceptions | Kernel diagnostics and new contained EL0 faults/timeouts | Rich per-process reporting, debugging, signals or another application fault policy |
-| System calls | Checked exit/console/yield/time/file calls plus arguments, PID, cwd, stat/readdir and sleep | ABI evolution, wait/spawn, terminal input, IPC, pipes, sockets and blocking I/O |
-| Executables | Strict static AArch64 ELF subset, 19 programs including user LS/CAT/PWD/ECHO/SLEEP and quoted launch arguments | User C library/runtime growth, environment, interactive shell, executable metadata and broader toolchain tests |
+| System calls | Checked file/console/time, arguments/PID/cwd/stat/readdir/sleep/readline/mutations/copy/hash/sync/spawn/wait; new file stdin/stdout | ABI evolution, IPC, pipes, sockets and broader blocking I/O |
+| Executables | Strict static AArch64 ELF subset, 31 programs, quoted arguments, EL0 shell/file tools/run/status and new runio | User library/runtime growth, environment, job control, executable metadata and broader toolchain tests |
 | Concurrency | Single active CPU; syscalls/drivers complete synchronously | Preemptive kernel synchronization, IRQ-safe driver queues, SMP startup/locking and multicore scheduling |
 
 Acceptance should keep checking resource restoration, failure containment and
@@ -85,7 +95,7 @@ USB classes or topologies are supported.
 
 ## Work order and evidence
 
-1. Verify new user tools/arguments/cwd and sleep/wake on the Pi; separately
+1. Verify new application file stdin/stdout on the Pi; separately
    capture a real reboot that runs an installed executable without reflashing.
 2. Grow application ABI/process lifecycle and persistent filesystem/recovery
    together, preserving ownership and failure isolation.

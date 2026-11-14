@@ -1,14 +1,16 @@
 # Experimental Pi 5 disk image
 
-Current OS test: [user utilities, arguments and sleep/wake](user-tools.md).
+Current OS test: [file standard input/output and shell runio](stdio.md).
 The latest Pi capture verifies ELF processes, protection, preemption and local
-installation; new tools/sleep changes need a fresh Pi run. Storage remains
+installation, user tools/sleep, interactive shell, copy/hash/sync and child
+spawn/wait/timeout/early terminal handoff. File stream redirection needs a fresh
+Pi run. Storage remains
 opt-in with `storageinit`, `datainit`, then `write`/`cat` or file handles under
 `/data`. BOT endpoint recovery and the WCE=0 cache check now pass on the Pi.
 Earlier Pi runs also verify cooperative contexts/stacks/sleep/exit, exception
 return, GICv2/timer IRQs, MMU protection, USB/FAT reads and DNS/Internet ping.
 EL0 application/protection/preemption tests now pass on Pi. Physical power-cycle
-persistence and the new user-tool/sleep tests remain.
+persistence and the new file-stream tests remain.
 The full [OS/driver checklist](os-status.md) records what is still missing.
 
 Builds now preserve previous and newly generated images in the local

@@ -13,11 +13,14 @@ try {
         '-fno-tree-loop-distribute-patterns','-ffunction-sections','-fdata-sections',
         '-mcpu=cortex-a53','-Iinclude','-Iuser/runtime')
     Invoke-Tool gcc @('-mcpu=cortex-a53','-c','user/runtime/start.S','-o',"$out/start.o")
-    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk')) {
+    Invoke-Tool gcc ($flags+@('-c','user/runtime/memory.c','-o',"$out/memory.o"))
+    Invoke-Tool gcc ($flags+@('-c','kernel/process/app_args.c','-o',"$out/app_args.o"))
+    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw')) {
         $name=$app.ToUpperInvariant()
         Invoke-Tool gcc ($flags+@('-c',"user/applications/$app.c",'-o',"$out/$app.o"))
-        Invoke-Tool ld @('--build-id=none','--no-undefined','--gc-sections','-z','max-page-size=4096',
-            '-T','user/runtime/user.ld',"-Map=$out/$name.map",'-o',"$out/$name.ELF","$out/start.o","$out/$app.o")
+        $extra=if ($app -eq 'shell') { @("$out/app_args.o") } else { @() }
+        Invoke-Tool ld (@('--build-id=none','--no-undefined','--gc-sections','-z','max-page-size=4096',
+            '-T','user/runtime/user.ld',"-Map=$out/$name.map",'-o',"$out/$name.ELF","$out/start.o","$out/$app.o","$out/memory.o")+$extra)
         $undefined=Invoke-Tool nm @('-u',"$out/$name.ELF")
         # Preserve the actual executable only. Symbol/section metadata is not
         # needed by the bounded kernel loader, and the disk files fit /data.

@@ -1,0 +1,118 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> mmuinit
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> apprun /boot/MUTATE.ELF /boot/TTYDENY.ELF
+PASS: noninteractive process cannot consume serial input.
+PASS: EL0 mutation bounds, atomic replacement, leases, read-only boot and cwd protection.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=2 preemptions=1 yields=0 idle_waits=0 terminal=no budget_seconds=2 cleanup=restored
+process=0 path=/boot/MUTATE.ELF state=exited code=0 syscalls=29 dispatches=4 sleeps=0 wakes=0 input_lines=0
+process=1 path=/boot/TTYDENY.ELF state=exited code=0 syscalls=3 dispatches=1 sleeps=0 wakes=0 input_lines=0
+App resources restored; monitor ready.
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ help
+help pwd cd <dir> ls [path] cat <file> echo [words] write <path> <text>
+mkdir <dir> rm <file> rmdir <dir> exit
+Quotes supported. /tmp is volatile; /data persists after datainit.
+Builtins only; no child programs, pipes or background jobs. Ctrl+C cancels.
+user:/$ ls /boot
+f 872 BADPTR.ELF
+f 608 BUSY.ELF
+f 880 CAT.ELF
+f 395 CONFIG.TXT
+f 18693 COPYING.TXT
+f 808 COUNTER.ELF
+f 408 DOZER.ELF
+f 688 ECHO.ELF
+f 632 FAULT.ELF
+f 1088 FILES.ELF
+f 609309 FW43455.BIN
+f 528 HELLO.ELF
+f 640 KERN.ELF
+f 640 LEAK.ELF
+f 1594 LICENSE.TXT
+f 1144 LS.ELF
+f 1912 MUTATE.ELF
+f 413412 OUROS.IMG
+f 78770 PI5.DTB
+f 576 PWD.ELF
+f 4337 README.TXT
+f 2968 SHELL.ELF
+f 760 SLEEP.ELF
+f 1040 SLEEPER.ELF
+f 592 SOURCE.TXT
+f 544 SPIN.ELF
+f 648 TEXT.ELF
+f 1816 TOOLCHK.ELF
+f 936 TTYCHK.ELF
+f 632 TTYDENY.ELF
+f 2676 WIFICLM.BIN
+f 313331 WIFILIC.TXT
+f 2074 WIFINV.TXT
+f 656 XSTACK.ELF
+d SYSTEM~1/
+user:/$ mkdir /tmp/demo
+user:/$ cd /tmp/demo
+user:/tmp/demo$ write note.txt "hello from our user shell"
+user:/tmp/demo$ cat note.txt\
+shell: invalid quoting or too many words
+user:/tmp/demo$ cat note.txt
+hello from our user shell
+user:/tmp/demo$ write note.txt "short"
+user:/tmp/demo$ cat note.txt
+short
+user:/tmp/demo$ cd /
+user:/$ write /data/shell.txt "saved from EL0"
+user:/$ cat /data/shell.txt
+saved from EL0
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=0 preemptions=0 yields=0 idle_waits=7375 terminal=yes budget_seconds=300 cleanup=restored
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=394 dispatches=32 sleeps=0 wakes=0 input_lines=13
+App resources restored; monitor ready.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> timerstop
+Periodic timer stopped; CPU IRQ masked.
+>

@@ -15,7 +15,7 @@ if (!(Test-Path -LiteralPath $BuildDirectory)) { return }
 & "$PSScriptRoot/archive-images.ps1" -BuildDirectory $BuildDirectory -ArchiveDirectory $ArchiveDirectory
 # A complete safe plan is checked before the first removal. No symlinks/junctions.
 $targets=@()
-foreach ($profile in @('rpi5','rpi5-header','qemu_virt','handoff-test')) {
+foreach ($profile in @('rpi5','rpi5-header','qemu_virt','handoff-test','apps')) {
     $directory=Join-Path $BuildDirectory $profile
     if (!(Test-Path -LiteralPath $directory)) { continue }
     $current=if ($profile -eq 'rpi5') { 'OurOS-Pi5-experimental-sd.img' } else { 'OurOS-Pi5-header-experimental-sd.img' }

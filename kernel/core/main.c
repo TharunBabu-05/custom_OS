@@ -99,6 +99,7 @@ static void command(const char *line)
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
         console_write("appinfo apptest apprun <ELF> [ELF2] [ELF3] (EL0; requires MMU/timer)\n");
         console_write("appexec <ELF> [arguments] tooltest (EL0 utilities and sleeping processes)\n");
+        console_write("appshell | appterm <1..300 seconds> <ELF> [arguments] (interactive EL0 serial session)\n");
         console_write("appinstall <source ELF> </data/new-file> (validated ELF, no overwrite)\n");
         console_write("taskiotest (cooperative file I/O and automatic owner cleanup) fileinfo filetest\n");
         console_write("fopen <path> r|rw|w | fread <handle> <1..512> | fwrite <handle> <text>\n");

@@ -1,0 +1,121 @@
+RP1_UART 0000001c00030000
+ 13.13 MESS:00:00:13.138691:0: board: boardrev d04171 otp d04171
+ 13.44 Read /config.txt bytes      395 hnd 0x10
+ 13.15 MESS:00:00:13.151204:0: Initial voltage 800000 temp 35631
+ 13.35 MESS:00:00:13.351677:0: avs_2712: AVS pred 8699 869900 temp 36181
+ 13.35 MESS:00:00:13.355351:0: vpred 869 mV +0
+ 13.35 MESS:00:00:13.359472:0: over-voltage idle: 0 avs: 109900 delta: 0 (0x00000000)
+ 13.37 MESS:00:00:13.373175:0: FB framebuffer_swap 1
+ 13.37 MESS:00:00:13.375031:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+ 13.38 MESS:00:00:13.381956:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+ 13.38 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+ 13.99 Read PI5.DTB bytes    78770 hnd 0x82f
+ 13.13  /overlays/overlay_map.dtb
+ 13.13  /overlays/bcm2712d0.dtbo
+ 13.43 PCIEx1: PWR 0 DET_WAKE 0
+ 13.43 Read /config.txt bytes      395 hnd 0x10
+ 13.48 [MSD [01:00] 2.00 000000:01] /cmdline.txt not found
+ 13.82  /cmdline.txt
+ 13.48 MESS:00:00:13.485005:0: Failed to open command line file 'cmdline.txt'
+ 13.59 MESS:00:00:13.590925:0: RPM 0, max RPM 0
+ 13.60 BMD "armstub8-2712.bin" not found
+ 13.09 fs_open: 'armstub8-2712.bin'
+ 13.61 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+ 13.33 Read OUROS.IMG bytes   417508 hnd 0x4ff
+ 13.63 MESS:00:00:13.634640:0: Device tree loaded to 0x200000 (size 0x13ade)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> mmuinit
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> appterm 30 /boot/SPAWNCHK.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=30
+ELF rejected: unsupported ELF header
+App load failed: path not found
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 exit cleanup test: leaving one owned handle open.
+EL0 fault test: reading unmapped address zero.
+EL0 timeout test: infinite user loop.
+PASS: spawn/wait args, inherited private cwd, handle isolation, stale IDs, slot reuse, fault/timeout and child cleanup.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=30 preemptions=16 yields=0 idle_waits=6 terminal=yes budget_seconds=30 children_started=11 children_reaped=11 last_child_code=124 cleanup=restored
+process=0 path=/boot/SPAWNCHK.ELF state=exited code=0 syscalls=52 dispatches=24 sleeps=1 wakes=1 input_lines=0
+App resources restored; monitor ready.
+> appterm 10 /boot/TTYPAR.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=10
+TTYCHK ready: enter terminal-ok
+Parent now waits for the early terminal reader.
+terminal-ok
+PASS: terminal pointer/capacity checks and blocking line delivery.
+PASS: child readline before parent wait blocks until terminal handoff.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=4 preemptions=1 yields=0 idle_waits=315 terminal=yes budget_seconds=10 children_started=1 children_reaped=1 last_child_code=0 cleanup=restored
+process=0 path=/boot/TTYPAR.ELF state=exited code=0 syscalls=6 dispatches=6 sleeps=1 wakes=1 input_lines=0
+App resources restored; monitor ready.
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ run /boot/HELLO.ELF
+Hello from an OurOS EL0 application.
+child exit=0
+user:/$ run /boot/ECHO.ELF "hello from cld"
+hello from cld
+child exit=0
+user:/$ run /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+child exit=124
+user:/$ status
+124
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=3 switches=8 preemptions=5 yields=0 idle_waits=3173 terminal=yes budget_seconds=300 children_started=3 children_reaped=3 last_child_code=124 cleanup=restored
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=48 dispatches=11 sleeps=0 wakes=0 input_lines=5
+App resources restored; monitor ready.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> timerstop
+Periodic timer stopped; CPU IRQ masked.
+>

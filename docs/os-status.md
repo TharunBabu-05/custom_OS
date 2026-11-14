@@ -12,14 +12,21 @@ confirms file handles, cooperative task file I/O before/after USB storage,
 automatic handle cleanup and heap/page restoration with MMU/timer enabled.
 Earlier captures verify the heap baseline and [WPA3/DNS/Internet ping and
 cleanup](wifi-dns.md).
-**Current phase:** [user utilities, arguments and sleep/wake](user-tools.md).
+**Current phase:** [file standard input/output](stdio.md).
+The [physical file-tools capture](../proofs/pi5-file-tools-2026-11-14.txt) now
+verifies copying, matching SHA-256, sync and cleanup, following interactive shell
+acceptance. The [child-program capture](../proofs/pi5-shell-programs-2026-11-14.txt)
+passes spawn/wait, early terminal handoff, normal shell runs and timeout cleanup.
+File-stream redirection needs its own Pi acceptance. The bounded storage
+format remains unchanged.
 The [new Pi capture](../proofs/pi5-usb-data-write-sync-2026-11-13.txt) confirms
 that the BOT fix permits `/data` mount, write/read and sync with WCE=0.
 It shows no second boot banner, so physical power-cycle persistence remains
 unconfirmed. The [latest EL0 Pi capture](../proofs/pi5-el0-applications-2026-11-13.txt)
 passes private mappings, syscall checks, preemption, fault containment and
-installed program execution. New arguments/cwd/metadata/utility/sleep changes
-pass native/QEMU checks; their Pi acceptance remains pending.
+installed program execution. [Arguments/cwd/metadata/utilities/sleep](../proofs/pi5-user-tools-2026-11-13.txt)
+now also pass on Pi, as do terminal input, mutation syscalls and the interactive
+shell and copy/hash/sync. The new file-stream calls require physical acceptance.
 Display/HID/GPU/audio and general installation/packages remain in the
 [remaining roadmap](remaining-os-roadmap.md).
 
@@ -35,12 +42,12 @@ Display/HID/GPU/audio and general installation/packages remain in the
 | Virtual memory/protection | Pi verified EL1 identity profile, private user pages, EL0 AP/W^X/guards and checked copies | Dynamic mappings, larger address spaces and cache acceleration |
 | Interrupts | GICv2 PPI30, raw acknowledge/EOI, IRQ return and bounded unexpected-source quarantine; opt-in, Pi verified | General peripheral handlers/registration, IRQ-safe locks and SMP |
 | Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
-| Scheduling | Cooperative kernel task/file I/O and EL0 preemption Pi verified; sleep/wake and kernel idle/resume QEMU verified | Pi sleep acceptance, blocking I/O, general process creation, SMP synchronization and background services |
-| Processes/system calls | Three private EL0 processes, checked file/console/time/yield/exit calls, faults/timeouts Pi verified; new arguments/PID/cwd/stat/readdir/sleep QEMU verified | Pi new-call validation, spawn/wait, IPC, credentials/access control, blocking I/O and background services |
-| Programs/runtime | Bounded ELF loader, tiny runtime, 19 programs including user utilities, quoted arguments and local validated install | Environment, larger programs, libraries/dynamic linking, package format/repositories and general installer |
+| Scheduling | Cooperative kernel tasks, EL0 preemption and sleep/wake/idle; blocked input and bounded child spawn/wait with Pi evidence | Broader physical cancellation/orphan tests, general process trees/jobs, broader blocking I/O, SMP and background services |
+| Processes/system calls | Three private EL0 slots; checked files/console/time/arguments/cwd/sleep/mutations; bounded spawn/wait; new file stdin/stdout | Pi new-call validation, IPC, credentials/access control, broader blocking I/O and background services |
+| Programs/runtime | Bounded ELF loader, tiny runtime, 31 programs, quoted arguments, local install and shell run/status; new runio | Environment, larger programs, libraries/dynamic linking, packages and general installer |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked open/read/write/seek/close handles with cursors and path leases | General mounts, richer metadata, permissions, pseudo-filesystems and preemptive driver synchronization |
 | Persistent files | USB writes/WCE=0 sync and two checksummed snapshots, eight flat 4 KiB files; Pi mount/write/read/sync verified | Pi power-cycle validation, larger/nested files, writable general filesystem metadata, migration/export and physical power-loss tests |
-| Shell | Serial kernel monitor with file, memory, storage and network commands | A real EL0 shell, job control/pipes/redirection and program launch |
+| Shell | Kernel monitor and Pi-verified serial EL0 file tools/run/status; new file-stream runio | Pi runio acceptance, job control, pipes, richer redirection and environment |
 | Networking | WPA3/SAE, keys/port, DHCP, ARP, IPv4, ICMP and UDP DNS; Pi Internet pings verified | Renewal/rekey/reconnect, background service, neighbor cache, sockets, TCP, HTTP/TLS; IPv6 if required |
 | Security | Reservation-aware allocation, hidden volatile credential input, verified handshake checks; new page permissions | User/process boundaries, filesystem permissions, access control, secure update/boot design and review |
 | Multicore/concurrency | One active CPU; secondary cores parked | SMP startup, per-CPU state, locking, memory-order/IRQ-safe primitives and concurrent drivers |
@@ -88,10 +95,10 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-1. **Now:** validate new user utilities/arguments/cwd/sleep on the Pi, and
+1. **Now:** validate file standard input/output and cleanup on the Pi, and
    installed ELF execution across actual power-cycles without reflashing.
 2. **Files and applications:** extend the implemented handles/ELF/runtime with
-   process creation/wait, terminal input, blocking I/O and synchronization contracts.
+   broader process lifecycles, blocking I/O and synchronization contracts.
 3. **Timer/peripheral services:** carefully scoped peripheral handlers and
    timer-driven scheduling, with explicit IRQ-safe resource ownership.
 4. **User mode:** expand the bounded private address spaces/syscalls/runtime

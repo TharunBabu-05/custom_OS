@@ -2,8 +2,10 @@
 
 **Update:** [Pi acceptance now passes](../proofs/pi5-el0-applications-2026-11-13.txt)
 for this stage, including installation and same-session execution. A physical
-power-cycle check is still outstanding. The current image adds
-[user utilities, arguments, directory queries and sleep/wake](user-tools.md);
+power-cycle check is still outstanding. Later images add
+[user utilities, arguments, directory queries and sleep/wake](user-tools.md)
+and the [interactive EL0 shell](user-shell.md), now extended with
+[foreground child programs](shell-programs.md);
 the artifact details below describe this earlier eleven-program phase.
 
 The [Pi file/task-I/O capture](../proofs/pi5-file-task-io-verified-2026-11-13.txt)

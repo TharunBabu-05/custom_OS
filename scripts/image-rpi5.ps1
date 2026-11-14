@@ -29,7 +29,9 @@ $config=$config.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace('dev
 $readme=@'
 OurOS experimental Raspberry Pi 5 UART image
 Original AArch64 kernel and user runtime; early OS, not a complete desktop.
-Pi verifies ELF/EL0/preemption and local installation. New user tools/sleep await Pi acceptance.
+Pi verifies ELF/EL0/preemption, local installation, shell and copy/hash/sync.
+Pi also verifies spawn/wait, early terminal handoff and child timeout cleanup.
+New file standard-input/output redirection needs Pi acceptance.
 
 Console: 3-pin UART connector between the HDMI ports. Terminal 115200 8N1.
 Only the dedicated UART10 console is used. No flow control.
@@ -49,7 +51,20 @@ RX-write and NX-stack faults and times out a runaway user loop.
 Expect final PASS, cleanup=restored, zero handles, responsive monitor and
 passing task/memory checks. Only user frames switch; kernel drivers remain
 synchronous. Batch budget 2 seconds; image max32KiB, guarded stack16KiB.
-User tools: appexec /boot/LS.ELF /boot; appexec /boot/CAT.ELF /etc/hostname
+INTERACTIVE SHELL: after MMU/timer/storage setup, run appshell.
+EL0 prompt user:/$ supports help pwd cd ls cat echo write mkdir rm rmdir exit.
+write /tmp/note "hello from EL0" creates or replaces the whole file.
+Ctrl+C cancels; Ctrl+D at an empty line exits; Backspace/Delete and Ctrl+U edit.
+127-byte lines, 300-second maximum session. Kernel monitor returns on exit.
+cp <source> <new-target> copies up to 4096 bytes; existing targets refused.
+sha256 <file> checks up to 64 KiB; sync flushes mounted /data.
+run <ELF> [args] launches a private child and waits, with a 10-second limit.
+status shows its last exit code; Ctrl+C stops the child and returns to the shell.
+runio <input|-> <new-output|-> <ELF> [args] redirects file streams.
+Output refuses existing files, keeps binary bytes and has a 4096-byte limit.
+CAT.ELF with no path reads redirected stdin. Use appterm 30 /boot/IOCHK.ELF.
+No pipes, background jobs, environment or permissions yet.
+See docs/stdio.md. User tools: appexec /boot/LS.ELF /boot; appexec /boot/CAT.ELF /etc/hostname
 appexec /boot/ECHO.ELF "hello from EL0"; appexec /boot/SLEEP.ELF 100
 Arguments and cwd are private; sleep yields the CPU, including idle resume.
 See docs/user-tools.md and docs/remaining-os-roadmap.md in the source.
@@ -85,7 +100,7 @@ if ($Console -eq 'header') {
     $readme=$readme.Replace('Only the dedicated UART10 console is used.', 'Only the RP1 UART0 header console is used.')
     $readme=$readme.Replace('3-pin UART connector between the HDMI ports.', '40-pin header: Pi pin 8 TX -> adapter RXD, pin 10 RX <- adapter TXD, pin 6 GND.')
     $readme+="`r`nLeave adapter power pins disconnected; use 3.3 V signals and Pi USB-C power.`r`nRequires firmware enable_rp1_uart=1, pciex4_reset=0; board=rpi5-header.`r`nSee docs/rpi5-header-uart.md. No PCIe reinitialization is implemented.`r`n"
-    $readme+="UART base 0x1c00030000 matches captured RP1_UART on board revision d04171.`r`nOther firmware mappings require a matching build. Pi verifies file/task I/O, USB data writes and EL0 execution; new tools/sleep require their own run.`r`n"
+    $readme+="UART base 0x1c00030000 matches captured RP1_UART on board revision d04171.`r`nOther firmware mappings require a matching build. Pi verifies file/task I/O, USB data writes and EL0 execution; new interactive terminal/shell requires its own run.`r`n"
 }
 [IO.File]::WriteAllText((Join-Path $files 'README.TXT'),$readme,[Text.Encoding]::ASCII)
 $assets=Get-Content -Raw (Join-Path $ProjectRoot 'boot/rpi5/assets.json') | ConvertFrom-Json

@@ -60,6 +60,18 @@ done:
 bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
+    if (same(verb,"appshell")) {
+        space(&p);if (*p) { console_write("Usage: appshell\n");return true; }
+        struct app_args args;(void)app_args_parse("/boot/SHELL.ELF",&args);(void)process_terminal(&args,300);return true;
+    }
+    if (same(verb,"appterm")) {
+        char number[4];unsigned seconds=0;struct app_args args;
+        if (word(&p,number,sizeof(number))!=1) { goto term_usage; }
+        for (unsigned i=0;number[i];++i) { if (number[i]<'0' || number[i]>'9') { goto term_usage; }seconds=seconds*10+(unsigned)(number[i]-'0'); }
+        if (!seconds || seconds>300 || !app_args_parse(p,&args)) { goto term_usage; }
+        (void)process_terminal(&args,seconds);return true;
+term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");return true;
+    }
     if (same(verb,"appexec")) {
         struct app_args args;
         if (!app_args_parse(p,&args)) { console_write("Usage: appexec <ELF> [arguments]; max 8 words/511 input bytes, quotes and backslash supported.\n"); }

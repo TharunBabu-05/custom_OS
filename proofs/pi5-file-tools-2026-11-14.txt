@@ -1,0 +1,41 @@
+Excerpt from the user's Pi 5 serial capture supplied 2026-11-14.
+Line-wrapping backslashes from the message were removed. No reboot was shown.
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+> storageinit
+SCSI vendor=SanDisk. product=Cruzer Blade....
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v1; files=8 max_file_bytes=4096; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> apprun /boot/COPYCHK.ELF
+PASS: binary copy, zero/4096-byte bounds, no overwrite, SHA256 vectors, leases and pointer checks.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=no budget_seconds=2 cleanup=restored
+process=0 path=/boot/COPYCHK.ELF state=exited code=0 syscalls=46 dispatches=11 sleeps=0 wakes=0 input_lines=0
+App resources restored; monitor ready.
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ write /tmp/note "copy-test"
+user:/$ cp /tmp/note /data/note.txt
+user:/$ sha256 /tmp/note
+4271bb3ed53dd9f1ed2c1d317c7a6a05dd6295349eabce376360420bcd03551f  /tmp/note
+user:/$ sha256 /data/note.txt
+4271bb3ed53dd9f1ed2c1d317c7a6a05dd6295349eabce376360420bcd03551f  /data/note.txt
+user:/$ cat /data/note.txt
+copy-test
+user:/$ sync
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=0 preemptions=0 yields=0 idle_waits=2535 terminal=yes budget_seconds=300 cleanup=restored
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=56 dispatches=10 sleeps=0 wakes=0 input_lines=7
+App resources restored; monitor ready.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> heaptest
+PASS: heap alignment/zeroing/patterns/realloc/invalid free; live buffers and PMM pages restored.
+> pagetest
+PASS: four distinct pages written/read/freed; counters restored.
+> timerstop
+Periodic timer stopped; CPU IRQ masked.

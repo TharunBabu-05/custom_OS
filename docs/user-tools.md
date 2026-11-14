@@ -1,5 +1,12 @@
 # User utilities, arguments and sleeping processes
 
+**Update:** [Pi acceptance now passes](../proofs/pi5-user-tools-2026-11-13.txt)
+for this phase. Later images add the [interactive EL0 shell](user-shell.md)
+and [foreground child programs](shell-programs.md), now extended with
+[file standard input/output](stdio.md).
+Artifact sizes/hashes at the end of this document describe the earlier
+user-tools image; use the file-stream guide for the newest image/test sequence.
+
 The [2026-11-13 Pi capture](../proofs/pi5-el0-applications-2026-11-13.txt)
 passes the previous ELF/EL0 stage: normal programs, invalid syscall buffers,
 kernel/RX/NX protection faults, timer preemption, timeout containment, cleanup,
@@ -138,8 +145,8 @@ on A53/EL1 and A76/EL2. It writes only regular scratch disk files, independently
 decodes snapshot hashes/ELF bytes, and checks unchanged boot sectors and source.
 Storage failure injection and image corruption checks remain separate.
 
-New utilities/sleep still require the Pi run above; the previous physical
-capture cannot validate newly changed code.
+The new Pi capture passes the utilities/sleep tests above. It does not validate
+the subsequent interactive shell or physical persistence across a reboot.
 
 Full image: `image_files/OurOS-Pi5-header-experimental-sd.img` (134217728 bytes).
 ZIP: `image_files/OurOS-Pi5-header-experimental-sd.zip` (832611 bytes), verified

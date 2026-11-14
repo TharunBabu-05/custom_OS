@@ -67,7 +67,15 @@
 > Pi now verifies ELF loading, private EL0 pages, checked syscalls,
 > user timer preemption and local application installation. The next
 > [user-tools phase](docs/user-tools.md) adds quoted arguments, private cwd,
-> directory queries, EL0 LS/CAT/PWD/ECHO and sleeping processes; Pi testing is pending.
+> directory queries, EL0 LS/CAT/PWD/ECHO and sleeping processes; Pi tests pass.
+> The new [interactive EL0 shell](docs/user-shell.md) adds serial line input,
+> file commands and Ctrl+C cancellation; interactive file commands now pass on Pi.
+> The [file-tools stage](docs/file-tools.md) adds binary copy, SHA-256
+> and sync; its Pi acceptance now passes. The
+> [foreground program stage](docs/shell-programs.md) adds shell `run`/`status`
+> and child spawn/wait; normal launches, early input handoff and timeout cleanup
+> now pass on Pi. The current [file-stream stage](docs/stdio.md) adds binary
+> standard input/output and shell `runio`; its Pi acceptance remains pending.
 > Physical data power-cycle checks, renewal/rekey, background networking and
 > downloads remain; see [the remaining roadmap](docs/remaining-os-roadmap.md).
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
@@ -199,7 +207,8 @@ task/file I/O now has Pi evidence, as do data write/read/sync. EL0 programs,
 private mappings, checked syscalls, user preemption and local ELF installation
 now pass on Pi; see [application tests](docs/user-applications.md).
 [User tools](docs/user-tools.md), arguments, private cwd, metadata calls and
-sleep/wake are implemented and emulator-tested; their Pi acceptance is pending.
+sleep/wake now pass on Pi. The [interactive shell](docs/user-shell.md) is the
+current application stage, with physical acceptance pending.
 [Wi-Fi](docs/wifi.md) provides the tested foreground connection.
 
 <details>
@@ -352,8 +361,9 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [ ] General peripheral IRQ dispatch, IRQ-safe concurrency and dynamic/user virtual memory
 - [x] ELF loader, private EL0 processes, checked syscalls and user preemption (Pi verified)
 - [x] Tiny user runtime and verified local ELF installation (QEMU)
-- [x] User utilities, quoted arguments, cwd/metadata and sleep/wake (QEMU verified)
-- [ ] Pi user-tools acceptance, physical persistence across reboot, background services and general packages
+- [x] User utilities, quoted arguments, cwd/metadata and sleep/wake (Pi verified)
+- [x] Interactive EL0 builtin shell, checked terminal input and mutation calls
+- [ ] Pi shell acceptance, physical persistence across reboot, background services and general packages
 - [ ] VFS, storage and persistent filesystems
 - [ ] GPIO, display, USB input and networking
 - [ ] Pi Zero 2 W physical bring-up and later multicore support

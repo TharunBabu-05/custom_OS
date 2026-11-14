@@ -1,5 +1,139 @@
 # Development log
 
+## 2026-11-14 - Application file standard input/output and shell runio
+
+- Saved the supplied Pi serial capture unchanged as
+  proofs/pi5-shell-programs-2026-11-14.txt. SPAWNCHK, early-read TTYPAR, normal
+  shell launches, timeout 124 and memory/handle cleanup pass. Ctrl+C and orphan/
+  capacity tests are absent from that capture; physical power-cycle persistence
+  still needs evidence.
+- Added SPAWN_IO=26 with a checked 512-byte pair of paths, and STDIN=27 with
+  0..512-byte binary reads. Existing WRITE=1 routes to file stdout when selected;
+  default terminal filtering and old SPAWN behavior remain. Stream handles are
+  newly opened for the child; parent handles/cursors are not inherited.
+- Output requires a new file, up to 4096 bytes. Validate/load executable and
+  open input before creating output. Input is pinned with a shared-read lease,
+  output with an exclusive writer. Failed setup releases partial mappings and
+  handles. Exit/fault/timeout/cancel/parent termination use existing owner cleanup.
+  Invalid syscalls have no stream side effects. Backend stream failures stick:
+  a later zero exit becomes 74; partial output can remain and is documented.
+- Added runio <input|-> <new-output|-> <ELF> [args]. CAT with no path or '-' reads
+  binary stdin. File stdin refuses terminal READLINE; no script execution or
+  pipes are claimed. Console input/cancellation stays separate from file data.
+- Added IOCHK and IORAW, including empty/4096-byte binary copies, EOF, bad
+  pointers/paths, invalid ELF, no overwrite, read-only boot, writer conflicts,
+  exhausted handles, path leases, sticky output overflow and fault/timeout
+  cleanup. There are 31 ELFs; SHELL is 3888 bytes, IOCHK 3344 bytes.
+- docs/stdio.md contains Pi commands, limits and failure policy. The current
+  snapshot layout remains eight flat 4096-byte files; storage expansion,
+  pipes/IPC, jobs, packages, network services and local UI remain future work.
+- Both QEMU A53/EL1 and A76/EL2 stdio create/reopen tests pass: raw binary
+  hashes compared against the host, output limit/fault/cancel handling,
+  independent snapshot byte/hash checks and unchanged boot/superblock/unused
+  sectors. Both previous app/tools profiles and focused child/terminal tests
+  pass. Native file failure/remount/cleanup tests, all 31 ELF fixtures and
+  25000 parser mutations pass; logs are build/phase-stdio-*.log.
+- Full image is 134217728 bytes, extracted/hash-verified ZIP 847130 bytes;
+  SHA-256: 894cb981714ae8cb21e39390895669313c50ac6097b7703219a90c54564f77df.
+  Kernel is 417508 bytes, reserved end 0x188000 below DTB 0x200000.
+  No physical flash or Git push; new physical stream acceptance remains pending.
+
+## 2026-11-14 - Foreground EL0 shell programs and direct-child lifecycle
+
+- Recorded the user's Pi copy/hash/sync PASS and zero-handle/heap/page cleanup
+  excerpt in proofs/pi5-file-tools-2026-11-14.txt. Physical power-cycle
+  persistence is still unconfirmed; no second boot was supplied.
+- Added SPAWN=24 and WAIT=25, runtime wrappers and shell run/status. Checked
+  packed argv, copied cwd, private pages/tables and non-inherited handles;
+  one outstanding direct child per root, three total slots, no nested spawn.
+  IDs never repeat; wait collects once, including an already-finished child.
+- Added child deadlines (1..30 seconds; shell run uses ten), fault/timeout
+  statuses, orphan cancellation/collection and terminal ownership transfer.
+  Ctrl+C targets the child while its shell waits and returns status 130.
+  The enclosing session deadline still applies. Drivers remain synchronous.
+- Emulator testing caught allocation under the parent's private table root.
+  Lower-EL kernel work now switches to the canonical kernel root; checked user
+  copies walk explicit private maps, and the chosen user root is restored on
+  return. Collection cannot free an active child table. Focused lifecycle smoke
+  testing passes, with all child maps/handles reclaimed.
+- Added SPAWNCHK, CHILDCHK, ORPHAN, CAPCHK and TTYPAR; 29 ELF programs total.
+  Compiler-emitted structure initialization/copies use original freestanding
+  runtime memory helpers. SHELL.ELF remains 3728 bytes. TTYPAR forces an early
+  child readline before the parent calls wait; input blocks until handoff.
+  This also covers a shell running as a child while nested spawn is refused.
+- docs/shell-programs.md gives the Pi sequence, limits and expected statuses.
+  New physical child acceptance remains pending. General process trees/jobs,
+  writable storage growth, packages, network services and local UI remain work.
+- QEMU A53/EL1 and A76/EL2 expanded shell/child and previous application/tools
+  suites pass, including cold boots, independent snapshot decoding and unchanged
+  source/boot/superblock/unused sectors. All 29 ELF fixtures and 25000 parser
+  mutations pass. Full disk and extracted ZIP hashes pass. Logs:
+  build/phase-spawn-{build,image,elf,smoke,qemu,regression}.log.
+- Full image is 134217728 bytes, ZIP 844051 bytes; SHA-256:
+  fa7361aa1903e0cde318f40983d8cbc2370225674faf1359f5d89fa8065aaaf1.
+  Pi kernel is 417508 bytes, reserved end 0x188000 below DTB 0x200000.
+  Previous complete images/ZIPs are preserved; no Git push or physical flash.
+
+## 2026-11-14 - Binary copy, SHA-256 and sync in the EL0 shell
+
+- Recorded physical shell acceptance in proofs/pi5-user-shell-2026-11-13.txt:
+  mutation/terminal self-tests, shell replacement, data write/read and memory
+  cleanup pass. No second boot appears; physical persistence is still pending.
+- Added checked COPY/FILEHASH/SYNC syscalls and runtime wrappers. Copy is bounded
+  to 4096 bytes, refuses existing targets and compares every readback byte.
+  Hash streams at most 65536 bytes. Sync uses the existing data cache policy.
+  Source handles enforce leases; kernel calls are serialized and temporary
+  handles/scratch are cleaned. A post-publication readback failure does not
+  guarantee rollback.
+- Added shell cp/sha256/sync and COPYCHK.ELF: empty/full binary files,
+  no-overwrite/self-copy, pointer checks, leases and known SHA-256 vectors.
+  The image now contains 24 ELF programs; SHELL.ELF is 3352 bytes.
+- QEMU A53/EL1 and A76/EL2 tests pass with copied persistent data, checksums
+  compared against the host, cold boots, independent snapshot verification and
+  unchanged boot/source sectors. Native file tests, all ELF fixtures, 25000 ELF
+  mutations and eight image-corruption cases pass. Logs: build/phase-copy-*.log.
+- Full image is 134217728 bytes; verified ZIP is 839503 bytes; image SHA-256:
+  89503b236509f28912259ff4ab0463aea9b6e7b7e2ede72ab7ac269719ba7080.
+  Previous full images remain archived. No Git push or physical flash performed.
+- docs/file-tools.md contains the Pi acceptance sequence. New physical
+  copy/hash/sync acceptance, child processes, general storage and UI remain
+  pending; this does not complete all remaining operating-system subsystems.
+
+## 2026-11-13 - Interactive EL0 serial shell and bounded terminal ownership
+
+- Preserved proofs/pi5-user-tools-2026-11-13.txt: user tools, quoted arguments,
+  cwd/metadata, sleep/wake/idle, app protection/preemption and final cleanup all
+  pass on Pi. No new physical power-cycle persistence claim is made.
+- Added appshell (300-second session) and appterm (1..300 seconds, one ELF).
+  Original noninteractive two-second batches remain unchanged. INPUT_WAIT
+  blocks on a checked line buffer, returning through kernel idle rather than
+  spinning inside the exception dispatcher. Timer/idle polling is bounded.
+  Only the assigned process can read input. Ctrl+C ends reading or computing
+  applications; EOF, line editing and overflow rejection are implemented.
+- Added mutation syscalls for mkdir/remove/whole-file replacement through
+  public VFS APIs. Pointers/lengths are checked before writes, paths resolve
+  relative to private cwd, leases/read-only mounts are honored, and live cwd
+  ancestors cannot be removed. Replacement avoids truncate-then-write commits.
+- Added SHELL.ELF (2968 bytes), TTYCHK, TTYDENY and MUTATE (23 ELF programs total).
+  User shell supports filesystem builtins, quotes, Ctrl+C/EOF and line editing;
+  child process launch/wait, pipes, jobs and environment remain future work.
+- Native terminal tests pass 20,000 input traces plus deterministic boundary/
+  editing/overflow checks. All ELF tests pass. Both A53/EL1 and A76/EL2 pass
+  interactive command/edit/mutation tests, terminal denial, bad buffers,
+  cancellation while waiting/spinning, queue overflow and blocked timeout,
+  owner/page cleanup and fresh-boot saved-file reads. Independent host checks
+  verify both snapshot banks and unchanged boot/source/unused sectors.
+  Earlier tool/application/preemption/protection/install tests also pass.
+  Storage/file-handle regressions and eight image-corruption/profile tests pass.
+- Full disk SHA256: 8eacaf91f146dde0dadeac95790d94f22dab1bbd52f7fac133bc40c0a959f395.
+  IMG 134217728 bytes; verified full-image ZIP 836856 bytes. Kernel 413412 bytes,
+  reserved end 0x186000 below DTB 0x200000. New shell physical acceptance pending.
+  Logs: build/phase-shell-{terminal,elf,qemu,regression,storage,files,image,negative}.log.
+  Previous full images/ZIPs preserved; no physical flash, Git commit or push.
+- docs/user-shell.md gives the new Pi sequence and boundaries. General storage/
+  recovery, process lifecycle/IPC, packages and display/HID/GPU/audio remain
+  separate stages in the roadmap.
+
 ## 2026-11-13 - User utilities, arguments, directories and sleeping processes
 
 - Preserved proofs/pi5-el0-applications-2026-11-13.txt: previous EL0 normal,
