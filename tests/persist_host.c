@@ -131,6 +131,13 @@ static void genesis_v3(void)
     genesis_v2();unsigned char *p=media+START*512;p32(p+8,3);digest(p,64,p+64);
     p+=512;memcpy(p,"OUROSBK3",8);p32(p+8,3);digest(p,64,p+64);memcpy(durable,media,sizeof(media));reset_counters();
 }
+static void genesis_v4(void)
+{
+    genesis();model_min_sectors=DATA_V4_MIN_SECTORS;unsigned char *p=media+START*512;
+    p32(p+8,4);p32(p+20,DATA_V4_BANK_SECTORS);p32(p+24,DATA_V4_FILES);p32(p+28,DATA_V4_FILE_BYTES);digest(p,64,p+64);
+    p+=512;memset(p,0,512);memcpy(p,"OUROSBK4",8);p32(p+8,4);p32(p+16,1);p32(p+24,DATA_V4_PAYLOAD_BYTES);
+    digest(p+512,DATA_V4_PAYLOAD_BYTES,p+32);digest(p,64,p+64);memcpy(durable,media,sizeof(media));reset_counters();
+}
 static void capacity_v2(void)
 {
     static unsigned char bytes[8193],out[8192];for (unsigned i=0;i<sizeof(bytes);++i) { bytes[i]=(unsigned char)i; }
@@ -185,7 +192,7 @@ static void readback_diagnostics(void)
     assert(persist_sync(&v)==FS_IO && v.failed && v.write_io==BLOCK_IO && !strcmp(v.write_phase,"sync-flush") && !v.write_lba);
     puts("PASS: v1/v2 payload/header readback mismatch distinguished from transport errors; sync failure latched without retry.");
 }
-static unsigned char archive[512+DATA_V2_PAYLOAD_BYTES],saved_archive[512+DATA_V2_PAYLOAD_BYTES];
+static unsigned char archive[512+DATA_V4_PAYLOAD_BYTES],saved_archive[512+DATA_V4_PAYLOAD_BYTES];
 struct archive_io { size_t offset,length;unsigned calls,fail_call; };
 static bool export_bytes(const void *data,size_t count,void *context)
 {
@@ -376,16 +383,16 @@ int main(int argc,char **argv)
 {
     if (argc==1 || argc==2) { behavior();cuts();rejection();mount_diagnostics();capacity_v2();cuts_v2();readback_diagnostics();backup_roundtrip();rename_checks();directories();directory_cuts();replacement_checks(); }
     if (argc==3 && !strcmp(argv[1],"--export-prefix")) {
-        for (unsigned version=1;version<=3;++version) {
-            if (version==1) { genesis(); }else if (version==2) { genesis_v2(); }else { genesis_v3(); }assert(persist_mount(&v,&device)==FS_OK);
-            if (version==3) { assert(persist_mkdir(&v,"/docs")==FS_OK); }
-            assert(persist_write(&v,version==3 ? "/docs/native.txt" : "/native.txt","native-backup",13,false)==FS_OK);struct archive_io io={0};assert(persist_export(&v,export_bytes,&io)==FS_OK);
+        for (unsigned version=1;version<=4;++version) {
+            if (version==1) { genesis(); }else if (version==2) { genesis_v2(); }else if (version==3) { genesis_v3(); }else { genesis_v4(); }assert(persist_mount(&v,&device)==FS_OK);
+            if (version>=3) { assert(persist_mkdir(&v,"/docs")==FS_OK); }
+            assert(persist_write(&v,version>=3 ? "/docs/native.txt" : "/native.txt","native-backup",13,false)==FS_OK);struct archive_io io={0};assert(persist_export(&v,export_bytes,&io)==FS_OK);
             char path[512];assert(snprintf(path,sizeof(path),"%s.v%u.bak",argv[2],version)<(int)sizeof(path));FILE *f=fopen(path,"wb");assert(f && fwrite(archive,1,io.offset,f)==io.offset && !fclose(f));
         }return 0;
     }
     if (argc==3 && !strcmp(argv[1],"--backup")) {
         FILE *f=fopen(argv[2],"rb");assert(f);struct archive_io io={.length=fread(archive,1,sizeof(archive),f)};assert(feof(f) || io.length==sizeof(archive));assert(!fclose(f));
-        unsigned version=archive[8];assert(version>=1 && version<=3);if (version==1) { genesis(); }else if (version==2) { genesis_v2(); }else { genesis_v3(); }
+        unsigned version=archive[8];assert(version>=1 && version<=4);if (version==1) { genesis(); }else if (version==2) { genesis_v2(); }else if (version==3) { genesis_v3(); }else { genesis_v4(); }
         assert(persist_mount(&v,&device)==FS_OK && persist_restore(&v,io.length,import_bytes,&io)==FS_OK && !memcmp(v.live,archive+512,v.payload_bytes));
         puts("PASS: independently restored actual host-generated backup with all payload bytes identical.");return 0;
     }

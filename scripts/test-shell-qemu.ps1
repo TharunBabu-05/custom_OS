@@ -1,7 +1,7 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
-param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,
-      [string]$ExpectedTreeBackup,
+param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
+      [switch]$Data4Backup,[string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
@@ -50,6 +50,175 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($Data4) {
+    if ($layout.Version -ne 4) { throw 'Data4 acceptance requires the v4 delivery' }
+    . "$PSScriptRoot/data-backup.ps1"
+    . "$PSScriptRoot/data-format.ps1"
+    [byte[]]$pattern=New-Object byte[] 16384;for ($i=0;$i -lt $pattern.Length;$i++) { $pattern[$i]=[byte](($i*29+7)%256) }
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { $patternHash=([BitConverter]::ToString($sha.ComputeHash($pattern))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+    $bigHash=(Get-FileHash -LiteralPath (Join-Path $ProjectRoot 'build/apps/BIGAPP.ELF') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $bigBytes=(Get-Item -LiteralPath (Join-Path $ProjectRoot 'build/apps/BIGAPP.ELF')).Length
+    if ($bigBytes -le 8192 -or $bigBytes -gt 16384) { throw 'BIGAPP does not cross the old file bound' }
+    $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="data4-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            @{Text='appterm 300 /boot/V4CHK.ELF';Delay=10000},@{Text='appterm 300 /boot/DATACAP.ELF';Delay=45000},
+            'apprun /boot/DF.ELF','mkdir /data/bin','appinstall /boot/BIGAPP.ELF /data/bin/big.elf',
+            'apprun /data/bin/big.elf','appshell',@{Text='cp /boot/LARGE.BIN /data/large.bin';Delay=2000},'sha256 /data/large.bin',
+            'sha256 /data/bin/big.elf','sync','exit','pwd','fileinfo','heaptest','pagetest','datainfo','timerstop','halt') @(
+            'OurOS snapshot v4; nodes=16 max_file_bytes=16384',
+            'PASS: v4 16384-byte copy/hash, 8 KiB boundary write, EOF/overflow preservation, RAM limit, atomic replacement, mount queries/pointer checks and cleanup.',
+            'PASS: v4 16384-byte binary file/copy/EOF, 16 slots, overflow preservation, RAM 4096-byte bound and cleanup.',
+            '/data snapshot v4 max_file_bytes=16384 nodes=0/16 persistent','/boot fat32 v0 max_file_bytes=0 nodes=0/0 read-only',
+            'Installed validated ELF: /data/bin/big.elf bytes=',
+            'PASS: installed application reads all 10000 RX bytes beyond the former 8 KiB file limit.',
+            ($patternHash+'  /data/large.bin'),($bigHash+'  /data/bin/big.elf'),'Open files: 0/16') 5
+        Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            'apprun /boot/DF.ELF','apprun /data/bin/big.elf','appshell','sha256 /data/large.bin','sha256 /data/bin/big.elf',
+            'exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            '/data snapshot v4 max_file_bytes=16384 nodes=3/16 persistent',
+            'PASS: installed application reads all 10000 RX bytes beyond the former 8 KiB file limit.',
+            ($patternHash+'  /data/large.bin'),($bigHash+'  /data/bin/big.elf'),'path=/data/bin/big.elf state=exited code=0','Open files: 0/16') 3
+        if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'v4 changed boot/superblock/unused sectors' }
+        $f=[IO.File]::OpenRead($disk);[byte[]]$partition=New-Object byte[] 1048576
+        try { $f.Position=260096L*512;if ($f.Read($partition,0,$partition.Length) -ne $partition.Length) { throw 'Short partition' } } finally { $f.Dispose() }
+        $newest=if ([BitConverter]::ToUInt64($partition,528) -gt [BitConverter]::ToUInt64($partition,528+515*512)) { 0 } else { 1 }
+        foreach ($bank in 0,1) {
+            [byte[]]$archive=New-Object byte[] 263680;[Array]::Copy($partition,512+$bank*515*512,$archive,0,$archive.Length)
+            if ([BitConverter]::ToUInt32($archive,12) -ne $bank) { throw 'Invalid bank identity' }
+            $sha=[Security.Cryptography.SHA256]::Create()
+            try {
+                if ([Convert]::ToBase64String($sha.ComputeHash($archive,0,64)) -cne [Convert]::ToBase64String($archive[64..95])) { throw 'Invalid original bank header checksum' }
+                [Array]::Clear($archive,12,4);$sha.ComputeHash($archive,0,64).CopyTo($archive,64)
+            } finally { $sha.Dispose() }
+            $archivePath=Join-Path $out "$name-bank$bank.bak";[IO.File]::WriteAllBytes($archivePath,$archive);$decoded=Get-OurOSDataBackup $archivePath
+            if ($bank -eq $newest -and ($decoded.Version -ne 4 -or $decoded.Entries.Count -ne 3 -or
+                @($decoded.Entries | Where-Object { $_.Path -ceq 'large.bin' -and $_.Bytes -eq 16384 -and $_.SHA256 -ceq $patternHash }).Count -ne 1 -or
+                @($decoded.Entries | Where-Object { $_.Path -ceq 'bin/big.elf' -and $_.Bytes -eq $bigBytes -and $_.SHA256 -ceq $bigHash }).Count -ne 1)) { throw 'Independent v4 disk decode differs' }
+        }
+        Write-Output "PASS: $name v4 capacity/syscall bounds, larger installed ELF and exact 16 KiB data survive cold boot; independent bank/boot/tail checks."
+    }
+    foreach ($version in 1,2,3) {
+        $name="data4-legacy-v$version";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        $f=[IO.File]::Open($disk,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+        try { $f.Position=260096L*512;$bytes=New-OurOSDataPartition -Version $version;$f.Write($bytes,0,$bytes.Length) } finally { $f.Dispose() }
+        $legacyLayout=Get-OurOSDataLayout $disk;$legacyPrefix=Range-Hash $disk 0 (260097L*512)
+        Session $disk $name 'cortex-a76' 'on' @('storageinit','datainit','mmuinit','irqinit','timerstart','apprun /boot/DF.ELF',
+            'apprun /boot/V4CHK.ELF','appinstall /boot/BIGAPP.ELF /data/too-big.elf',
+            "write /data/legacy.txt retained-v$version",'cat /data/legacy.txt','pwd','fileinfo','timerstop','halt') @(
+            "/data snapshot v$version max_file_bytes=$($legacyLayout.FileBytes) nodes=0/$($legacyLayout.Files) persistent",
+            'V4CHK refused: needs v4 /data','path=/boot/V4CHK.ELF state=exited code=1',"retained-v$version",'Open files: 0/16') 2
+        if ((Get-OurOSDataLayout $disk).Version -ne $version -or (Range-Hash $disk 0 (260097L*512)) -ne $legacyPrefix) { throw 'Legacy format was silently converted' }
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+        if ($capture.Contains('Installed validated ELF:')) { throw 'Oversize application installed on legacy volume' }
+        Session $disk "$name-reopen" 'cortex-a76' 'on' @('storageinit','datainit','cat /data/legacy.txt','pwd','halt') @("retained-v$version") 0
+    }
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: v1/v2/v3 stay writable at old limits without conversion; v4 acceptance used scratch disks only.';return
+}
+if ($Data4Backup) {
+    if ($layout.Version -ne 4) { throw 'Data4Backup requires a v4 image' }
+    . "$PSScriptRoot/data-backup.ps1"
+    $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
+    [byte[]]$pattern=New-Object byte[] 16384;for ($i=0;$i -lt $pattern.Length;$i++) { $pattern[$i]=[byte](($i*29+7)%256) }
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { $patternHash=([BitConverter]::ToString($sha.ComputeHash($pattern))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="backup4-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk "$name-export" $case[0] $case[1] @('storageinit','datainit',@{Text='datarestore /boot/DEMO.BAK';Delay=2000},
+            'datainfo','cat /data/restore.txt','mmuinit','irqinit','timerstart','appshell',
+            @{Text='cp /boot/LARGE.BIN /data/large.bin';Delay=2000},'sha256 /data/large.bin','exit',
+            @{Text='dataexport';Delay=8000},'datarestore /boot/DEMO.BAK','cat /data/restore.txt','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            'Data restore committed and read back; run datainfo and verify files.',
+            'OurOS verified backup restore.',($patternHash+'  /data/large.bin'),
+            '-----END OUROS DATA BACKUP V1-----','Data restore refused/failed: root or current directory is busy','Open files: 0/16') 1
+        $exportedBackup=Join-Path $out ($name+'-'+[guid]::NewGuid().ToString('N')+'.bak')
+        & "$PSScriptRoot/convert-data-backup.ps1" -Log (Join-Path $out "$name-export.log") -Output $exportedBackup
+        $decoded=Get-OurOSDataBackup $exportedBackup
+        if ($decoded.Version -ne 4 -or $decoded.Entries.Count -ne 3 -or
+            @($decoded.Entries | Where-Object { $_.Path -ceq 'large.bin' -and $_.Bytes -eq 16384 -and $_.SHA256 -ceq $patternHash }).Count -ne 1) { throw 'Actual v4 guest serial archive differs' }
+        if (Test-Path -LiteralPath (Join-Path $ProjectRoot 'build/storage-tests/test-backup.exe')) {
+            & ./build/storage-tests/test-backup.exe --backup $exportedBackup
+            if ($LASTEXITCODE -ne 0) { throw 'Native guest-format restore rejected actual serial archive' }
+        }
+        Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','cat /data/restore.txt','mmuinit','irqinit','timerstart',
+            'appshell','sha256 /data/large.bin','exit','pwd','fileinfo','timerstop','halt') @('OurOS verified backup restore.',($patternHash+'  /data/large.bin'),'Open files: 0/16') 1
+        if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'v4 restore/export changed boot or unused sectors' }
+    }
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: v4 FAT archive restore, actual 16 KiB guest serial export/host conversion, nonempty refusal and cold-boot data; scratch disks only.';return
+}
+if ($ShellJobs) {
+    $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { $envHash=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::ASCII.GetBytes("original`n")))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="jobs-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        $busy=@('jobs','echo shell-still-live','mkdir /tmp/while-job','write /tmp/while-job/note background-ok','cat /tmp/while-job/note',
+            'setenv MESSAGE parent-lives','getenv MESSAGE','cd /tmp/while-job','pwd','run hello','hello','ps','exec echo should-not-run',
+            'pipe echo -- hash','runio - /tmp/no-fgout echo should-not-run','bg 30 /boot/SPIN.ELF',
+            'bgio 30 - /tmp/no-bgout echo should-not-run','ls /tmp/no-fgout','ls /tmp/no-bgout',
+            'write /tmp/job-lease blocked','stop','echo stopped=$?','jobs','write /tmp/job-lease changed','cat /tmp/job-lease','cd /') |
+            ForEach-Object { @{Text=$_;Delay=120} }
+        $actions=@('storageinit','datainit','mmuinit','irqinit','timerstart','appshell','help','jobs','fg','status','stop','status',
+            'bg 0 /boot/SPIN.ELF','bg 31 /boot/SPIN.ELF','bg -1 /boot/SPIN.ELF','bg 999999999999 /boot/SPIN.ELF',
+            'bg nope /boot/SPIN.ELF','bg "" /boot/SPIN.ELF','status','bg 30 /boot/MISSING.ELF','jobs',
+            'bg 30 /boot/CONFIG.TXT','jobs','bgio 30 /tmp/absent /tmp/no-out /boot/ECHO.ELF hi','ls /tmp/no-out',
+            'write /tmp/job-lease lease',@{Text='bg 30 /boot/PS.ELF worker /tmp/job-lease';Delay=700})+$busy+@(
+            'bg 30 /boot/PS.ELF done /tmp/job-lease','jobs','stop','echo completed=$?',
+            'bg 30 /boot/PS.ELF fault /tmp/job-lease','jobs','fg','echo fault-code=$?',
+            @{Text='bg 1 /boot/PS.ELF worker /tmp/job-lease';Delay=1600},'jobs','fg','echo timeout-code=$?',
+            'bg 30 /boot/PS.ELF exec /tmp/job-lease','fg','echo exec-code=$?',
+            'bg 30 /boot/PS.ELF input /tmp/job-lease','jobs','echo parent-kept-input','stop',
+            'bg 30 /boot/TTYCHK.ELF','jobs','echo parent-before-fg','fg','terminal-ok','echo terminal-returned',
+            'bg 30 /boot/SPIN.ELF','fg',@{Text=[string][char]3;Raw=$true;Delay=700},'echo fg-cancel=$?','jobs',
+            'setenv MESSAGE original','bgio 30 - /data/bg-env env MESSAGE','setenv MESSAGE later','fg','cat /data/bg-env',
+            'cd /home/user','bgio 30 - /data/bg-cwd pwd','cd /tmp','fg','cat /data/bg-cwd','cd /',
+            'bgio 30 /data/bg-env /data/bg-hash hash','fg','cat /data/bg-hash',
+            'bgio 30 - /data/bg-env echo should-not-overwrite','jobs','cat /data/bg-env',
+            'pipe echo foreground-restored -- hash','ps','exit',
+            'appshell','bg 30 /boot/PS.ELF worker /tmp/job-lease',@{Text=[string][char]3;Raw=$true;Delay=700},
+            'appterm 2 /boot/SHELL.ELF --noprofile',@{Text='bg 30 /boot/PS.ELF worker /tmp/job-lease';Delay=3500},
+            'appshell','write /tmp/job-lease after-timeout','bg 30 /boot/PS.ELF worker /tmp/job-lease','exit',
+            'mkdir /data/bin','appinstall /boot/SHELL.ELF /data/bin/shell.elf','appterm 120 /data/bin/shell.elf',
+            'jobs','bgio 30 - /data/installed-bg echo installed-bg','fg','cat /data/installed-bg',
+            'bg 30 /boot/PS.ELF worker /tmp/job-lease','exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt')
+        Session $disk "$name-create" $case[0] $case[1] $actions @(
+            'bg SECONDS PROGRAM [args]','No background job.','shell: timeout must be 1..30s',
+            'shell: use fg or stop first','shell-still-live','background-ok','parent-lives','stopped=130','completed=37',
+            'fault-code=125','timeout-code=124','exec-code=37','parent-kept-input','parent-before-fg','terminal-returned','fg-cancel=130',
+            'PASS: terminal pointer/capacity checks and blocking line delivery.','PID PPID STATE PAGES PATH',
+            'state=cancelled code=130','state=timeout code=124','path=/data/bin/shell.elf state=exited code=0',
+            $envHash,'installed-bg','Open files: 0/16') 5
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
+        if ([regex]::Matches($capture,'shell: timeout must be 1..30s').Count -ne 6 -or
+            [regex]::Matches($capture,'shell: use fg or stop first').Count -ne 8) { throw 'Job bounds/busy refusal counts differ' }
+        if ([regex]::IsMatch($capture,'(?m)^(should-not-run|should-not-overwrite)\r?$') -or
+            ![regex]::IsMatch($capture,'(?m)^job pid=\d+ done code=37\r?$') -or
+            ![regex]::IsMatch($capture,'(?m)^job pid=\d+ done code=124\r?$')) { throw 'Job outcome/launch gate differs' }
+        if (![regex]::IsMatch($capture,'(?m)^/home/user\r?$') -or ![regex]::IsMatch($capture,'(?m)^original\r?$')) { throw 'Background cwd/environment snapshot differs' }
+        foreach ($line in @([regex]::Matches($capture,'(?m)^process=[012] [^\r\n]*'))) {
+            if (!$line.Value.Contains('heap_live_pages=0')) { throw 'Job teardown retained private pages' }
+        }
+        if ($capture.Contains('cleanup=not-run/failed')) { throw 'Job cleanup failed' }
+        Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            'appterm 120 /data/bin/shell.elf','jobs','cat /data/bg-env','cat /data/bg-hash','cat /data/installed-bg',
+            'bg 30 /boot/TTYCHK.ELF','fg','terminal-ok','bgio 30 - /data/cold-job echo cold-boot-job','fg','cat /data/cold-job',
+            'exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            'No background job.','original',$envHash,'installed-bg','cold-boot-job',
+            'PASS: terminal pointer/capacity checks and blocking line delivery.','Open files: 0/16') 1
+        if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'Shell jobs changed boot/unused sectors' }
+        Write-Output "PASS: $name bounded jobs, launch gates, retained outcomes, input/fg/cancel, inherited cwd/env, redirected storage and installed-shell cold boot."
+    }
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: shell job tests used regular scratch disks; delivery unchanged.';return
 }
 if ($ProcessControl) {
     $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)

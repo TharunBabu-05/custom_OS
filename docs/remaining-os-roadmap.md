@@ -16,20 +16,26 @@ multitasking or writable storage from zero. Each table below separates what
 exists from the missing capability. A passing same-boot file test is not yet
 a physical power-loss recovery or reboot-persistence test.
 
-The new [process-control phase](process-control.md) implements process snapshots,
-nonblocking child polling and parent-only cancellation, with a PS viewer and
-bounded interactive demo. A53/EL1 and A76/EL2 acceptance passes; Pi acceptance
-is pending. General shell background jobs and indefinite services are still work.
+The [process-control phase](process-control.md) now has Pi PS check/demo evidence.
+The [shell-job phase](shell-jobs.md) implements one bg/bgio child, jobs,
+fg and stop in the normal shell. Both emulator profiles pass; the
+[new Pi excerpt](../proofs/pi5-shell-jobs-2026-11-15.txt) now verifies the base
+bg/jobs/stop/exit workflow with a responsive parent and restored resources.
+fg/bgio and broader physical lifecycle/reboot checks remain open. The
+shell-job kernel/API and data formats stay unchanged. The next
+[v4 storage phase](data-v4.md) adds 16 KiB files, mount queries and explicit
+legacy backup conversion; native/QEMU checks pass and Pi acceptance is pending. Multiple
+jobs, process trees and indefinite services are still work.
 
 ## Applications and multitasking
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/input/spawn/wait with Pi evidence; new snapshots, nonblocking child poll and parent-only cancellation | Pi process-control/broader lifecycle tests, process trees, shell background jobs, blocking I/O, priorities, fairness and background services |
+| Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/input/spawn/wait/process control and base shell bg/jobs/stop with Pi evidence | Pi fg/bgio/broader lifecycle tests, multiple jobs/process trees, blocking I/O, priorities, fairness and indefinite services |
 | Process memory | Private image/stack pages, kernel-only mappings, W^X, bounded dynamic RW/NX pages with quota/rollback/cleanup; Pi page/byte allocator examples pass | Broader Pi lifecycle/concurrent checks, larger VM, shared/file mappings, copy-on-write if needed and broader OOM policy |
 | Exceptions | Kernel diagnostics and new contained EL0 faults/timeouts | Rich per-process reporting, debugging, signals or another application fault policy |
 | System calls | Checked files/console/time/args/cwd/sleep/mutations/spawn/wait/file streams; new two-stage PIPE_RUN | ABI evolution, general descriptors/IPC, longer pipes, sockets and broader blocking I/O |
-| Executables | Static AArch64 ELF subset, 50 sample/test ELFs, shell/file tools/streams/pipes/profiles and new PS; Pi memory/profile/exec/allocator examples pass | Pi PS/broader exec/update validation, stored-shell persistence, larger files, general scripts, job control and broader toolchain tests |
+| Executables | Static AArch64 ELF subset, 53 sample/test ELFs and compact runtime; 8162-byte shell; 10664-byte installed program cold-boots in QEMU; Pi PS/memory/profile/exec examples pass | Pi v4/broader exec/update validation, stored-shell persistence, larger VM, scripts, multiple jobs and broader toolchain tests |
 | Concurrency | Single active CPU; syscalls/drivers complete synchronously | Preemptive kernel synchronization, IRQ-safe driver queues, SMP startup/locking and multicore scheduling |
 
 Acceptance should keep checking resource restoration, failure containment and
@@ -39,8 +45,9 @@ should not assume that arbitrary EL1 driver code is already preemption-safe.
 ## Persistent files and installation
 
 The writable root remains a volatile RAM filesystem. `/boot` is read-only
-FAT32. `/data` is an original bounded snapshot filesystem: new v3 volumes have
-sixteen shared file/directory slots and nested files up to 8192 bytes; v2 keeps
+FAT32. `/data` is an original bounded snapshot filesystem: new v4 volumes have
+sixteen shared file/directory slots and nested files up to 16384 bytes; v3 keeps
+the same node count and nested 8192-byte files; v2 keeps
 sixteen flat files of 8192 bytes and v1 keeps eight flat files of 4096 bytes.
 All use two checked commit banks in a separate 1 MiB partition. The
 kernel does not expose writable FAT metadata. The snapshot implementation
@@ -50,8 +57,8 @@ still be checked; successful same-session write/read/sync is narrower evidence.
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Writable storage | USB2 writes, bounded flush/write-through policy, snapshot commits/readback, v3 directories and atomic single-file publication | Larger files, richer metadata, capacity growth, general writable filesystem and more block-device drivers |
-| Recovery | SHA256/two banks/rollback, native interrupted-I/O tests; new serial export and validated empty-target restore | Pi backup/restore and power-cut tests, richer recovery console, repair policy and data migration |
+| Writable storage | USB2 writes, bounded flush/write-through policy, snapshot commits/readback, nested directories and atomic publication; new v4 16 KiB files pass native/QEMU | Pi v4 acceptance, larger volumes/files beyond fixed snapshots, richer metadata, general writable filesystem and more block-device drivers |
+| Recovery | SHA256/two banks/rollback, native interrupted-I/O tests, serial export/empty-target restore and explicit v1-v3 to v4 backup conversion | Pi backup/export/power-cut tests, richer recovery console, repair and automatic preservation policy |
 | Local installation | `appinstall` creates a validated ELF; `appupdate` validates before atomically updating an existing file, with full readback | General OS installer, layout planning, multi-file upgrades, uninstall/version rollback policy and preservation of user data |
 | Packages | Executable files can be stored and loaded locally | Package format/manifests, versions, dependencies, integrity/authenticity checks, transactions and repository metadata |
 | Downloads | Foreground Wi-Fi/IP/UDP DNS/ICMP foundations | Reliable background networking, TCP, HTTP/TLS, certificate/time policy, signatures and authenticated repositories |
@@ -64,7 +71,7 @@ and tested before accepting remote packages.
 Full-image reflashing replaces `/data`; persistence refers to boots of an
 installed image. New dataexport/host conversion and explicit datarestore can
 carry same-format files across images. This requires a saved backup and an
-empty destination; automatic preservation, merging and migration remain pending.
+empty destination; automatic preservation, merging and in-place migration remain pending.
 
 ## Local hardware and UI
 
@@ -91,12 +98,11 @@ USB classes or topologies are supported.
 
 ## Work order and evidence
 
-1. **Current: process control; next: bounded shell jobs.** Snapshot/poll/cancel
-   and PS.ELF are implemented and pass local ownership, pointer, terminal and
-   lifecycle acceptance. After this foundation, add bounded shell background
-   jobs and broader process lifecycles. Preserve resource/terminal ownership;
-   general process trees and indefinite services are not implemented yet.
-2. Extend storage capacity, the VFS and startup/mount policy; strengthen backup,
+1. **Current: v4 persistent capacity.** New 16 KiB files, mount queries and
+   larger installed applications pass native/QEMU tests; old volumes keep
+   their limits. Physical v4 acceptance is pending. The preceding shell jobs
+   remain available, with base bg/jobs/stop/exit Pi evidence.
+2. Extend startup/mount policy and storage beyond fixed snapshots; strengthen backup,
    recovery and updates without losing user data. Separate physical reboot,
    power-cut and installed-shell evidence from existing DIRCHK and write tests.
 3. Build background network handling and renewal/rekey/reconnect, then sockets,
@@ -109,8 +115,8 @@ USB classes or topologies are supported.
    peripherals, then SMP, synchronization, hardening and additional board ports.
 
 Open physical checks are evidence gaps, not a requirement to repeat every
-accepted test before progressing. The process-control phase has a new kernel
-and PS.ELF, plus a scoped boot-file update to preserve the preceding /data volume.
+accepted test before progressing. The shell-job phase is an application-only
+update of SHELL.ELF on the process-control kernel; existing /data can be retained.
 
 The complete feature/driver status remains in [os-status.md](os-status.md).
 Native tests establish bounded parsing/mapping behavior, emulators establish

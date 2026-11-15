@@ -481,6 +481,16 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
 {
     uint64_t a=f->x[0],b=f->x[1],c=f->x[2];unsigned char buffer[512];size_t count=0;enum fs_result r;
     switch (f->x[8]) {
+    case UOS_SYS_STATFS: {
+        if (!b || b>=RAMFS_PATH_MAX) { return UOS_ERROR; }
+        if (!user_range(p,c,sizeof(struct uos_fs_info),true) || !user_range(p,a,(size_t)b,false)) { return UOS_EFAULT; }
+        char path[RAMFS_PATH_MAX],absolute[RAMFS_PATH_MAX];user_copy(p,a,path,(size_t)b,false);
+        for (size_t i=0;i<b;++i) { if (!path[i]) { return UOS_ERROR; } }path[b]=0;bool dir;
+        r=vfs_resolve(p->cwd,path,absolute,&dir);if (r!=FS_OK) { return r==FS_NOT_FOUND ? UOS_ENOENT : UOS_ERROR; }
+        struct vfs_volume_info info;r=vfs_volume_info(absolute,&info);if (r!=FS_OK) { return UOS_ERROR; }
+        struct uos_fs_info out={info.max_write_bytes,info.type,info.version,info.nodes,info.used,info.flags};
+        user_copy(p,c,&out,sizeof(out),true);return 0;
+    }
     case UOS_SYS_PROCESSES:case UOS_SYS_CHILD_POLL:case UOS_SYS_CHILD_CANCEL:return process_control(p,f);
     case UOS_SYS_ENV_PROFILE:return profile_call(p,f);
     case UOS_SYS_ENV_GET:case UOS_SYS_ENV_SET:case UOS_SYS_ENV_UNSET:case UOS_SYS_ENV_ENTRY:return environment_call(p,f);

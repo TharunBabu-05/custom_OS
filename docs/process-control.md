@@ -7,8 +7,13 @@ single-CPU scheduler and foreground session limits remain in force.
 
 The preceding [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt)
 passes HEAPCHK/HEAPDEMO with code 0, zero live pages and restored resources.
-That accepted result is retained. New process-control hardware acceptance is
-pending; the tests below exercise only the new phase.
+That accepted result is retained. The later
+[Pi process-control capture](../proofs/pi5-process-control-2026-11-15.txt) now
+passes PS check/demo, all 12 check children reaped and two demo stop/start
+cycles with restored resources. This accepts those shown paths; broader
+installed-viewer reboot and explicit terminal-check hardware cases remain open.
+The next [shell-job phase](shell-jobs.md) reuses this kernel and replaces only
+SHELL.ELF for a scoped application update.
 
 ## Install the update without reflashing
 
@@ -163,9 +168,13 @@ The current PS.ELF is 7776 bytes and fits the v2/v3 8192-byte installation limit
 The kernel remains 446196 bytes but its hash changes for the new API; the prior
 allocator-only bundle is not the process-control update.
 
+The artifact figures below describe the original process-control release;
+current delivery figures are in [shell-jobs.md](shell-jobs.md).
+
 The new process-control suite passes on A53/EL1 and A76/EL2, as do all 50 ELF
 loader checks, 25000 parser mutations and eight image corruption/profile
-rejection cases. These are local checks; new Pi acceptance remains pending.
+rejection cases. PS check/demo now also pass on Pi, within the scope recorded
+above; additional physical terminal/reboot cases remain open.
 The original application/tools suite also passes on both profiles, including
 checked syscalls, private mappings, preemption, contained faults/timeouts and
 installed application execution after a fresh emulator boot.

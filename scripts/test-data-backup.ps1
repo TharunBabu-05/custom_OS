@@ -95,4 +95,31 @@ foreach ($kind in 'bad-name','duplicate','unused','too-large','unterminated','ta
 $log=Join-Path $work 'serial-v2.log';$existing=Join-Path $work 'existing.bak';[IO.File]::WriteAllText($existing,'keep-me')
 $rejected=$false;try { & "$PSScriptRoot/convert-data-backup.ps1" -Log $log -Output $existing } catch { $rejected=$true }
 if (!$rejected -or [IO.File]::ReadAllText($existing) -cne 'keep-me') { throw 'Converter overwrote an existing file' }
-Write-Output 'PASS: C/PowerShell v1/v2/v3 interchange, explicit legacy migration, nested archive paths/graph checks, serial integrity and no-overwrite publication.'
+$native4=Get-OurOSDataBackup (Join-Path $work 'native-backup.v4.bak')
+$log4=Join-Path $work 'serial-v4.log';[IO.File]::WriteAllText($log4,(Serial-Text $native4.Raw))
+$converted4=Join-Path $work ('converted-v4-'+[guid]::NewGuid().ToString('N')+'.bak')
+& "$PSScriptRoot/convert-data-backup.ps1" -Log $log4 -Output $converted4
+if ((Get-OurOSDataBackup $converted4).SHA256 -cne $native4.SHA256) { throw 'v4 serial conversion changed bytes' }
+[byte[]]$large=New-Object byte[] 16384;for ($i=0;$i -lt $large.Length;$i++) { $large[$i]=[byte](($i*29+7)%256) }
+$nested=@(@{Name='docs';Slot=5;Directory=$true;Data=(New-Object byte[] 0)},
+    @{Name='child';Slot=1;Parent=6;Directory=$true;Data=(New-Object byte[] 0)},
+    @{Name='same';Slot=9;Parent=2;Data=$large},@{Name='same';Slot=12;Parent=6;Data=[Text.Encoding]::ASCII.GetBytes('sibling')})
+$host4=Join-Path $work 'host-v4.bak';[IO.File]::WriteAllBytes($host4,(New-OurOSDataBackup -Version 4 -Files $nested))
+$decoded4=Get-OurOSDataBackup $host4
+if (@($decoded4.Entries | Where-Object { $_.Path -ceq 'docs/child/same' -and $_.Bytes -eq 16384 -and $_.Slot -eq 9 }).Count -ne 1) { throw 'v4 nested payload decode failed' }
+& ./build/storage-tests/test-backup.exe --backup $host4
+if ($LASTEXITCODE -ne 0) { throw 'Native restore rejected 16 KiB host-generated v4 tree' }
+# Explicit conversion preserves out-of-order slots, holes, sibling names and parents.
+$nested[2].Data=[byte[]]$large[0..8191]
+$tree3=Join-Path $work 'host-tree-v3.bak';[IO.File]::WriteAllBytes($tree3,(New-OurOSDataBackup -Version 3 -Files $nested))
+foreach ($version in 1,2,3) {
+    $oldPath=if ($version -eq 3) { $tree3 } else { Join-Path $work "native-backup.v$version.bak" }
+    $before=(Get-FileHash -LiteralPath $oldPath -Algorithm SHA256).Hash
+    $target4=Join-Path $work ('migrated-'+$version+'-to4-'+[guid]::NewGuid().ToString('N')+'.bak')
+    & "$PSScriptRoot/migrate-data-backup.ps1" -InputBackup $oldPath -Output $target4 -TargetVersion 4
+    $next=Get-OurOSDataBackup $target4
+    if ($next.Version -ne 4 -or (Get-FileHash -LiteralPath $oldPath -Algorithm SHA256).Hash -cne $before) { throw 'v4 conversion changed source or target version' }
+    & ./build/storage-tests/test-backup.exe --backup $target4
+    if ($LASTEXITCODE -ne 0) { throw 'Native restore rejected converted v4 backup' }
+}
+Write-Output 'PASS: C/PowerShell v1-v4 interchange, explicit migration preserving nested slots/parents/bytes, 16 KiB archives, serial integrity and no-overwrite publication.'

@@ -12,18 +12,24 @@ applications, a serial shell, bounded persistent storage and foreground
 networking. The original monitor-only stage is behind us. No percentage of a
 complete OS is assigned: the remaining features have very different scopes.
 
-**Current development:** [process control](process-control.md). Coherent process
-snapshots, nonblocking owned-child polling and parent-owned cancellation are
-implemented; PS.ELF supplies a viewer, checks and a bounded interactive demo.
-The new A53/EL1 and A76/EL2 emulator acceptance passes. Pi acceptance is pending.
+**Current development:** [larger persistent files](data-v4.md). New snapshot
+v4 volumes allow 16 KiB files and larger installed applications. Native
+failure-injection, host conversion and both QEMU profiles pass; physical v4
+acceptance remains pending. Existing v1/v2/v3 volumes stay writable at old
+limits. The boot-file update preserves existing data; it adds mount-query
+syscall 43 and `df`. The preceding base bg/jobs/stop/exit path passes on Pi;
+fg/bgio and broader physical lifecycle/reboot cases remain open.
 
-**Latest hardware-accepted phase:** [application byte allocation](user-allocator.md).
-The [new Pi capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes
-HEAPCHK and HEAPDEMO, both exit 0, live pages 0 and resources restored.
-HEAPCHK balances 12 backing-run allocations/frees; HEAPDEMO balances three.
-The earlier [page-memory capture](../proofs/pi5-user-memory-2026-11-15.txt)
-passes MEMCHK and MEMDEMO. These are single-process runs; broader allocator
-lifecycle/concurrency hardware cases remain unverified.
+**Latest verified hardware path:** [single background-job control](shell-jobs.md).
+The [new Pi excerpt](../proofs/pi5-shell-jobs-2026-11-15.txt) shows a responsive
+parent while SPIN runs, stop/collection with 130, one child started/reaped and
+shell exit with code 0, zero live heap pages and restored resources.
+The preceding [Pi process capture](../proofs/pi5-process-control-2026-11-15.txt) passes PS
+check (12 children started/reaped, code 0) and interactive stop/start (two
+children collected), with zero live heap pages and restored resources.
+Earlier [allocator](../proofs/pi5-user-allocator-2026-11-15.txt) and
+[private-page](../proofs/pi5-user-memory-2026-11-15.txt) checks also pass on Pi.
+Broader installed-program/reboot and lifecycle cases retain their own scopes.
 
 Hardware evidence also includes:
 
@@ -72,21 +78,21 @@ to be repeated at every development step.
 | Virtual memory/protection | Pi verified identity/private pages and single-process dynamic RW/NX allocation; guarded arena and checked copies | Broader Pi dynamic lifecycle/concurrent checks, larger VM, shared/file mappings and cache acceleration |
 | Interrupts | GICv2 PPI30, raw acknowledge/EOI, IRQ return and bounded unexpected-source quarantine; opt-in, Pi verified | General peripheral handlers/registration, IRQ-safe locks and SMP |
 | Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
-| Scheduling | Cooperative EL1 tasks; timer-preempted EL0, sleep/wake, terminal waits, spawn/wait and pipes with Pi evidence; new polling/cancellation demo | Pi process-control acceptance, general background jobs/process trees, broader blocking I/O, SMP and services |
-| Processes/system calls | Three private EL0 slots; checked files/console/args/cwd/spawn/wait/streams/pipes/exec/env/profiles/pages; new snapshot/poll/cancel calls 40..42 | Broader lifecycle hardware checks, IPC/descriptor API, credentials/access control and background services |
-| Programs/runtime | Bounded ELF loader, original runtime, 50 sample/test ELFs and new PS tool; Pi memory/allocator examples pass | Pi process-control/broader update acceptance, installed-shell persistence, larger programs/files, general libc/dynamic linking, packages and installer |
+| Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/spawn/wait/pipes/process control; Pi bg/jobs/stop responsiveness and cleanup | Pi fg/bgio and broader lifecycle checks, multiple jobs/process trees, broader blocking I/O, SMP and indefinite services |
+| Processes/system calls | Three private EL0 slots; checked files/console/args/cwd/spawn/wait/streams/pipes/exec/env/profiles/pages; snapshot/poll/cancel 40..42 and mount query 43 | Broader lifecycle hardware checks, IPC/descriptor API, credentials/access control and background services |
+| Programs/runtime | Bounded ELF loader, 53 sample/test ELFs, Pi PS/memory/allocator checks; 8162-byte job-enabled shell; larger installed ELF cold-boot tests pass in QEMU | Pi v4/broader update acceptance, installed-shell persistence, larger VM, general libc/dynamic linking, packages and installer |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked open/read/write/seek/close handles with cursors and path leases | General mounts, richer metadata, permissions, pseudo-filesystems and preemptive driver synchronization |
-| Persistent files | Pi verifies v2 capacity, restore/MVCHK and v3 DIRCHK; sixteen v3 file/directory nodes, nested 8 KiB files and explicit backup migration | Physical reboot/export/power-cut checks, atomic-update hardware cases, larger files/volumes and richer metadata |
-| Shell | Kernel monitor and Pi-verified EL0 files/run/runio/pipes/exec/env; saved profiles and bounded variable/status expansion | Installed-shell reboot acceptance, job control, general scripts/operators and longer pipelines |
+| Persistent files | Pi verifies v2 capacity, restore/MVCHK and v3 DIRCHK; new v4 sixteen nodes/16 KiB files, explicit v1-v3 backup conversion and mount limits pass native/QEMU | Physical v4/reboot/export/power-cut checks, atomic-update hardware cases, capacity beyond fixed snapshots and richer metadata |
+| Shell | Pi-verified files/run/runio/pipes/exec/env/profiles/expansion and bg/jobs/stop; fg/bgio, deadlines and handoff pass in QEMU | Pi fg/bgio/deadline/parent-teardown and installed-shell reboot checks, multiple jobs, scripts/operators and longer pipelines |
 | Networking | WPA3/SAE, keys/port, DHCP, ARP, IPv4, ICMP and UDP DNS; Pi Internet pings verified | Renewal/rekey/reconnect, background service, neighbor cache, sockets, TCP, HTTP/TLS; IPv6 if required |
 | Security | Reservation-aware allocation, hidden volatile credentials, verified handshake checks, kernel/user page isolation, RW/NX and checked user copies | Credentials/permissions, broader access control, syscall/driver hardening, secure update/boot design and independent review |
 | Multicore/concurrency | One active CPU; secondary cores parked | SMP startup, per-CPU state, locking, memory-order/IRQ-safe primitives and concurrent drivers |
 | Diagnostics/testing | UART logs, self-tests, independent native fixtures, guard/mutation tests, QEMU A53/A76/EL1/EL2 and image checks | Continuous integration, longer hardware soak/failure/recovery tests, coverage and debugging tools |
-| Build/update/install | Windows-native build, FAT packaging, hashes, archived full IMG/ZIP files; checked process-control boot-file update for the preceding installation | General update policy, on-device installer/rollback, package format/manager and application repository |
+| Build/update/install | Windows-native build, FAT packaging, hashes and archived full IMG/ZIP files; boot-file update can retain older data formats; explicit backup conversion | General update policy, on-device installer/rollback, package format/manager and application repository |
 
 Current bounds matter: three process slots, a 64 KiB dynamic page arena per
-process, bounded foreground sessions, sixteen v3 persistent nodes and 8192
-bytes per persistent file. The root `/` remains RAMFS; persistent files live
+process, bounded foreground sessions, sixteen v4 persistent nodes and 16384
+bytes per persistent file (legacy mounts retain older bounds). The root `/` remains RAMFS; persistent files live
 under mounted `/data`. A general persistent root/startup service is still work.
 
 Creating `/dev`, `/proc` and `/sys` directories does not implement device nodes
@@ -130,11 +136,11 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-1. **Current core phase: process control.** Snapshot/poll/cancel and PS.ELF now
-   pass local acceptance; new Pi acceptance is pending. The next extension is
-   bounded shell background jobs, using these APIs while preserving memory/file
-   ownership, terminal access and session/deadline limits.
-2. **Persistent system services:** larger files/volumes and VFS capabilities,
+1. **Current phase: v4 persistent capacity.** Native/QEMU checks pass for
+   16 KiB files, larger installed applications, mount queries and explicit
+   legacy conversion. Physical v4 acceptance is pending. The preceding base
+   bg/jobs/stop/exit workflow passes on Pi; broader job cases remain open.
+2. **Persistent system services:** capacity beyond fixed snapshots and VFS capabilities,
    startup/mount policy, recovery and data-preserving updates. Capture physical
    reboot/power-cut evidence separately from existing same-boot tests.
 3. **Background network service:** asynchronous driver/event handling,

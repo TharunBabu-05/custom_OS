@@ -1,0 +1,100 @@
+ RP1_UART 0000001c00030000
+ 11.47 MESS:00:00:11.472386:0: board: boardrev d04171 otp d04171
+ 11.77 Read /config.txt bytes      395 hnd 0x11
+ 11.48 MESS:00:00:11.484903:0: Initial voltage 800000 temp 30136
+ 11.68 MESS:00:00:11.685365:0: avs_2712: AVS pred 8681 868100 temp 30136
+ 11.68 MESS:00:00:11.689039:0: vpred 868 mV +0
+ 11.69 MESS:00:00:11.693155:0: over-voltage idle: 0 avs: 108100 delta: 0 (0x00000000)
+ 11.70 MESS:00:00:11.707349:0: FB framebuffer_swap 1
+ 11.70 MESS:00:00:11.709206:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+ 11.71 MESS:00:00:11.716133:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+ 11.72 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+ 11.34 Read PI5.DTB bytes    78770 hnd 0x9c1
+ 11.48  /overlays/overlay_map.dtb
+ 11.50  /overlays/bcm2712d0.dtbo
+ 11.77 PCIEx1: PWR 0 DET_WAKE 0
+ 11.79 Read /config.txt bytes      395 hnd 0x11
+ 11.81 [MSD [01:00] 2.00 000000:01] /cmdline.txt not found
+ 11.19  /cmdline.txt
+ 11.82 MESS:00:00:11.821239:0: Failed to open command line file 'cmdline.txt'
+ 11.92 MESS:00:00:11.927180:0: RPM 0, max RPM 0
+ 11.94 BMD "armstub8-2712.bin" not found
+ 11.47 fs_open: 'armstub8-2712.bin'
+ 11.95 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+ 11.71 Read OUROS.IMG bytes   446196 hnd 0x659
+ 11.97 MESS:00:00:11.973247:0: Device tree loaded to 0x200000 (size 0x13ade)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+Recovery rings: clears=0 command_wraps=0 control_wraps=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v3; nodes=16 max_file_bytes=8192; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> mmuinit
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> appterm 120 /boot/PS.ELF check
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=120
+PASS: process snapshots, checked buffers, nonblocking poll, parent-only cancellation, stale PIDs, preserved exit/fault/exec/timeout results, leases and repeated cleanup.
+PASS: three-slot parent/sibling snapshots and foreign PID refusal.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=111 preemptions=22 yields=24 idle_waits=143 terminal=yes budget_seconds=120 children_started=12 children_reaped=12 last_child_code=0 cleanup=restored
+Pipelines: started=1 completed=1 written=8 read=8 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/PS.ELF state=exited code=0 syscalls=379 dispatches=82 sleeps=65 wakes=65 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=2 heap_free_calls=2
+App resources restored; monitor ready.
+> appterm 120 /boot/PS.ELF demo
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=120
+Bounded child started. Commands: status, stop, wait, start, exit.
+process> status
+PID PPID STATE PAGES PATH
+15 0 running 0 /boot/PS.ELF
+16 15 sleeping 2 /boot/PS.ELF
+Child PID=16 state=sleeping finished=0
+process> stop
+Child collected: exit=130
+process> start
+New child PID=17
+process> status
+PID PPID STATE PAGES PATH
+15 0 running 0 /boot/PS.ELF
+17 15 sleeping 2 /boot/PS.ELF
+Child PID=17 state=sleeping finished=0
+process> stop
+Child collected: exit=130
+process> exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=12 preemptions=4 yields=0 idle_waits=1323 terminal=yes budget_seconds=120 children_started=2 children_reaped=2 last_child_code=130 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/PS.ELF state=exited code=0 syscalls=93 dispatches=10 sleeps=0 wakes=0 input_lines=6 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+>

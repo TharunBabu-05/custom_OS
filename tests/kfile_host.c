@@ -199,7 +199,7 @@ static void rename_leases(void)
 }
 static void directory_leases(void)
 {
-    if (media[260096*512+8]!=3) { return; }
+    if (media[260096*512+8]<3) { return; }
     assert(vfs_mkdir("/data/dir-a")==FS_OK && vfs_mkdir("/data/dir-b")==FS_OK && vfs_write("/data/dir-a/file","nested",6)==FS_OK);
     uint64_t h;assert(kfile_open(1,"/data/dir-a","./file",KFILE_READ,&h)==FS_OK);
     assert(vfs_rename("/","/data/dir-a/../dir-a/file","/data/dir-b/file")==FS_BUSY && vfs_remove("/data/dir-a",true)==FS_BUSY);
@@ -246,16 +246,38 @@ static void replacement_leases(void)
     struct heap_stats end=heap_get_stats();assert(base.objects==end.objects && base.pages==end.pages && base.capacity_bytes==end.capacity_bytes);
     puts("PASS: atomic replacement retains RAM buffer, frees old target, refuses both source/target leases and readonly/cross-mount/directory/bad paths; no handle or heap leak.");
 }
+static void mounted_capacity(void)
+{
+    struct vfs_volume_info info,unchanged;assert(vfs_volume_info("/data",&info)==FS_OK);
+    unsigned version=media[260096*512+8],limit=version==4 ? 16384 : version==1 ? 4096 : 8192;
+    assert(info.type==VFS_SNAPSHOT && info.version==version && info.max_write_bytes==limit && !info.flags && !info.used);
+    unchanged=info;assert(vfs_volume_info("/missing",&info)==FS_NOT_FOUND && !memcmp(&info,&unchanged,sizeof(info)));
+    assert(vfs_volume_info("/tmp",&info)==FS_OK && info.type==VFS_RAM && info.flags==VFS_VOLATILE && info.max_write_bytes==4096);
+    assert(vfs_volume_info("/boot/CONFIG.TXT",&info)==FS_OK && info.type==VFS_FAT && info.flags==VFS_READONLY && !info.max_write_bytes);
+    static unsigned char bytes[VFS_FILE_MAX+1],actual[VFS_FILE_MAX];for (unsigned i=0;i<limit;++i) { bytes[i]=(unsigned char)(i*29+7); }
+    assert(vfs_write("/data/capacity",bytes,limit)==FS_OK && vfs_write("/data/capacity",bytes,limit+1)==FS_FILE_TOO_LARGE);
+    size_t n;assert(vfs_read("/data/capacity",0,actual,sizeof(actual),&n)==FS_OK && n==limit && !memcmp(actual,bytes,n));
+    uint64_t h;uint32_t offset;assert(kfile_open(1,"/","/data/capacity",KFILE_READ|KFILE_WRITE,&h)==FS_OK);
+    assert(kfile_seek(1,h,limit-4,KFILE_SET,&offset)==FS_OK && offset==limit-4 && kfile_write(1,h,"tail",4,&n)==FS_OK && n==4);
+    assert(kfile_write(1,h,"x",1,&n)==FS_FILE_TOO_LARGE && !n && position(1,h)==limit);
+    if (limit==16384) {
+        assert(kfile_seek(1,h,8188,KFILE_SET,&offset)==FS_OK && kfile_write(1,h,"boundary",8,&n)==FS_OK && n==8);
+        assert(kfile_seek(1,h,8188,KFILE_SET,&offset)==FS_OK && kfile_read(1,h,actual,8,&n)==FS_OK && n==8 && !memcmp(actual,"boundary",8));
+    }
+    assert(kfile_close(1,h)==FS_OK && vfs_remove("/data/capacity",false)==FS_OK);
+    assert(vfs_volume_info("/data",&info)==FS_OK && !info.used && !kfile_count());
+    puts("PASS: mount query/output preservation, per-format whole-file bounds, owned-handle tail/boundary writes and overflow cursor preservation.");
+}
 int main(int argc,char **argv)
 {
     assert(argc==2);FILE *f=fopen(argv[1],"rb");assert(f && !fseek(f,0,SEEK_END));long bytes=ftell(f);assert(bytes==134217728);rewind(f);
     media_bytes=(size_t)bytes;media=malloc(media_bytes);assert(media && fread(media,1,media_bytes,f)==media_bytes);fclose(f);
     const unsigned char *super=media+260096*512;
     unsigned bank=(unsigned)super[20]|(unsigned)super[21]<<8|(unsigned)super[22]<<16|(unsigned)super[23]<<24;
-    assert(bank==DATA_BANK_SECTORS || bank==DATA_V2_BANK_SECTORS);data_min_sectors=1+2*bank;
+    assert(bank==DATA_BANK_SECTORS || bank==DATA_V2_BANK_SECTORS || bank==DATA_V4_BANK_SECTORS);data_min_sectors=1+2*bank;
     disk=(struct block_device){.name="memory-copy",.sectors=media_bytes/512,.capacity_known=true,.read=sector_read,.write=sector_write,.flush=flush};
     assert(heap_init() && ramfs_init("host-test")==FS_OK && vfs_mount_boot(&disk)==FS_OK && vfs_mount_data(&disk)==FS_OK);
-    cursors_and_modes();leases();limits_and_rollback();rename_leases();directory_leases();replacement_leases();boot_and_data();
+    mounted_capacity();cursors_and_modes();leases();limits_and_rollback();rename_leases();directory_leases();replacement_leases();boot_and_data();
     assert(vfs_remove("/tmp/base.txt",false)==FS_OK && !kfile_count() && heap_check());
     struct heap_stats heap=heap_get_stats();assert(heap.objects==3 && heap.pages==2 && heap.capacity_bytes==544 && live_pages==2);
     printf("PASS: final handle/lease count zero, RAMFS/heap/page baseline restored; reads=%llu writes=%llu flushes=%llu; only in-memory data-bank sectors changed\n",(unsigned long long)reads,(unsigned long long)writes,(unsigned long long)flushes);

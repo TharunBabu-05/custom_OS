@@ -81,7 +81,7 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
             'PASS: EL0 argument bounds, private cwd and checked directory metadata.',
             'PASS: EL0 sleep retained stack, PID and file ownership.',
             'path=/boot/DOZER.ELF state=timeout code=124','sleeps=3 wakes=3',
-            "hello from EL0 Jack's ",'f 6 hostname','f 528 HELLO.ELF','sleep complete',
+            "hello from EL0 Jack's ",'f 6 hostname',('f '+$helloBytes.Length+' HELLO.ELF'),'sleep complete',
             'cat: cannot open file','Usage: appexec <ELF> [arguments]')
     }
     Run-Session $disk "$stem-create" $case[0] $case[1] $create (@($appPass,$taskPass,

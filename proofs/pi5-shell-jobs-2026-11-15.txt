@@ -1,0 +1,33 @@
+User-supplied Raspberry Pi 5 terminal excerpt, 2026-11-15.
+Selected from the pasted transcript; Markdown escapes/line wrapping normalized.
+The preceding transcript shows USB /boot and /data mounted, MMU enabled,
+GICv2 initialized and the 100 Hz physical timer started on rpi5-header.
+
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ bg 30 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=3
+user:/$ jobs
+job pid=3 pending
+user:/$ echo shell-is-responsive
+shell-is-responsive
+user:/$ stop
+child exit=130
+user:/$ jobs
+No background job.
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=8 preemptions=5 yields=0 idle_waits=690 terminal=yes budget_seconds=300 children_started=1 children_reaped=1 last_child_code=130 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=53 dispatches=9 sleeps=0 wakes=0 input_lines=6 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+>
+
+Scope: one background busy-loop child, pending job query, responsive parent
+builtin, cancellation/collection with 130, empty job record and successful
+shell exit/resource restoration on real Pi hardware. Five user preemptions
+are reported. SPIN's infinite-loop message identifies the deliberate test.
+Not shown: fg terminal handoff, bgio, natural deadline/completed results,
+parent cancellation/timeout, multiple job cycles, installed-shell reboot,
+physical persistent-file readback or power-loss recovery.

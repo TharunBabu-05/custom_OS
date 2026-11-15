@@ -1,5 +1,120 @@
 # Development log
 
+## 2026-11-15 - Snapshot v4 capacity and mount-query syscall
+
+- Added 16-node/16384-byte v4 persistent files with the v3 nested-directory
+  semantics. Superblock version 4, OUROSBK4, 1024-byte directory, 263168-byte
+  payload, 515-sector banks and 263680-byte normalized backup. The existing
+  2048-sector partition and 134217728-byte complete image are unchanged.
+  Legacy v1/v2/v3 remain read/write with their original limits; mount never
+  converts or formats. Explicit host conversion preserves names, slots,
+  parents, types, lengths and exact bytes, including sparse nested trees.
+- Replaced the second full snapshot buffer with a directory/one-file overlay.
+  Mount sequentially validates banks and revalidates a selected bank's exact
+  generation/digest before publishing a reloaded buffer. Restore reuses the
+  required empty volume's live buffer, refuses reentrant reads/mutations and
+  clears rejected/failed imports back to empty. Commit ordering, readback and
+  sticky ambiguous-I/O refusal remain. Kernel memory end is 0x1da000 before
+  firmware DTB 0x200000, rather than overlapping it with doubled buffers.
+- Added STATFS=43 and a checked, initialized 32-byte result: mount kind/version,
+  writable file limit, node counts and read-only/volatile flags. Calls 0..42
+  remain compatible. DF.ELF reports actual mount limits; V4CHK.ELF tests
+  16 KiB copy/hash, 8 KiB boundary writes, EOF/overflow preservation, atomic
+  replacement, RAM's smaller limit, invalid pointers and fixture cleanup.
+  DATACAP now queries the mount instead of assuming 8192 bytes.
+- Added BIGAPP.ELF (10664 bytes), checksumming all 10000 RX constant bytes;
+  its stored ELF exceeds the former 8 KiB limit. V4CHK is 3248 bytes, DF is
+  1160 and SHELL remains 8162. All 53 ELFs and 25000 parser mutations pass.
+  New LARGE.BIN is a public 16384-byte pattern. Independent image extraction
+  verifies 66 boot files through five root clusters; builder/validator bounds
+  extend from four to eight root clusters. Eight image rejection cases pass.
+- Native legacy persistence regressions, owned-file/VFS and backup tools pass.
+  New v4 tests pass 2068 interruption/torn-write outcomes each for large write,
+  publication and restore, 515 truncated-input positions, reentrant read
+  refusal, strict geometry and 516 selected-bank reload/flush failures.
+  Both QEMU profiles (A53/EL1 and A76/EL2) pass V4CHK, full sixteen-slot DATACAP,
+  mount/pointer checks, larger installed ELF and exact 16 KiB hashes on cold
+  reopen. Independent host decoding validates both snapshot banks; boot,
+  superblock and unused sectors remain unchanged. v1/v2/v3 also retain writes
+  and survive fresh-emulator reopen without conversion.
+- Both profiles pass FAT archive restore, nonempty refusal, real 16 KiB guest
+  serial export/host conversion/native restore and cold reopen. The full
+  shell-job suite also passes both profiles, including installed-shell cold
+  boot, input, streams and owned-resource cleanup. Original application/tools
+  regressions pass both profiles, including faults/timeouts, cursor/pointer
+  checks and installed-ELF cold boot. Logs: build/phase-data4-*.log.
+- Built and verified the 128 MiB full image and 897272-byte ZIP. Disk SHA256:
+  000074aa120035dab4e7191fa2a98c62ecae01d65c5cba5ffcba080dd953acc9.
+  Raw Pi kernel remains 446196 bytes, SHA256:
+  f84022936ef12955ec8139872305448793621a88bf44134155902bab5b294c68.
+  Previous 07e9f878... image/ZIP remain archived flat in image_files.
+- Added a 273851-byte boot-file update ZIP with kernel, all apps, LARGE.BIN,
+  instructions and manifest/hash agreement with the verified disk. Exact
+  extracted entries/hashes pass; it contains no data partition. It can retain
+  an existing old-format volume at its old limits. New v4 capacity requires an
+  explicit new-format image and backup migration/restore if data is needed.
+  Guide: docs/data-v4.md. No physical v4 acceptance is claimed, and no physical
+  drive, Git commit or remote push is written by these tools.
+- After all emulators exited, cleaned 276 generated files (2150331190 bytes),
+  including every scratch disk. Current kernel/ELFs/maps, verification logs,
+  update ZIP and previous full IMG/ZIP archives remain. Final build/archive
+  image hashes match; the 66-file v4 manifest is retained.
+
+## 2026-11-15 - Pi background-job acceptance
+
+- Recorded proofs/pi5-shell-jobs-2026-11-15.txt as a selected excerpt from the
+  user's inline transcript, normalizing Markdown escapes/line wrapping.
+- The Pi starts SPIN as job PID 3, reports pending, executes the parent echo,
+  stops/collects the child with 130 and reports no background job. Shell exits
+  with code 0, one child started/reaped, zero live heap pages and resources
+  restored. The summary records five user preemptions.
+- Accepted this base bg/jobs/stop/exit path on real hardware. fg/bgio, natural
+  completion/deadlines, parent cancellation/timeout and installed-shell reboot
+  are not established by the excerpt; their existing emulator results remain.
+- Updated current status and evidence links. This is a documentation/evidence
+  update; kernel, applications and image artifacts are unchanged.
+
+## 2026-11-15 - Bounded shell background jobs
+
+- Recorded proofs/pi5-process-control-2026-11-15.txt unchanged from the supplied
+  capture. PS check passes, 12 children started/reaped, code 0, no live pages
+  and restored resources. Demo stop/start collects two children with 130 and
+  restores resources. New normal-shell job acceptance remains pending on Pi.
+- Added bg/bgio with explicit 1..30-second deadlines, jobs polling, fg terminal
+  handoff/wait and stop cancellation/collection. One job record is retained
+  until collection, including completed outcomes. Builtins remain usable;
+  another external launch, exec or pipeline refuses before stream mutation.
+  Parent exit/Ctrl+C/session deadline uses existing kernel child reclamation.
+- Kept all earlier commands and the v2/v3 8192-byte installer bound. SHELL uses
+  packed command names, shared console output and frame-pointer omission.
+  Named SVC wrappers supply only their two/four used argument registers, with
+  existing kernel context preservation. The full six-argument raw wrapper
+  remains available. SHELL is 8162 bytes; PS is 7440; HELLO is now 512 bytes.
+  No writable ELF globals, new kernel calls or disk-format changes.
+- QEMU A53/EL1 and A76/EL2 pass job bounds, pending parent interaction, busy
+  launch/exec/pipeline refusal, leases, normal/fault/exec/deadline outcomes,
+  pending terminal input, fg/stop/Ctrl+C and parent exit/cancel/timeout cleanup.
+  Private cwd/env, bgio file/hash output and installed-shell fresh-boot jobs
+  pass; handles/private pages restore and boot/unused sectors stay unchanged.
+- Profile/expansion tests also pass both profiles and legacy v1/v2 mounts;
+  process-control and original application/tools regressions pass both profiles.
+  Fixed an older fixture to derive HELLO's size from the built ELF instead of
+  a fixed 528 bytes, retaining exact installed-byte and lifecycle checks.
+  All 50 ELFs, 25000 parser mutations and eight image rejection cases pass.
+- Built the 134217728-byte IMG and verified 891132-byte full-image ZIP.
+  Image SHA256 07e9f878750a7d541d8159e5e24c7845d9a843297715071464d5b2408585879c.
+  Kernel stays 446196 bytes/reserved end 0x1d0000, SHA256 unchanged at
+  af25f87a94a7f188c16255fc5c2c01eb2e074f49af381da3f03c4487d308e8de.
+  Previous 656b6f0d... image remains archived flat in image_files.
+- Added a 6932-byte shell-only update ZIP. Pinned kernel, full-image manifest,
+  8 KiB bound, exact ZIP entries and all extracted hashes are verified. Only
+  boot SHELL.ELF needs replacing on the preceding process-control installation;
+  kernel and /data remain. Guide: docs/shell-jobs.md; logs: build/phase-jobs-*.log.
+- After all emulator sessions finished, removed 157 known generated files
+  (1880400218 bytes), including scratch disks and packaging/test directories,
+  plus the preliminary size-measurement log. Current artifacts, verification
+  logs and previous images remain. No physical device, Git commit or push.
+
 ## 2026-11-15 - Process snapshots and owned-child control
 
 - Added calls 40..42: PROCESSES, CHILD_POLL and CHILD_CANCEL, plus ECHILD=-14.

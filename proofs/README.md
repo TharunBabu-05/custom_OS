@@ -1,5 +1,15 @@
 # Real Raspberry Pi 5 proof
 
+The latest [shell-job excerpt](pi5-shell-jobs-2026-11-15.txt) verifies one
+background SPIN child, responsive parent input/echo, stop/collection with 130,
+an empty job record and shell exit with code 0/resources restored. Its scope
+does not include fg/bgio or reboot/power-loss behavior.
+
+The latest [process-control capture](pi5-process-control-2026-11-15.txt) passes
+PS check (12 children collected) and the interactive stop/start demo, with
+code 0 and resources restored. Shell jobs use that foundation; their narrower
+physical evidence is recorded above.
+
 The latest [byte-allocator capture](pi5-user-allocator-2026-11-15.txt) passes
 HEAPCHK and HEAPDEMO with code 0, zero live pages and restored resources.
 Its scope is these two runs. The earlier

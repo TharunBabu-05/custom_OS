@@ -1,6 +1,6 @@
 # Writes a regular project-local disk-image file; never opens a physical device.
 [CmdletBinding()]
-param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3)][int]$DataVersion=3,[string]$DataBackup)
+param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4)][int]$DataVersion=4,[string]$DataBackup)
 . "$PSScriptRoot/windows-tools.ps1"
 . "$PSScriptRoot/rpi5-profile.ps1"
 $piProfile=Get-Rpi5Profile $Console
@@ -25,6 +25,8 @@ if ($DataVersion -eq 1) { $pattern=New-Object byte[] 4096;for ($i=0;$i -lt $patt
 $demo=New-OurOSDataBackup -Version $DataVersion -Files @(
     @{Name='restore.txt';Data=[Text.Encoding]::ASCII.GetBytes("OurOS verified backup restore.`n")},@{Name='pattern.bin';Data=$pattern})
 [IO.File]::WriteAllBytes((Join-Path $files 'DEMO.BAK'),$demo)
+[byte[]]$large=New-Object byte[] 16384;for ($i=0;$i -lt $large.Length;$i++) { $large[$i]=[byte](($i*29+7)%256) }
+[IO.File]::WriteAllBytes((Join-Path $files 'LARGE.BIN'),$large)
 & "$PSScriptRoot/build-apps.ps1"
 Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'build/apps') -Filter '*.ELF' -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $files $_.Name)
@@ -41,6 +43,11 @@ $config=$config.Replace('kernel=ouros-rpi5.img','kernel=OUROS.IMG').Replace('dev
 $readme=@'
 OurOS experimental Raspberry Pi 5 UART image
 Original AArch64 kernel and user runtime; early OS, not a complete desktop.
+New images use snapshot v4: 16 nodes (files/directories), 16384 bytes/file.
+Existing v1/v2/v3 volumes retain their format and 4096/8192-byte file limits.
+V4CHK.ELF tests 16 KiB files and checked mount queries. DF.ELF shows limits.
+BIGAPP.ELF demonstrates installing/executing an ELF larger than 8192 bytes.
+LARGE.BIN is a public 16384-byte test pattern. /data remains a 1 MiB partition.
 Pi verifies ELF/EL0/preemption, local installation, shell and copy/hash/sync.
 Pi also verifies spawn/wait, early terminal handoff and child timeout cleanup.
 Pi also verifies IOCHK, file stream writes and owned-resource cleanup.
@@ -73,7 +80,12 @@ Pi now verifies default HEAPCHK and HEAPDEMO with zero live pages/cleanup.
 New process calls: PROCESSES/CHILD_POLL/CHILD_CANCEL=40..42.
 PS.ELF lists active batch processes. Poll and parent-owned cancellation do not
 reap a child; wait collects it. Completed outcomes survive cancellation.
-New process-control hardware acceptance is pending.
+Pi now verifies PS check/demo, all 12 check children reaped, and slot reuse.
+New shell: bg SECONDS PROGRAM [args], bgio SECONDS IN|- OUT|- PROGRAM [args].
+jobs polls the one outstanding child; fg waits, stop cancels and collects.
+Children retain 1..30-second deadlines and terminal reads wait for fg.
+Collect the job before another external program/exec/pipeline. Builtins work.
+Pi now verifies a responsive shell during a background job and stop/reap.
 Serial export, binary hashes and physical reboot still need hardware checks.
 
 Console: 3-pin UART connector between the HDMI ports. Terminal 115200 8N1.
@@ -86,10 +98,9 @@ WPA3/DHCP/DNS/Internet ping have earlier physical evidence. Networking is an
 explicit foreground console; no background renewal/rekey or downloads.
 
 Application setup: storageinit, datainit, mmuinit, irqinit, timerstart.
-New process test: appterm 120 /boot/PS.ELF check
-Interactive demo: appterm 120 /boot/PS.ELF demo
-At process> use status, stop, start, wait or exit; each child is bounded to 30s.
-In appshell use ps for a process snapshot. Shell background jobs remain future work.
+New shell job example: appshell, then bg 30 /boot/SPIN.ELF, jobs, echo alive,
+stop, jobs, exit (one command per line). No datainit needed for that example.
+The updated SHELL.ELF fits the unchanged 8 KiB v2/v3 installer bound.
 apptest runs original static ELF programs with private EL0 pages, checked
 syscalls and timer preemption. It contains deliberate null/kernel-access,
 RX-write and NX-stack faults and times out a runaway user loop.
@@ -101,7 +112,7 @@ EL0 prompt user:/$ supports help pwd cd ls cat echo write mkdir rm rmdir exit.
 write /tmp/note "hello from EL0" creates or replaces the whole file.
 Ctrl+C cancels; Ctrl+D at an empty line exits; Backspace/Delete and Ctrl+U edit.
 127-byte lines, 300-second maximum session. Kernel monitor returns on exit.
-cp <source> <new-target> copies up to 8192 bytes; target mount limits still apply.
+cp <source> <new-target> copies up to 16384 bytes; target mount limits apply.
 sha256 <file> checks up to 64 KiB; sync flushes mounted /data.
 run <ELF> [args] launches a private child and waits, with a 10-second limit.
 status shows its last exit code; Ctrl+C stops the child and returns to the shell.
@@ -112,10 +123,10 @@ pipe <ELF> [args] -- <ELF> [args] connects concurrent producer/consumer.
 pipeio <input|-> <new-output|-> <ELF> [args] -- <ELF> [args] adds file endpoints.
 Try appterm 30 /boot/PIPECHK.ELF. Ctrl+C cancels both stages; status shows result.
 The expanded SHELL.ELF can now be installed on v2 /data (8192-byte files).
-New images default to v2: 16 flat files, 8192 bytes each; old v1 stays 8/4096.
+New images default to v4: 16 nodes, nested directories, 16384 bytes/file.
 Use appterm 120 /boot/DATACAP.ELF on empty /data before installing files.
 Kernel monitor > differs from EL0 shell user:/$; restart timer then appshell.
-No background jobs, general descriptor API, environment or permissions yet.
+General descriptor redirection, permissions and users remain future work.
 See docs/data-v2.md. User tools: appexec /boot/LS.ELF /boot; appexec /boot/CAT.ELF /etc/hostname
 appexec /boot/ECHO.ELF "hello from EL0"; appexec /boot/SLEEP.ELF 100
 Arguments and cwd are private; sleep yields the CPU, including idle resume.
@@ -124,14 +135,15 @@ See docs/user-tools.md and docs/remaining-os-roadmap.md in the source.
 LOCAL INSTALLATION (MMU and timer running):
 appinstall /boot/HELLO.ELF /data/hello.elf
 apprun /data/hello.elf
-Installer accepts a validated ELF within the mounted data limit (v1 4096/v2 8192), creates a NEW flat data file,
+Installer accepts a validated ELF within the mount limit (v1 4096, v2/v3 8192,
+v4 16384), creates a NEW file in an existing directory,
 commits synchronously and verifies full readback. Existing targets refused.
 This is local executable installation, not an OS installer or package manager.
 Power-cycle WITHOUT reflashing, then storageinit, datainit, mmuinit, irqinit,
 timerstart, apprun /data/hello.elf, appinfo, timerstop (separate commands).
 
-STORAGE: root / is volatile RAMFS. /boot is read-only FAT32. /data has eight
-flat 4 KiB files, two SHA256 snapshots in its own 1 MiB partition. Every update
+STORAGE: root / is volatile RAMFS. /boot is read-only FAT32. New /data has 16
+nodes and 16 KiB files, two SHA256 snapshots in its own 1 MiB partition. Updates
 commits synchronously. Reflashing replaces /data. Physical power-cycle
 persistence still needs verification. Run storageinit BEFORE usbtest/usbenum.
 On failed updates preserve datainfo/storageinfo and reboot before retrying.
@@ -161,7 +173,7 @@ $source="Official DTB and notices: $($assets.repository)/tree/$($assets.revision
 $entries=@(Get-ChildItem -LiteralPath $files -File | Sort-Object Name)
 # One volume label and one explicit end marker in addition to each file.
 $rootClusters=[int][Math]::Ceiling(($entries.Count+2)/16.0)
-if ($rootClusters -lt 1 -or $rootClusters -gt 4) { throw 'Root directory capacity exceeded' }
+if ($rootClusters -lt 1 -or $rootClusters -gt 8) { throw 'Root directory capacity exceeded' }
 
 # Fixed 128 MiB disk, 1 MiB partition alignment, FAT32 with 512-byte clusters.
 $sector=512; $diskSectors=262144; $start=2048; $dataSectors=2048; $dataStart=$diskSectors-$dataSectors; $total=$dataStart-$start

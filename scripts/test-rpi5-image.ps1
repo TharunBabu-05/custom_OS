@@ -16,7 +16,7 @@ try {
     $dataStart=[long](2048+32+4096)*512
     $kernelOffset=0L
     $rootCluster=2L
-    for ($hop=0;$hop -lt 4 -and $rootCluster -lt 0x0ffffff8;$hop++) {
+    for ($hop=0;$hop -lt 8 -and $rootCluster -lt 0x0ffffff8;$hop++) {
         if ($rootCluster -lt 2 -or $rootCluster -ge 253922) { throw 'Invalid root chain' }
         $stream.Position=$dataStart+($rootCluster-2)*512
         if ($stream.Read($root,0,512) -ne 512) { throw 'Missing root directory' }

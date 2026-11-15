@@ -2,6 +2,7 @@
 param([Parameter(Mandatory=$true)][string]$Image,
       [Parameter(Mandatory=$true)][string]$Manifest)
 . "$PSScriptRoot/windows-tools.ps1"
+. "$PSScriptRoot/data-geometry.ps1"
 $expected=Get-Content -Raw -LiteralPath $Manifest | ConvertFrom-Json
 . "$PSScriptRoot/rpi5-profile.ps1"
 $console=if ($expected.PSObject.Properties['console']) { $expected.console } else { 'debug' }
@@ -30,11 +31,11 @@ try {
     $start=U32 $mbr 454; $total=U32 $mbr 458
     $hasData=$null -ne $expected.PSObject.Properties['data_format']
     if ($hasData) {
-        Require ($expected.data_format -in @(1,2,3) -and $start -eq 2048 -and $total -eq 258048 -and $mbr[466] -eq 0xda -and
+        Require ($expected.data_format -in @(1,2,3,4) -and $start -eq 2048 -and $total -eq 258048 -and $mbr[466] -eq 0xda -and
             (U32 $mbr 470) -eq 260096 -and (U32 $mbr 474) -eq 2048 -and $expected.data_lba -eq 260096 -and $expected.data_sectors -eq 2048) 'Data partition extent mismatch'
         $data=ReadAt (260096L*512) (2048*512)
         $version=[int]$expected.data_format
-        $files=if ($version -eq 1) { 8 } else { 16 };$fileBytes=if ($version -eq 1) { 4096 } else { 8192 }
+        $geometry=Get-OurOSDataGeometry $version;$files=$geometry.Files;$fileBytes=$geometry.FileBytes
         $payloadBytes=$files*64+$files*$fileBytes;$bankSectors=1+$payloadBytes/512
         $dataHash=[Security.Cryptography.SHA256]::Create()
         try {
@@ -83,7 +84,7 @@ try {
     $owned=New-Object 'System.Collections.Generic.HashSet[uint32]'
     $rootChain=@();$cluster=2
     while ($true) {
-        Require ($cluster -ge 2 -and $cluster -lt $clusters+2 -and $rootChain.Count -lt 4) 'Invalid or oversized root chain'
+        Require ($cluster -ge 2 -and $cluster -lt $clusters+2 -and $rootChain.Count -lt 8) 'Invalid or oversized root chain'
         Require ($owned.Add([uint32]$cluster)) 'Cyclic root chain'
         $rootChain+=$cluster
         $link=U32 $fat ($cluster*4)
@@ -92,7 +93,7 @@ try {
         $cluster=$link
     }
     $expectedRoots=[int][Math]::Ceiling(($expected.files.Count+2)/16.0)
-    Require ($expectedRoots -ge 1 -and $expectedRoots -le 4 -and $rootChain.Count -eq $expectedRoots) 'Root directory chain length mismatch'
+    Require ($expectedRoots -ge 1 -and $expectedRoots -le 8 -and $rootChain.Count -eq $expectedRoots) 'Root directory chain length mismatch'
     $directory=New-Object byte[] ($rootChain.Count*512)
     for ($i=0;$i -lt $rootChain.Count;$i++) {
         $block=ReadAt (([long]$dataLba+$rootChain[$i]-2)*512) 512

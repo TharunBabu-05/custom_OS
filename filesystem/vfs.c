@@ -49,7 +49,7 @@ void vfs_data_info(void)
             console_write(" last_read_lba=");console_u64(data_volume.mount_lba);console_write("\nMount failure retained; reboot before retrying. No file writes were accepted.\n");
         }return;
     }
-    console_write("/data: OurOS snapshot v");console_u64(data_volume.version);console_write(data_volume.version==3 ? "; nodes=" : "; files=");console_u64(data_volume.files);
+    console_write("/data: OurOS snapshot v");console_u64(data_volume.version);console_write(data_volume.version>=3 ? "; nodes=" : "; files=");console_u64(data_volume.files);
     console_write(" max_file_bytes=");console_u64(data_volume.file_bytes);console_write("; writes=");console_write(data_volume.failed ? "failed (reboot required)" : "synchronous");
     console_write("\npartition_start_lba=");console_u64(data_volume.start);console_write(" sectors=");console_u64(data_volume.sectors);
     console_write(" bank=");console_u64(data_volume.bank);console_write(" generation=");console_u64(data_volume.generation);console_write(" valid_banks=");console_u64(data_volume.valid_banks);console_write("\n");
@@ -244,4 +244,18 @@ enum fs_result vfs_file_size(const char *path,uint32_t *bytes)
     enum fs_result r=stat_path(path,&directory);if (r!=FS_OK) { return r; }if (directory) { return FS_IS_DIR; }
     struct file_size size={0};r=vfs_list(path,size_entry,&size);if (r!=FS_OK) { return r; }
     if (!size.seen || size.bad) { return FS_CORRUPT; }*bytes=size.bytes;return FS_OK;
+}
+enum fs_result vfs_volume_info(const char *path,struct vfs_volume_info *out)
+{
+    if (!path || !out) { return FS_BAD_ARGUMENT; }bool dir;enum fs_result r=stat_path(path,&dir);if (r!=FS_OK) { return r; }
+    struct vfs_volume_info info={0};
+    if (data_path(path)) {
+        info.type=VFS_SNAPSHOT;info.version=data_volume.version;info.max_write_bytes=data_volume.file_bytes;info.nodes=data_volume.files;
+        for (unsigned i=0;i<data_volume.files;++i) { if (data_volume.live[i*64]) { ++info.used; } }
+    } else if (boot_path(path)) { info.type=VFS_FAT;info.flags=VFS_READONLY; }
+    else {
+        struct ramfs_stats s=ramfs_get_stats();info.type=VFS_RAM;info.flags=VFS_VOLATILE;info.max_write_bytes=RAMFS_FILE_MAX;
+        info.nodes=RAMFS_NODES;info.used=s.files+s.directories;
+    }
+    *out=info;return FS_OK;
 }

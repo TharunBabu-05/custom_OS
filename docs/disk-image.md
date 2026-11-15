@@ -1,15 +1,13 @@
 # Experimental Pi 5 disk image
 
-Current OS phase: [process control](process-control.md). The new kernel adds
-coherent snapshots, nonblocking child polling and parent-owned cancellation;
-PS.ELF provides the viewer, self-test and bounded interactive demo. Local
-acceptance passes; new Pi acceptance is pending. The preceding HEAPCHK and
-HEAPDEMO now pass on Pi with zero live pages and restored resources.
-For this phase, use the scoped
-[boot-update ZIP](../build/rpi5-header/OurOS-process-control-boot-update.zip)
-to copy **both OUROS.IMG and PS.ELF** onto the preceding installation while
-preserving `/data`; follow the compatibility hash check in the phase guide.
-The full-image alternative below still replaces `/data` when flashed.
+Current OS phase: [larger persistent files](data-v4.md). New images default to
+snapshot v4: sixteen file/directory nodes, 16384 bytes per file, same 1 MiB
+data partition. Both QEMU profiles pass larger installed programs and binary
+file cold-boot checks; physical v4 acceptance is pending. Old v1/v2/v3 volumes
+stay readable/writable without conversion. The [boot-file update](../build/apps/OurOS-data-v4-boot-update.zip)
+updates kernel/apps while keeping an existing `/data` at its old limits. The
+full image replaces `/data`; export and explicitly convert first if needed.
+
 The Pi verifies the preceding profile example:
 save and automatic new-shell loading on the same boot, with expansion.
 The Pi now verifies setenv/getenv and a value retained across exec. New profiles
@@ -18,7 +16,7 @@ bounded variable/status expansion is also available. New acceptance is pending.
 New variables inherit privately across spawn/pipelines and survive exec;
 PATH controls shell lookup and HOME supplies cd without a path. The Pi now
 verifies the preceding bare HELLO lookup and shell exec to ECHO with cleanup.
-MVCHK and DIRCHK now pass on Pi. New images default to v3; old v1/v2 volumes remain
+MVCHK and DIRCHK now pass on Pi. Old v1/v2/v3 volumes remain
 supported without conversion. Back up and explicitly migrate files before a
 full-image upgrade. New `replace`, EL0 `PUBLISH` and validated `appupdate` keep
 these formats unchanged; their physical acceptance is pending.
@@ -126,7 +124,7 @@ Get-FileHash build/rpi5/OurOS-Pi5-experimental-sd.img -Algorithm SHA256
 | Partition table | MBR, FAT32 type `0x0c` and OurOS data type `0xda` |
 | Partition start | LBA 2048 (1 MiB alignment) |
 | FAT partition length | 258,048 sectors (126 MiB) |
-| Data partition | LBA 260096, 2048 sectors (1 MiB); original snapshot v1 |
+| Data partition | LBA 260096, 2048 sectors (1 MiB); snapshot v4 by default |
 | FAT reserved sectors | 32 |
 | FAT copies | Two, 2048 sectors each |
 | Cluster size/count | 512 bytes / 253,920 clusters (FAT32 by cluster count) |
@@ -134,7 +132,7 @@ Get-FileHash build/rpi5/OurOS-Pi5-experimental-sd.img -Algorithm SHA256
 | Volume label | `OUROSBOOT` |
 
 `scripts/image-rpi5.ps1` is a deliberately narrow host-side FAT32 image writer,
-not a target filesystem driver. It supports one root directory cluster, no
+not a target filesystem driver. It supports up to eight root directory clusters, no
 subdirectories, and only nonempty 8.3 filenames for this fixed payload. It rejects
 unsupported input. The filesystem fields follow Microsoft's FAT specification;
 the image is also read independently rather than trusting the writer alone.

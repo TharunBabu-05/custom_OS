@@ -24,15 +24,14 @@
 
 <h1 align="center">The kernel is on the board.</h1>
 
-Current development: [process control](docs/process-control.md).
-The new PS application lists the active batch, polls owned children and
-demonstrates cancellation/reaping while its parent stays interactive.
-This phase needs the new kernel; a
-[boot-update ZIP](build/rpi5-header/OurOS-process-control-boot-update.zip)
-updates OUROS.IMG and PS.ELF on the preceding installation without reflashing
-or replacing `/data`. New process-control hardware acceptance is pending.
-The latest Pi captures pass MEMCHK, MEMDEMO, HEAPCHK and HEAPDEMO with
-resources restored.
+Current development: [larger persistent files](docs/data-v4.md). New v4
+volumes support 16 KiB files and larger installed programs; old v1/v2/v3
+volumes retain their format and bounds. `df` reports mount limits. Native
+recovery tests and both QEMU capacity/installed-program cold-boot checks pass;
+physical v4 acceptance remains pending. The [boot-file update ZIP](build/apps/OurOS-data-v4-boot-update.zip)
+keeps an existing `/data`; the [full image ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip)
+creates a new v4 installation when flashed. See the guide before replacing data.
+The preceding Pi capture verifies bg/jobs/stop and a responsive parent shell.
 
 Project state: an early single-core OS with protected user applications, a
 serial shell and bounded persistent storage. MMU protection, GIC/timer IRQs,
@@ -95,7 +94,7 @@ See the [current status and driver checklist](docs/os-status.md) and
 > pass on Pi. The new [pipeline stage](docs/pipelines.md) connects two concurrent
 > programs through a bounded binary FIFO, with blocking/EOF/cancellation and
 > clearer missing-path errors; PIPECHK and shell pipelines now pass on Pi.
-> The current [data v2 stage](docs/data-v2.md) expands persistent capacity to
+> The earlier [data v2 stage](docs/data-v2.md) expands persistent capacity to
 > 16 files of 8 KiB, permits installing the shell and preserves v1 support.
 > The first physical v2 capacity run failed during repeated writes. The
 > [USB reliability stage](docs/usb-storage-reliability.md) removes a lifetime

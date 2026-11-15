@@ -11,7 +11,7 @@ if (Test-Path -LiteralPath $destination) { throw 'Output already exists; choose 
 $lines=[IO.File]::ReadAllLines($inputFile.FullName)
 $begin='-----BEGIN OUROS DATA BACKUP V1-----';$end='-----END OUROS DATA BACKUP V1-----'
 $active=$false;$done=$false;$started=0;$expected=0;$claimed=$null
-$buffer=New-Object byte[] 132608
+$buffer=New-Object byte[] 263680
 foreach ($line in $lines) {
     if ($line -ceq $begin) { if ($started++) { throw 'Multiple backup blocks; use a log containing one export' };$active=$true;continue }
     if (!$active) { continue }
@@ -22,7 +22,7 @@ foreach ($line in $lines) {
     if ($at -ne $expected -or $expected+32 -gt $buffer.Length) { throw 'Out-of-order/duplicate/oversize backup record' }
     for ($j=0;$j -lt 32;$j++) { $buffer[$expected+$j]=[Convert]::ToByte($hex.Substring($j*2,2),16) };$expected+=32
 }
-if (!$done -or $active -or !$claimed -or $expected -notin 33792,132608) { throw 'Incomplete backup; wait for the export end marker' }
+if (!$done -or $active -or !$claimed -or $expected -notin 33792,132608,263680) { throw 'Incomplete backup; wait for the export end marker' }
 [byte[]]$raw=New-Object byte[] $expected;[Array]::Copy($buffer,$raw,$expected)
 $sha=[Security.Cryptography.SHA256]::Create()
 try { $actual=([BitConverter]::ToString($sha.ComputeHash($raw))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }

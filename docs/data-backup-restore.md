@@ -1,8 +1,8 @@
 # Persistent file backup and restore
 
-Current images use [v3 directories](persistent-directories.md). Old v1/v2
-archives require explicit `migrate-data-backup.ps1` conversion before inclusion
-in a default v3 image. Same-format restore and existing legacy mounts remain
+Current images use [snapshot v4](data-v4.md). Old v1/v2/v3 archives require
+explicit `migrate-data-backup.ps1 -TargetVersion 4` conversion before inclusion
+in a default v4 image. Same-format restore and existing legacy mounts remain
 supported. The historical examples below describe the flat v2 backup stage.
 
 The [new Pi excerpt](../proofs/pi5-data-restore-2026-11-15.txt) now passes

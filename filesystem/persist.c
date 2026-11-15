@@ -1,4 +1,4 @@
-/* OurOS data formats v1/v2/v3. Two complete SHA256-protected snapshots, ordered
+/* OurOS data formats v1/v2/v3/v4. Two complete SHA256-protected snapshots, ordered
  * invalidate/flush -> payload/flush/readback -> commit/flush/readback. The
  * previous committed bank is never modified during an update. */
 #include "persist.h"
@@ -23,8 +23,8 @@ static enum fs_result name(const char *path,const char **out)
     if (!path || path[0]!='/') { return FS_BAD_ARGUMENT; }if (!path[1]) { return FS_IS_DIR; }
     if (!name_ok(path+1)) { return FS_INVALID_PATH; }*out=path+1;return FS_OK;
 }
-static unsigned parent_id(const struct persist_volume *v,const unsigned char *e) { return v->version==3 ? u32(e+40) : 0; }
-static bool is_dir(const struct persist_volume *v,const unsigned char *e) { return v->version==3 && u32(e+36)==2; }
+static unsigned parent_id(const struct persist_volume *v,const unsigned char *e) { return v->version>=3 ? u32(e+40) : 0; }
+static bool is_dir(const struct persist_volume *v,const unsigned char *e) { return v->version>=3 && u32(e+36)==2; }
 static void magic(const struct persist_volume *v,unsigned char *h) { copy(h,"OUROSBK",7);h[7]=(unsigned char)('0'+v->version); }
 static int find(const struct persist_volume *v,const unsigned char *payload,const char *key,unsigned parent)
 {
@@ -75,13 +75,13 @@ static bool valid_payload(const struct persist_volume *v,const unsigned char *p)
     for (unsigned i=0;i<v->files;++i) {
         const unsigned char *e=p+i*64,*data=p+v->directory_bytes+i*v->file_bytes;
         if (!e[0]) { if (!zeros(e,64) || !zeros(data,v->file_bytes)) { return false; }continue; }
-        if (!name_ok((const char *)e) || !zeros(e+(v->version==3 ? 44 : 36),v->version==3 ? 20 : 28)) { return false; }
+        if (!name_ok((const char *)e) || !zeros(e+(v->version>=3 ? 44 : 36),v->version>=3 ? 20 : 28)) { return false; }
         unsigned n=0;while (e[n]) { ++n; }if (!zeros(e+n,32-n)) { return false; }
         uint32_t length=u32(e+32);if (length>v->file_bytes || !zeros(data+length,v->file_bytes-length)) { return false; }
-        if (v->version==3 && ((u32(e+36)!=1 && u32(e+36)!=2) || (is_dir(v,e) && length) || parent_id(v,e)>v->files)) { return false; }
+        if (v->version>=3 && ((u32(e+36)!=1 && u32(e+36)!=2) || (is_dir(v,e) && length) || parent_id(v,e)>v->files)) { return false; }
         if (find(v,p,(const char *)e,parent_id(v,e))!=(int)i) { return false; }
     }
-    if (v->version==3) { for (unsigned i=0;i<v->files;++i) {
+    if (v->version>=3) { for (unsigned i=0;i<v->files;++i) {
         if (!p[i*64]) { continue; }unsigned parent=parent_id(v,p+i*64),seen=1u<<i,path_bytes=1;
         while (p[i*64+path_bytes-1]) { ++path_bytes; }
         while (parent) {
@@ -102,15 +102,16 @@ static bool valid_header(const struct persist_volume *v,const unsigned char *h,u
 }
 static enum block_result mount_read(struct persist_volume *v,uint64_t lba,unsigned char *data)
 { v->mount_lba=lba;v->mount_io=block_read(&v->device,lba,data);return v->mount_io; }
-static enum fs_result load(struct persist_volume *v,unsigned bank,unsigned char *data,uint64_t *generation,bool *valid)
+static enum fs_result load(struct persist_volume *v,unsigned bank,uint64_t *generation,bool *valid,unsigned char digest[32],bool *overwritten)
 {
-    unsigned char h[512];uint64_t base=(uint64_t)v->start+1+bank*v->bank_sectors;*valid=false;
+    unsigned char h[512];uint64_t base=(uint64_t)v->start+1+bank*v->bank_sectors;*valid=false;*overwritten=false;
     v->mount_phase=bank ? "bank1-header" : "bank0-header";
     if (mount_read(v,base,h)!=BLOCK_OK) { return FS_IO; }
     if (!valid_header(v,h,bank)) { return FS_OK; }
+    *overwritten=true;
     v->mount_phase=bank ? "bank1-payload" : "bank0-payload";
-    for (unsigned i=0;i<v->payload_bytes/512;++i) { if (mount_read(v,base+1+i,data+i*512)!=BLOCK_OK) { return FS_IO; } }
-    *generation=u64(h+16);*valid=checksum(data,v->payload_bytes,h+32) && valid_payload(v,data);return FS_OK;
+    for (unsigned i=0;i<v->payload_bytes/512;++i) { if (mount_read(v,base+1+i,v->live+i*512)!=BLOCK_OK) { return FS_IO; } }
+    *generation=u64(h+16);copy(digest,h+32,32);*valid=checksum(v->live,v->payload_bytes,h+32) && valid_payload(v,v->live);return FS_OK;
 }
 enum fs_result persist_mount(struct persist_volume *v,const struct block_device *device)
 {
@@ -134,24 +135,34 @@ enum fs_result persist_mount(struct persist_volume *v,const struct block_device 
     v->version=u32(h+8);
     if (v->version==1) { v->files=DATA_FILES;v->file_bytes=DATA_FILE_BYTES;v->directory_bytes=512;v->payload_bytes=DATA_PAYLOAD_BYTES;v->bank_sectors=DATA_BANK_SECTORS; }
     else if (v->version==2 || v->version==3) { v->files=DATA_V2_FILES;v->file_bytes=DATA_V2_FILE_BYTES;v->directory_bytes=DATA_V2_DIRECTORY_BYTES;v->payload_bytes=DATA_V2_PAYLOAD_BYTES;v->bank_sectors=DATA_V2_BANK_SECTORS; }
+    else if (v->version==4) { v->files=DATA_V4_FILES;v->file_bytes=DATA_V4_FILE_BYTES;v->directory_bytes=DATA_V4_DIRECTORY_BYTES;v->payload_bytes=DATA_V4_PAYLOAD_BYTES;v->bank_sectors=DATA_V4_BANK_SECTORS; }
     else { return FS_UNSUPPORTED; }
     if (!equal(h,"OUROSDAT",8) || u32(h+12)!=512 || u32(h+16)!=sectors || u32(h+20)!=v->bank_sectors ||
         u32(h+24)!=v->files || u32(h+28)!=v->file_bytes || sectors<1+2*v->bank_sectors ||
         !zeros(h+32,32) || !zeros(h+96,416) || !checksum(h,64,h+64)) { return FS_CORRUPT; }
     v->device=*device;v->start=start;v->sectors=sectors;bool a,b;uint64_t ga=0,gb=0;
-    enum fs_result r=load(v,0,v->live,&ga,&a);if (r!=FS_OK) { return r; }r=load(v,1,v->staged,&gb,&b);if (r!=FS_OK) { return r; }
+    unsigned char ha[32],hb[32];bool changed;enum fs_result r=load(v,0,&ga,&a,ha,&changed);if (r!=FS_OK) { return r; }r=load(v,1,&gb,&b,hb,&changed);if (r!=FS_OK) { return r; }
     v->mount_phase="snapshot-validation";
     if ((!a && !b) || (a && b && ga==gb)) { return FS_CORRUPT; }
     v->valid_banks=(unsigned)a+(unsigned)b;
-    if (b && (!a || gb>ga)) { copy(v->live,v->staged,v->payload_bytes);v->bank=1;v->generation=gb; }else { v->bank=0;v->generation=ga; }
-    zero(v->staged,sizeof(v->staged));
+    if (b && (!a || gb>ga)) { v->bank=1;v->generation=gb; }
+    else {
+        /* Bank 1 may have overwritten the work buffer. Re-read and verify the
+         * exact previously validated bank-0 identity before publishing it. */
+        if (changed) {
+            uint64_t again=0;bool valid=false,overwritten;unsigned char h[32];r=load(v,0,&again,&valid,h,&overwritten);
+            if (r!=FS_OK) { return r; }if (!valid || again!=ga || !equal(h,ha,32)) { return FS_CORRUPT; }
+        }
+        v->bank=0;v->generation=ga;
+    }
+    v->staged_slot=v->files;
     /* Check synchronous-flush support before accepting any data writes. */
     v->mount_phase="cache-policy/flush";v->mount_lba=0;v->mount_io=block_flush(&v->device);
     if (v->mount_io!=BLOCK_OK) { return FS_IO; }v->ready=true;v->mount_phase="mounted";return FS_OK;
 }
 enum fs_result persist_stat(const struct persist_volume *v,const char *path,bool *directory)
 {
-    if (!v || !directory) { return FS_BAD_ARGUMENT; }if (!v->ready) { return FS_NOT_READY; }
+    if (!v || !directory) { return FS_BAD_ARGUMENT; }if (!v->ready) { return FS_NOT_READY; }if (v->restoring) { return FS_BUSY; }
     int id;enum fs_result r=lookup(v,v->live,path,&id);if (r!=FS_OK) { return r; }
     *directory=id<0 || is_dir(v,v->live+(unsigned)id*64);return FS_OK;
 }
@@ -166,15 +177,31 @@ enum fs_result persist_list(const struct persist_volume *v,const char *path,ramf
 }
 enum fs_result persist_read(const struct persist_volume *v,const char *path,uint32_t offset,void *buffer,size_t capacity,size_t *count)
 {
-    if (!v || !buffer || !count) { return FS_BAD_ARGUMENT; }*count=0;if (!v->ready) { return FS_NOT_READY; }
+    if (!v || !buffer || !count) { return FS_BAD_ARGUMENT; }*count=0;if (!v->ready) { return FS_NOT_READY; }if (v->restoring) { return FS_BUSY; }
     int id;enum fs_result r=lookup(v,v->live,path,&id);if (r!=FS_OK) { return r; }if (id<0 || is_dir(v,v->live+(unsigned)id*64)) { return FS_IS_DIR; }
     uint32_t length=u32(v->live+id*64+32);if (offset>=length) { return FS_OK; }size_t n=length-offset;if (n>capacity) { n=capacity; }
     copy(buffer,v->live+v->directory_bytes+(unsigned)id*v->file_bytes+offset,n);*count=n;return FS_OK;
 }
+static void stage_clear(struct persist_volume *v)
+{ zero(v->staged_directory,sizeof(v->staged_directory));zero(v->staged_file,sizeof(v->staged_file));v->staged_slot=v->files; }
+static void stage_begin(struct persist_volume *v)
+{ stage_clear(v);copy(v->staged_directory,v->live,v->directory_bytes); }
+static const unsigned char *stage_sector(const struct persist_volume *v,unsigned sector)
+{
+    unsigned offset=sector*512;if (offset<v->directory_bytes) { return v->staged_directory+offset; }
+    offset-=v->directory_bytes;unsigned slot=offset/v->file_bytes;
+    return slot==v->staged_slot ? v->staged_file+offset%v->file_bytes : v->live+v->directory_bytes+offset;
+}
+static void stage_hash(const struct persist_volume *v,unsigned char digest[32])
+{
+    struct sha256 s;sha256_init(&s);sha256_update(&s,v->staged_directory,v->directory_bytes);
+    for (unsigned i=0;i<v->files;++i) { sha256_update(&s,i==v->staged_slot ? v->staged_file : v->live+v->directory_bytes+i*v->file_bytes,v->file_bytes); }
+    sha256_final(&s,digest);
+}
 static enum fs_result commit(struct persist_volume *v)
 {
     unsigned target=v->bank^1;uint64_t base=(uint64_t)v->start+1+target*v->bank_sectors;unsigned char h[512]={0},check[512];
-    if (v->generation==UINT64_MAX) { zero(v->staged,sizeof(v->staged));return FS_UNSUPPORTED; }
+    if (v->generation==UINT64_MAX) { stage_clear(v);return FS_UNSUPPORTED; }
     /* No write is addressed outside this partition's two fixed banks. */
     if (base<v->start+1ULL || base+v->bank_sectors>(uint64_t)v->start+v->sectors) { return FS_CORRUPT; }
     v->readback_mismatch=false;v->write_phase="invalidate-header";v->write_lba=base;
@@ -183,17 +210,17 @@ static enum fs_result commit(struct persist_volume *v)
     if ((v->write_io=block_flush(&v->device))!=BLOCK_OK) { goto io; }
     v->write_phase="payload-write";
     for (unsigned i=0;i<v->payload_bytes/512;++i) {
-        v->write_lba=base+1+i;if ((v->write_io=block_write(&v->device,v->write_lba,v->staged+i*512))!=BLOCK_OK) { goto io; }
+        v->write_lba=base+1+i;if ((v->write_io=block_write(&v->device,v->write_lba,stage_sector(v,i)))!=BLOCK_OK) { goto io; }
     }
     v->write_phase="payload-flush";
     if ((v->write_io=block_flush(&v->device))!=BLOCK_OK) { goto io; }
     v->write_phase="payload-readback";
     for (unsigned i=0;i<v->payload_bytes/512;++i) {
         v->write_lba=base+1+i;if ((v->write_io=block_read(&v->device,v->write_lba,check))!=BLOCK_OK) { goto io; }
-        if (!equal(check,v->staged+i*512,512)) { v->readback_mismatch=true;goto io; }
+        if (!equal(check,stage_sector(v,i),512)) { v->readback_mismatch=true;goto io; }
     }
     magic(v,h);put32(h+8,v->version);put32(h+12,target);put64(h+16,v->generation+1);put32(h+24,v->payload_bytes);
-    hash(v->staged,v->payload_bytes,h+32);hash(h,64,h+64);
+    stage_hash(v,h+32);hash(h,64,h+64);
     v->write_phase="commit-header";v->write_lba=base;
     if ((v->write_io=block_write(&v->device,base,h))!=BLOCK_OK) { goto io; }
     v->write_phase="commit-flush";
@@ -202,11 +229,13 @@ static enum fs_result commit(struct persist_volume *v)
     if ((v->write_io=block_read(&v->device,base,check))!=BLOCK_OK) { goto io; }
     if (!equal(h,check,512)) { v->readback_mismatch=true;goto io; }
     v->write_phase="committed";
-    copy(v->live,v->staged,v->payload_bytes);v->bank=target;++v->generation;v->valid_banks=2;zero(v->staged,sizeof(v->staged));return FS_OK;
+    copy(v->live,v->staged_directory,v->directory_bytes);
+    if (v->staged_slot<v->files) { copy(v->live+v->directory_bytes+v->staged_slot*v->file_bytes,v->staged_file,v->file_bytes); }
+    v->bank=target;++v->generation;v->valid_banks=2;stage_clear(v);return FS_OK;
 io:
     /* Completion may be ambiguous; keep the old RAM view and require reboot
      * before further writes. Mount will select a complete durable generation. */
-    v->failed=true;zero(v->staged,sizeof(v->staged));return FS_IO;
+    v->failed=true;stage_clear(v);return FS_IO;
 }
 enum fs_result persist_write(struct persist_volume *v,const char *path,const void *data,size_t length,bool touch)
 {
@@ -214,9 +243,9 @@ enum fs_result persist_write(struct persist_volume *v,const char *path,const voi
     if (length>v->file_bytes) { return FS_FILE_TOO_LARGE; }char key[32]={0};unsigned parent;enum fs_result r=target_parent(v,path,&parent,key);if (r!=FS_OK) { return r; }
     int id=find(v,v->live,key,parent);if (id>=0 && is_dir(v,v->live+(unsigned)id*64)) { return FS_IS_DIR; }if (id>=0 && touch) { return FS_OK; }
     if (id<0) { for (unsigned i=0;i<v->files;++i) { if (!v->live[i*64]) { id=(int)i;break; } } }if (id<0) { return FS_NO_NODES; }
-    v->busy=true;copy(v->staged,v->live,v->payload_bytes);unsigned char *e=v->staged+id*64,*bytes=v->staged+v->directory_bytes+id*v->file_bytes;
+    v->busy=true;stage_begin(v);v->staged_slot=(unsigned)id;unsigned char *e=v->staged_directory+id*64,*bytes=v->staged_file;
     zero(e,64);unsigned n=0;while (key[n]) { e[n]=(unsigned char)key[n];++n; }put32(e+32,(uint32_t)length);zero(bytes,v->file_bytes);copy(bytes,data,length);
-    if (v->version==3) { put32(e+36,1);put32(e+40,parent); }
+    if (v->version>=3) { put32(e+36,1);put32(e+40,parent); }
     r=commit(v);v->busy=false;return r;
 }
 enum fs_result persist_remove(struct persist_volume *v,const char *path,bool directory)
@@ -225,8 +254,8 @@ enum fs_result persist_remove(struct persist_volume *v,const char *path,bool dir
     int id;enum fs_result r=lookup(v,v->live,path,&id);if (r!=FS_OK) { return r; }if (id<0) { return FS_BUSY; }
     bool dir=is_dir(v,v->live+(unsigned)id*64);if (directory && !dir) { return FS_NOT_DIR; }if (!directory && dir) { return FS_IS_DIR; }
     if (dir) { for (unsigned i=0;i<v->files;++i) { if (v->live[i*64] && parent_id(v,v->live+i*64)==(unsigned)id+1) { return FS_NOT_EMPTY; } } }
-    v->busy=true;copy(v->staged,v->live,v->payload_bytes);
-    zero(v->staged+id*64,64);zero(v->staged+v->directory_bytes+id*v->file_bytes,v->file_bytes);r=commit(v);v->busy=false;return r;
+    v->busy=true;stage_begin(v);
+    zero(v->staged_directory+id*64,64);v->staged_slot=(unsigned)id;r=commit(v);v->busy=false;return r;
 }
 enum fs_result persist_sync(struct persist_volume *v)
 {
@@ -238,11 +267,11 @@ enum fs_result persist_sync(struct persist_volume *v)
 enum fs_result persist_mkdir(struct persist_volume *v,const char *path)
 {
     if (!v || !path) { return FS_BAD_ARGUMENT; }if (!v->ready) { return FS_NOT_READY; }
-    if (v->failed) { return FS_IO; }if (v->busy) { return FS_BUSY; }if (v->version!=3) { return FS_UNSUPPORTED; }
+    if (v->failed) { return FS_IO; }if (v->busy) { return FS_BUSY; }if (v->version<3) { return FS_UNSUPPORTED; }
     char key[32]={0};unsigned parent;enum fs_result r=target_parent(v,path,&parent,key);if (r!=FS_OK) { return r; }
     if (find(v,v->live,key,parent)>=0) { return FS_EXISTS; }int id=-1;
     for (unsigned i=0;i<v->files;++i) { if (!v->live[i*64]) { id=(int)i;break; } }if (id<0) { return FS_NO_NODES; }
-    v->busy=true;copy(v->staged,v->live,v->payload_bytes);unsigned char *e=v->staged+(unsigned)id*64;
+    v->busy=true;stage_begin(v);unsigned char *e=v->staged_directory+(unsigned)id*64;
     zero(e,64);unsigned i=0;while (key[i]) { e[i]=(unsigned char)key[i];++i; }put32(e+36,2);put32(e+40,parent);
     r=commit(v);v->busy=false;return r;
 }
@@ -259,15 +288,15 @@ static enum fs_result move_file(struct persist_volume *v,const char *source,cons
         if (!replace) { return FS_EXISTS; }
         if (is_dir(v,v->live+(unsigned)existing*64)) { return FS_IS_DIR; }
     }
-    v->busy=true;copy(v->staged,v->live,v->payload_bytes);unsigned char *e=v->staged+id*64;
+    v->busy=true;stage_begin(v);unsigned char *e=v->staged_directory+id*64;
     /* The old target and temporary name disappear in the same snapshot that
      * publishes the source. No spare slot or second commit is needed. */
     if (existing>=0) {
-        zero(v->staged+(unsigned)existing*64,64);
-        zero(v->staged+v->directory_bytes+(unsigned)existing*v->file_bytes,v->file_bytes);
+        zero(v->staged_directory+(unsigned)existing*64,64);
+        v->staged_slot=(unsigned)existing;
     }
     zero(e,32);unsigned i=0;while (next[i]) { e[i]=(unsigned char)next[i];++i; }
-    if (v->version==3) { put32(e+40,parent); }
+    if (v->version>=3) { put32(e+40,parent); }
     r=commit(v);v->busy=false;return r;
 }
 enum fs_result persist_rename(struct persist_volume *v,const char *source,const char *target)
@@ -295,9 +324,14 @@ enum fs_result persist_restore(struct persist_volume *v,size_t length,persist_in
     v->busy=true;unsigned char h[512];enum fs_result r=FS_IO;
     if (!input(h,512,context)) { goto done; }
     if (!valid_header(v,h,0)) { r=FS_CORRUPT;goto done; }
-    for (unsigned i=0;i<v->payload_bytes;i+=512) { if (!input(v->staged+i,512,context)) { goto done; } }
-    if (!checksum(v->staged,v->payload_bytes,h+32) || !valid_payload(v,v->staged)) { r=FS_CORRUPT;goto done; }
-    r=commit(v);
+    /* The required empty target has an all-zero payload. Reuse its live
+     * buffer for validation while all public reads/mutations refuse reentry.
+     * Any rejection/failure restores the empty RAM view before returning. */
+    v->restoring=true;
+    for (unsigned i=0;i<v->payload_bytes;i+=512) { if (!input(v->live+i,512,context)) { goto done; } }
+    if (!checksum(v->live,v->payload_bytes,h+32) || !valid_payload(v,v->live)) { r=FS_CORRUPT;goto done; }
+    stage_begin(v);r=commit(v);
 done:
-    zero(v->staged,sizeof(v->staged));v->busy=false;return r;
+    if (r!=FS_OK && v->restoring) { zero(v->live,v->payload_bytes); }
+    stage_clear(v);v->restoring=false;v->busy=false;return r;
 }

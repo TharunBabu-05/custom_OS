@@ -1,8 +1,8 @@
 # Deterministic blank OurOS data partition. The guest never formats disks.
+. "$PSScriptRoot/data-geometry.ps1"
 function New-OurOSDataPartition {
-    param([ValidateSet(1,2,3)][int]$Version=1)
-    $files=if ($Version -eq 1) { 8 } else { 16 }
-    $fileBytes=if ($Version -eq 1) { 4096 } else { 8192 }
+    param([ValidateSet(1,2,3,4)][int]$Version=1)
+    $geometry=Get-OurOSDataGeometry $Version;$files=$geometry.Files;$fileBytes=$geometry.FileBytes
     $directoryBytes=$files*64;$payloadBytes=$directoryBytes+$files*$fileBytes;$bankSectors=1+$payloadBytes/512
     [byte[]]$result=New-Object byte[] (2048*512)
     [byte[]]$header=New-Object byte[] 512

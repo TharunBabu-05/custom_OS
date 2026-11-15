@@ -17,7 +17,7 @@ enum uos_syscall {
     UOS_SYS_PIPE_RUN=28,UOS_SYS_RENAME=29,UOS_SYS_PUBLISH=30,UOS_SYS_EXEC=31,
     UOS_SYS_ENV_GET=32,UOS_SYS_ENV_SET=33,UOS_SYS_ENV_UNSET=34,UOS_SYS_ENV_ENTRY=35,
     UOS_SYS_ENV_PROFILE=36,UOS_SYS_ALLOC_PAGES=37,UOS_SYS_FREE_PAGES=38,UOS_SYS_MEMORY_INFO=39,
-    UOS_SYS_PROCESSES=40,UOS_SYS_CHILD_POLL=41,UOS_SYS_CHILD_CANCEL=42
+    UOS_SYS_PROCESSES=40,UOS_SYS_CHILD_POLL=41,UOS_SYS_CHILD_CANCEL=42,UOS_SYS_STATFS=43
 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
  * index is a fresh traversal, not a stable cursor across filesystem edits. */
@@ -52,6 +52,10 @@ struct uos_child_info { uint64_t pid;uint32_t state,finished;int32_t exit_code;u
 _Static_assert(sizeof(struct uos_process_entry)==312,"process entry ABI size");
 _Static_assert(sizeof(struct uos_process_table)==952,"process table ABI size");
 _Static_assert(sizeof(struct uos_child_info)==24,"child info ABI size");
+/* Query an existing path's mount; zero write limit means read-only. */
+enum { UOS_FS_RAM=1,UOS_FS_FAT=2,UOS_FS_SNAPSHOT=3,UOS_FS_READONLY=1,UOS_FS_VOLATILE=2 };
+struct uos_fs_info { uint64_t max_write_bytes;uint32_t type,version,node_limit,used_nodes;uint64_t flags; };
+_Static_assert(sizeof(struct uos_fs_info)==32,"filesystem info ABI size");
 enum { UOS_READ=1,UOS_WRITE=2,UOS_CREATE=4,UOS_TRUNC=8 };
 enum { UOS_PROFILE_SAVE=1,UOS_PROFILE_LOAD=2 };
 enum { UOS_SEEK_SET=0,UOS_SEEK_CUR=1,UOS_SEEK_END=2 };

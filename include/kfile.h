@@ -9,7 +9,7 @@ enum kfile_whence { KFILE_SET, KFILE_CUR, KFILE_END };
  * called from IRQ context. Owners identify kernel tasks, not EL0 principals.
  * Tokens are opaque, generation checked, and owned by one nonzero owner.
  * Shared readers or one writer pin a canonical file until close/owner cleanup.
- * Writable files follow their mount's 4096/8192-byte bound; reads <=65536. Seek stays within
+ * Writable files follow their mount's 4096/8192/16384-byte bound; reads <=65536. Seek stays within
  * [0,length]; no sparse files. Persistent writes commit synchronously; close
  * only releases the handle and performs no additional device I/O. */
 enum fs_result kfile_open(uint64_t owner,const char *cwd,const char *path,unsigned flags,uint64_t *handle);
