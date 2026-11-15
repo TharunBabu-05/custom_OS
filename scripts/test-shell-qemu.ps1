@@ -1,6 +1,6 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
-param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,
+param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,
       [string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
@@ -51,6 +51,213 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
 }
+if ($ProcessControl) {
+    $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
+    $checkPass='PASS: process snapshots, checked buffers, nonblocking poll, parent-only cancellation, stale PIDs, preserved exit/fault/exec/timeout results, leases and repeated cleanup.'
+    $peerPass='PASS: three-slot parent/sibling snapshots and foreign PID refusal.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="proc-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            @{Text='appterm 120 /boot/PS.ELF check';Delay=7500},@{Text='apprun /boot/PS.ELF /boot/PS.ELF /boot/PS.ELF';Delay=2200},
+            @{Text='appterm 60 /boot/PS.ELF terminal';Delay=1600},'parent-ok','child-ok','root-ok',
+            'appexec /boot/PS.ELF orphan',
+            'appterm 90 /boot/PS.ELF demo','status','stop','status','start','status','stop','start','exit',
+            'appterm 90 /boot/PS.ELF demo',@{Text=[string][char]3;Raw=$true;Delay=900},
+            @{Text='appterm 2 /boot/PS.ELF demo';Delay=3500},
+            'appterm 60 /boot/TTYPAR.ELF','terminal-ok',@{Text='appterm 120 /boot/SPAWNCHK.ELF';Delay=6500},
+            'appterm 120 /boot/HEAPCHK.ELF','appshell','ps','pipe ps -- hash',
+            @{Text='runio - /data/procs.txt ps';Delay=7000},'cat /data/procs.txt','exit',
+            'mkdir /data/bin','appinstall /boot/PS.ELF /data/bin/procs.elf','appexec /data/bin/procs.elf',
+            'pwd','fileinfo','heaptest','pagetest','mmutest','timerstop','halt') @(
+            $checkPass,$peerPass,'PID PPID STATE PAGES PATH',
+            'PASS: cancelling a pending child reader preserves parent input and later terminal handoff.',
+            'Parent exits with an outstanding owned child.','Child collected: exit=130','No outstanding child.','New child PID=',
+            'state=cancelled code=130','state=timeout code=124',
+            'PASS: child readline before parent wait blocks until terminal handoff.',
+            'PASS: spawn/wait args, inherited private cwd, handle isolation, stale IDs, slot reuse, fault/timeout and child cleanup.',
+            'PASS: user malloc/calloc/realloc/free alignment, shared small pages, zeroed growth, failure retention, invalid pointers, record/quota limits and complete cleanup.',
+            'path=/data/bin/procs.elf state=exited code=0','Open files: 0/16') 12
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
+        if ([regex]::Matches($capture,'Child collected: exit=130').Count -ne 2 -or
+            [regex]::Matches($capture,'path=/boot/PS.ELF state=cancelled code=130').Count -ne 1 -or
+            [regex]::Matches($capture,'path=/boot/PS.ELF state=timeout code=124').Count -ne 1) { throw 'Process demo cancellation/timeout outcomes differ' }
+        # A timer can dispatch the child between spawn and the parent's wait.
+        if (![regex]::IsMatch($capture,'(?im)^(\d+) 0 (?:ready|wait-child) 0 /boot/SHELL.ELF\r?\n\d+ \1 running 0 /boot/ps.elf')) { throw 'Shell/child snapshot identity or states differ' }
+        $filePattern='(?m)^user:/\$ cat /data/procs\.txt\r?\n(PID PPID STATE PAGES PATH\r?\n(?:\d+ \d+ [a-z-]+ \d+ [^\r\n]+\r?\n)+)'
+        $savedTable=[regex]::Match($capture,$filePattern)
+        if (!$savedTable.Success) { throw 'Missing saved process snapshot readback' }
+        foreach ($line in @([regex]::Matches($capture,'(?m)^process=[012] [^\r\n]*'))) {
+            if (!$line.Value.Contains('heap_live_pages=0')) { throw 'Process-control teardown retained private pages' }
+        }
+        if ($capture.Contains('cleanup=not-run/failed')) { throw 'Process-control cleanup failed' }
+        Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+            'cat /data/procs.txt','run procs','exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            'PID PPID STATE PAGES PATH','running 0 /data/bin/procs.elf','Open files: 0/16') 1
+        $stored=Get-Content -Raw -LiteralPath (Join-Path $out "$name-reopen.log")
+        $reopenedTable=[regex]::Match($stored,$filePattern)
+        if (!$reopenedTable.Success -or $savedTable.Groups[1].Value.Replace("`r`n","`n") -cne
+            $reopenedTable.Groups[1].Value.Replace("`r`n","`n")) { throw 'Persistent snapshot contents differ after cold boot' }
+        if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'Process-control tests changed boot/unused sectors' }
+        Write-Output "PASS: $name snapshots/ownership, poll/cancel/reap, three-slot peers, terminal handoff, orphan/cancel/timeout cleanup and installed-viewer cold boot."
+    }
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: process-control tests used regular scratch disks; delivery unchanged.';return
+}
+if ($UserAllocator) {
+    $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
+    $basicPass='PASS: user malloc/calloc/realloc/free alignment, shared small pages, zeroed growth, failure retention, invalid pointers, record/quota limits and complete cleanup.'
+    $parentPass='PASS: byte-allocator leaks reclaimed on exit/exec/fault/timeout; failed exec preserves context/data and child slots remain reusable.'
+    $demoText="Small buffers: requested=768 bytes; reserved_pages=1`nAfter resize: requested=5744 bytes; reserved_pages=3`nAfter calloc: requested=6000 bytes; reserved_pages=4`nReleased buffers; private_pages=0`n"
+    $demoSha=[Security.Cryptography.SHA256]::Create()
+    try { $demoHash=([BitConverter]::ToString($demoSha.ComputeHash([Text.Encoding]::ASCII.GetBytes($demoText)))).Replace('-','').ToLowerInvariant() } finally { $demoSha.Dispose() }
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="ualloc-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            @{Text='appterm 120 /boot/HEAPCHK.ELF';Delay=4500},@{Text='apprun /boot/HEAPCHK.ELF /boot/HEAPCHK.ELF /boot/HEAPCHK.ELF';Delay=4500},
+            @{Text='appterm 120 /boot/HEAPCHK.ELF parent';Delay=12000},'appexec /boot/HEAPCHK.ELF leak',
+            'appexec /boot/HEAPCHK.ELF exec','appexec /boot/HEAPCHK.ELF execbad','appexec /boot/HEAPCHK.ELF uaf',
+            'appexec /boot/HEAPCHK.ELF nx',@{Text='appexec /boot/HEAPCHK.ELF timeout';Delay=3500},
+            @{Text='appterm 120 /boot/HEAPCHK.ELF cancel';Delay=1000},@{Text=[string][char]3;Raw=$true;Delay=800},
+            'appshell','run heapdemo','run heapchk','pipe heapdemo -- hash',
+            @{Text='runio - /data/byteheap.txt heapdemo';Delay=7000},'sha256 /data/byteheap.txt','cat /data/byteheap.txt','exit',
+            'mkdir /data/bin','appinstall /boot/HEAPDEMO.ELF /data/bin/byteheap.elf','appexec /data/bin/byteheap.elf',
+            'pwd','fileinfo','heaptest','pagetest','mmutest','timerstop','halt') @(
+            $basicPass,$parentPass,'HEAPCHK ready for cancellation.','state=cancelled code=130','state=timeout code=124',
+            'state=exited code=23','state=exited code=37',
+            'Small buffers: requested=768 bytes; reserved_pages=1','After resize: requested=5744 bytes; reserved_pages=3',
+            'After calloc: requested=6000 bytes; reserved_pages=4','Released buffers; private_pages=0',
+            $demoHash,($demoHash+'  /data/byteheap.txt'),'path=/data/bin/byteheap.elf state=exited code=0','Open files: 0/16') 12
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
+        if ([regex]::Matches($capture,'process=[012] path=/boot/HEAPCHK.ELF state=exited code=0[^\r\n]*heap_peak_pages=16').Count -lt 4 -or
+            [regex]::Matches($capture,[regex]::Escape($basicPass)).Count -ne 5) { throw 'Byte allocator default/concurrent results differ' }
+        $faults=@([regex]::Matches($capture,'path=/boot/HEAPCHK.ELF state=faulted code=125[^\r\n]*'))
+        if ($faults.Count -ne 2) { throw 'Missing contained allocator use-after-free/NX fault' }
+        $faultEc=@($faults | ForEach-Object { $m=[regex]::Match($_.Value,'ESR=0x([0-9a-f]+)');if (!$m.Success) { throw 'Missing allocator fault diagnostic' };[Convert]::ToUInt64($m.Groups[1].Value,16) -shr 26 })
+        if (($faultEc -join ',') -cne '36,32') { throw 'Allocator faults have unexpected exception classes' }
+        foreach ($line in @([regex]::Matches($capture,'(?m)^process=[012] [^\r\n]*'))) {
+            if (!$line.Value.Contains('heap_live_pages=0')) { throw 'Application left private pages after teardown' }
+        }
+        if ($capture.Contains('cleanup=not-run/failed')) { throw 'Byte allocator cleanup failed' }
+        Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+            'sha256 /data/byteheap.txt','run byteheap','run heapchk','exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            ($demoHash+'  /data/byteheap.txt'),'After calloc: requested=6000 bytes; reserved_pages=4',
+            $basicPass,'Open files: 0/16') 1
+        if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'Byte allocator tests changed boot/unused sectors' }
+        Write-Output "PASS: $name packed allocations/resize, three-process patterns, exit/exec/fault/timeout/cancel cleanup, streams and installed-app cold boot."
+    }
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: byte allocator tests used regular scratch disks; delivery unchanged.';return
+}
+if ($UserMemory) {
+    $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
+    $demoText="Application page arena: 64 KiB; live pages=0`nWorking buffer: 16 KiB; live pages=4; checksum=2088960`nReleased buffer; live pages=0`n"
+    $demoSha=[Security.Cryptography.SHA256]::Create()
+    try { $demoHash=([BitConverter]::ToString($demoSha.ComputeHash([Text.Encoding]::ASCII.GetBytes($demoText)))).Replace('-','').ToLowerInvariant() } finally { $demoSha.Dispose() }
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="usermem-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            @{Text='appterm 120 /boot/MEMCHK.ELF';Delay=4500},@{Text='apprun /boot/MEMCHK.ELF /boot/MEMCHK.ELF /boot/MEMCHK.ELF';Delay=4500},
+            @{Text='appterm 120 /boot/MEMCHK.ELF parent';Delay=12000},'appexec /boot/MEMCHK.ELF leak',
+            'appexec /boot/MEMCHK.ELF exec','appexec /boot/MEMCHK.ELF execbad','appexec /boot/MEMCHK.ELF uaf',
+            'appexec /boot/MEMCHK.ELF nx','appexec /boot/MEMCHK.ELF guard','appexec /boot/MEMCHK.ELF upper',
+            @{Text='appexec /boot/MEMCHK.ELF timeout';Delay=3500},@{Text='appterm 120 /boot/MEMCHK.ELF cancel';Delay=1000},
+            @{Text=[string][char]3;Raw=$true;Delay=800},'appshell','run memdemo','run memchk','pipe memdemo -- hash',
+            @{Text='runio - /data/memory.txt memdemo';Delay=7000},'sha256 /data/memory.txt','cat /data/memory.txt','exit',
+            'mkdir /data/bin','appinstall /boot/MEMDEMO.ELF /data/bin/memory.elf','appexec /data/bin/memory.elf',
+            'pwd','fileinfo','heaptest','pagetest','mmutest','timerstop','halt') @(
+            'PASS: private dynamic pages zeroed, quota/fragmentation/reuse, cross-page syscall buffers, freed-pointer rejection, concurrent isolation and complete release.',
+            'PASS: leaked pages reclaimed on child exit/exec/fault/timeout; exec identity/cursor retained, failed exec preserves pages and repeated slots stay clean.',
+            'MEMCHK ready for cancellation.','state=cancelled code=130','state=timeout code=124',
+            'state=exited code=23','state=exited code=37',
+            'Application page arena: 64 KiB; live pages=0','Working buffer: 16 KiB; live pages=4; checksum=2088960',
+            'Released buffer; live pages=0',$demoHash,($demoHash+'  /data/memory.txt'),
+            'path=/data/bin/memory.elf state=exited code=0','Open files: 0/16') 14
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
+        if ([regex]::Matches($capture,'process=[012] path=/boot/MEMCHK.ELF state=exited code=0[^\r\n]*heap_peak_pages=16[^\r\n]*heap_allocations=20[^\r\n]*heap_free_calls=20').Count -lt 4) { throw 'Private page tests/counters differ' }
+        $faults=@([regex]::Matches($capture,'path=/boot/MEMCHK.ELF state=faulted code=125[^\r\n]*'))
+        if ($faults.Count -ne 4) { throw 'Missing contained use-after-free/NX/lower/upper guard fault' }
+        foreach ($fault in $faults) {
+            $m=[regex]::Match($fault.Value,'ESR=0x([0-9a-f]+) FAR=0x([0-9a-f]+)')
+            if (!$m.Success -or !$fault.Value.Contains('heap_live_pages=0') -or !$fault.Value.Contains('heap_peak_pages=16')) { throw 'Faulted heap resources/diagnostic differs' }
+        }
+        $faultEc=@($faults | ForEach-Object { $m=[regex]::Match($_.Value,'ESR=0x([0-9a-f]+)');[Convert]::ToUInt64($m.Groups[1].Value,16) -shr 26 })
+        if (($faultEc -join ',') -cne '36,32,36,36') { throw 'Unexpected data/instruction exception classes' }
+        if ($capture.Contains('cleanup=not-run/failed')) { throw 'Page cleanup failed' }
+        Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+            'sha256 /data/memory.txt','run memory','run memchk','exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            ($demoHash+'  /data/memory.txt'),'Working buffer: 16 KiB; live pages=4; checksum=2088960',
+            'PASS: private dynamic pages zeroed, quota/fragmentation/reuse, cross-page syscall buffers, freed-pointer rejection, concurrent isolation and complete release.',
+            'Open files: 0/16') 1
+        if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'Application memory tests changed boot/unused sectors' }
+        Write-Output "PASS: $name private pages, zero/reuse, three-process isolation, faults/guards/NX, exit/exec/timeout/cancel cleanup, stream/storage use and installed-app cold boot."
+    }
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: private memory tests used regular scratch disks; delivery unchanged.';return
+}
+if ($Profiles) {
+    $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
+    $profilePass='PASS: profile save/load/full replacement, literal/empty/max values, leases, read-only/cross-mount refusal, corrupt-input rollback, CRLF and checked syscall pointers.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="profile-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            @{Text='appterm 120 /boot/PROFCHK.ELF';Delay=5000},@{Text='appterm 120 /boot/ENVCHK.ELF';Delay=5000},
+            'appshell','setenv MESSAGE "hello profile"','echo "$MESSAGE"','echo ''${MESSAGE}''','echo \$MESSAGE','echo "$MISSING" x',
+            'write /tmp/${MISSING}exp.txt "$MESSAGE"','cat /tmp/exp.txt','setenv LITERAL ''$MESSAGE''','echo "$LITERAL"',
+            'run echo "$MESSAGE" ""','setenv CMD echo','run $CMD arg-expanded','setenv CODE /boot/ECHO.ELF',
+            'missing-program','echo "result=$?"','cat /tmp/absent','echo "result=$?"','echo ${BROKEN','echo "result=$?"',
+            'echo "unterminated','echo "result=$?"',@{Text=('setenv LONG '+('L'*110));Delay=550},
+            'echo $LONG$LONG$LONG$LONG$LONG','echo "result=$?"','unsetenv LONG','echo guard-after-overflow',
+            'profile save','cat /data/session.env','setenv MESSAGE transient','profile load','getenv MESSAGE','echo "$LITERAL"','exit',
+            'mkdir /data/bin','appinstall /boot/SHELL.ELF /data/bin/shell.elf','appterm 120 /data/bin/shell.elf',
+            'echo "$MESSAGE"','setenv HOME /etc','cd','pwd','profile save','exit',
+            'appshell','env','echo "$MESSAGE"','cd','pwd','profile save /data/other.env','setenv MESSAGE changed',
+            'profile load /data/other.env','profile load /boot/CONFIG.TXT','echo "retained=$MESSAGE"',
+            'write /data/session.env broken-profile','exit',
+            'appshell','getenv MESSAGE','echo "empty=${MESSAGE}"','profile load /data/other.env','profile save','exit',
+            'appterm 120 /boot/SHELL.ELF --noprofile','echo "noprofile=${MESSAGE}"','profile load /data/session.env',
+            'echo "manual=$MESSAGE"','exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            $profilePass,'path=/boot/PROFCHK.ELF state=exited code=0',
+            'PASS: checked environment names/values/buffers, full-table recovery, private spawn snapshots, child exec preservation, failed-exec retention and cleanup.',
+            'arg-expanded','result=127','result=1','result=2','guard-after-overflow',
+            'shell: invalid quoting, expansion or argument bounds','Profile saved: /data/session.env','OUROSENV1',
+            'LITERAL=$MESSAGE','Profile loaded: /data/session.env','shell: profile loaded /data/session.env',
+            'Installed validated ELF: /data/bin/shell.elf bytes=', 'path=/data/bin/shell.elf state=exited code=0',
+            'HOME=/etc','Profile loaded: /data/other.env','shell: profile refused; environment retained',
+            'retained=hello profile','empty=','noprofile=','manual=hello profile','Open files: 0/16') 7
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
+        foreach ($literal in @('${MESSAGE}','$MESSAGE','hello profile ',' x','empty=','noprofile=')) {
+            if (![regex]::IsMatch($capture,'(?m)^'+[regex]::Escape($literal)+'\r?$')) { throw "Missing literal/empty/single-word expansion '$literal'" }
+        }
+        if ([regex]::Matches($capture,'(?m)^result=2\r?$').Count -ne 3 -or
+            [regex]::Matches($capture,'(?m)^manual=hello profile\r?$').Count -ne 1) { throw 'Expansion rejection/status or noprofile recovery differs' }
+        Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            'appterm 60 /data/bin/shell.elf','env','echo "cold=$MESSAGE"','echo "$LITERAL"','cd','pwd',
+            'run env MESSAGE','exec env MESSAGE','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            'shell: profile loaded /data/session.env','cold=hello profile','HOME=/etc','user:/etc$',
+            'hello profile','path=/boot/env.elf state=exited code=0','execs=1','Open files: 0/16') 1
+        if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'Profile work changed boot/unused sectors' }
+        Write-Output "PASS: $name profile ABI/rollback, expansion/status bounds, automatic/recovery loads, installed shell and profile cold boot."
+    }
+    . "$PSScriptRoot/data-format.ps1"
+    foreach ($version in 1,2) {
+        $compat=Join-Path $ProjectRoot ('build/usb-tests/profile-compat-v'+$version+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $compat
+        $f=[IO.File]::Open($compat,[IO.FileMode]::Open,[IO.FileAccess]::Write)
+        try { $f.Position=260096L*512;$bytes=New-OurOSDataPartition -Version $version;$f.Write($bytes,0,$bytes.Length) } finally { $f.Dispose() }
+        Session $compat "profile-compat-v$version-create" 'cortex-a76' 'on' @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            @{Text='appterm 120 /boot/PROFCHK.ELF';Delay=5000},'appshell',('setenv MESSAGE legacy-v'+$version),'profile save','exit',
+            'pwd','fileinfo','timerstop','halt') @(("OurOS snapshot v$version; files="),$profilePass,'Profile saved: /data/session.env','Open files: 0/16') 2
+        Session $compat "profile-compat-v$version-reopen" 'cortex-a76' 'on' @('storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+            'echo "$MESSAGE"','exec env MESSAGE','pwd','fileinfo','timerstop','halt') @(
+            ("OurOS snapshot v$version; files="),'shell: profile loaded /data/session.env',('legacy-v'+$version),'Open files: 0/16') 1
+    }
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: profiles use regular scratch disks; delivery unchanged.';return
+}
 if ($Environment) {
     $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
@@ -75,7 +282,7 @@ if ($Environment) {
             'PASS: checked environment names/values/buffers, full-table recovery, private spawn snapshots, child exec preservation, failed-exec retention and cleanup.',
             'PASS: both pipeline environments inherited privately and survived exec with binary streams.',
             'PASS: concurrent root environments remain private across yields and sleeps.',
-            'env | getenv <name> | setenv <name> <value> | unsetenv <name>',
+            'env | getenv NAME | setenv NAME VALUE | unsetenv NAME',
             'PATH=/data/bin:/boot','HOME=/home/user','TERM=serial','user:/home/user$',
             'hello from environment','MESSAGE=hello from environment','data-only-path','search-order','local-before-boot',
             'skipped-relative-components','user:/etc$','exec-kept','fresh-session',
@@ -123,7 +330,7 @@ if ($Exec) {
             'process=2 path=/boot/EXECCHK.ELF state=exited code=0',
             'PASS: pipelines binary FIFO/EOF, blocking/wakeup, reuse, invalid setup, broken pipe, faults/timeouts and cleanup.',
             'PASS: spawn/wait args, inherited private cwd, handle isolation, stale IDs, slot reuse, fault/timeout and child cleanup.',
-            'exec <program> [args]: replaces this shell','/data/bin:/boot','lookup ok ',
+            'run|exec PROGRAM [args]','/data/bin:/boot','lookup ok ',
             'shell: exec failed; current shell retained','shell-survived-exec',
             'a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654',
             'stored-precedence','exact-name','quoted value ','before-reboot','shell-replaced',
@@ -638,7 +845,7 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
         'PASS: EL0 mutation bounds, atomic replacement, leases, read-only boot and cwd protection.',
         'PASS: noninteractive process cannot consume serial input.','OurOS EL0 shell.',
         'user:/tmp/shelltest$','long original tail','f 1 note','shell: operation failed',
-        'shell: invalid quoting or too many words','shell: input rejected; command not executed','edit-ok','cleared',
+        'shell: invalid quoting, expansion or argument bounds','shell: input rejected; command not executed','edit-ok','cleared',
         'PASS: terminal pointer/capacity checks and blocking line delivery.',
         'path=/boot/TTYCHK.ELF state=cancelled code=130','path=/boot/SPIN.ELF state=cancelled code=130',
         'path=/boot/TTYCHK.ELF state=timeout code=124','path=/boot/SPIN.ELF state=cancelled code=75',

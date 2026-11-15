@@ -1,75 +1,35 @@
 # Remaining operating-system work
 
-The Pi now verifies the kernel boot path, serial console, physical memory and
-heap, identity MMU protection, exception return, timer interrupts, cooperative
-tasks, owned file handles and task file I/O. USB2 BOT reads/FAT mounting and the
-WCE=0 data mount/write/read/sync path have hardware evidence. The latest task
-capture is [pi5-file-task-io-verified-2026-11-13.txt](../proofs/pi5-file-task-io-verified-2026-11-13.txt).
-Earlier networking captures verify WPA3 association, DHCP, DNS and Internet
-ping. Each of these claims has a specific scope; none establishes a complete
-desktop operating system.
+Current state: **an early single-core OS with protected EL0 applications, a
+serial shell and bounded persistent storage**. The MMU, exceptions, GIC/timer
+IRQs, cooperative kernel tasks, preempted user programs, USB writes, ELF loading
+and checked system calls are implemented and have Pi evidence.
 
-The new [application phase](user-applications.md) implements a bounded static
-ELF loader, private EL0 mappings, checked system calls, an original user runtime,
-timer-preempted foreground batches and a small verified executable installer.
-It is the foundation for broader applications. The available physical setup
-currently has only a serial console. The [Pi EL0 capture](../proofs/pi5-el0-applications-2026-11-13.txt)
-now passes execution, protection, preemption and local installation. The next
-[user-tools phase](user-tools.md) adds arguments, private cwd, directory queries
-and sleeping processes; its [Pi acceptance also passes](../proofs/pi5-user-tools-2026-11-13.txt).
-The current [interactive EL0 shell](user-shell.md) adds terminal input and
-filesystem builtins. [Physical shell acceptance now passes](../proofs/pi5-user-shell-2026-11-13.txt).
-The [file tools](file-tools.md) add binary copy, SHA-256 and sync;
-[physical acceptance now passes](../proofs/pi5-file-tools-2026-11-14.txt).
-The [current foreground program stage](shell-programs.md) adds bounded child
-spawn/wait and shell run/status; the [latest Pi capture](../proofs/pi5-shell-programs-2026-11-14.txt)
-passes SPAWNCHK/TTYPAR, normal launches and timeout cleanup. The current
-[file-stream stage](stdio.md) adds runio and binary stdin/stdout; IOCHK and file
-capture/copy/cleanup now pass in the [Pi capture](../proofs/pi5-stdio-2026-11-14.txt).
-The current [two-stage pipeline stage](pipelines.md) adds bounded concurrent
-FIFO IPC and named path errors; [physical pipe acceptance now passes](../proofs/pi5-pipelines-2026-11-14.txt).
-The current [v2 capacity stage](data-v2.md) adds 16 flat files up to 8192 bytes,
-installed-shell support and kernel/user prompt hints; capacity now passes physically.
-The first physical v2 test hit a USB transport error. The
-[storage reliability stage](usb-storage-reliability.md) fixes a reproduced lifetime
-stall-recovery cutoff and adds reusable command/control rings and retained update
-diagnostics. The [new capture](../proofs/pi5-usb-v2-capacity-2026-11-15.txt) passes
-capacity and 152 stall recoveries with USB online. Installed-shell and actual
-power-cycle evidence remain pending. The next [backup/restore stage](data-backup-restore.md)
-adds serial export, host conversion and validated empty-target restore; its new
-physical acceptance is pending.
-The [latest Pi excerpt](../proofs/pi5-data-restore-2026-11-15.txt) now verifies
-demo restore, file sizes and text readback. New [file rename/stat](file-rename.md)
-adds no-overwrite same-filesystem file moves, a checked EL0 call and metadata
-commands without changing v1/v2 disk formats. Physical acceptance is pending.
-The [latest capture](../proofs/pi5-file-rename-2026-11-15.txt) now passes MVCHK.
-The new [v3 directory phase](persistent-directories.md) adds nested persistent
-paths and explicit backup migration.
-The [new Pi run](../proofs/pi5-persistent-directories-2026-11-15.txt) now passes
-DIRCHK. A real reboot, nested installed ELF execution and serial export still
-need their own physical captures.
-General process trees/jobs, storage/recovery, packages
-and hardware/UI remain outstanding.
-The new [atomic update phase](atomic-file-updates.md) adds single-file
-publication and validated local executable updates. Multi-file installation,
-package authenticity and durable version history remain separate work.
-The next [application exec phase](application-exec.md) now adds staged image
-replacement, preserved process/file identity and fixed program lookup. It keeps
-the existing three-slot, foreground and direct-child limits.
-The [new Pi capture](../proofs/pi5-exec-lookup-2026-11-15.txt) now verifies
-HELLO lookup and shell exec to ECHO with cleanup. The current
-[environment phase](application-environment.md) adds private inherited
-variables and configurable PATH/HOME; persistent profiles remain later work.
+The [latest Pi capture](../proofs/pi5-user-allocator-2026-11-15.txt) now passes
+HEAPCHK and HEAPDEMO with exit 0, no remaining private pages and restored
+resources. This accepts the default byte-allocation checks on real hardware.
+The [status checklist](os-status.md) links the earlier protection, scheduling,
+storage, shell and networking evidence.
+
+Remaining work extends these foundations. It does not restart interrupts,
+multitasking or writable storage from zero. Each table below separates what
+exists from the missing capability. A passing same-boot file test is not yet
+a physical power-loss recovery or reboot-persistence test.
+
+The new [process-control phase](process-control.md) implements process snapshots,
+nonblocking child polling and parent-only cancellation, with a PS viewer and
+bounded interactive demo. A53/EL1 and A76/EL2 acceptance passes; Pi acceptance
+is pending. General shell background jobs and indefinite services are still work.
 
 ## Applications and multitasking
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Scheduling | Cooperative EL1 tasks; timer-preempted EL0 batches; sleep/wake, blocked terminal input and direct-child spawn/wait with Pi evidence | Broader physical lifecycle tests, process trees, longer-lived jobs, broader blocking I/O, priorities, fairness/soak tests and background services |
-| Process memory | Private bounded user image/stack pages, kernel-only mappings, RX/RO/RW and NX permissions | Dynamic mappings, larger address spaces, memory accounting, copy-on-write if needed and robust OOM policy |
+| Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/input/spawn/wait with Pi evidence; new snapshots, nonblocking child poll and parent-only cancellation | Pi process-control/broader lifecycle tests, process trees, shell background jobs, blocking I/O, priorities, fairness and background services |
+| Process memory | Private image/stack pages, kernel-only mappings, W^X, bounded dynamic RW/NX pages with quota/rollback/cleanup; Pi page/byte allocator examples pass | Broader Pi lifecycle/concurrent checks, larger VM, shared/file mappings, copy-on-write if needed and broader OOM policy |
 | Exceptions | Kernel diagnostics and new contained EL0 faults/timeouts | Rich per-process reporting, debugging, signals or another application fault policy |
 | System calls | Checked files/console/time/args/cwd/sleep/mutations/spawn/wait/file streams; new two-stage PIPE_RUN | ABI evolution, general descriptors/IPC, longer pipes, sockets and broader blocking I/O |
-| Executables | Static AArch64 ELF subset, 44 sample/test ELFs, shell/file tools/streams/pipes, Pi MVCHK/DIRCHK/exec lookup, atomic updates and private environments | Pi environment/broader exec/update validation, stored-shell persistence, larger files, persistent profiles, job control and broader toolchain tests |
+| Executables | Static AArch64 ELF subset, 50 sample/test ELFs, shell/file tools/streams/pipes/profiles and new PS; Pi memory/profile/exec/allocator examples pass | Pi PS/broader exec/update validation, stored-shell persistence, larger files, general scripts, job control and broader toolchain tests |
 | Concurrency | Single active CPU; syscalls/drivers complete synchronously | Preemptive kernel synchronization, IRQ-safe driver queues, SMP startup/locking and multicore scheduling |
 
 Acceptance should keep checking resource restoration, failure containment and
@@ -131,14 +91,26 @@ USB classes or topologies are supported.
 
 ## Work order and evidence
 
-1. Verify v3 directories and nested installed-shell execution on the Pi; separately
-   capture a real reboot that runs an installed executable without reflashing.
-2. Grow application ABI/process lifecycle and persistent filesystem/recovery
-   together, preserving ownership and failure isolation.
-3. Add local display and USB HID incrementally when those devices can be tested;
-   keep serial as the diagnostic path.
-4. Add package metadata, authenticated transport/repositories and transactional
-   installation once the underlying runtime, storage and network paths support it.
+1. **Current: process control; next: bounded shell jobs.** Snapshot/poll/cancel
+   and PS.ELF are implemented and pass local ownership, pointer, terminal and
+   lifecycle acceptance. After this foundation, add bounded shell background
+   jobs and broader process lifecycles. Preserve resource/terminal ownership;
+   general process trees and indefinite services are not implemented yet.
+2. Extend storage capacity, the VFS and startup/mount policy; strengthen backup,
+   recovery and updates without losing user data. Separate physical reboot,
+   power-cut and installed-shell evidence from existing DIRCHK and write tests.
+3. Build background network handling and renewal/rekey/reconnect, then sockets,
+   TCP and HTTP/TLS. Existing DNS/ICMP tests do not provide Internet downloads.
+4. Grow the application runtime, shell scripts and tools, followed by package
+   metadata, authenticity/dependencies, installer transactions and rollback.
+5. Add display and USB HID incrementally when those devices can be tested;
+   keep serial as the diagnostic path. GPU/audio are later capabilities.
+6. Add platform shutdown/reboot, watchdog/RTC/thermal management and selected
+   peripherals, then SMP, synchronization, hardening and additional board ports.
+
+Open physical checks are evidence gaps, not a requirement to repeat every
+accepted test before progressing. The process-control phase has a new kernel
+and PS.ELF, plus a scoped boot-file update to preserve the preceding /data volume.
 
 The complete feature/driver status remains in [os-status.md](os-status.md).
 Native tests establish bounded parsing/mapping behavior, emulators establish

@@ -1,5 +1,12 @@
 # Real Raspberry Pi 5 proof
 
+The latest [byte-allocator capture](pi5-user-allocator-2026-11-15.txt) passes
+HEAPCHK and HEAPDEMO with code 0, zero live pages and restored resources.
+Its scope is these two runs. The earlier
+[dynamic-page capture](pi5-user-memory-2026-11-15.txt) passes MEMCHK and MEMDEMO.
+The [current status](../docs/os-status.md) links earlier MMU, timer, process,
+filesystem and networking evidence and tracks the remaining implementation.
+
 Original PuTTY screenshots supplied by the project author on 8 November 2026.
 They are preserved unchanged and displayed in the main README.
 

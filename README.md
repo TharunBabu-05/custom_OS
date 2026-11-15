@@ -24,11 +24,21 @@
 
 <h1 align="center">The kernel is on the board.</h1>
 
-Current development: [private application environments](docs/application-environment.md).
-Applications inherit private variables across spawn and retain them across
-exec; the shell now supports configurable `PATH` and `HOME`. The preceding
-[exec/lookup phase](docs/application-exec.md) passes its Pi HELLO and shell
-replacement example, with resources restored.
+Current development: [process control](docs/process-control.md).
+The new PS application lists the active batch, polls owned children and
+demonstrates cancellation/reaping while its parent stays interactive.
+This phase needs the new kernel; a
+[boot-update ZIP](build/rpi5-header/OurOS-process-control-boot-update.zip)
+updates OUROS.IMG and PS.ELF on the preceding installation without reflashing
+or replacing `/data`. New process-control hardware acceptance is pending.
+The latest Pi captures pass MEMCHK, MEMDEMO, HEAPCHK and HEAPDEMO with
+resources restored.
+
+Project state: an early single-core OS with protected user applications, a
+serial shell and bounded persistent storage. MMU protection, GIC/timer IRQs,
+EL0 multitasking, USB writes and WPA3/DNS/Internet ping have Pi evidence.
+See the [current status and driver checklist](docs/os-status.md) and
+[remaining implementation order](docs/remaining-os-roadmap.md).
 
 <p align="center">
   <strong>An original operating-system kernel, written in C and AArch64 assembly.</strong><br />

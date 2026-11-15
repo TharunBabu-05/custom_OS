@@ -1,0 +1,28 @@
+User-provided Pi 5 serial excerpt, recorded 2026-11-15.
+Kernel image 438004 bytes, rpi5-header, entered EL2/running EL1.
+USB SanDisk Cruzer Blade VID=0781/PID=5567 mounted /boot read-only and
+snapshot v3 /data, generation 1. MMU/GIC/timer setup succeeded.
+Relevant shell excerpt follows exactly; the first two lines lack closing quotes.
+
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ setenv MESSAGE "hello from OurOS
+shell: invalid quoting or too many words
+user:/$ setenv MESSAGE "hello from OurOS
+shell: invalid quoting or too many words
+user:/$ setenv MESSAGE "hello from OurOS"
+user:/$ getenv MESSAGE
+hello from OurOS
+user:/$ exec env MESSAGE
+hello from OurOS
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=3383 terminal=yes budget_seconds=300 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/env.elf state=exited code=0 syscalls=44 dispatches=10 sleeps=0 wakes=0 input_lines=5 execs=1
+App resources restored; monitor ready.
+>
+
+Verified scope: unterminated quoted commands were rejected; a correctly quoted
+value was set/read, survived exec to ENV.ELF and was printed again. Exit code
+0, execs=1 and resource restoration are shown. This does not establish ENVCHK,
+spawn/pipeline environment isolation, persistent profiles or shell expansion.

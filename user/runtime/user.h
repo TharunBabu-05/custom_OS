@@ -65,6 +65,20 @@ static inline int64_t uos_unsetenv(const char *name)
 { return uos_call(UOS_SYS_ENV_UNSET,(uintptr_t)name,uos_length(name),0,0,0,0); }
 static inline int64_t uos_env_entry(unsigned index,struct app_env_entry *entry)
 { return uos_call(UOS_SYS_ENV_ENTRY,index,(uintptr_t)entry,0,0,0,0); }
+static inline int64_t uos_profile(unsigned action,const char *path)
+{ return uos_call(UOS_SYS_ENV_PROFILE,action,(uintptr_t)path,uos_length(path),0,0,0); }
+/* 1..16 zeroed 4096-byte pages; result is an address or a negative error. */
+static inline int64_t uos_alloc_pages(unsigned pages) { return uos_call(UOS_SYS_ALLOC_PAGES,pages,0,0,0,0,0); }
+static inline int64_t uos_free_pages(void *base) { return uos_call(UOS_SYS_FREE_PAGES,(uintptr_t)base,0,0,0,0,0); }
+static inline int64_t uos_memory_info(struct uos_memory_info *out) { return uos_call(UOS_SYS_MEMORY_INFO,(uintptr_t)out,0,0,0,0,0); }
+static inline int64_t uos_processes(struct uos_process_table *out)
+{ return uos_call(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out),0,0,0,0); }
+/* Poll/cancel never reap. Only a live direct-child relation grants authority;
+ * finished children remain queryable until ordinary wait collects them. */
+static inline int64_t uos_child_poll(uint64_t pid,struct uos_child_info *out)
+{ return uos_call(UOS_SYS_CHILD_POLL,pid,(uintptr_t)out,0,0,0,0); }
+static inline int64_t uos_child_cancel(uint64_t pid)
+{ return uos_call(UOS_SYS_CHILD_CANCEL,pid,0,0,0,0,0); }
 static inline int64_t uos_spawn_io(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
 { return uos_call(UOS_SYS_SPAWN_IO,(uintptr_t)args,seconds,(uintptr_t)io,0,0,0); }
 /* Binary file stdin only; terminal input uses readline. Up to 512 bytes/call. */

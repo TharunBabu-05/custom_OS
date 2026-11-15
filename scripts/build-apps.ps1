@@ -14,22 +14,48 @@ try {
         '-mcpu=cortex-a53','-Iinclude','-Iuser/runtime')
     Invoke-Tool gcc @('-mcpu=cortex-a53','-c','user/runtime/start.S','-o',"$out/start.o")
     Invoke-Tool gcc ($flags+@('-c','user/runtime/memory.c','-o',"$out/memory.o"))
+    Invoke-Tool gcc ($flags+@('-c','user/runtime/allocator.c','-o',"$out/allocator.o"))
+    Invoke-Tool gcc ($flags+@('-c','user/runtime/allocator_svc.c','-o',"$out/allocator-svc.o"))
     Invoke-Tool gcc ($flags+@('-c','kernel/process/app_args.c','-o',"$out/app_args.o"))
+    # Optimize the growing shell across its parser boundary while preserving
+    # the existing 8192-byte executable/storage bound and ordinary app builds.
+    Invoke-Tool gcc ($flags+@('-flto','-c','kernel/process/app_args.c','-o',"$out/app_args-shell.o"))
     Invoke-Tool gcc ($flags+@('-c','lib/sha256.c','-o',"$out/sha256.o"))
-    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw','stream','hash','pipechk','datacap','datagen','mvchk','dirchk','replchk','exec','execchk','env','envchk','envrace')) {
+    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw','stream','hash','pipechk','datacap','datagen','mvchk','dirchk','replchk','exec','execchk','env','envchk','envrace','profchk','memchk','memdemo','heapchk','heapdemo','ps')) {
         $name=$app.ToUpperInvariant()
-        Invoke-Tool gcc ($flags+@('-c',"user/applications/$app.c",'-o',"$out/$app.o"))
-        $extra=if ($app -eq 'shell') { @("$out/app_args.o") } else { @() }
+        $appFlags=if ($app -eq 'shell') { $flags+@('-flto') } else { $flags }
+        Invoke-Tool gcc ($appFlags+@('-c',"user/applications/$app.c",'-o',"$out/$app.o"))
+        $extra=if ($app -eq 'shell') { @("$out/app_args-shell.o") } else { @() }
         if ($app -eq 'hash') { $extra+=@("$out/sha256.o") }
-        $limit=if ($app -in @('shell','envchk')) { 8192 } else { 4096 }
-        Invoke-Tool ld (@('--build-id=none','--no-undefined','--gc-sections','-z','max-page-size=4096',
+        if ($app -in @('heapchk','heapdemo')) { $extra+=@("$out/allocator.o","$out/allocator-svc.o") }
+        $limit=if ($app -eq 'heapchk') { 16384 } elseif ($app -in @('shell','envchk','memchk','heapdemo','ps')) { 8192 } else { 4096 }
+        if ($app -eq 'shell') {
+            Invoke-Tool gcc (@('-flto','-Os','-nostdlib','-fno-pie','-Wl,--build-id=none','-Wl,--no-undefined','-Wl,--gc-sections',
+                '-Wl,-z,max-page-size=4096',"-Wl,--defsym=__app_max_bytes=$limit",'-T','user/runtime/user.ld',
+                "-Wl,-Map=$out/$name.map",'-o',"$out/$name.ELF","$out/start.o","$out/$app.o","$out/memory.o")+$extra)
+        } else { Invoke-Tool ld (@('--build-id=none','--no-undefined','--gc-sections','-z','max-page-size=4096',
             "--defsym=__app_max_bytes=$limit",
-            '-T','user/runtime/user.ld',"-Map=$out/$name.map",'-o',"$out/$name.ELF","$out/start.o","$out/$app.o","$out/memory.o")+$extra)
+            '-T','user/runtime/user.ld',"-Map=$out/$name.map",'-o',"$out/$name.ELF","$out/start.o","$out/$app.o","$out/memory.o")+$extra) }
         $undefined=Invoke-Tool nm @('-u',"$out/$name.ELF")
         # Preserve the actual executable only. Symbol/section metadata is not
         # needed by the bounded loader. Small programs fit /data; the expanded
         # shell may use two image pages and fits v2/v3 persistent files.
         Invoke-Tool strip @('--strip-all',"$out/$name.ELF")
+        if ($app -eq 'shell') {
+            # The loader needs the ELF/program headers and sole LOAD segment.
+            # Keep a disassembly, then remove unused section-table metadata so
+            # the actual stored executable fits the same 8 KiB file limit.
+            Invoke-Tool objdump @('-d',"$out/$name.ELF") | Set-Content -Encoding ASCII "$out/$name.disassembly.txt"
+            $minimal=[IO.File]::ReadAllBytes((Join-Path $ProjectRoot "$out/$name.ELF"))
+            $programAt=[int][BitConverter]::ToUInt64($minimal,32)
+            if ($programAt -lt 64 -or $programAt+56 -gt $minimal.Length -or [BitConverter]::ToUInt16($minimal,56) -ne 1 -or
+                [BitConverter]::ToUInt32($minimal,$programAt) -ne 1 -or [BitConverter]::ToUInt64($minimal,$programAt+8) -ne 0) { throw 'Unexpected shell LOAD layout' }
+            $storedBytes=[int][BitConverter]::ToUInt64($minimal,$programAt+32)
+            if ($storedBytes -lt $programAt+56 -or $storedBytes -gt $limit -or $storedBytes -gt $minimal.Length) { throw 'Invalid shell LOAD extent' }
+            foreach ($index in (40..47)+(58..63)) { $minimal[$index]=0 }
+            [byte[]]$compact=New-Object byte[] $storedBytes;[Array]::Copy($minimal,$compact,$storedBytes)
+            [IO.File]::WriteAllBytes((Join-Path $ProjectRoot "$out/$name.ELF"),$compact)
+        }
         $headers=Invoke-Tool readelf @('-h','-l','-d',"$out/$name.ELF")
         $headers | Set-Content -Encoding ASCII "$out/$name.readelf.txt"
         $text=$headers -join "`n"
@@ -44,7 +70,7 @@ try {
             [BitConverter]::ToUInt32($bytes,[int]$phoff+4) -ne 5 -or
             [BitConverter]::ToUInt64($bytes,[int]$phoff+8) -ne 0 -or
             [BitConverter]::ToUInt64($bytes,[int]$phoff+16) -ne 0x2000000000L) { throw "$name unexpected LOAD geometry" }
-        Invoke-Tool objdump @('-d',"$out/$name.ELF") | Set-Content -Encoding ASCII "$out/$name.disassembly.txt"
+        if ($app -ne 'shell') { Invoke-Tool objdump @('-d',"$out/$name.ELF") | Set-Content -Encoding ASCII "$out/$name.disassembly.txt" }
         Write-Output "PASS: $name.ELF AArch64 freestanding RX-only user executable, $($bytes.Length) bytes."
     }
 } finally { Pop-Location }

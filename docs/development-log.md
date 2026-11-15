@@ -1,5 +1,204 @@
 # Development log
 
+## 2026-11-15 - Process snapshots and owned-child control
+
+- Added calls 40..42: PROCESSES, CHILD_POLL and CHILD_CANCEL, plus ECHILD=-14.
+  The original calls remain compatible. One zero-filled 952-byte snapshot
+  contains version/count/caller and up to three 312-byte entries; poll uses
+  a 24-byte result. Public state/counters/path are copied, not kernel addresses,
+  args/cwd/environment/credentials. Whole writable destinations are checked
+  before copying; no partial output on pointer/range rejection.
+- Authority requires the current direct-parent relation and exact monotonic
+  PID, not a slot number. Poll/cancel never reap. Live cancellation records
+  130; completed normal/fault/exec/timeout results are retained. Repeated calls
+  work until wait collects once, after which stale IDs return ECHILD. Kept
+  existing one-child-per-root, pipeline, foreground deadlines and CPU bounds.
+- Added PS.ELF (7776 bytes): viewer, check mode and interactive one-child demo.
+  Parents can remain in readline while their child runs; stop cancels/waits,
+  start demonstrates reuse, and parent exit/Ctrl+C/timeout reclaims children.
+  The single new executable keeps the existing four-cluster FAT root bound
+  and fits v2/v3 installation limits. SHELL.ELF remains unchanged at 8094 bytes.
+- New QEMU A53/EL1 and A76/EL2 acceptance passes malformed/readonly/freed/
+  guard-crossing outputs, zeroed metadata, pending polling, parent-only control,
+  stale IDs, lease retention/release, preserved outcomes and three-slot sibling
+  refusal. Also passes three viewers, cancelled pending child input and later
+  terminal handoff, orphan/parent cancellation/deadline cleanup, streams and
+  persistent output plus installed PS after a fresh emulator boot.
+- Corrected a test expectation: a timer can dispatch the child before its
+  parent enters wait, so ready and wait-child are both valid parent states.
+  The revised assertion verifies the actual PID relationship; persistent
+  snapshot readback is compared byte-for-byte across emulator boots.
+- Original application/tools regressions pass both profiles. All 50 delivered
+  ELFs, 25000 loader mutations and eight image corruption/profile rejections
+  pass. Handles/PMM/kernel-heap restore, delivery and boot/unused sectors remain
+  unchanged. New Pi process-control acceptance remains pending.
+- Built the 134217728-byte full IMG and verified 891092-byte full-image ZIP.
+  Image SHA256 656b6f0d0889b6cbe6833e485debab1acb0829d4a9276a06a84ea802ea6aea5f.
+  Kernel stays 446196 bytes and reserved end 0x1d0000, but new kernel SHA256 is
+  af25f87a94a7f188c16255fc5c2c01eb2e074f49af381da3f03c4487d308e8de.
+  Previous a9e8199d... image remains archived flat in image_files.
+- Added a 212904-byte boot-update ZIP with OUROS.IMG and PS.ELF. Exact entries,
+  extracted hashes and agreement with the full-image manifest are verified.
+  It records the prior kernel hash for a scoped PC-copy update that preserves
+  CONFIG.TXT, PI5.DTB, firmware and /data. No on-device updater/atomicity claim.
+  Logs: build/phase-proc-*.log; guide: docs/process-control.md.
+- After every emulator session finished, removed 153 known generated files
+  (1075993833 bytes), including scratch images and packaging/test directories.
+  Current payloads, logs and image history remain. No physical device was
+  written and no Git commit or push was made.
+
+## 2026-11-15 - Pi byte-allocator acceptance and current-state audit
+
+- Recorded proofs/pi5-user-allocator-2026-11-15.txt unchanged from the supplied
+  capture. HEAPCHK passes, exit 0, peak 16 pages, 12 backing-run allocations
+  and 12 frees, live pages 0 and restored resources. HEAPDEMO passes, peak 4
+  pages, three backing-run allocations/frees and no live pages at teardown.
+  The trailing backslash on the first storageinit attempt caused the expected
+  unknown-command reply; the corrected command and application tests succeed.
+- Accepted these two default allocator paths on Pi. Parent-mode, concurrent
+  allocators and physical persistence are not demonstrated by this capture.
+- Audited the older feature table against recorded MMU, timer/GIC, EL0,
+  USB-write, filesystem, shell and networking proofs. Replaced stale pending
+  labels in os-status/remaining-os-roadmap and linked the latest acceptance
+  from README and the phase guide. Current state: early single-core OS with
+  protected user applications, serial shell and bounded persistent storage.
+- Next implementation priority is process control/status/cancellation before
+  broader jobs and background services, followed by storage/system services,
+  network services, userland/packages and local hardware/platform work.
+  This turn updates evidence/status documents; binaries and image formats
+  are unchanged. No hardware tests need repeating for this documentation work.
+
+## 2026-11-15 - User-space byte allocator and application-only update
+
+- Recorded proofs/pi5-user-memory-2026-11-15.txt. Single-process MEMCHK passes
+  on Pi, exit 0, 20 allocations/frees, live pages 0 and resources restored.
+  MEMDEMO checks its 16 KiB buffer and exits 0. No physical three-process,
+  fault/exec/timeout, or reboot claim follows from this capture.
+- Added an explicit-context user allocator over unchanged calls 37..39:
+  uos_malloc/calloc/realloc/free and stats/destroy. Small 16..2048-byte size
+  classes share pages; larger objects use page runs. Returned pointers are
+  16-byte aligned and zeroed; limit 64 objects/16 groups, under the existing
+  per-process 16-page quota. No writable ELF globals or kernel ABI change.
+- In-place resize clears growth/truncated tails. Moving resize reserves before
+  releasing, preserving the old object on failure. Invalid/interior/foreign/
+  immediate double frees refuse; last-object release precedes metadata removal.
+  Failed rollback remains tracked/poisoned for destroy retry. Freed small
+  slots can stay mapped and reused pointer values are not generation tokens.
+- Native tests pass 6000 independent model operations with live-byte/count/
+  nonoverlap checks, limits/overflow and injected allocation/release/rollback
+  failures. Added HEAPCHK.ELF (6416 bytes) and HEAPDEMO.ELF (3680 bytes).
+- QEMU A53/EL1 and A76/EL2 pass three simultaneous PID-pattern checks, child
+  exit/exec/fault/timeout cleanup, failed exec, Ctrl+C, use-after-free and NX
+  faults. Pipes, redirected hashed persistent output and installed HEAPDEMO
+  after a fresh emulator boot pass. Handles/PMM/kernel-heap restore; delivery,
+  boot and unused sectors are unchanged. All 49 ELFs, 25000 loader mutations
+  and eight image corruption/profile rejection cases also pass.
+- Added an 8223-byte application-only ZIP with exact-entry/extracted-hash
+  verification. Copy its two ELFs to the existing FAT boot volume to test
+  without reflashing or replacing /data. The packager checks the raw kernel
+  is identical to the hardware-tested MEMCHK stage, SHA256
+  72852aa77b033b9f6330b0f93a8f9dbcbff8d9c864568db792d51d3946813065.
+- Built the 134217728-byte full IMG and verified 885237-byte full-image ZIP.
+  Image SHA256 a9e8199de534f8dcf4d44c67d576883719608e74128152fbc4cbf5c2152e246d.
+  Kernel stays 446196 bytes, reserved end 0x1d0000; shell stays 8094 bytes.
+  Previous d45b5d37... image remains archived flat in image_files. New Pi
+  byte-allocator acceptance is pending. Logs: build/phase-ualloc-*.log.
+- After all emulator sessions finished, removed 249 known generated files
+  (675683290 bytes), including scratch disks and packaging/check directories.
+  Current artifacts, logs and earlier images remain. No physical device was
+  written and no Git commit or push was made.
+
+## 2026-11-15 - Private dynamic application pages
+
+- Recorded proofs/pi5-session-profile-2026-11-15.txt: variable expansion,
+  profile save, first shell exit with resources restored, and automatic
+  loading/value readback in a new shell session on the same boot. No physical
+  power-cycle claim; new dynamic-memory acceptance remains pending.
+- Added a separate sixteen-page/64 KiB EL0 RW/NX arena with unmapped boundary
+  guards. Extended private-table construction/walking to dynamic pages, with
+  RW-only data/stack permissions and unchanged static image/stack limits.
+- Appended ALLOC_PAGES/FREE_PAGES/MEMORY_INFO=37..39 and ENOMEM=-13. Allocation
+  returns zeroed contiguous virtual runs; free requires a live allocation base.
+  Invalid/interior/immediate double frees and out-of-range requests refuse
+  mutation. Quota/fragmentation/PMM failure preserves the old mappings/data.
+- Added a tested mapping/allocation transaction manager. Kernel table updates
+  are prepared separately while the user root is inactive; publication and
+  the existing barriers/TLB switch precede return to EL0. Failed releases
+  retain unreleased pages for owner cleanup and mark an internal process fault,
+  with cleanup failures reported rather than claiming restoration.
+- Spawn gets no parent heap; successful exec frees it while retaining the
+  prior PID/cwd/env/handle contract. Failed exec retains it. Exit/fault/timeout/
+  Ctrl+C reclaim leaked pages. Added per-process live/peak/allocation/free-call
+  counters, with cumulative stats following identity across exec.
+- Native tests pass 136 partial allocation failures, 32 table publication
+  failures, release-failure cleanup, all twelve expansion failures alongside
+  existing data, fragmentation/reuse and 3000 ownership-model operations with
+  every live byte checked. Native MMU tests pass all dynamic descriptors,
+  exact permissions, guard addresses and corrupted executable-heap rejection.
+- Added MEMCHK.ELF and MEMDEMO.ELF. QEMU A53/EL1 and A76/EL2 pass zero/quota/
+  reuse, three-process isolation at identical VAs, cross-page syscall buffers,
+  stale unmapped-buffer rejection, NX/lower/upper guard contained faults,
+  leaked-child cleanup, exec/failure preservation, timeouts and cancellation.
+  Pipes, redirected hashed file output and installed-app fresh-boot execution
+  pass; handles and PMM/kernel-heap counts restore. Only scratch data banks
+  change; delivery image/boot/unused sectors remain unchanged.
+- The original application/MMU/tools regression passes both profiles, as do
+  all 47 delivered ELFs, 25000 ELF parser mutations and eight image corruption/
+  profile checks. Logs: build/phase-usermem-*.log.
+- Built the 134217728-byte IMG and verified 880646-byte full-image ZIP.
+  SHA256 d45b5d37bd6d61bc7069ea9560f1ffc59256eb25447b1b7079a5e22b4b87150e.
+  Kernel 446196 bytes, reserved end 0x1d0000; shell 8094; MEMCHK 4408; MEMDEMO
+  1160. Earlier profile image 54968f0c... remains archived. Generated scratch
+  disks cleaned; no physical device written and no Git commit or push.
+
+## 2026-11-15 - Shell expansion and persistent session profiles
+
+- Recorded proofs/pi5-environment-exec-2026-11-15.txt: unterminated quoting
+  correctly refused, then a quoted value set/read and retained across exec
+  to ENV.ELF, exit 0/execs=1/resources restored. Earlier checks are accepted;
+  new profile/expansion hardware acceptance remains pending.
+- Added a shell-only expansion path for $NAME, ${NAME} and $?. Single quotes
+  and escapes keep literals; inserted values are not recursively parsed or
+  split into fields. Unset values become empty words. Existing raw monitor
+  argv parsing stays literal. Invalid quoting/expansion or expanded bounds
+  refuses the whole command. Shell statuses now cover builtin failures and
+  successful commands as well as child/pipe exit codes.
+- Added a pure OUROSENV1 profile codec: eight variables, LF/CRLF decode,
+  canonical LF encode, maximum 1290-byte output, 1536-byte input bound. Rejects
+  duplicate/bad names, controls/NUL, unsupported headers, partial lines and
+  overflow before publishing any environment changes. Profiles are data only.
+- Appended ENV_PROFILE=36/uos_profile. Save is /data-only, one existing
+  snapshot commit with sync and full readback; load accepts a readable regular
+  file, respects leases and validates everything before whole-set replacement.
+  Formats v1/v2/v3 and existing file bounds remain unchanged.
+- Shell profile save/load defaults to /data/session.env. Startup loads it if
+  present; corrupt data retains the original environment, missing/unmounted
+  profiles are skipped. --noprofile permits explicit recovery. No profile is
+  automatically executed as commands, and cwd is not saved.
+- Kept SHELL.ELF below the 8192-byte stored-file limit through shell/parser LTO
+  and removing unused section metadata after saving disassembly. ELF/program
+  headers, actual LOAD bytes, size assertions and loader checks remain.
+  Actual compact ELF executes from /data and after cold emulator boot.
+- Native argv tests pass 20000 mutations on each raw/expanded path plus exact
+  512-byte boundary cases. Codec tests pass full/empty/capacity/CRLF/rollback
+  checks and 15000 mutated/truncated profiles. Added PROFCHK.ELF real syscall
+  tests for persistence, full-set replacement, leases, malformed inputs and
+  pointer validation; temporary files removed on success.
+- QEMU A53/EL1 and A76/EL2 pass PROFCHK, ENVCHK, expansion/status/refusal checks,
+  automatic/manual/invalid/recovery profile loads, installed shell execution
+  and profile readback after fresh emulator boot. Legacy v1/v2 profile/reboot
+  tests pass without conversion. The earlier -Exec acceptance also passes both
+  profiles against this kernel/shell, including three occupied slots, PID/file
+  cursors, timeouts/faults, pipelines and redirected binary streams.
+- All 45 delivered ELFs, 25000 ELF parser mutations and eight image corruption/
+  profile checks pass. Delivery image, boot/unused sectors and resource counts
+  remain unchanged in tests. Logs: build/phase-profile-*.log.
+- Built 134217728-byte full IMG and verified 877291-byte full-image ZIP.
+  SHA256 54968f0cd435452331635859622b8259a7283a8a69c0e464ce68a366a72ee5cc.
+  Kernel 442100 bytes, reserved end 0x1cb000; shell 8094; PROFCHK 3328.
+  Previous e3692174... image remains archived with its full hash rechecked.
+  Generated scratch files cleaned; no physical device written and no Git push.
+
 ## 2026-11-15 - Private process environments and configurable PATH/HOME
 
 - Recorded proofs/pi5-exec-lookup-2026-11-15.txt: bare HELLO lookup, default

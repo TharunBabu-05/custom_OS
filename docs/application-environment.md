@@ -1,5 +1,10 @@
 # Private application environments and configurable program lookup
 
+The [new Pi capture](../proofs/pi5-environment-exec-2026-11-15.txt) now verifies
+setenv/getenv and exec preservation with resources restored. The current
+phase adds [shell expansion and persistent profiles](session-profiles.md).
+The limits and delivery figures below describe the environment-stage release.
+
 The Pi's [new exec/lookup capture](../proofs/pi5-exec-lookup-2026-11-15.txt)
 verifies bare `hello`, the default path, and shell image replacement with ECHO,
 code 0, `execs=1` and resource restoration. The earlier hardware checks are

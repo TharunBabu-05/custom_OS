@@ -1,6 +1,8 @@
 # Interactive EL0 serial shell
 
 **Update:** [Physical shell acceptance passes](../proofs/pi5-user-shell-2026-11-13.txt).
+The current [session-profile phase](session-profiles.md) adds `$NAME`/`${NAME}`/
+`$?` expansion, saved data-only settings, automatic loading and `--noprofile`.
 The current [environment phase](application-environment.md) adds env/getenv/
 setenv/unsetenv, configurable PATH, HOME for bare cd and private inheritance.
 The preceding [application exec/lookup phase](application-exec.md) adds bare

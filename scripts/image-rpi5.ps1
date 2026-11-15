@@ -57,7 +57,23 @@ Pi now verifies bare HELLO lookup and shell exec to ECHO, execs=1/cleanup.
 New environment variables are private per process and inherit across
 spawn, pipelines and exec. Commands: env, getenv, setenv, unsetenv, path.
 PATH controls shell program lookup; HOME supplies cd without arguments.
-ENVCHK.ELF tests inheritance/ABI; new physical acceptance is pending.
+Pi now verifies setenv/getenv and environment preservation during exec.
+New shell: $NAME, ${NAME} and $? expansion; single quotes keep literals.
+profile save/load handles data-only environment snapshots at
+/data/session.env. Shell startup loads a valid profile if it exists.
+Use SHELL.ELF --noprofile to skip automatic loading.
+Pi now verifies expansion, profile save and automatic new-session loading.
+New application memory: ALLOC_PAGES/FREE_PAGES/MEMORY_INFO, separate 64 KiB
+private RW/NX arena per process. Pages are zeroed and reclaimed at teardown.
+MEMCHK.ELF tests isolation/cleanup; MEMDEMO.ELF demonstrates a 16 KiB buffer.
+Pi now verifies single-process MEMCHK and MEMDEMO with pages restored.
+New user byte allocator: explicit-context uos_malloc/calloc/realloc/free.
+HEAPCHK.ELF tests packed allocations/resize; HEAPDEMO.ELF shows page sharing.
+Pi now verifies default HEAPCHK and HEAPDEMO with zero live pages/cleanup.
+New process calls: PROCESSES/CHILD_POLL/CHILD_CANCEL=40..42.
+PS.ELF lists active batch processes. Poll and parent-owned cancellation do not
+reap a child; wait collects it. Completed outcomes survive cancellation.
+New process-control hardware acceptance is pending.
 Serial export, binary hashes and physical reboot still need hardware checks.
 
 Console: 3-pin UART connector between the HDMI ports. Terminal 115200 8N1.
@@ -70,8 +86,10 @@ WPA3/DHCP/DNS/Internet ping have earlier physical evidence. Networking is an
 explicit foreground console; no background renewal/rekey or downloads.
 
 Application setup: storageinit, datainit, mmuinit, irqinit, timerstart.
-New application test: appterm 120 /boot/ENVCHK.ELF
-Or run appshell, env, setenv MESSAGE hello, and exec env MESSAGE.
+New process test: appterm 120 /boot/PS.ELF check
+Interactive demo: appterm 120 /boot/PS.ELF demo
+At process> use status, stop, start, wait or exit; each child is bounded to 30s.
+In appshell use ps for a process snapshot. Shell background jobs remain future work.
 apptest runs original static ELF programs with private EL0 pages, checked
 syscalls and timer preemption. It contains deliberate null/kernel-access,
 RX-write and NX-stack faults and times out a runaway user loop.

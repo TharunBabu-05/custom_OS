@@ -1,6 +1,20 @@
 # Experimental Pi 5 disk image
 
-Current OS phase: [private application environments](application-environment.md).
+Current OS phase: [process control](process-control.md). The new kernel adds
+coherent snapshots, nonblocking child polling and parent-owned cancellation;
+PS.ELF provides the viewer, self-test and bounded interactive demo. Local
+acceptance passes; new Pi acceptance is pending. The preceding HEAPCHK and
+HEAPDEMO now pass on Pi with zero live pages and restored resources.
+For this phase, use the scoped
+[boot-update ZIP](../build/rpi5-header/OurOS-process-control-boot-update.zip)
+to copy **both OUROS.IMG and PS.ELF** onto the preceding installation while
+preserving `/data`; follow the compatibility hash check in the phase guide.
+The full-image alternative below still replaces `/data` when flashed.
+The Pi verifies the preceding profile example:
+save and automatic new-shell loading on the same boot, with expansion.
+The Pi now verifies setenv/getenv and a value retained across exec. New profiles
+save data-only settings to /data/session.env and load at shell startup;
+bounded variable/status expansion is also available. New acceptance is pending.
 New variables inherit privately across spawn/pipelines and survive exec;
 PATH controls shell lookup and HOME supplies cd without a path. The Pi now
 verifies the preceding bare HELLO lookup and shell exec to ECHO with cleanup.

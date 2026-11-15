@@ -5,6 +5,15 @@
 static int same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
 static void number(uint64_t n)
 { char text[20];unsigned at=0;do { text[at++]=(char)('0'+n%10);n/=10; }while (n);while (at) { uos_write(text+--at,1); } }
+static bool expand_value(const char *name,char *out,size_t capacity,void *context)
+{
+    if (same(name,"?")) {
+        char digits[20];unsigned n=0;uint64_t value=*(const uint64_t *)context;
+        do { digits[n++]=(char)('0'+value%10);value/=10; }while (value);if (capacity<=n) { return false; }
+        for (unsigned i=0;i<n;++i) { out[i]=digits[n-i-1]; }out[n]=0;return true;
+    }
+    int64_t r=uos_getenv(name,out,capacity);if (r==UOS_ENOENT) { out[0]=0;return true; }return r>=0;
+}
 static void words(struct app_args *out,const struct app_args *in,unsigned first,unsigned end)
 {
     unsigned char *p=(unsigned char *)out;for (size_t i=0;i<sizeof(*out);++i) { p[i]=0; }
@@ -81,18 +90,28 @@ int app_main(void)
 {
     char line[128],cwd[256];struct app_args args;uint64_t last_status=0;
     uos_puts("OurOS EL0 shell. Type help; exit returns to monitor.\n");
+    if (uos_argc()>1) {
+        char option[16];if (uos_argc()!=2 || uos_arg(1,option,sizeof(option))<0 || !same(option,"--noprofile")) {
+            uos_puts("Usage: SHELL.ELF [--noprofile]\n");return 2;
+        }
+    }else {
+        struct uos_entry entry;if (!uos_stat("/data/session.env",&entry)) {
+            if (uos_profile(UOS_PROFILE_LOAD,"/data/session.env")) { uos_puts("shell: profile refused; environment retained\n"); }
+            else { uos_puts("shell: profile loaded /data/session.env\n"); }
+        }
+    }
     for (;;) {
         if (uos_getcwd(cwd,sizeof(cwd))<0) { return 1; }
         uos_puts("user:");uos_puts(cwd);uos_puts("$ ");
         int64_t n=uos_readline(line,sizeof(line));if (n==UOS_EOF) { return 0; }
-        if (n<0) { uos_puts("shell: input rejected; command not executed\n");if (n==UOS_ERROR) { continue; }return 1; }
+        if (n<0) { last_status=2;uos_puts("shell: input rejected; command not executed\n");if (n==UOS_ERROR) { continue; }return 1; }
         if (!n) { continue; }
-        if (!app_args_parse(line,&args)) { uos_puts("shell: invalid quoting or too many words\n");continue; }
+        if (!app_args_expand(line,expand_value,&last_status,&args)) { last_status=2;uos_puts("shell: invalid quoting, expansion or argument bounds\n");continue; }
         const char *cmd=args.bytes,*p=args.count>1 ? args.bytes+args.offset[1] : ".";int result=0;
+        if (!same(cmd,"status")) { last_status=0; }
         if (same(cmd,"exit") && args.count==1) { return 0; }
         if (same(cmd,"help") && args.count==1) {
-            uos_puts("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nenv | getenv <name> | setenv <name> <value> | unsetenv <name>\nreplace <source> <target>: consumes source, replaces regular target\nrun <program> [args]\nexec <program> [args]: replaces this shell\n");
-            uos_puts("runio <input|-> <new-output|-> <program> [args]\npipe <program> [args] -- <program> [args]\npipeio <input|-> <new-output|-> <program> [args] -- <program> [args]\nBare programs search PATH, exact name then .elf; cd without a path uses HOME.\nrun/pipe: 10s; file I/O jobs: 30s. Ctrl+C cancels.\n");
+            uos_puts("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nrun|exec PROGRAM [args]\nrunio IN|- OUT|- PROGRAM [args]\npipe PROGRAM [args] -- PROGRAM [args]\npipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\n$NAME ${NAME} $?; single quotes keep literals\n");
         } else if (same(cmd,"status") && args.count==1) { number(last_status);uos_puts("\n"); }
         else if ((same(cmd,"path") && args.count==1) || (same(cmd,"getenv") && args.count==2) || (same(cmd,"env") && args.count==1)) {
             result=environment(same(cmd,"env") ? 0 : same(cmd,"path") ? "PATH" : p);last_status=result ? 1 : 0;
@@ -100,6 +119,12 @@ int app_main(void)
         else if ((same(cmd,"setenv") && args.count==3) || (same(cmd,"unsetenv") && args.count==2)) {
             int64_t r=same(cmd,"setenv") ? uos_setenv(p,args.bytes+args.offset[2]) : uos_unsetenv(p);
             result=r!=0;last_status=result ? 1 : 0;if (r==UOS_ENOSPC) { uos_puts("shell: environment is full (8 variables)\n"); }
+        }
+        else if (same(cmd,"profile") && (args.count==2 || args.count==3) && (same(p,"save") || same(p,"load"))) {
+            const char *path=args.count==3 ? args.bytes+args.offset[2] : "/data/session.env";bool save=same(p,"save");
+            int64_t r=uos_profile(save ? UOS_PROFILE_SAVE : UOS_PROFILE_LOAD,path);last_status=r ? 1 : 0;
+            if (r) { uos_puts("shell: profile refused; environment retained\n"); }
+            else { uos_puts(save ? "Profile saved: " : "Profile loaded: ");uos_puts(path);uos_puts("\n"); }
         }
         else if (same(cmd,"exec") && args.count>=2) {
             struct app_args next;words(&next,&args,1,args.count);
@@ -120,13 +145,13 @@ int app_main(void)
             if (piping) {
                 unsigned separators=0;
                 for (unsigned i=first;i<args.count;++i) { if (same(args.bytes+args.offset[i],"--")) { split=i;++separators; } }
-                if (separators!=1 || split==first || split+1==args.count) { uos_puts("shell: use pipe <ELF> [args] -- <ELF> [args]\n");continue; }
+                if (separators!=1 || split==first || split+1==args.count) { last_status=2;uos_puts("shell: use pipe <ELF> [args] -- <ELF> [args]\n");continue; }
             }
             words(&child,&args,first,split);int64_t code;unsigned seconds=first==3 ? 30 : 10;
-            if (program(&child)) { last_status=127;uos_puts("shell: program not found or arguments too long\n");continue; }
+            if (program(&child)) { last_status=127;uos_puts("shell: program not found\n");continue; }
             if (piping) {
                 words(&right,&args,split+1,args.count);
-                if (program(&right)) { last_status=127;uos_puts("shell: program not found or arguments too long\n");continue; }
+                if (program(&right)) { last_status=127;uos_puts("shell: program not found\n");continue; }
                 code=uos_pipeline(&child,&right,seconds,first==3 ? &io : 0);
             }
             else { int64_t pid=first==3 ? uos_spawn_io(&child,seconds,&io) : uos_spawn(&child,seconds);code=pid<0 ? UOS_ERROR : uos_wait((uint64_t)pid); }
@@ -150,7 +175,7 @@ int app_main(void)
         else if (same(cmd,"sha256") && args.count==2) {
             unsigned char digest[32];char hex[65];const char *digits="0123456789abcdef";
             int64_t r=uos_filehash(p,digest);result=r!=0;
-            if (r==UOS_ENOENT) { uos_puts("shell: file not found: ");uos_puts(p);uos_puts("\n");continue; }
+            if (r==UOS_ENOENT) { last_status=1;uos_puts("shell: file not found: ");uos_puts(p);uos_puts("\n");continue; }
             if (!result) { for (unsigned i=0;i<32;++i) { hex[i*2]=digits[digest[i]>>4];hex[i*2+1]=digits[digest[i]&15]; }hex[64]=0;uos_puts(hex);uos_puts("  ");uos_puts(p);uos_puts("\n"); }
         }
         else if (same(cmd,"pwd") && args.count==1) { uos_puts(cwd);uos_puts("\n"); }
@@ -171,6 +196,6 @@ int app_main(void)
             if (program(&args)) { last_status=127;uos_puts("shell: unknown command or arguments; type help\n");continue; }
             int64_t pid=uos_spawn(&args,10);job_result(pid<0 ? UOS_ERROR : uos_wait((uint64_t)pid),0,&last_status);
         }
-        if (result) { uos_puts("shell: operation failed\n"); }
+        if (result) { last_status=1;uos_puts("shell: operation failed\n"); }
     }
 }

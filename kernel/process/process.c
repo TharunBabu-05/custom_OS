@@ -15,11 +15,15 @@
 #include "terminal.h"
 #include "sha256.h"
 #include "byte_pipe.h"
+#include "app_profile.h"
+#include "user_heap.h"
 static unsigned char copy_bytes[VFS_FILE_MAX];
+static unsigned char profile_bytes[APP_PROFILE_BYTES];
 enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
 struct process {
     struct user_tables tables;
     struct user_mapping maps[USER_MAPPING_LIMIT];unsigned map_count;
+    struct user_heap heap;
     struct exception_frame context;
     uint64_t sp,owner,calls,dispatches,esr,far,pc;
     enum status status;int code;
@@ -36,6 +40,7 @@ static struct process tasks[PROCESS_LIMIT];
 /* Inactive candidate: prepare tables for the current slot's physical root.
  * This permits exec even when all three process slots are occupied. */
 static struct process exec_stage;
+static struct user_tables memory_stage;
 static unsigned char image[APP_ELF_MAX_BYTES];
 static bool running,last_clean,child_cleanup_failed;
 static unsigned current,total;
@@ -87,6 +92,7 @@ static bool release_memory(struct process *p)
     bool good=true;
     for (unsigned i=0;i<p->map_count;++i) { zero((void *)(uintptr_t)p->maps[i].physical,4096);if (!page_free(p->maps[i].physical)) { good=false; } }
     p->map_count=0;zero(&p->tables,sizeof(p->tables));zero(&p->environment,sizeof(p->environment));
+    zero(p->heap.runs,sizeof(p->heap.runs));p->heap.live=0;
     zero(p->pipe_buffer,sizeof(p->pipe_buffer));p->pipe_bytes=p->pipe_address=0;return good;
 }
 static bool release(struct process *p)
@@ -133,6 +139,52 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
 static bool load(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env)
 { return load_at(p,path,cwd,args,env,0,0); }
 static bool live(const struct process *p) { return p->status==READY || p->status==SLEEPING || p->status==INPUT_WAIT || p->status==CHILD_WAIT || p->status==PIPE_READ_WAIT || p->status==PIPE_WRITE_WAIT; }
+_Static_assert((unsigned)PROCESS_LIMIT==(unsigned)UOS_PROCESS_MAX,"process snapshot capacity");
+static uint64_t process_pid(const struct process *p) { return p->owner ? (p->owner&~(1ULL<<63))+1 : 0; }
+static unsigned public_state(const struct process *p)
+{
+    switch (p->status) {
+    case READY:return p==&tasks[current] ? UOS_PROCESS_RUNNING : UOS_PROCESS_READY;
+    case SLEEPING:return UOS_PROCESS_SLEEPING;case INPUT_WAIT:return UOS_PROCESS_INPUT;
+    case CHILD_WAIT:return UOS_PROCESS_WAIT_CHILD;case PIPE_READ_WAIT:return UOS_PROCESS_PIPE_READ;
+    case PIPE_WRITE_WAIT:return UOS_PROCESS_PIPE_WRITE;case EXITED:return UOS_PROCESS_EXITED;
+    case FAULTED:return UOS_PROCESS_FAULTED;case TIMED_OUT:return UOS_PROCESS_TIMEOUT;
+    case CANCELLED:return UOS_PROCESS_CANCELLED;default:return 0;
+    }
+}
+static struct process *owned_child(const struct process *p,uint64_t pid)
+{
+    if (p->child>=total || (channel.active && current==channel.parent)) { return NULL; }
+    struct process *child=&tasks[p->child];
+    return child->status!=UNUSED && child->parent==current && process_pid(child)==pid ? child : NULL;
+}
+static int64_t process_control(struct process *p,struct exception_frame *f)
+{
+    if (f->x[8]==UOS_SYS_PROCESSES) {
+        if (f->x[1]!=sizeof(struct uos_process_table)) { return UOS_ERROR; }
+        if (!user_range(p,f->x[0],sizeof(struct uos_process_table),true)) { return UOS_EFAULT; }
+        struct uos_process_table table;zero(&table,sizeof(table));table.version=UOS_PROCESS_VERSION;table.caller_pid=process_pid(p);
+        for (unsigned i=0;i<total;++i) {
+            const struct process *source=&tasks[i];if (source->status==UNUSED) { continue; }
+            struct uos_process_entry *e=&table.entries[table.count++];e->pid=process_pid(source);
+            if (source->parent<total && tasks[source->parent].status!=UNUSED) { e->parent_pid=process_pid(&tasks[source->parent]); }
+            e->state=public_state(source);e->syscalls=source->calls;e->dispatches=source->dispatches;e->heap_pages=source->heap.live;
+            if (!live(source)) { e->exit_code=source->code; }
+            e->flags=(i==current ? UOS_PROCESS_SELF : 0) | (source==owned_child(p,e->pid) ? UOS_PROCESS_CHILD : 0);
+            size_t n=0;while (n+1<sizeof(e->path) && source->path[n]) { e->path[n]=source->path[n];++n; }
+        }
+        user_copy(p,f->x[0],&table,sizeof(table),true);return 0;
+    }
+    struct process *child=owned_child(p,f->x[0]);if (!child) { return UOS_ECHILD; }
+    if (f->x[8]==UOS_SYS_CHILD_CANCEL) {
+        /* Preserve completed outcomes. Reaping remains explicit: retaining the
+         * slot keeps poll idempotent and old PIDs cannot name a reused slot. */
+        if (live(child)) { child->status=CANCELLED;child->code=130; }return 0;
+    }
+    if (!user_range(p,f->x[1],sizeof(struct uos_child_info),true)) { return UOS_EFAULT; }
+    struct uos_child_info result={0};result.pid=process_pid(child);result.state=public_state(child);result.finished=!live(child);
+    if (result.finished) { result.exit_code=child->code; }user_copy(p,f->x[1],&result,sizeof(result),true);return 0;
+}
 static void input_clear(void)
 { input_count=input_head=0;input_dropping=false;zero(input_queue,sizeof(input_queue));zero(&input_line,sizeof(input_line)); }
 static unsigned terminal_owner(void)
@@ -382,10 +434,55 @@ static int64_t environment_call(struct process *p,struct exception_frame *f)
     if (result==APP_ENV_MISSING) { return UOS_ENOENT; }if (result==APP_ENV_FULL) { return UOS_ENOSPC; }
     return result==APP_ENV_OK ? (int64_t)bytes : UOS_ERROR;
 }
+static int64_t profile_call(struct process *p,struct exception_frame *f)
+{
+    uint64_t action=f->x[0],address=f->x[1],bytes=f->x[2];
+    if ((action!=UOS_PROFILE_SAVE && action!=UOS_PROFILE_LOAD) || !bytes || bytes>=RAMFS_PATH_MAX) { return UOS_ERROR; }
+    if (!user_range(p,address,(size_t)bytes,false)) { return UOS_EFAULT; }
+    char requested[RAMFS_PATH_MAX],path[RAMFS_PATH_MAX];user_copy(p,address,requested,(size_t)bytes,false);
+    for (size_t i=0;i<bytes;++i) { if (!requested[i]) { return UOS_ERROR; } }requested[bytes]=0;
+    if (requested[bytes-1]=='/') { return UOS_ERROR; }
+    bool directory;uint32_t size=0;uint64_t handle=0;size_t actual=0;struct app_environment next={0};
+    enum fs_result r;int64_t result=UOS_ERROR;zero(profile_bytes,sizeof(profile_bytes));
+    if (action==UOS_PROFILE_LOAD) {
+        r=vfs_resolve(p->cwd,requested,path,&directory);if (r!=FS_OK) { goto done; }if (directory) { r=FS_IS_DIR;goto done; }
+        r=vfs_file_size(path,&size);if (r!=FS_OK) { goto done; }if (!size || size>sizeof(profile_bytes)) { r=FS_CORRUPT;goto done; }
+        r=kfile_open(p->owner,"/",path,KFILE_READ,&handle);if (r!=FS_OK) { goto done; }
+        r=kfile_read(p->owner,handle,profile_bytes,size,&actual);
+        enum fs_result closed=kfile_close(p->owner,handle);handle=0;if (r==FS_OK) { r=closed; }
+        if (r!=FS_OK) { goto done; }if (actual!=size || !app_profile_decode(profile_bytes,size,&next)) { r=FS_CORRUPT;goto done; }
+        p->environment=next;result=0;goto done;
+    }
+    r=vfs_prepare_write(p->cwd,requested,path);if (r!=FS_OK) { goto done; }
+    const char *prefix="/data/";unsigned i=0;while (prefix[i] && prefix[i]==path[i]) { ++i; }
+    if (prefix[i] || !path[i]) { r=FS_CROSS_DEVICE;goto done; }
+    if (!app_profile_encode(&p->environment,profile_bytes,sizeof(profile_bytes),&actual)) { r=FS_CORRUPT;goto done; }
+    r=vfs_write(path,profile_bytes,actual);if (r==FS_OK) { r=vfs_data_sync(); }if (r!=FS_OK) { goto done; }
+    /* The existing data snapshot publishes all profile bytes in one commit.
+     * Verify the whole readback; kernel filesystem work never yields. */
+    r=vfs_file_size(path,&size);if (r!=FS_OK) { goto done; }if (size!=actual) { r=FS_IO;goto done; }
+    for (uint32_t at=0;at<size;) {
+        unsigned char block[512];size_t count=0,wanted=size-at;if (wanted>sizeof(block)) { wanted=sizeof(block); }
+        r=vfs_read(path,at,block,wanted,&count);bool equal=r==FS_OK && count==wanted;
+        for (size_t j=0;equal && j<count;++j) { if (block[j]!=profile_bytes[at+j]) { equal=false; } }zero(block,sizeof(block));
+        if (!equal) { if (r==FS_OK) { r=FS_IO; }goto done; }at+=(uint32_t)count;
+    }
+    result=0;
+done:
+    if (handle) { (void)kfile_close(p->owner,handle); }
+    zero(profile_bytes,sizeof(profile_bytes));zero(&next,sizeof(next));
+    if (!result) { return 0; }
+    switch (r) {
+    case FS_NOT_FOUND:return UOS_ENOENT;case FS_BUSY:return UOS_EBUSY;case FS_READ_ONLY:return UOS_EROFS;
+    case FS_CROSS_DEVICE:return UOS_EXDEV;case FS_IS_DIR:return UOS_EISDIR;default:return UOS_ERROR;
+    }
+}
 static int64_t syscall(struct process *p,struct exception_frame *f)
 {
     uint64_t a=f->x[0],b=f->x[1],c=f->x[2];unsigned char buffer[512];size_t count=0;enum fs_result r;
     switch (f->x[8]) {
+    case UOS_SYS_PROCESSES:case UOS_SYS_CHILD_POLL:case UOS_SYS_CHILD_CANCEL:return process_control(p,f);
+    case UOS_SYS_ENV_PROFILE:return profile_call(p,f);
     case UOS_SYS_ENV_GET:case UOS_SYS_ENV_SET:case UOS_SYS_ENV_UNSET:case UOS_SYS_ENV_ENTRY:return environment_call(p,f);
     case UOS_SYS_RENAME:case UOS_SYS_PUBLISH: {
         uint64_t d=f->x[3];if (!b || b>=RAMFS_PATH_MAX || !d || d>=RAMFS_PATH_MAX) { return UOS_ERROR; }
@@ -404,7 +501,7 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
     case UOS_SYS_ARGC:return p->args.count;
     case UOS_SYS_ARG:if (a>=p->args.count) { return UOS_ERROR; }return string_out(p,b,c,p->args.bytes+p->args.offset[a]);
     case UOS_SYS_GETCWD:return string_out(p,a,b,p->cwd);
-    case UOS_SYS_GETPID:return (int64_t)(p->owner&~(1ULL<<63))+1;
+    case UOS_SYS_GETPID:return (int64_t)process_pid(p);
     case UOS_SYS_STAT:case UOS_SYS_READDIR:case UOS_SYS_CHDIR:return path_call(p,f);
     case UOS_SYS_MKDIR:case UOS_SYS_REMOVE:case UOS_SYS_REPLACE: {
         if (!b || b>=RAMFS_PATH_MAX || (f->x[8]==UOS_SYS_REMOVE && c>1) || (f->x[8]==UOS_SYS_REPLACE && f->x[3]>512)) { return UOS_ERROR; }
@@ -470,6 +567,39 @@ static bool args_valid(const struct app_args *args)
     }
     return end==args->used;
 }
+static bool heap_allocate_page(void *context,uint64_t *physical)
+{
+    struct process *p=context;if (!page_alloc(physical)) { return false; }
+    if (!mmu_dma_buffer(*physical,4096)) {
+        if (!page_free(*physical)) { p->heap.failed=true;child_cleanup_failed=true; }return false;
+    }
+    zero((void *)(uintptr_t)*physical,4096);return true;
+}
+static bool heap_release_page(void *context,uint64_t physical)
+{ (void)context;zero((void *)(uintptr_t)physical,4096);return page_free(physical); }
+static bool heap_publish(void *context,const struct user_mapping *maps,unsigned count)
+{
+    struct process *p=context;
+    enum user_mmu_result r=user_mmu_build(&memory_stage,(uintptr_t)p->tables.entries,(const uint64_t *)(uintptr_t)kernel_root,maps,count);
+    if (r==USER_MMU_OK) { copy(&p->tables,&memory_stage,sizeof(p->tables));__asm__ volatile("dsb sy" ::: "memory"); }
+    zero(&memory_stage,sizeof(memory_stage));return r==USER_MMU_OK;
+}
+static int64_t memory_call(struct process *p,struct exception_frame *f)
+{
+    if (f->x[8]==UOS_SYS_MEMORY_INFO) {
+        if (!user_range(p,f->x[0],sizeof(struct uos_memory_info),true)) { return UOS_EFAULT; }
+        struct uos_memory_info info={4096,USER_HEAP_PAGES,p->heap.live,p->heap.peak,p->heap.allocations,p->heap.free_calls};
+        user_copy(p,f->x[0],&info,sizeof(info),true);return 0;
+    }
+    struct user_heap_ops ops={heap_allocate_page,heap_release_page,heap_publish,p};enum user_heap_result r;uint64_t address=0;
+    if (f->x[8]==UOS_SYS_ALLOC_PAGES) {
+        if (!f->x[0] || f->x[0]>USER_HEAP_PAGES) { return UOS_ERROR; }
+        r=user_heap_allocate(&p->heap,p->maps,&p->map_count,(unsigned)f->x[0],&ops,&address);
+    }else { r=user_heap_free(&p->heap,p->maps,&p->map_count,f->x[0],&ops); }
+    if (r==USER_HEAP_CORRUPT) { child_cleanup_failed=true;p->status=FAULTED;p->code=126; }
+    if (r==USER_HEAP_NO_SPACE || r==USER_HEAP_NO_MEMORY) { return UOS_ENOMEM; }
+    return r==USER_HEAP_OK ? (int64_t)address : UOS_ERROR;
+}
 static int64_t replace_image(struct process *p,uint64_t address,struct exception_frame *f)
 {
     if (p->child!=PROCESS_LIMIT) { return UOS_EBUSY; }
@@ -489,6 +619,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     exec_stage.stdin_handle=p->stdin_handle;exec_stage.stdout_handle=p->stdout_handle;exec_stage.io_failed=p->io_failed;
     exec_stage.calls=p->calls;exec_stage.dispatches=p->dispatches;
     exec_stage.sleeps=p->sleeps;exec_stage.wakes=p->wakes;exec_stage.lines=p->lines;exec_stage.execs=p->execs+1;
+    exec_stage.heap.peak=p->heap.peak;exec_stage.heap.allocations=p->heap.allocations;exec_stage.heap.free_calls=p->heap.free_calls;
     /* No fallible load operation remains. An allocator corruption during
      * teardown is contained as a process fault, never a return to freed code. */
     if (!release_memory(p)) {
@@ -568,6 +699,9 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
     }
     ++p->calls;
     if ((f->esr>>26)==0x15 && !(f->esr&0xffff)) {
+        if (f->x[8]==UOS_SYS_ALLOC_PAGES || f->x[8]==UOS_SYS_FREE_PAGES || f->x[8]==UOS_SYS_MEMORY_INFO) {
+            f->x[0]=(uint64_t)memory_call(p,f);if (!live(p)) { return schedule(f,false); }return true;
+        }
         if (f->x[8]==UOS_SYS_EXEC) {
             int64_t result=replace_image(p,f->x[0],f);
             if (!live(p)) { return schedule(f,false); }
@@ -590,7 +724,7 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         }
         if (f->x[8]==UOS_SYS_SPAWN || f->x[8]==UOS_SYS_SPAWN_IO) { f->x[0]=(uint64_t)spawn(p,f->x[0],f->x[1],f->x[8]==UOS_SYS_SPAWN_IO,f->x[2]);return true; }
         if (f->x[8]==UOS_SYS_WAIT) {
-            if (p->child>=total || f->x[0]!=(tasks[p->child].owner&~(1ULL<<63))+1) { f->x[0]=(uint64_t)UOS_ERROR;return true; }
+            if (!owned_child(p,f->x[0])) { f->x[0]=(uint64_t)UOS_ERROR;return true; }
             if (!live(&tasks[p->child])) { f->x[0]=(uint64_t)collect_child(p);return true; }
             p->status=CHILD_WAIT;f->x[0]=0;
             if (interactive && current==0) {
@@ -652,6 +786,8 @@ void process_info(void)
         console_write(" sleeps=");console_u64(p->sleeps);console_write(" wakes=");console_u64(p->wakes);
         console_write(" input_lines=");console_u64(p->lines);
         console_write(" execs=");console_u64(p->execs);
+        console_write(" heap_live_pages=");console_u64(p->heap.live);console_write(" heap_peak_pages=");console_u64(p->heap.peak);
+        console_write(" heap_allocations=");console_u64(p->heap.allocations);console_write(" heap_free_calls=");console_u64(p->heap.free_calls);
         if (p->esr) { console_write(" ESR=");console_hex(p->esr);console_write(" FAR=");console_hex(p->far); }
         console_write("\n");
     }

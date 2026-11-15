@@ -21,6 +21,15 @@ The remaining filesystem, package and local-device work is tracked in
 [remaining-os-roadmap.md](remaining-os-roadmap.md). The available hardware test
 setup currently has only the serial console.
 
+The later [private-page phase](user-memory.md) adds dynamic RW/NX storage;
+its single-process MEMCHK and MEMDEMO examples now pass on the Pi. The latest
+[byte allocator](user-allocator.md) adds explicit-context malloc/calloc/realloc/
+free in user space, without another kernel or ABI change. HEAPCHK and HEAPDEMO
+are delivered in an application-only ZIP as well as the full disk image.
+The next [process-control phase](process-control.md) adds coherent snapshots,
+nonblocking direct-child polling/cancellation and PS.ELF, while retaining the
+same three-slot foreground and one-child-per-root bounds.
+
 ## What runs
 
 `apprun` starts one to three static AArch64 ELF64 little-endian executables as
@@ -85,6 +94,8 @@ arguments in `x0..x5`, and returns a signed result in `x0` using `svc #0`.
 | `PUBLISH` (30) | Consume a prepared regular file and atomically replace its regular target on the same writable mount; both path leases checked |
 | `EXEC` (31) | Replace the calling process image with a validated packed argv; preserve PID/cwd/handles/streams and original deadline; success never returns |
 | `ENV_GET/SET/UNSET/ENTRY` (32..35) | Checked copies of bounded private environment variables; spawn/pipeline snapshots and preservation across exec |
+| `ENV_PROFILE` (36) | Save a complete data-only environment to /data or validate/load a readable profile atomically; existing environment retained on load failure |
+| `ALLOC_PAGES/FREE_PAGES/MEMORY_INFO` (37..39) | Private zeroed RW/NX dynamic pages, exact-allocation free and checked 48-byte memory accounting |
 
 Every nonempty user pointer range is checked page by page against that
 process's private mapping. Output buffers must be writable. Kernel addresses,

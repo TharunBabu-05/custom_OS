@@ -52,7 +52,7 @@ static void invalid(void)
     assert(user_mmu_build(&table,0x100000,NULL,maps,count)==USER_MMU_ARGUMENT && !table.ready);
     assert(user_mmu_build(&table,0x100000,root,NULL,count)==USER_MMU_ARGUMENT && !table.ready);
     assert(user_mmu_build(&table,0x100000,root,maps,0)==USER_MMU_ARGUMENT && !table.ready);
-    assert(user_mmu_build(&table,0x100000,root,maps,13)==USER_MMU_ARGUMENT && !table.ready);
+    assert(user_mmu_build(&table,0x100000,root,maps,USER_MAPPING_LIMIT+1)==USER_MMU_ARGUMENT && !table.ready);
     const uint64_t bad_tables[]={0,1,0x100001,UINT64_MAX,0x0001000000000000ULL,0x0000ffffffffe000ULL};
     for (unsigned i=0;i<sizeof(bad_tables)/sizeof(bad_tables[0]);++i) { assert(user_mmu_build(&table,bad_tables[i],root,maps,count)==USER_MMU_ADDRESS && !table.ready); }
     const uint64_t bad_va[]={0,1,USER_VA_BASE-4096,USER_VA_BASE+1,USER_VA_BASE+8*4096,USER_VA_BASE+15*4096,
@@ -102,4 +102,22 @@ static void staged_replacement(void)
     assert(!memcmp(root,original,sizeof(root)));
     puts("PASS: inactive replacement tables use destination physical links; old tables stay intact before publication and all new permissions/translations work after copy.");
 }
-int main(void) { layout();invalid();corruption();staged_replacement();return 0; }
+static void dynamic_pages(void)
+{
+    seed();unsigned base=count;
+    for (unsigned i=0;i<USER_HEAP_PAGES;++i) { maps[count++]=(struct user_mapping){USER_HEAP_BASE+i*4096ULL,0x42000000+i*4096ULL,USER_PAGE_RW}; }
+    assert(count==USER_MAPPING_LIMIT && user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_OK);
+    struct user_translation t;
+    for (unsigned i=base;i<count;++i) {
+        assert(user_mmu_lookup(&table,maps[i].virtual_address+4095,&t) && t.physical==maps[i].physical+4095 && t.kind==USER_PAGE_RW);
+        assert(t.descriptor==(maps[i].physical|wanted(USER_PAGE_RW)));
+    }
+    assert(!user_mmu_lookup(&table,USER_HEAP_BASE-1,&t) && !user_mmu_lookup(&table,USER_HEAP_BASE+16*4096,&t));
+    maps[base].kind=USER_PAGE_RX;assert(user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_PERMISSION);
+    maps[base].kind=USER_PAGE_RO;assert(user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_PERMISSION);
+    maps[base].kind=USER_PAGE_RW;assert(user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_OK);
+    table.entries[2][(USER_HEAP_BASE>>12)&511]=maps[base].physical|wanted(USER_PAGE_RX);
+    assert(!user_mmu_lookup(&table,USER_HEAP_BASE,&t));
+    puts("PASS: all 16 dynamic heap pages have exact private RW/PXN/UXN flags; heap guards, executable/readonly heap mappings and malformed executable heap descriptors refused.");
+}
+int main(void) { layout();invalid();corruption();staged_replacement();dynamic_pages();return 0; }

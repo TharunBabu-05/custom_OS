@@ -15,7 +15,9 @@ enum uos_syscall {
     UOS_SYS_COPY=21,UOS_SYS_FILEHASH=22,UOS_SYS_SYNC=23,
     UOS_SYS_SPAWN=24,UOS_SYS_WAIT=25,UOS_SYS_SPAWN_IO=26,UOS_SYS_STDIN=27,
     UOS_SYS_PIPE_RUN=28,UOS_SYS_RENAME=29,UOS_SYS_PUBLISH=30,UOS_SYS_EXEC=31,
-    UOS_SYS_ENV_GET=32,UOS_SYS_ENV_SET=33,UOS_SYS_ENV_UNSET=34,UOS_SYS_ENV_ENTRY=35
+    UOS_SYS_ENV_GET=32,UOS_SYS_ENV_SET=33,UOS_SYS_ENV_UNSET=34,UOS_SYS_ENV_ENTRY=35,
+    UOS_SYS_ENV_PROFILE=36,UOS_SYS_ALLOC_PAGES=37,UOS_SYS_FREE_PAGES=38,UOS_SYS_MEMORY_INFO=39,
+    UOS_SYS_PROCESSES=40,UOS_SYS_CHILD_POLL=41,UOS_SYS_CHILD_CANCEL=42
 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
  * index is a fresh traversal, not a stable cursor across filesystem edits. */
@@ -26,7 +28,32 @@ struct uos_stdio { char input[256],output[256]; };
 _Static_assert(sizeof(struct uos_stdio)==512,"standard stream ABI size");
 enum { UOS_FILE=1,UOS_DIRECTORY=2 };
 _Static_assert(sizeof(struct uos_entry)==48,"directory ABI size");
+/* Private dynamic page arena, separate from the executable and stack. */
+struct uos_memory_info { uint64_t page_bytes,limit_pages,live_pages,peak_pages,allocations,free_calls; };
+_Static_assert(sizeof(struct uos_memory_info)==48,"memory info ABI size");
+/* One coherent snapshot of the active foreground batch. No kernel addresses,
+ * arguments, credentials, cwd or environment are exported. Unused bytes zero. */
+enum { UOS_PROCESS_MAX=3,UOS_PROCESS_VERSION=1,UOS_PROCESS_SELF=1,UOS_PROCESS_CHILD=2 };
+enum uos_process_state {
+    UOS_PROCESS_RUNNING=1,UOS_PROCESS_READY,UOS_PROCESS_SLEEPING,UOS_PROCESS_INPUT,
+    UOS_PROCESS_WAIT_CHILD,UOS_PROCESS_PIPE_READ,UOS_PROCESS_PIPE_WRITE,
+    UOS_PROCESS_EXITED,UOS_PROCESS_FAULTED,UOS_PROCESS_TIMEOUT,UOS_PROCESS_CANCELLED
+};
+struct uos_process_entry {
+    uint64_t pid,parent_pid,syscalls,dispatches,heap_pages;
+    uint32_t state,flags;int32_t exit_code;uint32_t reserved;
+    char path[256];
+};
+struct uos_process_table {
+    uint32_t version,count;uint64_t caller_pid;
+    struct uos_process_entry entries[UOS_PROCESS_MAX];
+};
+struct uos_child_info { uint64_t pid;uint32_t state,finished;int32_t exit_code;uint32_t reserved; };
+_Static_assert(sizeof(struct uos_process_entry)==312,"process entry ABI size");
+_Static_assert(sizeof(struct uos_process_table)==952,"process table ABI size");
+_Static_assert(sizeof(struct uos_child_info)==24,"child info ABI size");
 enum { UOS_READ=1,UOS_WRITE=2,UOS_CREATE=4,UOS_TRUNC=8 };
+enum { UOS_PROFILE_SAVE=1,UOS_PROFILE_LOAD=2 };
 enum { UOS_SEEK_SET=0,UOS_SEEK_CUR=1,UOS_SEEK_END=2 };
 #define UOS_ERROR (-1LL)
 #define UOS_EFAULT (-2LL)
@@ -40,4 +67,6 @@ enum { UOS_SEEK_SET=0,UOS_SEEK_CUR=1,UOS_SEEK_END=2 };
 #define UOS_EROFS (-10LL)
 #define UOS_EISDIR (-11LL)
 #define UOS_ENOSPC (-12LL)
+#define UOS_ENOMEM (-13LL)
+#define UOS_ECHILD (-14LL)
 #endif

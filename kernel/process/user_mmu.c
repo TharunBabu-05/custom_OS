@@ -14,7 +14,8 @@ static bool physical_page(uint64_t p) { return p && aligned(p) && p<=ADDRESS_MAS
 static bool user_page(uint64_t va)
 {
     return aligned(va) && ((va>=USER_VA_BASE && va-USER_VA_BASE<USER_IMAGE_PAGES*PAGE) ||
-        (va>=USER_STACK_BASE && va-USER_STACK_BASE<USER_STACK_PAGES*PAGE));
+        (va>=USER_STACK_BASE && va-USER_STACK_BASE<USER_STACK_PAGES*PAGE) ||
+        (va>=USER_HEAP_BASE && va-USER_HEAP_BASE<USER_HEAP_PAGES*PAGE));
 }
 static uint64_t flags(enum user_page_kind kind)
 {
@@ -60,6 +61,7 @@ bool user_mmu_lookup(const struct user_tables *t,uint64_t va,struct user_transla
     uint64_t raw=t->entries[2][(va>>12)&511],attributes=raw&~ADDRESS_MASK;
     const enum user_page_kind kinds[]={USER_PAGE_RX,USER_PAGE_RO,USER_PAGE_RW};
     for (unsigned i=0;i<3;++i) {
+        if (va>=USER_STACK_BASE && kinds[i]!=USER_PAGE_RW) { continue; }
         if (attributes==flags(kinds[i])) {
             uint64_t base=raw&ADDRESS_MASK;if (!physical_page(base)) { return false; }
             *out=(struct user_translation){base+(va&(PAGE-1)),raw,kinds[i]};return true;

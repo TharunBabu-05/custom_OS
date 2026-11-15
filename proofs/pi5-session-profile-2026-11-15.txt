@@ -1,0 +1,32 @@
+User-provided Pi 5 serial excerpt, recorded 2026-11-15.
+OUROS.IMG 442100 bytes; rpi5-header, entered EL2/running EL1.
+USB2 SanDisk Cruzer Blade VID=0781 PID=5567; FAT32 /boot read-only.
+/data mounted as snapshot v3, generation 1, followed by successful MMU,
+GICv2 and 100 Hz timer setup. Relevant shell excerpt follows unchanged.
+
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ setenv MESSAGE "hello after reboot"
+user:/$ echo "$MESSAGE"
+hello after reboot
+user:/$ profile save
+Profile saved: /data/session.env
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=1956 terminal=yes budget_seconds=300 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=32 dispatches=8 sleeps=0 wakes=0 input_lines=4 execs=0
+App resources restored; monitor ready.
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+shell: profile loaded /data/session.env
+user:/$ echo "$MESSAGE"
+hello after reboot
+user:/$
+
+Verified scope: variable expansion, successful profile save, first shell exit
+with resources restored, and automatic profile loading/value readback in a
+new shell session on the same boot. The phrase "hello after reboot" is file
+content, not evidence of a reboot. No physical power cycle, PROFCHK, corrupt
+profile recovery or dynamic application-memory test is shown in this capture.

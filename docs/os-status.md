@@ -7,58 +7,58 @@ system can run without display, audio, Wi-Fi or even a disk. Our target is a
 usable, networked Pi OS with persistent files and applications, so those
 capabilities are tracked below.
 
-**Evidence:** the [latest Pi excerpt](../proofs/pi5-file-task-io-verified-2026-11-13.txt)
-confirms file handles, cooperative task file I/O before/after USB storage,
-automatic handle cleanup and heap/page restoration with MMU/timer enabled.
-Earlier captures verify the heap baseline and [WPA3/DNS/Internet ping and
-cleanup](wifi-dns.md).
-**Current phase:** [private application environments](application-environment.md).
-Adds checked environment calls, private spawn/pipeline snapshots, exec
-preservation and configurable PATH/HOME. New physical acceptance is pending.
-The preceding [exec/lookup phase](application-exec.md) now has
-[Pi evidence](../proofs/pi5-exec-lookup-2026-11-15.txt) for HELLO lookup and
-shell image replacement, code 0, execs=1 and resource restoration.
-The preceding [file-update phase](atomic-file-updates.md)
-adds explicit `replace`, checked EL0 `PUBLISH` and validated `appupdate` without
-changing the v1/v2/v3 disk formats. Local tests cover interrupted publication,
-leases, update rejection and cold emulator boot; new hardware acceptance is
-pending. The previous [directory phase](persistent-directories.md) passed DIRCHK.
-The [new Pi capture](../proofs/pi5-file-rename-2026-11-15.txt) passes MVCHK on
-v2. New v3 images add mkdir/cd/list/remove and file moves in nested `/data`
-paths, with explicit backup migration and unchanged legacy v1/v2 mounts.
-The [latest Pi capture](../proofs/pi5-persistent-directories-2026-11-15.txt)
-now passes DIRCHK with cleanup. Physical reboot, nested installed ELF execution
-and serial export remain outstanding.
-The [latest restore excerpt](../proofs/pi5-data-restore-2026-11-15.txt) verifies
-DEMO.BAK restore, sizes and text readback on Pi. Binary hashes, serial export,
-installed-shell and actual power-cycle checks remain pending. MVCHK now
-verifies the EL0 rename path; DIRCHK now verifies the directory self-test.
-The [new Pi capture](../proofs/pi5-usb-v2-capacity-2026-11-15.txt) now passes
-v2 DATACAP, usbcheck and 152 recovered stalls with USB still online. The earlier
-lifetime-cutoff fix is physically verified for that test. Installed-shell and
-actual power-cycle checks remain pending. Backup export, validated empty-target
-restore and Windows archive conversion have narrower evidence: restore now
-passes as described above; export/conversion still require physical capture.
-The [physical file-tools capture](../proofs/pi5-file-tools-2026-11-14.txt) now
-verifies copying, matching SHA-256, sync and cleanup, following interactive shell
-acceptance. The [child-program capture](../proofs/pi5-shell-programs-2026-11-14.txt)
-passes spawn/wait, early terminal handoff, normal shell runs and timeout cleanup.
-The [file-stream capture](../proofs/pi5-stdio-2026-11-14.txt) passes IOCHK, file
-output/copy and cleanup; subsequent wrong-path commands are explained in the
-pipeline guide. The [pipe capture](../proofs/pi5-pipelines-2026-11-14.txt) now passes
-PIPECHK, stream hashing, shell pipelines and cleanup. V2 capacity now passes;
-installed-shell persistence and serial export still need Pi acceptance. New
-images use v3; old v1/v2 mounts retain their original geometry and limits.
-The [new Pi capture](../proofs/pi5-usb-data-write-sync-2026-11-13.txt) confirms
-that the BOT fix permits `/data` mount, write/read and sync with WCE=0.
-It shows no second boot banner, so physical power-cycle persistence remains
-unconfirmed. The [latest EL0 Pi capture](../proofs/pi5-el0-applications-2026-11-13.txt)
-passes private mappings, syscall checks, preemption, fault containment and
-installed program execution. [Arguments/cwd/metadata/utilities/sleep](../proofs/pi5-user-tools-2026-11-13.txt)
-now also pass on Pi, as do terminal input, mutation syscalls and the interactive
-shell and copy/hash/sync. V2 persistent capacity requires physical acceptance.
-Display/HID/GPU/audio and general installation/packages remain in the
-[remaining roadmap](remaining-os-roadmap.md).
+**Status as of 2026-11-15:** an early single-core OS with protected user
+applications, a serial shell, bounded persistent storage and foreground
+networking. The original monitor-only stage is behind us. No percentage of a
+complete OS is assigned: the remaining features have very different scopes.
+
+**Current development:** [process control](process-control.md). Coherent process
+snapshots, nonblocking owned-child polling and parent-owned cancellation are
+implemented; PS.ELF supplies a viewer, checks and a bounded interactive demo.
+The new A53/EL1 and A76/EL2 emulator acceptance passes. Pi acceptance is pending.
+
+**Latest hardware-accepted phase:** [application byte allocation](user-allocator.md).
+The [new Pi capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes
+HEAPCHK and HEAPDEMO, both exit 0, live pages 0 and resources restored.
+HEAPCHK balances 12 backing-run allocations/frees; HEAPDEMO balances three.
+The earlier [page-memory capture](../proofs/pi5-user-memory-2026-11-15.txt)
+passes MEMCHK and MEMDEMO. These are single-process runs; broader allocator
+lifecycle/concurrency hardware cases remain unverified.
+
+Hardware evidence also includes:
+
+- [MMU protection](../proofs/pi5-mmu-usb-protection-2026-11-12.txt): unmapped
+  null/guard faults, read-only code/constants and non-executable data.
+- [Exceptions, GIC and 100 Hz timer IRQs](../proofs/pi5-timer-irq-usb-2026-11-12.txt):
+  register-preserving return, delivered interrupts and responsive foreground.
+- [EL0 processes](../proofs/pi5-el0-applications-2026-11-13.txt): private
+  mappings, checked calls, preemption, contained faults/timeouts and installation.
+- [Writable USB storage](../proofs/pi5-usb-v2-capacity-2026-11-15.txt),
+  [v3 directories](../proofs/pi5-persistent-directories-2026-11-15.txt) and
+  [restore](../proofs/pi5-data-restore-2026-11-15.txt): bounded commits and
+  the specific same-boot file tests shown in those captures.
+- [Shell programs](../proofs/pi5-shell-programs-2026-11-14.txt),
+  [streams](../proofs/pi5-stdio-2026-11-14.txt),
+  [pipes](../proofs/pi5-pipelines-2026-11-14.txt),
+  [exec](../proofs/pi5-exec-lookup-2026-11-15.txt) and
+  [saved profiles](../proofs/pi5-session-profile-2026-11-15.txt): the recorded
+  user-shell paths, cleanup and same-boot profile reload.
+- [Networking](../proofs/pi5-dns-hostname-ping-clean-disconnect-2026-11-12.txt):
+  WPA3, DHCP, ARP, DNS and Internet ICMP followed by controlled disconnect.
+
+MMU, timer/GIC interrupts, the scheduler, ELF loader, system calls and USB
+writes should no longer be listed as pending. Their current implementations
+are bounded foundations, not complete versions of every related service.
+Many are opt-in: boot still enters the monitor, and storage/MMU/IRQs/timer
+are explicitly initialized before applications run.
+
+Open hardware evidence includes persistent readback after a genuine power
+cycle without reflashing, broader memory lifecycle/concurrency, atomic
+overwrite/appupdate, installed-shell persistence and serial backup export.
+The [publication excerpt](../proofs/pi5-file-publication-2026-11-15.txt) used
+a different destination spelling and does not establish replacement of the
+original file. These gaps are tracked without requiring old passing tests
+to be repeated at every development step.
 
 ## Core OS subsystems
 
@@ -69,25 +69,30 @@ Display/HID/GPU/audio and general installation/packages remain in the
 | Exceptions | Common 288-byte frame; EL1 return and contained EL0 faults/syscalls/IRQ switching Pi verified | Richer signal/fault policy and emergency stack |
 | Physical memory | DT RAM/reservations, 4 KiB page bitmap allocator, allocation/free tests; Pi verified | Per-owner accounting, richer allocation policies and contiguous multi-page allocation |
 | Kernel heap | Zeroed 16..4096-byte buffers, calloc/realloc/free, page sharing/reclamation; Pi self-tests verified | Large allocations, IRQ/SMP synchronization and additional consumers |
-| Virtual memory/protection | Pi verified EL1 identity profile, private user pages, EL0 AP/W^X/guards and checked copies | Dynamic mappings, larger address spaces and cache acceleration |
+| Virtual memory/protection | Pi verified identity/private pages and single-process dynamic RW/NX allocation; guarded arena and checked copies | Broader Pi dynamic lifecycle/concurrent checks, larger VM, shared/file mappings and cache acceleration |
 | Interrupts | GICv2 PPI30, raw acknowledge/EOI, IRQ return and bounded unexpected-source quarantine; opt-in, Pi verified | General peripheral handlers/registration, IRQ-safe locks and SMP |
 | Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
-| Scheduling | Cooperative EL1 tasks, EL0 preemption/sleep/input/spawn/wait; new blocked FIFO reads/writes and two-child jobs | Pi pipe validation, general process trees/jobs, broader blocking I/O, SMP and background services |
-| Processes/system calls | Three private EL0 slots; checked files/console/time/args/cwd/mutations/spawn/wait/file streams; new two-stage PIPE_RUN | Pi new-call validation, broader IPC/descriptor API, credentials/access control and background services |
-| Programs/runtime | Bounded ELF loader, tiny runtime, 44 sample/test ELFs, shell/streams/pipes, Pi MVCHK/DIRCHK/exec lookup, atomic updates and new private environments/PATH/HOME | Pi environment/broader exec/update acceptance, installed-shell persistence, larger programs/files, libraries/dynamic linking, packages and general installer |
+| Scheduling | Cooperative EL1 tasks; timer-preempted EL0, sleep/wake, terminal waits, spawn/wait and pipes with Pi evidence; new polling/cancellation demo | Pi process-control acceptance, general background jobs/process trees, broader blocking I/O, SMP and services |
+| Processes/system calls | Three private EL0 slots; checked files/console/args/cwd/spawn/wait/streams/pipes/exec/env/profiles/pages; new snapshot/poll/cancel calls 40..42 | Broader lifecycle hardware checks, IPC/descriptor API, credentials/access control and background services |
+| Programs/runtime | Bounded ELF loader, original runtime, 50 sample/test ELFs and new PS tool; Pi memory/allocator examples pass | Pi process-control/broader update acceptance, installed-shell persistence, larger programs/files, general libc/dynamic linking, packages and installer |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked open/read/write/seek/close handles with cursors and path leases | General mounts, richer metadata, permissions, pseudo-filesystems and preemptive driver synchronization |
-| Persistent files | Pi verifies v2, restore excerpt and MVCHK; new v3 sixteen file/directory nodes, nested 8 KiB files and explicit legacy backup migration | Pi v3/export/power-cycle checks, larger files/volumes, richer metadata and power-loss tests |
-| Shell | Kernel monitor with shell-command hints; Pi-verified EL0 files/run/runio/pipes; new installable shell on v2 | Pi stored-shell acceptance, job control, longer pipelines, shell operators and environment |
+| Persistent files | Pi verifies v2 capacity, restore/MVCHK and v3 DIRCHK; sixteen v3 file/directory nodes, nested 8 KiB files and explicit backup migration | Physical reboot/export/power-cut checks, atomic-update hardware cases, larger files/volumes and richer metadata |
+| Shell | Kernel monitor and Pi-verified EL0 files/run/runio/pipes/exec/env; saved profiles and bounded variable/status expansion | Installed-shell reboot acceptance, job control, general scripts/operators and longer pipelines |
 | Networking | WPA3/SAE, keys/port, DHCP, ARP, IPv4, ICMP and UDP DNS; Pi Internet pings verified | Renewal/rekey/reconnect, background service, neighbor cache, sockets, TCP, HTTP/TLS; IPv6 if required |
-| Security | Reservation-aware allocation, hidden volatile credential input, verified handshake checks; new page permissions | User/process boundaries, filesystem permissions, access control, secure update/boot design and review |
+| Security | Reservation-aware allocation, hidden volatile credentials, verified handshake checks, kernel/user page isolation, RW/NX and checked user copies | Credentials/permissions, broader access control, syscall/driver hardening, secure update/boot design and independent review |
 | Multicore/concurrency | One active CPU; secondary cores parked | SMP startup, per-CPU state, locking, memory-order/IRQ-safe primitives and concurrent drivers |
 | Diagnostics/testing | UART logs, self-tests, independent native fixtures, guard/mutation tests, QEMU A53/A76/EL1/EL2 and image checks | Continuous integration, longer hardware soak/failure/recovery tests, coverage and debugging tools |
-| Build/update/install | Windows-native cross-build, FAT disk packaging, hashes, archived full IMG/ZIP files | On-device installer/update rollback, package format/manager and application repository |
+| Build/update/install | Windows-native build, FAT packaging, hashes, archived full IMG/ZIP files; checked process-control boot-file update for the preceding installation | General update policy, on-device installer/rollback, package format/manager and application repository |
+
+Current bounds matter: three process slots, a 64 KiB dynamic page arena per
+process, bounded foreground sessions, sixteen v3 persistent nodes and 8192
+bytes per persistent file. The root `/` remains RAMFS; persistent files live
+under mounted `/data`. A general persistent root/startup service is still work.
 
 Creating `/dev`, `/proc` and `/sys` directories does not implement device nodes
-or kernel information files. Likewise, a command named `ping` does not imply
-TCP, sockets or software installation. The current heap test proves the
-allocation layer, not virtual memory or process isolation.
+or kernel information files. DNS and `ping` do not supply sockets, TCP or a
+package installer. Allocator tests, protection tests and process tests provide
+different evidence; no individual self-test proves the entire OS.
 
 ## Drivers and platform support
 
@@ -125,22 +130,24 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-1. **Now:** validate v2 capacity and installed shell on the Pi, and
-   installed ELF execution across actual power-cycles without reflashing.
-2. **Files and applications:** extend the implemented handles/ELF/runtime with
-   broader process lifecycles, blocking I/O and synchronization contracts.
-3. **Timer/peripheral services:** carefully scoped peripheral handlers and
-   timer-driven scheduling, with explicit IRQ-safe resource ownership.
-4. **User mode:** expand the bounded private address spaces/syscalls/runtime
-   into a real user shell, IPC and longer-lived process lifecycle.
-5. **Persistent storage:** safe device writes/flush, writable filesystem,
-   generalized VFS and power-loss/error recovery tests.
-6. **Network services:** renewal/rekey/reconnect and background service; sockets,
-   TCP/HTTP/TLS and downloads before package installation can be offered.
-7. **Local interaction:** USB HID, display/text console, then UI/audio and optional
-   hardware. These may be developed alongside core work where dependencies allow.
-8. **Expansion:** SMP, additional boards/devices, performance, update/install
-   tooling and longer reliability/security testing.
+1. **Current core phase: process control.** Snapshot/poll/cancel and PS.ELF now
+   pass local acceptance; new Pi acceptance is pending. The next extension is
+   bounded shell background jobs, using these APIs while preserving memory/file
+   ownership, terminal access and session/deadline limits.
+2. **Persistent system services:** larger files/volumes and VFS capabilities,
+   startup/mount policy, recovery and data-preserving updates. Capture physical
+   reboot/power-cut evidence separately from existing same-boot tests.
+3. **Background network service:** asynchronous driver/event handling,
+   renewal/rekey/reconnect, then sockets, TCP, HTTP/TLS and time/certificate policy.
+4. **Userland and installation:** broader runtime/tools/scripts, package
+   metadata/dependencies/authenticity, transactional installation and rollback.
+5. **Local interaction:** USB HID and display/text console when hardware can be
+   tested; then UI, optional GPU/audio and additional peripheral drivers.
+6. **Platform lifecycle and expansion:** reboot/shutdown/watchdog/RTC/thermal
+   support, SMP and synchronization, hardening, performance and other boards.
+
+Previously passed hardware checks are accepted. The remaining evidence gaps
+do not require repeating all earlier tests before every new phase.
 
 This list is the roadmap, not a claim that all remaining subsystems fit into
 one phase. Each stage needs its own implementation and evidence before the
