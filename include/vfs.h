@@ -1,6 +1,10 @@
 #ifndef OS_VFS_H
 #define OS_VFS_H
 #include "fat32.h"
+#include "persist.h"
+enum { VFS_FILE_MAX=8192 };
+/* Per-mount writable bound: RAMFS 4096, legacy /data 4096, v2 /data 8192. */
+size_t vfs_write_limit(const char *canonical);
 /* Mount routes: volatile RAM root, read-only /boot FAT and snapshot /data. */
 enum fs_result vfs_mount_boot(const struct block_device *device);
 bool vfs_boot_mounted(void);
@@ -13,11 +17,19 @@ bool vfs_read_only(const char *absolute);
 enum fs_result vfs_prepare_write(const char *cwd,const char *path,char *absolute);
 enum fs_result vfs_mount_data(const struct block_device *device);
 void vfs_data_info(void);
+bool vfs_data_failed(void);
+enum fs_result vfs_data_export(persist_emit,void *);
+enum fs_result vfs_data_restore(const char *boot_path);
 enum fs_result vfs_data_sync(void);
 enum fs_result vfs_write(const char *,const void *,size_t);
 enum fs_result vfs_touch(const char *);
 enum fs_result vfs_mkdir(const char *);
 enum fs_result vfs_remove(const char *,bool directory);
+/* Canonicalize both paths; regular files only, same mount, no replacement. */
+enum fs_result vfs_rename(const char *cwd,const char *source,const char *target);
+/* Explicit atomic replacement: consumes source, same writable mount, no open
+ * source/target handles. Directories cannot be published or replaced. */
+enum fs_result vfs_publish(const char *cwd,const char *source,const char *target);
 enum fs_result vfs_file_size(const char *canonical,uint32_t *bytes);
 /* Trusted handle backend: caller holds an exclusive canonical-path lease.
  * Public mutations below the handle layer must use vfs_write instead. */

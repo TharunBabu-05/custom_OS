@@ -1,16 +1,30 @@
 # Experimental Pi 5 disk image
 
-Current OS test: [file standard input/output and shell runio](stdio.md).
+Current OS phase: [application exec and program lookup](application-exec.md).
+New applications retain their PID/cwd/file streams across checked image
+replacement; the shell searches `/data/bin` and `/boot` for bare program names.
+MVCHK and DIRCHK now pass on Pi. New images default to v3; old v1/v2 volumes remain
+supported without conversion. Back up and explicitly migrate files before a
+full-image upgrade. New `replace`, EL0 `PUBLISH` and validated `appupdate` keep
+these formats unchanged; their physical acceptance is pending.
+Pi now verifies DEMO.BAK restore, file sizes and text readback, plus MVCHK
+rename/leases and DIRCHK nested paths. Disk formats remain backward compatible.
+The latest Pi capture passes v2 capacity and USB recovery; installed-shell and
+power-cycle checks remain pending. The [USB reliability fix](usb-storage-reliability.md)
+resolved the earlier write failure for that test. New images add serial data
+export and validated restore into an empty volume; physical backup/restore
+acceptance is pending.
 The latest Pi capture verifies ELF processes, protection, preemption and local
 installation, user tools/sleep, interactive shell, copy/hash/sync and child
-spawn/wait/timeout/early terminal handoff. File stream redirection needs a fresh
-Pi run. Storage remains
+spawn/wait/timeout/early terminal handoff, IOCHK and file output/copy cleanup.
+Pipe self-tests and shell pipelines now also pass on Pi, as does v2 capacity.
+Installed-shell persistence and backup/restore need a fresh Pi run. Storage remains
 opt-in with `storageinit`, `datainit`, then `write`/`cat` or file handles under
 `/data`. BOT endpoint recovery and the WCE=0 cache check now pass on the Pi.
 Earlier Pi runs also verify cooperative contexts/stacks/sleep/exit, exception
 return, GICv2/timer IRQs, MMU protection, USB/FAT reads and DNS/Internet ping.
 EL0 application/protection/preemption tests now pass on Pi. Physical power-cycle
-persistence and the new file-stream tests remain.
+persistence and the new backup/restore tests remain.
 The full [OS/driver checklist](os-status.md) records what is still missing.
 
 Builds now preserve previous and newly generated images in the local

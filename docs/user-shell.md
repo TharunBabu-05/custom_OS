@@ -1,7 +1,12 @@
 # Interactive EL0 serial shell
 
 **Update:** [Physical shell acceptance passes](../proofs/pi5-user-shell-2026-11-13.txt).
-The current image adds [file standard input/output](stdio.md), after
+The new [application exec/lookup phase](application-exec.md) adds bare program
+names, a fixed `/data/bin:/boot` path and `exec` to replace the shell image.
+The current shell also adds [`replace <source> <target>`](atomic-file-updates.md)
+for explicit atomic file publication; `mv` still refuses overwrite.
+The current image adds [two-stage pipes](pipelines.md), after
+the [file standard input/output](stdio.md),
 the [foreground program launch/wait](shell-programs.md) and
 the [binary copy, SHA-256 and sync](file-tools.md) stage. The image
 hash and sizes below describe the earlier shell release.

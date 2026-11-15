@@ -11,7 +11,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Persistent filesystem tests failed' }
     . "$PSScriptRoot/data-format.ps1"
     $blank=Join-Path $ProjectRoot 'build/storage-tests/blank-data.bin'
-    [IO.File]::WriteAllBytes($blank,(New-OurOSDataPartition))
-    & ./build/storage-tests/test-persist.exe --partition $blank
-    if ($LASTEXITCODE -ne 0) { throw 'Independent PowerShell data-format fixture failed' }
+    foreach ($version in 1,2,3) {
+        [IO.File]::WriteAllBytes($blank,(New-OurOSDataPartition -Version $version))
+        & ./build/storage-tests/test-persist.exe --partition $blank
+        if ($LASTEXITCODE -ne 0) { throw "Independent PowerShell v$version fixture failed" }
+    }
 } finally { Pop-Location }

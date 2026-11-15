@@ -4,3 +4,5 @@
 !/image_files/*.zip
 *.pyc
 __pycache__/
+# Personal persistent-file backups and raw serial captures.
+/backups/

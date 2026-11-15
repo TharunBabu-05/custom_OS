@@ -88,4 +88,18 @@ static void corruption(void)
     table.entries[0][128]^=0x1000;table.entries[1][0]^=0x1000;assert(!user_mmu_lookup(&table,USER_VA_BASE,&got));
     puts("PASS: user walker rejects malformed permissions and damaged private table links rather than granting broader access");
 }
-int main(void) { layout();invalid();corruption();return 0; }
+static void staged_replacement(void)
+{
+    static struct user_tables candidate,saved;
+    seed();assert(user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_OK);saved=table;
+    for (unsigned i=0;i<count;++i) { maps[i].physical+=0x200000; }
+    /* Build elsewhere with links for the destination root, without touching
+     * its current image. Only the final copy publishes the new descriptors. */
+    assert(user_mmu_build(&candidate,table.physical,root,maps,count)==USER_MMU_OK && !memcmp(&table,&saved,sizeof(table)));
+    assert(candidate.entries[0][128]==0x101003 && candidate.entries[1][0]==0x102003);
+    memcpy(&table,&candidate,sizeof(table));struct user_translation t;
+    for (unsigned i=0;i<count;++i) { assert(user_mmu_lookup(&table,maps[i].virtual_address,&t) && t.physical==maps[i].physical && t.kind==maps[i].kind); }
+    assert(!memcmp(root,original,sizeof(root)));
+    puts("PASS: inactive replacement tables use destination physical links; old tables stay intact before publication and all new permissions/translations work after copy.");
+}
+int main(void) { layout();invalid();corruption();staged_replacement();return 0; }

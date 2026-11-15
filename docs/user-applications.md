@@ -5,7 +5,8 @@ for this stage, including installation and same-session execution. A physical
 power-cycle check is still outstanding. Later images add
 [user utilities, arguments, directory queries and sleep/wake](user-tools.md)
 and the [interactive EL0 shell](user-shell.md), now extended with
-[foreground child programs](shell-programs.md);
+[foreground child programs](shell-programs.md), [file streams](stdio.md) and
+[two-stage pipes](pipelines.md);
 the artifact details below describe this earlier eleven-program phase.
 
 The [Pi file/task-I/O capture](../proofs/pi5-file-task-io-verified-2026-11-13.txt)
@@ -78,6 +79,9 @@ arguments in `x0..x5`, and returns a signed result in `x0` using `svc #0`.
 | `WRITE_FILE` | Write at most 512 user bytes through a file handle |
 | `SEEK` | Move within the existing file length |
 | `CLOSE` | Release the current process's handle |
+| `RENAME` (29) | Rename a regular file on the same writable mount; no overwrite; checked source/target ranges and open-file leases |
+| `PUBLISH` (30) | Consume a prepared regular file and atomically replace its regular target on the same writable mount; both path leases checked |
+| `EXEC` (31) | Replace the calling process image with a validated packed argv; preserve PID/cwd/handles/streams and original deadline; success never returns |
 
 Every nonempty user pointer range is checked page by page against that
 process's private mapping. Output buffers must be writable. Kernel addresses,
@@ -122,13 +126,16 @@ preemption/timeout batches. It removes its test RAM file and checks global
 page/heap/handle restoration. It refuses to overwrite a pre-existing
 `/tmp/user-note.txt`; save or remove that test path first if appropriate.
 
-`appinstall` accepts only an ELF source of at most 4096 bytes and a new flat
-filename under mounted `/data`. It validates the ELF before writing, refuses
+`appinstall` accepts an ELF source within the target mount's file bound (v1:
+4096 bytes; v2/v3: 8192) and a new filename under mounted `/data`. V3 supports
+nested paths. It validates the ELF before writing, refuses
 an existing target, commits synchronously, then compares every readback byte.
 It never formats or repartitions a device. This is a local executable copy
 installer; package metadata, dependency resolution, downloads, authentication
 and a general OS installer are later work. It accepts no shell wildcards or
 paths containing spaces. `rm /data/hello.elf` can remove a closed installed file.
+The new [`appupdate`](atomic-file-updates.md) validates a source ELF before
+atomically updating an existing regular `/data` file with full readback.
 
 ## Fresh Pi acceptance
 

@@ -1,0 +1,94 @@
+ RP1_UART 0000001c00030000
+ 12.83 MESS:00:00:12.839830:0: board: boardrev d04171 otp d04171
+ 12.45 Read /config.txt bytes      395 hnd 0x11
+ 12.85 MESS:00:00:12.852340:0: Initial voltage 800000 temp 30136
+ 13.05 MESS:00:00:13.052815:0: avs_2712: AVS pred 8691 869100 temp 31235
+ 13.05 MESS:00:00:13.056490:0: vpred 869 mV +0
+ 13.06 MESS:00:00:13.060609:0: over-voltage idle: 0 avs: 109100 delta: 0 (0x00000000)
+ 13.07 MESS:00:00:13.074315:0: FB framebuffer_swap 1
+ 13.07 MESS:00:00:13.076170:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+ 13.08 MESS:00:00:13.083100:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+ 13.09 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+ 13.00 Read PI5.DTB bytes    78770 hnd 0x84b
+ 13.14  /overlays/overlay_map.dtb
+ 13.15  /overlays/bcm2712d0.dtbo
+ 13.13 PCIEx1: PWR 0 DET_WAKE 0
+ 13.45 Read /config.txt bytes      395 hnd 0x11
+ 13.18 [MSD [01:00] 2.00 000000:01] /cmdline.txt not found
+ 13.84  /cmdline.txt
+ 13.18 MESS:00:00:13.186213:0: Failed to open command line file 'cmdline.txt'
+ 13.29 MESS:00:00:13.292141:0: RPM 0, max RPM 0
+ 13.31 BMD "armstub8-2712.bin" not found
+ 13.11 fs_open: 'armstub8-2712.bin'
+ 13.31 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+ 13.34 Read OUROS.IMG bytes   421604 hnd 0x513
+ 13.33 MESS:00:00:13.336077:0: Device tree loaded to 0x200000 (size 0x13ade)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Storage is opt-in: storageinit attempts read-only FAT32 at /boot.
+Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.
+For USB storage use storageinit before usbtest/usbenum on a fresh boot.
+USB discovery: usbinfo (DT), usbprobe (read-only controller registers).
+Kernel monitor ready. Type help.
+> storageinit
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready, read-only result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v2; files=16 max_file_bytes=8192; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> mmuinit
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> appterm 120 /boot/DATACAP.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=120
+DATACAP: checking 8 KiB file/copy and 16 persistent slots; wait for PASS.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=yes budget_seconds=120 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/DATACAP.ELF state=exited code=3 syscalls=16 dispatches=14 sleeps=0 wakes=0 input_lines=0
+App resources restored; monitor ready.
+> appinstall /boot/SHELL.ELF /data/shell.elf
+app: storage I/O error
+> appterm 60 /data/shell.elf
+App load failed: path not found: /data/shell.elf
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=yes budget_seconds=60 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+App resources restored; monitor ready.
+> sha256 /boot/SHELL.ELF
+Shell command: use appshell and wait for user:/$ (timerstart first if stopped).
+> appshell
+App load failed: storage I/O error: /boot/SHELL.ELF
+EL0 processes: limit=3; private pages; timer preempts users only; runs=3 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=yes budget_seconds=300 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+App resources restored; monitor ready.
+> sha256 /data/shell.elf
+Shell command: use appshell and wait for user:/$ (timerstart first if stopped).
+> run /boot/HELLO.ELF
+Shell command: use appshell and wait for user:/$ (timerstart first if stopped).
+> sync
+Data sync failed: storage I/O error
+>

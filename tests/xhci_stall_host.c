@@ -62,7 +62,7 @@ static void seed(struct model *m,bool input,bool wrap)
     disk.snapshot.ports=3;disk.info.bulk_in=0x81;disk.info.bulk_out=2;
     state.command_dma=address(memory.command);state.event_dma=address((const void *)memory.event);
     disk.t=(struct session){.io=&disk.io,.m=&memory,.s=&state,.snapshot=&disk.snapshot,.event=&disk.events,
-        .op=0x40,.rt=0x2000,.db=0x1000,.slot=1,.ep0=address(memory.ep0),.data=address(memory.data)};
+        .op=0x40,.rt=0x2000,.db=0x1000,.slot=1,.ep0=address(memory.ep0),.data=address(memory.data),.command_cycle=1,.ep_cycle=1};
     disk.in=(struct pipe){.ring=memory.bulk_in,.dma=address(memory.bulk_in),.endpoint=3,.cycle=1,.index=input && wrap ? 254 : 0};
     disk.out=(struct pipe){.ring=memory.bulk_out,.dma=address(memory.bulk_out),.endpoint=4,.cycle=1,.index=!input && wrap ? 254 : 0};
     disk.cbw=address(memory.cbw);disk.csw=address(memory.csw);
@@ -84,7 +84,7 @@ int main(void)
         if (mode<3) { assert(r==BLOCK_STALL);r=clear_halt(NULL,true); }
         assert(r==(mode==3 ? BLOCK_TIMEOUT : BLOCK_IO) && !disk.online && m.stopped);
     }
-    struct model m;seed(&m,true,false);disk.clears=32;assert(clear_halt(NULL,true)==BLOCK_IO && !m.step);
+    struct model m;seed(&m,true,false);disk.online=false;assert(clear_halt(NULL,true)==BLOCK_NOT_READY && !m.step);
     puts("PASS: production xHCI matched STALL stays online; Reset Endpoint -> exact CLEAR_FEATURE endpoint/index -> Set Dequeue with correct cycle/wrap; next transfer succeeds; reset/control/mismatched/timeout failures halt and recovery is bounded");
     return 0;
 }

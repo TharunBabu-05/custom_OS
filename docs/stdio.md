@@ -1,5 +1,11 @@
 # File standard input and output
 
+**Update:** [Pi IOCHK, file output/copy and cleanup now pass](../proofs/pi5-stdio-2026-11-14.txt).
+The subsequent missing paths were `/data/copy.txt` versus the actual `/data/ctxt`
+and `/boot/CAT` versus `/boot/CAT.ELF`; [the current pipeline guide](pipelines.md)
+gives the exact correction and clearer diagnostics. Hashes/sizes below describe
+this earlier file-stream release. The shell has since grown beyond 4096 bytes.
+
 The [latest Pi capture](../proofs/pi5-shell-programs-2026-11-14.txt) passes
 SPAWNCHK, the early-read terminal handoff, shell HELLO/ECHO, a child timeout and
 handle/heap/page cleanup. SPIN's `child exit=124` is the expected ten-second
@@ -135,5 +141,5 @@ pass. Tests modify only regular scratch disks or an in-memory copy; the delivery
 image and boot/superblock/unused sectors remain unchanged.
 
 Logs: `build/phase-stdio-{build,image,elf,files,qemu,child-regression,regression}.log`.
-New physical Pi stream acceptance is pending. Previous images/ZIPs are retained
+Pi acceptance for IOCHK, file output/copy and cleanup now passes. Previous images/ZIPs are retained
 in `image_files`; no physical device was flashed and no Git push was performed.

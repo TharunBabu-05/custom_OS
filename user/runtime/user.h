@@ -45,11 +45,23 @@ int app_main(void);
 static inline int64_t uos_copy(const char *a,const char *b) { return uos_call(UOS_SYS_COPY,(uintptr_t)a,uos_length(a),(uintptr_t)b,uos_length(b),0,0); }
 static inline int64_t uos_filehash(const char *p,unsigned char digest[32]) { return uos_call(UOS_SYS_FILEHASH,(uintptr_t)p,uos_length(p),(uintptr_t)digest,0,0,0); }
 static inline int64_t uos_sync(void) { return uos_call(UOS_SYS_SYNC,0,0,0,0,0,0); }
+static inline int64_t uos_rename(const char *source,const char *target)
+{ return uos_call(UOS_SYS_RENAME,(uintptr_t)source,uos_length(source),(uintptr_t)target,uos_length(target),0,0); }
+/* Consume a prepared regular file, atomically replacing a regular target. */
+static inline int64_t uos_publish(const char *source,const char *target)
+{ return uos_call(UOS_SYS_PUBLISH,(uintptr_t)source,uos_length(source),(uintptr_t)target,uos_length(target),0,0); }
 /* Copy a validated packed argv; one direct child, 1..30 seconds, no handles inherited. */
 static inline int64_t uos_spawn(const struct app_args *args,unsigned seconds) { return uos_call(UOS_SYS_SPAWN,(uintptr_t)args,seconds,0,0,0,0); }
 static inline int64_t uos_wait(uint64_t pid) { return uos_call(UOS_SYS_WAIT,pid,0,0,0,0,0); }
+/* Replace this process with a checked packed argv. Success never returns;
+ * PID, cwd, owned handles/cursors, streams and original deadlines survive. */
+static inline int64_t uos_exec(const struct app_args *args) { return uos_call(UOS_SYS_EXEC,(uintptr_t)args,0,0,0,0,0); }
 static inline int64_t uos_spawn_io(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
 { return uos_call(UOS_SYS_SPAWN_IO,(uintptr_t)args,seconds,(uintptr_t)io,0,0,0); }
 /* Binary file stdin only; terminal input uses readline. Up to 512 bytes/call. */
 static inline int64_t uos_stdin(void *buffer,size_t capacity) { return uos_call(UOS_SYS_STDIN,(uintptr_t)buffer,capacity,0,0,0,0); }
+/* Start two children concurrently, connect stdout -> stdin, wait for both.
+ * io may be NULL for terminal output/no input file. Returns pipeline status. */
+static inline int64_t uos_pipeline(const struct app_args *producer,const struct app_args *consumer,unsigned seconds,const struct uos_stdio *io)
+{ return uos_call(UOS_SYS_PIPE_RUN,(uintptr_t)producer,(uintptr_t)consumer,seconds,(uintptr_t)io,0,0); }
 #endif

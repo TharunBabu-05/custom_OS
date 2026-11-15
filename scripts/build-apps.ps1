@@ -15,15 +15,20 @@ try {
     Invoke-Tool gcc @('-mcpu=cortex-a53','-c','user/runtime/start.S','-o',"$out/start.o")
     Invoke-Tool gcc ($flags+@('-c','user/runtime/memory.c','-o',"$out/memory.o"))
     Invoke-Tool gcc ($flags+@('-c','kernel/process/app_args.c','-o',"$out/app_args.o"))
-    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw')) {
+    Invoke-Tool gcc ($flags+@('-c','lib/sha256.c','-o',"$out/sha256.o"))
+    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw','stream','hash','pipechk','datacap','datagen','mvchk','dirchk','replchk','exec','execchk')) {
         $name=$app.ToUpperInvariant()
         Invoke-Tool gcc ($flags+@('-c',"user/applications/$app.c",'-o',"$out/$app.o"))
         $extra=if ($app -eq 'shell') { @("$out/app_args.o") } else { @() }
+        if ($app -eq 'hash') { $extra+=@("$out/sha256.o") }
+        $limit=if ($app -eq 'shell') { 8192 } else { 4096 }
         Invoke-Tool ld (@('--build-id=none','--no-undefined','--gc-sections','-z','max-page-size=4096',
+            "--defsym=__app_max_bytes=$limit",
             '-T','user/runtime/user.ld',"-Map=$out/$name.map",'-o',"$out/$name.ELF","$out/start.o","$out/$app.o","$out/memory.o")+$extra)
         $undefined=Invoke-Tool nm @('-u',"$out/$name.ELF")
         # Preserve the actual executable only. Symbol/section metadata is not
-        # needed by the bounded kernel loader, and the disk files fit /data.
+        # needed by the bounded loader. Small programs fit /data; the expanded
+        # shell may use two image pages and fits v2/v3 persistent files.
         Invoke-Tool strip @('--strip-all',"$out/$name.ELF")
         $headers=Invoke-Tool readelf @('-h','-l','-d',"$out/$name.ELF")
         $headers | Set-Content -Encoding ASCII "$out/$name.readelf.txt"
@@ -32,7 +37,7 @@ try {
             $text -notmatch 'Type:\s+EXEC' -or $text -notmatch 'Data:.*little endian' -or
             $text -cmatch 'INTERP|NEEDED|DYNAMIC' -or $undefined) { throw "Invalid user ELF: $name" }
         $bytes=[IO.File]::ReadAllBytes((Join-Path $ProjectRoot "$out/$name.ELF"))
-        if (!$bytes.Length -or $bytes.Length -gt 4096) { throw "$name exceeds the persistent-file bound" }
+        if (!$bytes.Length -or $bytes.Length -gt $limit) { throw "$name exceeds its configured executable bound" }
         $phoff=[BitConverter]::ToUInt64($bytes,32)
         $phnum=[BitConverter]::ToUInt16($bytes,56)
         if ($phnum -ne 1 -or [BitConverter]::ToUInt32($bytes,[int]$phoff) -ne 1 -or

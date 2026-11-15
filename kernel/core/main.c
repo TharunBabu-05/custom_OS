@@ -101,6 +101,7 @@ static void command(const char *line)
         console_write("appexec <ELF> [arguments] tooltest (EL0 utilities and sleeping processes)\n");
         console_write("appshell | appterm <1..300 seconds> <ELF> [arguments] (interactive EL0 serial session)\n");
         console_write("appinstall <source ELF> </data/new-file> (validated ELF, no overwrite)\n");
+        console_write("appupdate <source ELF> </data/existing-file> (validated atomic update)\n");
         console_write("taskiotest (cooperative file I/O and automatic owner cleanup) fileinfo filetest\n");
         console_write("fopen <path> r|rw|w | fread <handle> <1..512> | fwrite <handle> <text>\n");
         console_write("fseek <handle> <signed offset> set|cur|end | fclose <handle>\n");
@@ -129,6 +130,10 @@ static void command(const char *line)
         console_write("wifisaeauth <SSID> (hidden password, live SAE confirms, then DOWN/restore; no IP)\n");
         console_write("wifiassoc <SSID> (hidden password, verified SAE/M3, key-install/live-M4 test; then DOWN/delete)\n");
         console_write("usbinfo usbprobe (discovery diagnostics)\n");
+        console_write("usbcheck (after storageinit; read-only ring reuse and disk check)\n");
+        console_write("mv <source-file> <new-path> (same filesystem; no overwrite) | stat <path>\n");
+        console_write("replace <source-file> <target> (atomic publication; consumes source)\n");
+        console_write("dataexport | datarestore /boot/DATA.BAK (empty /data only)\n");
         console_write("usbtest (takes over one USB controller, tests DMA, halts it; reboot to repeat)\n");
         console_write("usbenum (direct USB2 device descriptors; reboot before usbtest/usbenum reuse)\n");
     } else if (equal(line,"info")) {

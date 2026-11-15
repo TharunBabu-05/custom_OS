@@ -32,9 +32,17 @@ bool filesystem_command(const char *line)
     if (word(&p,verb,sizeof(verb))!=1) { return false; }
     if (!same(verb,"pwd") && !same(verb,"ls") && !same(verb,"cd") && !same(verb,"cat") &&
         !same(verb,"mkdir") && !same(verb,"touch") && !same(verb,"write") && !same(verb,"rm") &&
-        !same(verb,"rmdir") && !same(verb,"fsinfo")) { return false; }
+        !same(verb,"rmdir") && !same(verb,"fsinfo") && !same(verb,"mv") && !same(verb,"replace") && !same(verb,"stat")) { return false; }
     struct ramfs_stats stats=ramfs_get_stats();
     if (!stats.ready) { report(FS_NOT_READY); return true; }
+    if (same(verb,"mv") || same(verb,"replace")) {
+        char from[RAMFS_PATH_MAX],to[RAMFS_PATH_MAX];
+        if (word(&p,from,sizeof(from))!=1 || word(&p,to,sizeof(to))!=1) { goto move_usage; }
+        spaces(&p);if (*p) { goto move_usage; }
+        report(same(verb,"replace") ? vfs_publish(cwd,from,to) : vfs_rename(cwd,from,to));return true;
+move_usage:
+        console_write("Usage: mv <source> <new-path> (no overwrite) | replace <source> <target> (consumes source; replaces regular target)\n");return true;
+    }
     spaces(&p);
     if (same(verb,"pwd") || same(verb,"fsinfo")) {
         if (*p) { console_write("Usage: pwd | fsinfo (no arguments)\n"); return true; }
@@ -69,7 +77,10 @@ bool filesystem_command(const char *line)
         report(vfs_write(absolute,p,length)); return true;
     }
     if (*p) { console_write("fs: only one path argument is supported\n"); return true; }
-    if (same(verb,"ls")) { report(vfs_list(absolute,entry,NULL));
+    if (same(verb,"stat")) {
+        uint32_t bytes=0;enum fs_result r=dir ? FS_OK : vfs_file_size(absolute,&bytes);report(r);
+        if (r==FS_OK) { console_write(dir ? "type=directory bytes=" : "type=file bytes=");console_u64(bytes);console_write(" path=");console_write(absolute);console_write("\n"); }
+    } else if (same(verb,"ls")) { report(vfs_list(absolute,entry,NULL));
     } else if (same(verb,"cd")) {
         if (!dir) { report(FS_NOT_DIR); }
         else { size_t i=0; do { cwd[i]=absolute[i]; } while (absolute[i++]); }

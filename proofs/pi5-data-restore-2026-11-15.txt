@@ -1,0 +1,23 @@
+User-supplied Pi 5 serial excerpt, recorded 2026-11-15.
+Kernel loaded by firmware: OUROS.IMG, 429812 bytes; board rpi5-header.
+
+> usbcheck
+USB check: 300 descriptor/No-op pairs and sector-zero comparison; no disk writes.
+PASS: USB command/control ring reuse, device identity and sector zero unchanged; no disk writes.
+> datainit
+/data: OurOS snapshot v2; files=16 max_file_bytes=8192; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> datarestore /boot/DEMO.BAK
+Data restore committed and read back; run datainfo and verify files.
+> datainfo
+/data: OurOS snapshot v2; files=16 max_file_bytes=8192; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=1 generation=2 valid_banks=2
+> ls /data
+f 31 restore.txt
+f 8192 pattern.bin
+> cat /data/restore.txt
+OurOS verified backup restore.
+>
+
+This excerpt verifies restoration, sizes and text readback. It does not include
+binary hashes, serial export, stored-shell execution or a physical power cycle.

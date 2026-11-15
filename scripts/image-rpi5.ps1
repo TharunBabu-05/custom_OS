@@ -1,6 +1,6 @@
 # Writes a regular project-local disk-image file; never opens a physical device.
 [CmdletBinding()]
-param([ValidateSet('debug','header')][string]$Console = 'debug')
+param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3)][int]$DataVersion=3,[string]$DataBackup)
 . "$PSScriptRoot/windows-tools.ps1"
 . "$PSScriptRoot/rpi5-profile.ps1"
 $piProfile=Get-Rpi5Profile $Console
@@ -13,6 +13,18 @@ Expand-Archive -LiteralPath (Join-Path $out 'ouros-rpi5-boot-files.zip') -Destin
 & "$PSScriptRoot/verify-rpi5-package.ps1" -Directory $bundle
 $files=Join-Path $work 'files'
 New-Item -ItemType Directory -Path $files | Out-Null
+. "$PSScriptRoot/data-backup.ps1"
+if ($DataBackup) {
+    $backup=Get-OurOSDataBackup $DataBackup
+    if ($backup.Version -ne $DataVersion) { throw 'Backup and target data format must match; no implicit migration' }
+    [IO.File]::WriteAllBytes((Join-Path $files 'DATA.BAK'),$backup.Raw)
+}
+# Public demonstration archive: restoring it is always explicit and empty-target-only.
+[byte[]]$pattern=New-Object byte[] 8192;for ($i=0;$i -lt $pattern.Length;$i++) { $pattern[$i]=[byte]($i%256) }
+if ($DataVersion -eq 1) { $pattern=New-Object byte[] 4096;for ($i=0;$i -lt $pattern.Length;$i++) { $pattern[$i]=[byte]($i%256) } }
+$demo=New-OurOSDataBackup -Version $DataVersion -Files @(
+    @{Name='restore.txt';Data=[Text.Encoding]::ASCII.GetBytes("OurOS verified backup restore.`n")},@{Name='pattern.bin';Data=$pattern})
+[IO.File]::WriteAllBytes((Join-Path $files 'DEMO.BAK'),$demo)
 & "$PSScriptRoot/build-apps.ps1"
 Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'build/apps') -Filter '*.ELF' -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $files $_.Name)
@@ -31,7 +43,19 @@ OurOS experimental Raspberry Pi 5 UART image
 Original AArch64 kernel and user runtime; early OS, not a complete desktop.
 Pi verifies ELF/EL0/preemption, local installation, shell and copy/hash/sync.
 Pi also verifies spawn/wait, early terminal handoff and child timeout cleanup.
-New file standard-input/output redirection needs Pi acceptance.
+Pi also verifies IOCHK, file stream writes and owned-resource cleanup.
+Pi also verifies two-stage pipes, FIFO hash and peer/resource cleanup.
+Pi verifies v2 capacity and USB recovery beyond the former 32-stall cutoff.
+Pi also verifies DEMO.BAK restore, sizes/text and MVCHK rename/leases.
+Pi DIRCHK verifies v3 persistent directories, nested paths and cleanup.
+New: replace consumes a prepared file and atomically replaces its target.
+appupdate validates an ELF before replacing an existing /data executable.
+REPLCHK.ELF tests replacement/leases; physical acceptance is pending.
+New EXEC syscall replaces the current application, preserving its PID,
+cwd, owned file handles/cursors, streams and original time limits.
+The shell searches /data/bin then /boot for bare program names.
+EXECCHK.ELF tests image replacement; new physical acceptance is pending.
+Serial export, binary hashes and physical reboot still need hardware checks.
 
 Console: 3-pin UART connector between the HDMI ports. Terminal 115200 8N1.
 Only the dedicated UART10 console is used. No flow control.
@@ -42,9 +66,9 @@ return, GICv2 timer, cooperative task/file I/O and USB mount/write/read/sync.
 WPA3/DHCP/DNS/Internet ping have earlier physical evidence. Networking is an
 explicit foreground console; no background renewal/rekey or downloads.
 
-CURRENT APPLICATION TEST: one command per line; wait for each prompt:
-storageinit, datainit, mmuinit, irqinit, timerstart, apptest, tooltest, appinfo,
-taskiotest, fileinfo, heaptest, pagetest, timerstop.
+Application setup: storageinit, datainit, mmuinit, irqinit, timerstart.
+New application test: appterm 120 /boot/EXECCHK.ELF
+Or run appshell, then hello, path, and exec echo shell-replaced.
 apptest runs original static ELF programs with private EL0 pages, checked
 syscalls and timer preemption. It contains deliberate null/kernel-access,
 RX-write and NX-stack faults and times out a runaway user loop.
@@ -56,15 +80,22 @@ EL0 prompt user:/$ supports help pwd cd ls cat echo write mkdir rm rmdir exit.
 write /tmp/note "hello from EL0" creates or replaces the whole file.
 Ctrl+C cancels; Ctrl+D at an empty line exits; Backspace/Delete and Ctrl+U edit.
 127-byte lines, 300-second maximum session. Kernel monitor returns on exit.
-cp <source> <new-target> copies up to 4096 bytes; existing targets refused.
+cp <source> <new-target> copies up to 8192 bytes; target mount limits still apply.
 sha256 <file> checks up to 64 KiB; sync flushes mounted /data.
 run <ELF> [args] launches a private child and waits, with a 10-second limit.
 status shows its last exit code; Ctrl+C stops the child and returns to the shell.
 runio <input|-> <new-output|-> <ELF> [args] redirects file streams.
-Output refuses existing files, keeps binary bytes and has a 4096-byte limit.
+Output refuses existing files and keeps binary bytes; v2 /data: 8192, RAM: 4096.
 CAT.ELF with no path reads redirected stdin. Use appterm 30 /boot/IOCHK.ELF.
-No pipes, background jobs, environment or permissions yet.
-See docs/stdio.md. User tools: appexec /boot/LS.ELF /boot; appexec /boot/CAT.ELF /etc/hostname
+pipe <ELF> [args] -- <ELF> [args] connects concurrent producer/consumer.
+pipeio <input|-> <new-output|-> <ELF> [args] -- <ELF> [args] adds file endpoints.
+Try appterm 30 /boot/PIPECHK.ELF. Ctrl+C cancels both stages; status shows result.
+The expanded SHELL.ELF can now be installed on v2 /data (8192-byte files).
+New images default to v2: 16 flat files, 8192 bytes each; old v1 stays 8/4096.
+Use appterm 120 /boot/DATACAP.ELF on empty /data before installing files.
+Kernel monitor > differs from EL0 shell user:/$; restart timer then appshell.
+No background jobs, general descriptor API, environment or permissions yet.
+See docs/data-v2.md. User tools: appexec /boot/LS.ELF /boot; appexec /boot/CAT.ELF /etc/hostname
 appexec /boot/ECHO.ELF "hello from EL0"; appexec /boot/SLEEP.ELF 100
 Arguments and cwd are private; sleep yields the CPU, including idle resume.
 See docs/user-tools.md and docs/remaining-os-roadmap.md in the source.
@@ -72,7 +103,7 @@ See docs/user-tools.md and docs/remaining-os-roadmap.md in the source.
 LOCAL INSTALLATION (MMU and timer running):
 appinstall /boot/HELLO.ELF /data/hello.elf
 apprun /data/hello.elf
-Installer accepts a validated ELF <=4096 bytes, creates a NEW flat data file,
+Installer accepts a validated ELF within the mounted data limit (v1 4096/v2 8192), creates a NEW flat data file,
 commits synchronously and verifies full readback. Existing targets refused.
 This is local executable installation, not an OS installer or package manager.
 Power-cycle WITHOUT reflashing, then storageinit, datainit, mmuinit, irqinit,
@@ -194,7 +225,7 @@ try {
     $extra=New-Object byte[] 512; $extra[510]=0x55; $extra[511]=0xaa
     WriteAt (($start+2)*$sector) $extra; WriteAt (($start+8)*$sector) $extra
     . "$PSScriptRoot/data-format.ps1"
-    $dataPartition=New-OurOSDataPartition
+    $dataPartition=New-OurOSDataPartition -Version $DataVersion
     WriteAt ([long]$dataStart*$sector) $dataPartition
     $dataHasher=[Security.Cryptography.SHA256]::Create()
     try { $dataDigest=([BitConverter]::ToString($dataHasher.ComputeHash($dataPartition))).Replace('-','').ToLowerInvariant() } finally { $dataHasher.Dispose() }
@@ -203,7 +234,7 @@ try {
 $manifest=[ordered]@{board='Raspberry Pi 5 Model B';status='EXPERIMENTAL-HARDWARE-UNTESTED';
     bytes=134217728;partition_lba=$start;partition_sectors=$total;fat='FAT32';
     asset_revision=$assets.revision;wifi_revision=$WifiAssets.revision;console=$Console;files=$records;
-    data_format=1;data_lba=$dataStart;data_sectors=$dataSectors;data_sha256=$dataDigest}
+    data_format=$DataVersion;data_lba=$dataStart;data_sectors=$dataSectors;data_sha256=$dataDigest}
 $manifestPath=Join-Path $work 'image-manifest.json'
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding ASCII $manifestPath
 & "$PSScriptRoot/verify-rpi5-image.ps1" -Image $temporary -Manifest $manifestPath

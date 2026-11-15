@@ -12,7 +12,8 @@ enum uos_syscall {
     UOS_SYS_STAT=13,UOS_SYS_READDIR=14,UOS_SYS_SLEEP_MS=15,UOS_SYS_GETPID=16,
     UOS_SYS_READLINE=17,UOS_SYS_MKDIR=18,UOS_SYS_REMOVE=19,UOS_SYS_REPLACE=20,
     UOS_SYS_COPY=21,UOS_SYS_FILEHASH=22,UOS_SYS_SYNC=23,
-    UOS_SYS_SPAWN=24,UOS_SYS_WAIT=25,UOS_SYS_SPAWN_IO=26,UOS_SYS_STDIN=27
+    UOS_SYS_SPAWN=24,UOS_SYS_WAIT=25,UOS_SYS_SPAWN_IO=26,UOS_SYS_STDIN=27,
+    UOS_SYS_PIPE_RUN=28,UOS_SYS_RENAME=29,UOS_SYS_PUBLISH=30,UOS_SYS_EXEC=31
 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
  * index is a fresh traversal, not a stable cursor across filesystem edits. */
@@ -29,4 +30,11 @@ enum { UOS_SEEK_SET=0,UOS_SEEK_CUR=1,UOS_SEEK_END=2 };
 #define UOS_EFAULT (-2LL)
 #define UOS_EOF (-3LL)
 #define UOS_ENOTTY (-4LL)
+#define UOS_EPIPE (-5LL)
+#define UOS_ENOENT (-6LL)
+#define UOS_EEXIST (-7LL)
+#define UOS_EBUSY (-8LL)
+#define UOS_EXDEV (-9LL)
+#define UOS_EROFS (-10LL)
+#define UOS_EISDIR (-11LL)
 #endif

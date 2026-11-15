@@ -4,6 +4,8 @@
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img')
 . "$PSScriptRoot/windows-tools.ps1"
 $source=(Resolve-Path -LiteralPath $Image).Path
+. "$PSScriptRoot/data-layout.ps1"
+$layout=Get-OurOSDataLayout $source
 $sourceHash=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
 $out=Join-Path $ProjectRoot 'build/handoff-test'
 $kernel=Join-Path $out 'kernel.bin'
@@ -50,7 +52,7 @@ function Run-Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[str
 $filePass='PASS: owned file handles, independent cursors, seek/overwrite, stale/foreign rejection, path pins and owner cleanup; memory restored.'
 $expectedContent='saved-XX-file-handle'
 $prefixHash=Segment-Hash $source 0 (260097L*512) # Includes data superblock.
-$tailOffset=(260096L+133)*512
+$tailOffset=(260096L+$layout.UsedSectors)*512
 $tailHash=Segment-Hash $source $tailOffset (134217728L-$tailOffset)
 foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
     $stem="files-$($case[0])-$($case[1])"
@@ -85,21 +87,21 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
     $hash=[Security.Cryptography.SHA256]::Create();$chosen=-1;$generation=0L
     try {
         foreach ($bank in 0,1) {
-            $at=512+$bank*66*512
-            if ([Text.Encoding]::ASCII.GetString($bytes,$at,8) -cne 'OUROSBK1' -or [BitConverter]::ToUInt32($bytes,$at+8) -ne 1 -or
-                [BitConverter]::ToUInt32($bytes,$at+12) -ne $bank -or [BitConverter]::ToUInt32($bytes,$at+24) -ne 33280 -or
+            $at=512+$bank*$layout.BankSectors*512
+            if ([Text.Encoding]::ASCII.GetString($bytes,$at,8) -cne $layout.Magic -or [BitConverter]::ToUInt32($bytes,$at+8) -ne $layout.Version -or
+                [BitConverter]::ToUInt32($bytes,$at+12) -ne $bank -or [BitConverter]::ToUInt32($bytes,$at+24) -ne $layout.PayloadBytes -or
                 [Convert]::ToBase64String($hash.ComputeHash($bytes,$at,64)) -cne [Convert]::ToBase64String($bytes[($at+64)..($at+95)]) -or
-                [Convert]::ToBase64String($hash.ComputeHash($bytes,$at+512,33280)) -cne [Convert]::ToBase64String($bytes[($at+32)..($at+63)])) {
+                [Convert]::ToBase64String($hash.ComputeHash($bytes,$at+512,$layout.PayloadBytes)) -cne [Convert]::ToBase64String($bytes[($at+32)..($at+63)])) {
                 throw 'Independent snapshot header/payload checksum or identity failed'
             }
             $g=[BitConverter]::ToUInt64($bytes,$at+16);if ($g -gt $generation) { $generation=$g;$chosen=$at+512 }
         }
         if ($generation -ne 4 -or [Text.Encoding]::ASCII.GetString($bytes,$chosen,32).TrimEnd([char]0) -cne 'fd-note.txt' -or
             [BitConverter]::ToUInt32($bytes,$chosen+32) -ne $expectedContent.Length -or
-            [Text.Encoding]::ASCII.GetString($bytes,$chosen+512,$expectedContent.Length) -cne $expectedContent) {
+            [Text.Encoding]::ASCII.GetString($bytes,$chosen+$layout.DirectoryBytes,$expectedContent.Length) -cne $expectedContent) {
             throw 'Independent persistent handle content/length/generation check failed'
         }
-        foreach ($i in 1..7) { if ($bytes[$chosen+$i*64]) { throw 'Unexpected persistent file was created' } }
+        foreach ($i in 1..($layout.Files-1)) { if ($bytes[$chosen+$i*64]) { throw 'Unexpected persistent file was created' } }
     } finally { $hash.Dispose() }
     Write-Output "PASS: $stem owned handle writes/seek survive cold boot; monitor handle survives repeated task I/O/cleanup, read-only boot enforced, independent generation/content/hash checks and unchanged boot/unused sectors."
 }

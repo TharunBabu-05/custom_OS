@@ -7,7 +7,7 @@ PHDRS
 }
 SECTIONS
 {
-    /* The single read/execute page includes ELF headers at file offset 0.
+    /* The single read/execute segment includes ELF headers at file offset 0.
      * Stack storage is supplied separately by the kernel's EL0 mapping. */
     . = 0x2000000000 + SIZEOF_HEADERS;
     .text : ALIGN(16) { KEEP(*(.text.start)) *(.text .text.*) } :image
@@ -15,6 +15,6 @@ SECTIONS
     .data : ALIGN(16) { *(.data .data.*) } :image
     .bss (NOLOAD) : ALIGN(16) { *(.bss .bss.* COMMON) } :image
     ASSERT(SIZEOF(.data) == 0 && SIZEOF(.bss) == 0, "sample applications must use stack locals, no writable globals")
-    ASSERT(. - 0x2000000000 <= 4096, "application exceeds one image page")
+    ASSERT(. - 0x2000000000 <= (DEFINED(__app_max_bytes) ? __app_max_bytes : 4096), "application exceeds configured image bound")
     /DISCARD/ : { *(.comment .note.* .eh_frame* .ARM.exidx* .ARM.extab*) }
 }

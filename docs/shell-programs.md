@@ -3,7 +3,8 @@
 **Update:** the [Pi capture](../proofs/pi5-shell-programs-2026-11-14.txt) passes
 SPAWNCHK, TTYPAR, normal shell launches, timeout and resource cleanup. Child
 Ctrl+C and ORPHAN/CAPCHK are not in that capture. Current images add
-[file standard input/output](stdio.md); artifact details below describe the
+[file standard input/output](stdio.md) and [two-stage pipes](pipelines.md);
+artifact details below describe the
 earlier foreground-program release.
 
 The [Pi file-tools capture](../proofs/pi5-file-tools-2026-11-14.txt) now passes

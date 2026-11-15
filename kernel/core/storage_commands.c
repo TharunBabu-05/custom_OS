@@ -6,6 +6,7 @@
 #include "wifi_files.h"
 #include "dhcp.h"
 #include "netprobe.h"
+#include "sha256.h"
 static struct block_device disk;
 static bool attached;
 static uintptr_t wifi_dtb;
@@ -15,6 +16,19 @@ static unsigned char wifi_mac[6];
 static bool have_wifi_mac;
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a; ++b; } return *a==*b; }
 static bool begins(const char *a,const char *b) { while (*b) { if (*a++!=*b++) { return false; } }return true; }
+static const char digits[]="0123456789abcdef";
+struct export_stream { struct sha256 hash;unsigned offset; };
+static bool export_hex(const void *data,size_t bytes,void *context)
+{
+    struct export_stream *s=context;const unsigned char *p=data;
+    if (!s->offset) { console_write("-----BEGIN OUROS DATA BACKUP V1-----\n"); }
+    sha256_update(&s->hash,data,bytes);
+    for (unsigned i=0;i<bytes;i+=32) {
+        console_putc('D');for (int shift=28;shift>=0;shift-=4) { console_putc(digits[(s->offset>>shift)&15]); }console_putc(':');
+        for (unsigned j=0;j<32;++j) { console_putc(digits[p[i+j]>>4]);console_putc(digits[p[i+j]&15]); }
+        s->offset+=32;console_putc('\n');
+    }return true;
+}
 void storage_setup(const char *board,uintptr_t dtb)
 {
     board_name=board; wifi_dtb=dtb; const unsigned char *p; uint32_t n;
@@ -31,6 +45,23 @@ void storage_setup(const char *board,uintptr_t dtb)
 }
 bool storage_command(const char *line)
 {
+    if (same(line,"dataexport")) {
+        struct export_stream stream={0};sha256_init(&stream.hash);
+        enum fs_result r=vfs_data_export(export_hex,&stream);
+        if (r==FS_OK) {
+            unsigned char hash[32];sha256_final(&stream.hash,hash);console_write("OUROS-DATA-SHA256 ");
+            for (unsigned i=0;i<32;++i) { console_putc(digits[hash[i]>>4]);console_putc(digits[hash[i]&15]); }
+            console_write("\n-----END OUROS DATA BACKUP V1-----\nData export complete; files unchanged.\n");
+        } else { console_write("Data export failed: ");console_write(ramfs_error(r));console_write("\n"); }return true;
+    }
+    if (same(line,"datarestore") || begins(line,"datarestore ")) {
+        const char *path=line+11;while (*path==' ') { ++path; }
+        if (!*path) { console_write("Usage: datarestore /boot/DATA.BAK (empty /data, same format only)\n");return true; }
+        enum fs_result r=vfs_data_restore(path);
+        console_write(r==FS_OK ? "Data restore committed and read back; run datainfo and verify files.\n" : "Data restore refused/failed: ");
+        if (r!=FS_OK) { console_write(ramfs_error(r));console_write("; requires empty healthy /data, matching format and a valid boot backup.\n"); }
+        if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); }return true;
+    }
     if (same(line,"datainit")) {
         if (!attached || !vfs_boot_mounted()) { console_write("Run storageinit before datainit.\n");return true; }
         enum fs_result r=vfs_mount_data(&disk);
@@ -40,7 +71,7 @@ bool storage_command(const char *line)
     if (same(line,"datainfo")) { vfs_data_info();return true; }
     if (same(line,"sync")) {
         enum fs_result r=vfs_data_sync();console_write(r==FS_OK ? "Data cache flushed; file updates already commit synchronously.\n" : "Data sync failed: ");
-        if (r!=FS_OK) { console_write(ramfs_error(r));console_write("\n"); }return true;
+        if (r!=FS_OK) { console_write(ramfs_error(r));console_write("\n");if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); } }return true;
     }
     if (same(line,"nettest")) { console_write(dhcp_selftest() ? "PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.\n" : "FAIL: DHCP packet fixtures.\n");console_write(netprobe_selftest() ? "PASS: ARP/ICMP gateway public packet fixtures; no network I/O.\n" : "FAIL: ARP/ICMP packet fixtures.\n");console_write(dns_selftest() ? "PASS: DNS A query/compressed-answer public fixtures; no network I/O.\n" : "FAIL: DNS packet fixtures.\n");return true; }
     if (same(line,"wifiinit")) { platform_wifi_init(wifi_dtb); return true; }

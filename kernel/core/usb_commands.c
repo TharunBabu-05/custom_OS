@@ -49,6 +49,7 @@ static void print_snapshot(const struct xhci_snapshot *s)
 #endif
 bool usb_command(const char *line)
 {
+    if (same(line,"usbcheck")) { (void)xhci_storage_check();return true; }
     if (same(line,"usbtest")) { platform_usb_test(firmware_dtb,console_base); return true; }
     if (same(line,"usbenum")) { platform_usb_enumerate(firmware_dtb,console_base); return true; }
     bool probe=same(line,"usbprobe"); if (!probe && !same(line,"usbinfo")) { return false; }

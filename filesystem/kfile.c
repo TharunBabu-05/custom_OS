@@ -12,7 +12,7 @@ struct description {
 static struct description files[KFILE_LIMIT];
 static uint64_t generation=1;
 static bool operating;
-static unsigned char scratch[RAMFS_FILE_MAX];
+static unsigned char scratch[VFS_FILE_MAX];
 static void wipe(void *p,size_t n) { volatile unsigned char *out=p;while (n--) { *out++=0; } }
 static void copy(void *d,const void *s,size_t n) { unsigned char *out=d;const unsigned char *in=s;while (n--) { *out++=*in++; } }
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
@@ -64,7 +64,7 @@ enum fs_result kfile_open(uint64_t owner,const char *cwd,const char *path,unsign
     if (conflict(absolute,(flags&KFILE_WRITE)!=0)) { r=FS_BUSY;goto out; }
     uint32_t bytes=0;
     if (!missing) { r=vfs_file_size(absolute,&bytes);if (r!=FS_OK) { goto out; } }
-    if (bytes>65536 || ((flags&KFILE_WRITE) && bytes>RAMFS_FILE_MAX)) { r=FS_FILE_TOO_LARGE;goto out; }
+    if (bytes>65536 || ((flags&KFILE_WRITE) && bytes>vfs_write_limit(absolute))) { r=FS_FILE_TOO_LARGE;goto out; }
     if (missing || (flags&KFILE_TRUNC)) {
         r=vfs_replace_open(absolute,"",0);if (r!=FS_OK) { goto out; }bytes=0;
     }
@@ -94,7 +94,8 @@ enum fs_result kfile_write(uint64_t owner,uint64_t handle,const void *buffer,siz
     if (count) { *count=0; }if (!count || (!buffer && length)) { return FS_BAD_ARGUMENT; }
     if (operating) { return FS_BUSY; }struct description *f=lookup(owner,handle);if (!f) { return FS_BAD_HANDLE; }
     if (!(f->flags&KFILE_WRITE)) { return FS_ACCESS; }if (!length) { return FS_OK; }
-    if (length>RAMFS_FILE_MAX || f->offset>RAMFS_FILE_MAX-length) { return FS_FILE_TOO_LARGE; }
+    size_t maximum=vfs_write_limit(f->path);
+    if (length>maximum || f->offset>maximum-length) { return FS_FILE_TOO_LARGE; }
     operating=true;size_t actual=0;enum fs_result r=FS_OK;
     if (f->length) {
         r=vfs_read(f->path,0,scratch,f->length,&actual);

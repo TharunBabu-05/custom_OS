@@ -1,5 +1,264 @@
 # Development log
 
+## 2026-11-15 - Application exec and fixed shell program lookup
+
+- Recorded the user's Pi file-command excerpt in
+  proofs/pi5-file-publication-2026-11-15.txt. Publication targeted not.txt while
+  cat queried note.txt, so old-version was expected. The shell exited code 0
+  with restored resources. This narrower capture does not establish target
+  overwrite, REPLCHK, appupdate or physical power-cycle recovery.
+- Appended EXEC=31 and uos_exec. Prepared candidate image/pages/tables before
+  publishing into the current slot. Failure before publication leaves the old
+  image/stack/resources intact. Success preserves PID/owner/cwd, ordinary
+  handles/cursors, redirected and pipe streams, parent identity and original
+  deadlines, while zeroing/freeing the old image/stack. No unused slot needed.
+  Outstanding children must be reaped before exec. Added execs= counters.
+- Added fixed /data/bin then /boot lookup, exact name then .elf for names
+  without an extension. Explicit paths retain existing behavior. Bare external
+  commands, run/runio, pipe/pipeio and exec support lookup; builtins keep
+  precedence. Invalid selected executables are refused without fallback.
+- Added EXEC chain-loader and EXECCHK: failed input/argv/ELF preserves state;
+  eight image changes preserve PID/cwd/handle cursor, quoted/empty arguments
+  and fresh stacks. Parent-mode wait/slot reuse/fault/deadline checks pass.
+- Removed stray non-C text after the appupdate branch in process_commands.c
+  that would otherwise prevent building the current source.
+- Native user-MMU staged-link/permission tests pass. QEMU A53/EL1 and A76/EL2
+  pass serial and three-occupied-slot exec tests, original PIPECHK/SPAWNCHK,
+  replacement in both pipe peers, redirected binary I/O/hash checks, shell
+  lookup precedence, invalid exec retaining the shell and installed-program
+  execution after fresh emulator boots. Resources restored and handles zero;
+  source image, boot sectors and unused sectors remain unchanged.
+- All 41 delivered ELFs, 25000 parser mutation cases and eight independent
+  image corruption/profile checks pass. Logs: build/phase-exec-*.log. New Pi
+  exec acceptance remains pending; no request to repeat earlier tests.
+- Built full 134217728-byte image and verified 868841-byte full-image ZIP.
+  Disk SHA256 7be53179792bb065483c58233eb7c9f78fd8cba022f3ec893bdd1cab5060b3b5.
+  Earlier images/ZIPs remain archived flat. Generated scratch disks cleaned;
+  no physical device written and no Git commit or push.
+
+## 2026-11-15 - Atomic file publication and validated application updates
+
+- Accepted the completed Pi DIRCHK result and continued without repeating its
+  hardware checklist. Added explicit monitor/shell `replace` and appended
+  checked `PUBLISH=30`/`uos_publish`; existing no-overwrite `mv` is unchanged.
+- Publication consumes the source and replaces a regular target in one
+  snapshot commit, reusing the source slot and clearing the old target slot.
+  RAMFS reuses the source buffer. Both source/target leases and mount/type/path
+  guards apply; no spare slot is needed. Formats v1/v2/v3 remain unchanged.
+- Added `appupdate`: existing regular `/data` target only, full source ELF
+  validation before mutation, one whole-file commit, sync and full readback.
+  Invalid source ELF leaves the old target unchanged; appinstall remains
+  create-only. No package/signature/multi-file transaction claims.
+- Native persistence tests pass all 4720 new publication fault outcomes across
+  three formats, comparing entire old/new payloads. Existing recovery/tree/
+  rename/backup tests also pass. VFS/heap/handle tests pass source and target
+  leases, full-table reuse, failed-volume no-op refusal and resource restoration.
+- QEMU A53/EL1 and A76/EL2 pass REPLCHK, old-hash retention after invalid ELF,
+  valid update/installed-shell execution, shell replacement, 8192-byte binary
+  publication, independently decoded exported trees and fresh-boot execution.
+  Legacy v1/v2 update/reboot passes without conversion. Only data banks change;
+  delivery, boot area and unused sectors remain unchanged.
+- All 39 delivered ELFs/parser mutations and eight image corruption/profile
+  checks pass. Logs: build/phase-replace-*.log. New physical acceptance remains
+  pending; earlier physical test results retain their recorded scope.
+- Built/archived the 134217728-byte image and verified 865114-byte full-image
+  ZIP. SHA256 d743a08e0b77a2997f32c1493527065a4949f6a1ad99cc65591efec0b8e33a38.
+  Previous image 940d9292... remains archived and its full hash was verified.
+  No physical device written; no Git commit or push.
+
+## 2026-11-15 - Pi v3 directory self-test verified
+
+- Recorded proofs/pi5-persistent-directories-2026-11-15.txt: v3 mount, usbcheck,
+  MMU/timer setup and DIRCHK PASS, code 0/syscalls 40/dispatches 20, resources
+  restored. No new kernel/image build was required for recording this result.
+- The capture does not establish physical reboot persistence, nested installed
+  ELF execution or serial export. Those checks remain in the directory guide.
+- Confirmed the earlier rename-stage IMG remains archived with SHA-256
+  84c2a7d294ba1701c97a532b5065b680be5fa6e2ea826014494a2a8608af3b17.
+  Build archives preserve build-time images, not later files written on the Pi.
+
+## 2026-11-15 - Persistent directories, v3 and explicit backup migration
+
+- Saved the real Pi MVCHK PASS with resource restoration in
+  proofs/pi5-file-rename-2026-11-15.txt. New work is v3 directories, not a claim
+  that physical reboot/export or the complete OS is already verified.
+- V3 keeps v2 geometry but defines file/directory kinds and parent IDs in its
+  node table. Sixteen shared slots, 8192 bytes/file; supports nested mkdir/cwd/
+  list/read/write/remove and cross-directory file rename. No directory moves.
+  Graph validation rejects cycles, bad/missing/non-directory parents, duplicate
+  siblings, unreachable overlong paths and nonzero reserved/directory data.
+- Legacy v1/v2 behavior remains supported. New images default to v3; conversion
+  is explicit through checked host backup migration. V3 archives preserve trees.
+  The ELF installer now accepts validated nested /data destinations.
+- Native legacy/graph/backup/lease checks pass, including 3132 interrupted v3
+  mkdir/move/rmdir outcomes and actual PowerShell partition/backup fixtures.
+  Added DIRCHK.ELF and end-to-end tests. Procedure: docs/persistent-directories.md.
+  Physical v3 acceptance pending; no physical device write or Git push.
+- QEMU A53/EL1 and A76/EL2 pass DIRCHK, nested 8192-byte copy/hash, independently
+  decoded directory graphs and nested installed-shell execution after a fresh
+  boot. V1/v2 compatibility/MVCHK/write/reboot checks pass without conversion.
+  Tree export -> host conversion -> new image -> restore -> populated-tree
+  DIRCHK -> nested ELF cold boot passes on both, with exact full-payload hash
+  and unchanged boot/unused sectors. All 38 ELF/parser and eight image checks pass.
+- Full image 134217728 bytes; verified ZIP 869337 bytes; SHA-256
+  940d9292bc81b72a057b43eba19f7a19c581308d6effb05b46f63e663aa17420.
+  Kernel 433908 bytes/end 0x1c4000; DIRCHK 2496 bytes. Public DATA.BAK in the
+  acceptance image is an automated test tree, not personal user data.
+
+## 2026-11-15 - Atomic regular-file rename and stat
+
+- Saved proofs/pi5-data-restore-2026-11-15.txt: demo restore committed, generation
+  2/two banks, text and 8192-byte binary sizes, correct text readback. Binary
+  hashes, serial export, installed-shell and physical reboot are not in that log.
+- Added no-overwrite same-mount regular-file rename in RAM and persistent v1/v2.
+  RAM reuses its node/buffer; data retains its slot and publishes one snapshot.
+  Open-path leases, readonly, mount boundary, parent and directory checks apply.
+  Same-name no-ops preserve latched data errors. No disk-format change.
+- Added EL0 RENAME=29, checked pointer/length inputs, distinct refusal results,
+  shell/monitor mv and stat, and MVCHK.ELF. Prior syscall numbers remain stable.
+- Native tests pass full-directory/binary cases, all 272 v1/1044 v2 rename
+  interruption cases, aliases/leases, allocation identity and failure guards.
+  Hardware procedure and validation: docs/file-rename.md. Physical acceptance
+  remains pending. No physical flash or Git push performed.
+- QEMU A53/EL1 and A76/EL2 pass MVCHK, monitor/shell rename/stat, independently
+  decoded names/digests, moved-shell cold boot and unchanged boot/unused sectors.
+  Legacy v1 rename/reboot passes without conversion. All 37 ELFs, 25000 parser
+  mutations and eight image corruption/profile cases pass. A PowerShell test
+  variable collision with its Backup switch was corrected before the final run.
+- Full image 134217728 bytes; verified ZIP 860819 bytes; SHA-256
+  84c2a7d294ba1701c97a532b5065b680be5fa6e2ea826014494a2a8608af3b17.
+  Kernel 433908 bytes/end 0x1c4000; shell 5176 bytes; MVCHK 2576 bytes.
+
+## 2026-11-15 - Serial data backup and atomic empty-volume restore
+
+- Saved proofs/pi5-usb-v2-capacity-2026-11-15.txt: usbcheck and DATACAP pass,
+  152 stalls recovered, USB online, generation 51/two valid banks. The typo
+  stoageinfo was harmless. Installed-shell/power-cycle evidence remains pending.
+- Added dataexport, normalized v1/v2 bank archives, contiguous serial hex rows
+  and whole-archive SHA-256. Export reads the committed RAM view with no block I/O.
+- Added validated datarestore from immutable /boot archives into an empty
+  healthy same-format volume. All bytes validate before one dual-bank commit;
+  no overwrite, format, merge or implicit migration. Input errors leave data
+  unchanged; ambiguous commit errors retain the existing failure policy.
+- Added project-local non-overwriting Windows log conversion, independent
+  archive validation and image -DataBackup packaging as DATA.BAK. New images
+  include public DEMO.BAK for hardware testing. Personal backups are ignored.
+- Validation and hardware procedure: docs/data-backup-restore.md. New physical
+  backup/restore acceptance is pending. No physical device flash or Git push.
+- Native C/PowerShell interchange, malformed-input checks, all source-reader
+  failure points and interrupted restore commits pass for v1/v2. Owned-file
+  regression passes. QEMU A53/EL1 and A76/EL2 pass demo restore/export, then
+  actual export -> host conversion -> new image DATA.BAK -> restore/cold boot,
+  stored-shell execution, hashes, refusal and unchanged boot/unused sectors.
+  All eight image corruption/profile cases pass.
+- Full image 134217728 bytes, verified ZIP 859884 bytes; SHA-256
+  21f2e35c04aaa392fe380c7f8e2ba6cad640348c08ae4e318ff2f3329ccb2e0e.
+  Kernel 429812 bytes, reserved end 0x1c3000 below DTB 0x200000. Earlier full
+  images/ZIPs retained flat; known generated objects and scratch disks cleaned.
+
+## 2026-11-15 - USB lifetime recovery and retained data update failures
+
+- Saved the first physical v2 DATACAP failure: code 3, then offline USB reads,
+  failed installation and sync. The follow-up installed program was absent.
+- Reproduced the old transport's 32-clear lifetime cutoff using production
+  xHCI/BOT/snapshot code and an independent device/ring model: update 11,
+  recovery 33. Removed that cutoff; command/control rings now recycle with
+  cycle/link handling and control tail padding. Recovery waits and one CSW
+  retry remain bounded; ambiguous writes are never replayed.
+- Added persistent-update phase/result/LBA/readback-mismatch diagnostics,
+  recovery ring counters and automatic data/storage reports after application
+  sessions ending with a latched data error. Both snapshot formats remain intact.
+- Added read-only usbcheck: 300 No-op/device-descriptor pairs, exact identity,
+  actual ring reuse and before/after sector-zero comparison; no disk writes.
+- Native integrated USB tests pass 160 v2 updates and 483 stall recoveries;
+  snapshot diagnostics/recovery pass 272 v1 and 1044 v2 fault cases. Owned file
+  tests pass. QEMU A53/EL1 and A76/EL2 pass usbcheck before/after DATACAP,
+  installed-shell cold boot, hashes, independent bank/untouched-region checks
+  and old v1 compatibility; command/control rings wrap twice/seven times.
+- Validation and Pi retest instructions: docs/usb-storage-reliability.md.
+  Physical retest of the new image is pending; no flash or Git push performed.
+
+## 2026-11-14 - Persistent capacity v2, installed shell and prompt hints
+
+- Recorded the latest Pi PIPECHK/stream-hash/pipeline/cleanup PASS in
+  proofs/pi5-pipelines-2026-11-14.txt. The posted sha256/runio unknown-command
+  messages came from using EL0 commands at the kernel '>' prompt after timerstop.
+  Added monitor hints for shell-only names; docs/data-v2.md explicitly separates
+  prompts, setup and the need to recreate files after a fresh full-image flash.
+- New images default to data v2: 16 flat files of 8192 bytes, 1024-byte directory,
+  132096-byte payload, two 259-sector SHA-256 commit banks in the same 1 MiB
+  partition. V1 stays supported at its exact 8x4096 geometry; no automatic
+  migration, format or resizing. Builder can explicitly produce DataVersion 1.
+- Per-mount file bounds flow through handles, COPY and the verified ELF installer;
+  RAMFS remains 4096 bytes. The shell can now be installed on v2 /data. Static
+  buffers remain bounded below the DTB; kernel end is 0x1bd000, DTB 0x200000.
+  run/pipe keep ten-second budgets; runio/pipeio allow thirty seconds for larger
+  synchronous transfers. DATACAP requires empty /data and checks capacity,
+  overflow, copy, file slots, unchanged RAM bounds and cleanup; DATAGEN emits 8 KiB.
+- Native v1/v2 tests pass, including all 272/1044 update failure cases across
+  no-completion and torn-write/ambiguous-flush models. Geometry/magic/duplicate/
+  checksum rejection, old/new snapshot recovery, file handles and both generated
+  blank partitions pass. Image corruption/profile tests pass; their crosslink
+  mask now uses the actual first cluster instead of assuming a smaller directory.
+- QEMU A53/EL1 and A76/EL2 pass capacity, installed shell after reboot, exact
+  8192-byte data, independent snapshot/ELF checks, monitor hints and unchanged
+  boot/superblock/unused sectors. Both v1 archives mount/write/read at original
+  limits without conversion. Previous app/tools and pipeline profiles pass with
+  version-aware decoders. Fixed the host checker to sort explicit records rather
+  than hashtable pseudo-properties. All 36 ELF fixtures/25000 mutations pass.
+- Final kernel 421604 bytes; SHELL 4480, DATACAP 2496, DATAGEN 464. Full disk
+  134217728 bytes, verified ZIP 854866. SHA-256:
+  f5fee3a7646407b93527dd578314eb316b52b04fca658154783ca2563430e834.
+  Logs: build/phase-data2-*.log. New physical v2 acceptance pending; prior images
+  and explicit v1 compatibility archive preserved, no flash or Git push performed.
+
+## 2026-11-14 - Two-stage pipe IPC and explicit path diagnostics
+
+- Preserved the supplied Pi log as proofs/pi5-stdio-2026-11-14.txt. IOCHK, file
+  output/copy and zero-handle/heap/page cleanup pass. The copy was named /data/ctxt;
+  later /data/copy.txt and /boot/CAT lookups fail because those paths differ or
+  omit .ELF. No storage-driver fault was demonstrated. docs/pipelines.md gives
+  the exact existing-image correction; the invalid ELF inside IOCHK is deliberate.
+- Missing copy/hash sources now return ENOENT=-6; the shell names missing hash
+  paths. Loader errors include the attempted path, filtered to printable bytes,
+  and the shell's launch failure points to ELF/input/output paths.
+- Added a pure 1024-byte binary ring and PIPE_RUN=28. Two private EL0 children
+  run concurrently with producer stdout connected to consumer stdin; the caller
+  blocks until both are collected. FIFO reads/writes block through saved user
+  frames, EOF drains buffered data, reader closure returns EPIPE=-5. Optional
+  file endpoints reuse the no-overwrite/lease policy. Ctrl+C cancels both stages;
+  session/IRQ failure and failed setup have explicit dual-child cleanup.
+- Added shell pipe/pipeio with explicit '--' separator, STREAM (binary producer/
+  delayed peer fixtures), HASH (stream SHA-256) and PIPECHK. Three process slots
+  bound one two-stage job; nested jobs, descriptors and longer chains remain work.
+  Status uses a nonzero consumer exit, otherwise the producer exit; Ctrl+C 130.
+- The shell is 4456 bytes and is boot-filesystem-only under the current 4096-byte
+  writable-file bound. Its build permits two RX image pages; the existing 32 KiB
+  kernel ELF arena is unchanged. Other sample executables retain 4096-byte bounds.
+  There are 34 ELFs. The snapshot format/layout remains unchanged.
+- Native ring tests pass 10000 FIFO cycles, wrap/full/empty, failed-write
+  preservation, EOF drain and endpoint wiping. PIPECHK exercises 14 pipelines
+  plus one ordinary child: binary digests, empty/partial EOF, delayed peers,
+  bad setup, slot reuse, nested rejection, early exit, both faults and blocked
+  timeouts. Emulator runs exercise corrected path diagnostics, file endpoints,
+  Ctrl+C, enclosing-session expiry and independently decoded cold-boot data.
+- docs/pipelines.md records Pi acceptance and current bounds. New physical pipe
+  acceptance remains pending; general storage growth, jobs/packages/network
+  services and local UI remain on the roadmap.
+- Final QEMU A53/EL1 and A76/EL2 pipeline create/reopen tests pass, including
+  filtered control-character diagnostic paths, 14 pipelines/29 children,
+  reader/writer blocking, faults/EPIPE/cancel/session expiry and exact persisted
+  bytes decoded independently with unchanged boot/superblock/unused sectors.
+  Child/early-read regression passes on the final candidate; both file-stream
+  and app/tools profiles also passed in this phase. Native file cleanup/remount,
+  all 34 ELF fixtures, 25000 parser mutations and 10000 FIFO cycles pass.
+  Logs: build/phase-pipe-*.log. The short-session harness uses two seconds so
+  its slow character-by-character input finishes before the intended timeout.
+- Final kernel is 421604 bytes, reserved end 0x189000 below DTB 0x200000.
+  Full image is 134217728 bytes, extracted/hash-verified ZIP is 853332 bytes;
+  SHA-256: e43caed4626981486a09b8172a99476bb57dd6fd470bdb0ca9139109fc1131e4.
+  Prior complete images/ZIPs retained. No physical flash or Git push performed.
+
 ## 2026-11-14 - Application file standard input/output and shell runio
 
 - Saved the supplied Pi serial capture unchanged as

@@ -50,6 +50,7 @@ enum xhci_test_result xhci_device_test(const struct xhci_test_io *io,struct xhci
 enum xhci_test_result xhci_enumerate(const struct xhci_test_io *io,struct xhci_test_memory *memory,struct xhci_test_state *state,const struct xhci_snapshot *snapshot,unsigned *event_cursor,struct usb_device_info *info,struct block_device *storage);
 enum xhci_test_result xhci_storage_start(const struct xhci_test_io *io,struct xhci_test_memory *memory,struct xhci_test_state *state,struct usb_device_info *info,struct block_device *storage);
 void xhci_storage_info(void);
+bool xhci_storage_check(void);
 bool usb_parse_device(const unsigned char *data,size_t length,struct usb_device_info *info);
 bool usb_parse_configuration(const unsigned char *data,size_t length,struct usb_device_info *info);
 void usb_device_report(const struct usb_device_info *info);

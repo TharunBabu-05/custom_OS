@@ -2,6 +2,8 @@
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img')
 . "$PSScriptRoot/windows-tools.ps1"
 $source=(Resolve-Path -LiteralPath $Image).Path
+. "$PSScriptRoot/data-layout.ps1"
+$layout=Get-OurOSDataLayout $source
 $sourceHash=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
 $out=Join-Path $ProjectRoot 'build/handoff-test'
 $kernel=Join-Path $out 'kernel.bin'
@@ -39,7 +41,7 @@ function Run-Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[str
 $boot=@('mmuinit','irqinit','timerstart','storageinit','datainit')
 $taskPass='PASS: three guarded kernel tasks yielded/slept/exited; callee registers/stack/heap data preserved; PMM/heap counts restored.'
 $prefixHash=Segment-Hash $source 0 (260096L*512)
-$tailOffset=(260096L+133)*512
+$tailOffset=(260096L+$layout.UsedSectors)*512
 $tailHash=Segment-Hash $source $tailOffset (134217728L-$tailOffset)
 foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
     $stem="data-$($case[0])-$($case[1])"
@@ -55,15 +57,15 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
     $hash=[Security.Cryptography.SHA256]::Create();$chosen=-1;$generation=0L
     try {
         foreach ($bank in 0,1) {
-            $at=512+$bank*66*512
-            if ([Text.Encoding]::ASCII.GetString($bytes,$at,8) -cne 'OUROSBK1' -or [BitConverter]::ToUInt32($bytes,$at+12) -ne $bank -or
+            $at=512+$bank*$layout.BankSectors*512
+            if ([Text.Encoding]::ASCII.GetString($bytes,$at,8) -cne $layout.Magic -or [BitConverter]::ToUInt32($bytes,$at+12) -ne $bank -or
                 [Convert]::ToBase64String($hash.ComputeHash($bytes,$at,64)) -cne [Convert]::ToBase64String($bytes[($at+64)..($at+95)]) -or
-                [Convert]::ToBase64String($hash.ComputeHash($bytes,$at+512,33280)) -cne [Convert]::ToBase64String($bytes[($at+32)..($at+63)])) { throw 'Independent snapshot checksum/identity failed' }
+                [Convert]::ToBase64String($hash.ComputeHash($bytes,$at+512,$layout.PayloadBytes)) -cne [Convert]::ToBase64String($bytes[($at+32)..($at+63)])) { throw 'Independent snapshot checksum/identity failed' }
             $g=[BitConverter]::ToUInt64($bytes,$at+16);if ($g -gt $generation) { $generation=$g;$chosen=$at+512 }
         }
         if ($generation -ne 5 -or [Text.Encoding]::ASCII.GetString($bytes,$chosen,32).TrimEnd([char]0) -cne 'hello.txt' -or
-            [BitConverter]::ToUInt32($bytes,$chosen+32) -ne 10 -or [Text.Encoding]::ASCII.GetString($bytes,$chosen+512,10) -cne 'changed-v2') { throw 'Independent persisted namespace/content failed' }
-        foreach ($i in 1..7) { if ($bytes[$chosen+$i*64]) { throw 'Removed/unused file survived' } }
+            [BitConverter]::ToUInt32($bytes,$chosen+32) -ne 10 -or [Text.Encoding]::ASCII.GetString($bytes,$chosen+$layout.DirectoryBytes,10) -cne 'changed-v2') { throw 'Independent persisted namespace/content failed' }
+        foreach ($i in 1..($layout.Files-1)) { if ($bytes[$chosen+$i*64]) { throw 'Removed/unused file survived' } }
     } finally { $hash.Dispose() }
     $savedHash=(Get-FileHash -LiteralPath $disk -Algorithm SHA256).Hash
     Run-Session $disk "$stem-readonly" $case[0] $case[1] ($boot+@('write /data/no.txt refused','datainfo','echo readonly-alive','halt')) @('fs: storage I/O error','writes=failed','readonly-alive') -ReadOnly

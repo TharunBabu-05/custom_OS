@@ -215,6 +215,26 @@ struct ramfs_stats ramfs_get_stats(void)
     }
     return s;
 }
+static enum fs_result move_file(int cwd,const char *source,const char *target,bool replace)
+{
+    int node;enum fs_result r=ramfs_lookup(cwd,source,&node);if (r!=FS_OK) { return r; }
+    if (nodes[node].directory) { return FS_IS_DIR; }
+    int parent;char name[RAMFS_NAME_MAX+1];r=parent_path(cwd,target,false,&parent,name);if (r!=FS_OK) { return r; }
+    int existing=child(parent,name);if (existing==node) { return FS_OK; }
+    if (existing>=0) {
+        if (!replace) { return FS_EXISTS; }if (nodes[existing].directory) { return FS_IS_DIR; }
+        /* No namespace mutation until releasing the old buffer succeeds.
+         * VFS has checked both path leases; kernel work is serialized. */
+        if (nodes[existing].data && !kfree(nodes[existing].data)) { return FS_BAD_ARGUMENT; }
+        nodes[existing]=(struct node){0};
+    }
+    /* Reuse the source node and buffer, even when the node table is full. */
+    nodes[node].parent=parent;size_t n=0;do { nodes[node].name[n]=name[n]; }while (name[n++]);return FS_OK;
+}
+enum fs_result ramfs_rename_file(int cwd,const char *source,const char *target)
+{ return move_file(cwd,source,target,false); }
+enum fs_result ramfs_publish_file(int cwd,const char *source,const char *target)
+{ return move_file(cwd,source,target,true); }
 static enum fs_result reset(void)
 {
     ready=false; bool good=true;
@@ -261,7 +281,7 @@ const char *ramfs_error(enum fs_result result)
         "invalid path","name too long","path too long","node table full","out of kernel heap memory",
         "file too large for this operation","directory not empty","root or current directory is busy","filesystem not mounted or unavailable","invalid argument",
         "read-only filesystem","storage I/O error","corrupt filesystem","unsupported filesystem format",
-        "invalid or foreign file handle","file access mode denied","file handle table exhausted"};
+        "invalid or foreign file handle","file access mode denied","file handle table exhausted","cross-filesystem rename is unsupported"};
     if ((unsigned)result>=sizeof(messages)/sizeof(messages[0])) { return "unknown filesystem error"; }
     return messages[result];
 }

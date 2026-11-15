@@ -3,9 +3,9 @@
 **Update:** [Pi acceptance now passes](../proofs/pi5-user-tools-2026-11-13.txt)
 for this phase. Later images add the [interactive EL0 shell](user-shell.md)
 and [foreground child programs](shell-programs.md), now extended with
-[file standard input/output](stdio.md).
+[file standard input/output](stdio.md) and [two-stage pipes](pipelines.md).
 Artifact sizes/hashes at the end of this document describe the earlier
-user-tools image; use the file-stream guide for the newest image/test sequence.
+user-tools image; use the pipeline guide for the newest image/test sequence.
 
 The [2026-11-13 Pi capture](../proofs/pi5-el0-applications-2026-11-13.txt)
 passes the previous ELF/EL0 stage: normal programs, invalid syscall buffers,

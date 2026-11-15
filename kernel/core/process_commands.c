@@ -3,7 +3,7 @@
 #include "kfile.h"
 #include "vfs.h"
 #include "console.h"
-static unsigned char installed[RAMFS_FILE_MAX],check_bytes[512];
+static unsigned char installed[VFS_FILE_MAX],check_bytes[512];
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
 static void space(const char **p) { while (**p==' ') { ++*p; } }
 static int word(const char **p,char *out,size_t capacity)
@@ -15,33 +15,38 @@ static void wipe(void)
 { volatile unsigned char *p=installed;for (unsigned i=0;i<sizeof(installed);++i) { p[i]=0; }p=check_bytes;for (unsigned i=0;i<sizeof(check_bytes);++i) { p[i]=0; } }
 static void failure(enum fs_result r)
 { console_write("app: ");console_write(ramfs_error(r));console_write("\n"); }
-static bool flat_data(const char *p)
+static bool data_file(const char *p)
 {
     const char *prefix="/data/";unsigned i=0;while (prefix[i]) { if (p[i]!=prefix[i]) { return false; }++i; }
-    if (!p[i]) { return false; }while (p[i]) { if (p[i++]=='/') { return false; } }return true;
+    return p[i]!=0;
 }
-static void install(const char *source,const char *target)
+static void install(const char *source,const char *target,bool update)
 {
     char src[RAMFS_PATH_MAX],dst[RAMFS_PATH_MAX];bool directory;uint32_t bytes=0;uint64_t handle=0;
     const uint64_t owner=UINT64_MAX-2;enum fs_result r=vfs_resolve(filesystem_cwd(),source,src,&directory);
     if (r!=FS_OK || directory) { failure(r==FS_OK ? FS_IS_DIR : r);return; }
     size_t n=0;while (target[n]) { ++n; }if (!n || target[n-1]=='/') { failure(FS_INVALID_PATH);return; }
     r=vfs_resolve(filesystem_cwd(),target,dst,&directory);
-    if (r==FS_OK) { failure(directory ? FS_IS_DIR : FS_EXISTS);return; }
-    if (r!=FS_NOT_FOUND) { failure(r);return; }
+    if (update) {
+        if (r!=FS_OK || directory) { failure(r==FS_OK ? FS_IS_DIR : r);return; }
+    } else {
+        if (r==FS_OK) { failure(directory ? FS_IS_DIR : FS_EXISTS);return; }
+        if (r!=FS_NOT_FOUND) { failure(r);return; }
+    }
     r=vfs_prepare_write(filesystem_cwd(),target,dst);
     if (r!=FS_OK) { failure(r);return; }
-    if (!flat_data(dst) || same(src,dst)) { failure(FS_INVALID_PATH);return; }
+    if (!data_file(dst) || same(src,dst)) { failure(FS_INVALID_PATH);return; }
     r=vfs_file_size(src,&bytes);
-    if (r!=FS_OK || !bytes || bytes>sizeof(installed)) { failure(r!=FS_OK ? r : FS_FILE_TOO_LARGE);return; }
+    if (r!=FS_OK || !bytes || bytes>sizeof(installed) || bytes>vfs_write_limit(dst)) { failure(r!=FS_OK ? r : FS_FILE_TOO_LARGE);return; }
     r=kfile_open(owner,"/",src,KFILE_READ,&handle);if (r!=FS_OK) { failure(r);return; }
     size_t received=0;r=kfile_read(owner,handle,installed,bytes,&received);
     enum fs_result closed=kfile_close(owner,handle);handle=0;
     if (r!=FS_OK || closed!=FS_OK || received!=bytes) { failure(r!=FS_OK ? r : closed!=FS_OK ? closed : FS_IO);goto done; }
     struct app_image_plan plan;enum app_elf_result er=app_elf_plan(installed,bytes,&plan);
     if (er!=APP_ELF_OK) { console_write("app: installation refused: ");console_write(app_elf_error(er));console_write("\n");goto done; }
-    /* No target exists, and no kernel task may run during this foreground
-     * operation. Use public VFS writes so all leases and mount bounds apply. */
+    /* Validation finishes before any mutation. Persistent whole-file writes
+     * publish bytes and length in one dual-bank commit; no truncation first.
+     * Public VFS writes enforce leases and mount bounds for both operations. */
     r=vfs_write(dst,installed,bytes);if (r==FS_OK) { r=vfs_data_sync(); }
     if (r!=FS_OK) { failure(r);goto done; }
     r=kfile_open(owner,"/",dst,KFILE_READ,&handle);if (r!=FS_OK) { failure(r);goto done; }
@@ -53,13 +58,16 @@ static void install(const char *source,const char *target)
         offset+=(unsigned)wanted;
     }
     r=kfile_close(owner,handle);handle=0;if (r!=FS_OK) { failure(r);goto done; }
-    console_write("Installed validated ELF: ");console_write(dst);console_write(" bytes=");console_u64(bytes);console_write("; synchronous commit and full readback verified.\n");
+    console_write(update ? "Updated validated ELF: " : "Installed validated ELF: ");console_write(dst);console_write(" bytes=");console_u64(bytes);console_write("; synchronous commit and full readback verified.\n");
 done:
     if (handle) { (void)kfile_close(owner,handle); }(void)kfile_close_owner(owner);wipe();
 }
 bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
+    if (same(verb,"sha256") || same(verb,"runio") || same(verb,"run") || same(verb,"pipe") || same(verb,"pipeio") || same(verb,"status") || same(verb,"exec") || same(verb,"path")) {
+        console_write("Shell command: use appshell and wait for user:/$ (timerstart first if stopped).\n");return true;
+    }
     if (same(verb,"appshell")) {
         space(&p);if (*p) { console_write("Usage: appshell\n");return true; }
         struct app_args args;(void)app_args_parse("/boot/SHELL.ELF",&args);(void)process_terminal(&args,300);return true;
@@ -86,10 +94,10 @@ term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");
         if (same(verb,"appinfo")) { process_info(); }
         else { console_write(process_test() ? "PASS: EL0 applications, isolated memory, checked syscalls, preemption, contained faults/timeouts and resource cleanup.\n" : "FAIL: EL0 application test.\n"); }return true;
     }
-    if (same(verb,"appinstall")) {
+    if (same(verb,"appinstall") || same(verb,"appupdate")) {
         char source[RAMFS_PATH_MAX],target[RAMFS_PATH_MAX];
         if (word(&p,source,sizeof(source))!=1 || word(&p,target,sizeof(target))!=1) { goto usage; }
-        space(&p);if (*p) { goto usage; }install(source,target);return true;
+        space(&p);if (*p) { goto usage; }install(source,target,same(verb,"appupdate"));return true;
     }
     if (!same(verb,"apprun")) { return false; }
     char paths[PROCESS_LIMIT][RAMFS_PATH_MAX];const char *arguments[PROCESS_LIMIT];unsigned count=0;
@@ -102,5 +110,5 @@ term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");
     }
     if (!count) { goto usage; }(void)process_run(arguments,count);return true;
 usage:
-    console_write("Usage: apprun <ELF path> [ELF path] [ELF path] | appinstall <source ELF> </data/new-name>\n");return true;
+    console_write("Usage: apprun <ELF path> [ELF path] [ELF path] | appinstall <source ELF> </data/new-name> | appupdate <source ELF> </data/existing-name>\n");return true;
 }

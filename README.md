@@ -24,6 +24,12 @@
 
 <h1 align="center">The kernel is on the board.</h1>
 
+Current development: [application exec and program lookup](docs/application-exec.md).
+Applications can replace their image while retaining PID, working directory
+and file streams. The shell searches `/data/bin` and `/boot` for program names.
+The preceding [file-update phase](docs/atomic-file-updates.md) adds `replace`
+and validated local application updates.
+
 <p align="center">
   <strong>An original operating-system kernel, written in C and AArch64 assembly.</strong><br />
   Booted on a physical Raspberry Pi 5. Controlled from a Windows PC through a CP2102 serial adapter.<br />
@@ -75,7 +81,23 @@
 > [foreground program stage](docs/shell-programs.md) adds shell `run`/`status`
 > and child spawn/wait; normal launches, early input handoff and timeout cleanup
 > now pass on Pi. The current [file-stream stage](docs/stdio.md) adds binary
-> standard input/output and shell `runio`; its Pi acceptance remains pending.
+> standard input/output and shell `runio`; IOCHK, capture/copy and cleanup now
+> pass on Pi. The new [pipeline stage](docs/pipelines.md) connects two concurrent
+> programs through a bounded binary FIFO, with blocking/EOF/cancellation and
+> clearer missing-path errors; PIPECHK and shell pipelines now pass on Pi.
+> The current [data v2 stage](docs/data-v2.md) expands persistent capacity to
+> 16 files of 8 KiB, permits installing the shell and preserves v1 support.
+> The first physical v2 capacity run failed during repeated writes. The
+> [USB reliability stage](docs/usb-storage-reliability.md) removes a lifetime
+> recovery cutoff and recycles command/control rings; Pi now passes capacity and
+> 152 recoveries with USB online. The new [backup/restore stage](docs/data-backup-restore.md)
+> adds serial export, validated empty-target restore and Windows backup tools;
+> Pi now verifies demo restore, file sizes and text readback. The new
+> [file rename/stat stage](docs/file-rename.md) adds same-filesystem file moves,
+> no-overwrite/lease protection and a checked EL0 call; MVCHK now passes on Pi.
+> The new [v3 directory stage](docs/persistent-directories.md) adds nested
+> persistent paths and explicit backup migration; DIRCHK now passes on Pi.
+> Physical reboot, nested installed ELF execution and serial export remain pending.
 > Physical data power-cycle checks, renewal/rekey, background networking and
 > downloads remain; see [the remaining roadmap](docs/remaining-os-roadmap.md).
 > On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block

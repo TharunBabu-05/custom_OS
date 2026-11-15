@@ -1,0 +1,27 @@
+Excerpt supplied by the user, recorded 2026-11-15.
+Pi 5 header UART, kernel OUROS.IMG 433908 bytes, entered EL2/running EL1.
+
+> storageinit
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> usbcheck
+USB check: 300 descriptor/No-op pairs and sector-zero comparison; no disk writes.
+PASS: USB command/control ring reuse, device identity and sector zero unchanged; no disk writes.
+> datainit
+/data: OurOS snapshot v3; nodes=16 max_file_bytes=8192; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> mmuinit
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> appterm 300 /boot/DIRCHK.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+DIRCHK: v3 nested paths, cwd, binary move and directory cleanup; wait for PASS.
+PASS: persistent nested mkdir/cwd/list, sibling names, binary move/hash, open-file and cwd pins, path/type/nonempty refusal and cleanup.
+process=0 path=/boot/DIRCHK.ELF state=exited code=0 syscalls=40 dispatches=20 sleeps=0 wakes=0 input_lines=0
+App resources restored; monitor ready.
+>
+
+This establishes the shown live v3 DIRCHK/USB/MMU/timer behavior. The capture
+does not show a physical reboot, nested installed ELF execution or serial export.

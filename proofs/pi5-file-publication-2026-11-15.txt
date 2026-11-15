@@ -1,0 +1,37 @@
+User-provided Pi 5 serial excerpt, recorded 2026-11-15.
+Build: OUROS.IMG 433908 bytes; rpi5-header, entered EL2, running EL1.
+Earlier attempts before storage/application setup were correctly refused.
+The user then mounted USB /boot and snapshot v3 /data, enabled MMU, IRQ and
+timer, and ran the shell. Relevant excerpt follows unchanged.
+
+> datainit
+/data: OurOS snapshot v3; nodes=16 max_file_bytes=8192; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> mmuinit
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ write /data/note.txt old-version
+user:/$ write /data/save.tmp new-version
+user:/$ replace /data/save.tmp /data/not.txt
+user:/$ cat /data/note.txt
+old-version
+user:/$ sync
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=4068 terminal=yes budget_seconds=300 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=42 dispatches=12 sleeps=0 wakes=0 input_lines=6
+App resources restored; monitor ready.
+>
+
+Scope: replacement to /data/not.txt returned without an error; /data/note.txt
+was a different file and correctly retained old-version. The new target was
+not read and source absence was not queried. This excerpt does not verify
+overwriting an existing target, REPLCHK, appupdate, or physical reboot recovery.
+No repetition of earlier completed hardware tests was requested.

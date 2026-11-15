@@ -107,6 +107,7 @@ static void dt_tests(void)
     /* Command routing must refuse Pi MMIO on QEMU and unconfirmed mappings. */
     usb_setup("qemu_virt",1,0x9000000); clear_output();
     assert(usb_command("usbprobe") && strstr(output,"no MMIO attempted"));
+    clear_output();assert(usb_command("usbcheck") && strstr(output,"USB check unavailable"));
     assert(!usb_command("unrecognized"));
     usb_setup("rpi5",(uintptr_t)data,0x107d001000ULL); clear_output();
     assert(usb_command("usbprobe") && strstr(output,"probe disabled"));

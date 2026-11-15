@@ -8,7 +8,7 @@ enum fs_result {
     FS_NAME_TOO_LONG, FS_PATH_TOO_LONG, FS_NO_NODES, FS_NO_MEMORY,
     FS_FILE_TOO_LARGE, FS_NOT_EMPTY, FS_BUSY, FS_NOT_READY, FS_BAD_ARGUMENT,
     FS_READ_ONLY, FS_IO, FS_CORRUPT, FS_UNSUPPORTED,
-    FS_BAD_HANDLE, FS_ACCESS, FS_NO_HANDLES
+    FS_BAD_HANDLE, FS_ACCESS, FS_NO_HANDLES, FS_CROSS_DEVICE
 };
 struct ramfs_stats { unsigned files, directories, pages,buffers; size_t bytes,capacity_bytes; bool ready; };
 typedef void (*ramfs_emit)(const char *name, bool directory, size_t bytes, void *context);
@@ -23,6 +23,8 @@ enum fs_result ramfs_mkdir(int cwd, const char *path);
 enum fs_result ramfs_touch(int cwd, const char *path);
 enum fs_result ramfs_write(int cwd, const char *path, const char *data, size_t length);
 enum fs_result ramfs_remove(int cwd, const char *path, bool directory);
+enum fs_result ramfs_rename_file(int cwd,const char *source,const char *target);
+enum fs_result ramfs_publish_file(int cwd,const char *source,const char *target);
 struct ramfs_stats ramfs_get_stats(void);
 const char *ramfs_error(enum fs_result result);
 bool filesystem_command(const char *line);

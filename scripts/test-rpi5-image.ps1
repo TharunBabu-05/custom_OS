@@ -31,6 +31,7 @@ try {
         $rootCluster=[BitConverter]::ToUInt32($fatWord,0) -band 0x0fffffff
     }
     if (!$kernelOffset) { throw 'Kernel entry missing' }
+    $stream.Position=$dataStart+32+26;$firstFileClusterByte=$stream.ReadByte()
 } finally { $stream.Dispose() }
 $cases=@(
     @{name='MBR signature';offset=510L;message='Invalid MBR'},
@@ -47,7 +48,7 @@ if ($imageManifest.PSObject.Properties['data_format']) {
 if ($imageManifest.files.Count -gt 14) {
     $cases+=@(
         @{name='Root chain cycle';offsets=@(([long](2048+32)*512+8),([long](2048+32+2048)*512+8));message='Cyclic root chain'},
-        @{name='Root/file crosslink';offset=($dataStart+32+26);xor=6;message='Cross-linked or cyclic file/root cluster'}
+        @{name='Root/file crosslink';offset=($dataStart+32+26);xor=($firstFileClusterByte -bxor 2);message='Cross-linked or cyclic file/root cluster'}
     )
 }
 foreach ($case in $cases) {
