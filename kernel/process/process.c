@@ -25,6 +25,7 @@ struct process {
     enum status status;int code;
     char path[RAMFS_PATH_MAX];
     char cwd[RAMFS_PATH_MAX];struct app_args args;
+    struct app_environment environment;
     uint64_t wake,sleeps,wakes,execs;
     uint64_t input_address,lines;unsigned input_capacity;
     unsigned parent,child;uint64_t deadline;
@@ -85,11 +86,12 @@ static bool release_memory(struct process *p)
 {
     bool good=true;
     for (unsigned i=0;i<p->map_count;++i) { zero((void *)(uintptr_t)p->maps[i].physical,4096);if (!page_free(p->maps[i].physical)) { good=false; } }
-    p->map_count=0;zero(&p->tables,sizeof(p->tables));zero(p->pipe_buffer,sizeof(p->pipe_buffer));p->pipe_bytes=p->pipe_address=0;return good;
+    p->map_count=0;zero(&p->tables,sizeof(p->tables));zero(&p->environment,sizeof(p->environment));
+    zero(p->pipe_buffer,sizeof(p->pipe_buffer));p->pipe_bytes=p->pipe_address=0;return good;
 }
 static bool release(struct process *p)
 { (void)kfile_close_owner(p->owner);return release_memory(p); }
-static bool load_at(struct process *p,const char *path,const char *cwd,const struct app_args *args,uint64_t owner,uint64_t table_root)
+static bool load_at(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env,uint64_t owner,uint64_t table_root)
 {
     /* Keep process owners clear of the reserved kernel file-owner IDs. */
     if (!owner && pid_sequence>=(1ULL<<60)-1) { return false; }
@@ -125,10 +127,11 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
     copy(p->cwd,cwd,length(cwd)+1);
     if (args) { p->args=*args; }
     else { p->args.count=1;p->args.used=(unsigned)length(absolute)+1;copy(p->args.bytes,absolute,p->args.used); }
+    if (env) { p->environment=*env; }else { app_env_init(&p->environment); }
     return true;
 }
-static bool load(struct process *p,const char *path,const char *cwd,const struct app_args *args)
-{ return load_at(p,path,cwd,args,0,0); }
+static bool load(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env)
+{ return load_at(p,path,cwd,args,env,0,0); }
 static bool live(const struct process *p) { return p->status==READY || p->status==SLEEPING || p->status==INPUT_WAIT || p->status==CHILD_WAIT || p->status==PIPE_READ_WAIT || p->status==PIPE_WRITE_WAIT; }
 static void input_clear(void)
 { input_count=input_head=0;input_dropping=false;zero(input_queue,sizeof(input_queue));zero(&input_line,sizeof(input_line)); }
@@ -351,10 +354,39 @@ done:
     if (kfile_close(p->owner,h)!=FS_OK) { result=UOS_ERROR; }
     zero(copy_bytes,sizeof(copy_bytes));zero(buffer,sizeof(buffer));zero(digest,sizeof(digest));zero(&hash,sizeof(hash));return result;
 }
+static int64_t environment_call(struct process *p,struct exception_frame *f)
+{
+    uint64_t a=f->x[0],b=f->x[1],c=f->x[2],d=f->x[3];unsigned call=(unsigned)f->x[8];
+    if (call==UOS_SYS_ENV_ENTRY) {
+        if (a>=APP_ENV_LIMIT) { return UOS_ERROR; }
+        if (!user_range(p,b,sizeof(struct app_env_entry),true)) { return UOS_EFAULT; }
+        if (a>=p->environment.count) { return 0; }
+        user_copy(p,b,&p->environment.entries[a],sizeof(struct app_env_entry),true);return 1;
+    }
+    if (!b || b>=APP_ENV_NAME_BYTES || (call==UOS_SYS_ENV_SET && d>=APP_ENV_VALUE_BYTES) ||
+        (call==UOS_SYS_ENV_GET && (!d || d>APP_ENV_VALUE_BYTES))) { return UOS_ERROR; }
+    if (!user_range(p,a,(size_t)b,false) ||
+        ((call==UOS_SYS_ENV_GET || call==UOS_SYS_ENV_SET) && !user_range(p,c,(size_t)d,call==UOS_SYS_ENV_GET))) { return UOS_EFAULT; }
+    char name[APP_ENV_NAME_BYTES],value[APP_ENV_VALUE_BYTES];user_copy(p,a,name,(size_t)b,false);
+    for (size_t i=0;i<b;++i) { if (!name[i]) { return UOS_ERROR; } }name[b]=0;
+    enum app_env_result result;size_t bytes=0;
+    if (call==UOS_SYS_ENV_SET) {
+        user_copy(p,c,value,(size_t)d,false);for (size_t i=0;i<d;++i) { if (!value[i]) { zero(value,sizeof(value));return UOS_ERROR; } }value[d]=0;
+        result=app_env_set(&p->environment,name,value);
+    } else if (call==UOS_SYS_ENV_UNSET) { result=app_env_unset(&p->environment,name); }
+    else {
+        result=app_env_get(&p->environment,name,value,(size_t)d,&bytes);
+        if (result==APP_ENV_OK) { user_copy(p,c,value,bytes+1,true); }
+    }
+    zero(value,sizeof(value));
+    if (result==APP_ENV_MISSING) { return UOS_ENOENT; }if (result==APP_ENV_FULL) { return UOS_ENOSPC; }
+    return result==APP_ENV_OK ? (int64_t)bytes : UOS_ERROR;
+}
 static int64_t syscall(struct process *p,struct exception_frame *f)
 {
     uint64_t a=f->x[0],b=f->x[1],c=f->x[2];unsigned char buffer[512];size_t count=0;enum fs_result r;
     switch (f->x[8]) {
+    case UOS_SYS_ENV_GET:case UOS_SYS_ENV_SET:case UOS_SYS_ENV_UNSET:case UOS_SYS_ENV_ENTRY:return environment_call(p,f);
     case UOS_SYS_RENAME:case UOS_SYS_PUBLISH: {
         uint64_t d=f->x[3];if (!b || b>=RAMFS_PATH_MAX || !d || d>=RAMFS_PATH_MAX) { return UOS_ERROR; }
         if (!user_range(p,a,(size_t)b,false) || !user_range(p,c,(size_t)d,false)) { return UOS_EFAULT; }
@@ -447,7 +479,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     zero(&exec_stage,sizeof(exec_stage));
     /* The kernel root is active. Old pages, handles and frame remain intact
      * until every ELF byte, allocation and new table has been prepared. */
-    bool loaded=load_at(&exec_stage,args.bytes,p->cwd,&args,p->owner,(uintptr_t)p->tables.entries);
+    bool loaded=load_at(&exec_stage,args.bytes,p->cwd,&args,&p->environment,p->owner,(uintptr_t)p->tables.entries);
     zero(image,sizeof(image));
     if (!loaded) {
         if (!release_memory(&exec_stage)) { child_cleanup_failed=true; }
@@ -491,7 +523,7 @@ static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool re
     }
     unsigned slot=0;while (slot<PROCESS_LIMIT && tasks[slot].status!=UNUSED) { ++slot; }if (slot==PROCESS_LIMIT) { return UOS_ERROR; }
     struct process *child=&tasks[slot];zero(child,sizeof(*child));
-    if (!load(child,args.bytes,p->cwd,&args) ||
+    if (!load(child,args.bytes,p->cwd,&args,&p->environment) ||
         (io.input[0] && kfile_open(child->owner,p->cwd,io.input,KFILE_READ,&child->stdin_handle)!=FS_OK) ||
         (io.output[0] && kfile_open(child->owner,"/",output,KFILE_WRITE|KFILE_CREATE,&child->stdout_handle)!=FS_OK)) {
         if (!release(child)) { child_cleanup_failed=true; }zero(child,sizeof(*child));child->parent=child->child=PROCESS_LIMIT;
@@ -514,7 +546,7 @@ static int64_t pipeline_start(struct process *p,struct exception_frame *f)
     for (unsigned i=0;i<PROCESS_LIMIT && found<2;++i) { if (tasks[i].status==UNUSED) { slots[found++]=i; } }
     if (found!=2) { return UOS_ERROR; }
     struct process *left=&tasks[slots[0]],*right=&tasks[slots[1]];zero(left,sizeof(*left));zero(right,sizeof(*right));
-    bool loaded=load(left,left_args.bytes,p->cwd,&left_args) && load(right,right_args.bytes,p->cwd,&right_args);
+    bool loaded=load(left,left_args.bytes,p->cwd,&left_args,&p->environment) && load(right,right_args.bytes,p->cwd,&right_args,&p->environment);
     if (!loaded || (io.input[0] && kfile_open(left->owner,p->cwd,io.input,KFILE_READ,&left->stdin_handle)!=FS_OK) ||
         (io.output[0] && kfile_open(right->owner,"/",output,KFILE_WRITE|KFILE_CREATE,&right->stdout_handle)!=FS_OK)) {
         bool a=release(left),b=release(right);if (!a || !b) { child_cleanup_failed=true; }
@@ -637,7 +669,7 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     zero(&channel,sizeof(channel));pipe_runs=pipe_completions=pipe_written=pipe_read=pipe_read_waits=pipe_write_waits=0;pipe_left_code=pipe_right_code=0;
     interactive=terminal_seconds!=0;budget_seconds=interactive ? terminal_seconds : 2;
     input_count=input_head=0;input_dropping=false;zero(input_queue,sizeof(input_queue));zero(&input_line,sizeof(input_line));
-    for (unsigned i=0;i<count;++i) { if (!paths[i] || !load(&tasks[i],paths[i],filesystem_cwd(),args)) { loaded=false;break; } }
+    for (unsigned i=0;i<count;++i) { if (!paths[i] || !load(&tasks[i],paths[i],filesystem_cwd(),args,NULL)) { loaded=false;break; } }
     zero(image,sizeof(image));
     if (loaded) {
         if (interactive) { console_write("Terminal assigned to EL0; Ctrl+C cancels; session_seconds=");console_u64(budget_seconds);console_write("\n"); }

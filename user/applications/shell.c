@@ -17,10 +17,16 @@ static int64_t program(struct app_args *args)
 {
     const char *name=args->bytes;size_t n=uos_length(name);int extension=0;
     for (size_t i=0;i<n;++i) { if (name[i]=='/') { return 0; }if (name[i]=='.') { extension=1; } }
-    const char *dirs[]={"/data/bin/","/boot/"};
-    for (unsigned dir=0;dir<2;++dir) { for (unsigned suffix=0;suffix<(extension ? 1u : 2u);++suffix) {
-        char path[256];size_t at=0;const char *prefix=dirs[dir];while (*prefix) { path[at++]=*prefix++; }
-        if (at+n+(suffix ? 4u : 0u)>=sizeof(path)) { return UOS_ERROR; }
+    char search[APP_ENV_VALUE_BYTES];if (!n || uos_getenv("PATH",search,sizeof(search))<0) { return UOS_ENOENT; }
+    const char *dir=search;
+    while (*dir) {
+        const char *prefix=dir;size_t span=0;while (*dir && *dir!=':') { ++dir;++span; }if (*dir) { ++dir; }
+        /* Empty/relative entries do not implicitly trust the current cwd. */
+        if (!span || prefix[0]!='/') { continue; }
+        for (unsigned suffix=0;suffix<(extension ? 1u : 2u);++suffix) {
+        char path[256];size_t at=0;
+        if (span+1+n+(suffix ? 4u : 0u)>=sizeof(path)) { continue; }
+        while (at<span) { path[at]=prefix[at];++at; }if (path[at-1]!='/') { path[at++]='/'; }
         for (size_t i=0;i<n;++i) { path[at++]=name[i]; }
         if (suffix) { path[at++]='.';path[at++]='e';path[at++]='l';path[at++]='f'; }path[at]=0;
         struct uos_entry entry;if (uos_stat(path,&entry) || entry.type!=UOS_FILE) { continue; }
@@ -60,6 +66,17 @@ static int cat(const char *path)
     }
     if (uos_close((uint64_t)h)) { result=1; }uos_puts("\n");return result;
 }
+static int environment(const char *key)
+{
+    if (key) {
+        char value[APP_ENV_VALUE_BYTES];if (uos_getenv(key,value,sizeof(value))<0) { return 1; }uos_puts(value);uos_puts("\n");return 0;
+    }
+    struct app_env_entry entry;
+    for (unsigned i=0;i<APP_ENV_LIMIT;++i) {
+        int64_t r=uos_env_entry(i,&entry);if (r<0) { return 1; }if (!r) { break; }
+        uos_puts(entry.name);uos_puts("=");uos_puts(entry.value);uos_puts("\n");
+    }return 0;
+}
 int app_main(void)
 {
     char line[128],cwd[256];struct app_args args;uint64_t last_status=0;
@@ -74,10 +91,16 @@ int app_main(void)
         const char *cmd=args.bytes,*p=args.count>1 ? args.bytes+args.offset[1] : ".";int result=0;
         if (same(cmd,"exit") && args.count==1) { return 0; }
         if (same(cmd,"help") && args.count==1) {
-            uos_puts("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nreplace <source> <target>: consumes source, replaces regular target\nrun <program> [args]\nexec <program> [args]: replaces this shell\n");
-            uos_puts("runio <input|-> <new-output|-> <program> [args]\npipe <program> [args] -- <program> [args]\npipeio <input|-> <new-output|-> <program> [args] -- <program> [args]\nBare programs search /data/bin then /boot, exact name then .elf.\nrun/pipe: 10s; file I/O jobs: 30s. Ctrl+C cancels.\n");
+            uos_puts("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nenv | getenv <name> | setenv <name> <value> | unsetenv <name>\nreplace <source> <target>: consumes source, replaces regular target\nrun <program> [args]\nexec <program> [args]: replaces this shell\n");
+            uos_puts("runio <input|-> <new-output|-> <program> [args]\npipe <program> [args] -- <program> [args]\npipeio <input|-> <new-output|-> <program> [args] -- <program> [args]\nBare programs search PATH, exact name then .elf; cd without a path uses HOME.\nrun/pipe: 10s; file I/O jobs: 30s. Ctrl+C cancels.\n");
         } else if (same(cmd,"status") && args.count==1) { number(last_status);uos_puts("\n"); }
-        else if (same(cmd,"path") && args.count==1) { uos_puts("/data/bin:/boot\n"); }
+        else if ((same(cmd,"path") && args.count==1) || (same(cmd,"getenv") && args.count==2) || (same(cmd,"env") && args.count==1)) {
+            result=environment(same(cmd,"env") ? 0 : same(cmd,"path") ? "PATH" : p);last_status=result ? 1 : 0;
+        }
+        else if ((same(cmd,"setenv") && args.count==3) || (same(cmd,"unsetenv") && args.count==2)) {
+            int64_t r=same(cmd,"setenv") ? uos_setenv(p,args.bytes+args.offset[2]) : uos_unsetenv(p);
+            result=r!=0;last_status=result ? 1 : 0;if (r==UOS_ENOSPC) { uos_puts("shell: environment is full (8 variables)\n"); }
+        }
         else if (same(cmd,"exec") && args.count>=2) {
             struct app_args next;words(&next,&args,1,args.count);
             int64_t r=program(&next);if (!r) { r=uos_exec(&next); }
@@ -131,7 +154,11 @@ int app_main(void)
             if (!result) { for (unsigned i=0;i<32;++i) { hex[i*2]=digits[digest[i]>>4];hex[i*2+1]=digits[digest[i]&15]; }hex[64]=0;uos_puts(hex);uos_puts("  ");uos_puts(p);uos_puts("\n"); }
         }
         else if (same(cmd,"pwd") && args.count==1) { uos_puts(cwd);uos_puts("\n"); }
-        else if (same(cmd,"cd") && args.count==2) { result=uos_chdir(p)!=0; }
+        else if (same(cmd,"cd") && args.count<=2) {
+            char home[APP_ENV_VALUE_BYTES];if (args.count==1) {
+                if (uos_getenv("HOME",home,sizeof(home))<0) { result=1; }else { result=uos_chdir(home)!=0; }
+            }else { result=uos_chdir(p)!=0; }
+        }
         else if (same(cmd,"ls") && args.count<=2) { result=list(p); }
         else if (same(cmd,"cat") && args.count==2) { result=cat(p); }
         else if (same(cmd,"echo")) {

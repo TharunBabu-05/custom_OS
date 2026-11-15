@@ -56,6 +56,15 @@ static inline int64_t uos_wait(uint64_t pid) { return uos_call(UOS_SYS_WAIT,pid,
 /* Replace this process with a checked packed argv. Success never returns;
  * PID, cwd, owned handles/cursors, streams and original deadlines survive. */
 static inline int64_t uos_exec(const struct app_args *args) { return uos_call(UOS_SYS_EXEC,(uintptr_t)args,0,0,0,0,0); }
+/* Environment values are copied; no kernel pointer is exposed. */
+static inline int64_t uos_getenv(const char *name,char *value,size_t capacity)
+{ return uos_call(UOS_SYS_ENV_GET,(uintptr_t)name,uos_length(name),(uintptr_t)value,capacity,0,0); }
+static inline int64_t uos_setenv(const char *name,const char *value)
+{ return uos_call(UOS_SYS_ENV_SET,(uintptr_t)name,uos_length(name),(uintptr_t)value,uos_length(value),0,0); }
+static inline int64_t uos_unsetenv(const char *name)
+{ return uos_call(UOS_SYS_ENV_UNSET,(uintptr_t)name,uos_length(name),0,0,0,0); }
+static inline int64_t uos_env_entry(unsigned index,struct app_env_entry *entry)
+{ return uos_call(UOS_SYS_ENV_ENTRY,index,(uintptr_t)entry,0,0,0,0); }
 static inline int64_t uos_spawn_io(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
 { return uos_call(UOS_SYS_SPAWN_IO,(uintptr_t)args,seconds,(uintptr_t)io,0,0,0); }
 /* Binary file stdin only; terminal input uses readline. Up to 512 bytes/call. */

@@ -16,12 +16,12 @@ try {
     Invoke-Tool gcc ($flags+@('-c','user/runtime/memory.c','-o',"$out/memory.o"))
     Invoke-Tool gcc ($flags+@('-c','kernel/process/app_args.c','-o',"$out/app_args.o"))
     Invoke-Tool gcc ($flags+@('-c','lib/sha256.c','-o',"$out/sha256.o"))
-    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw','stream','hash','pipechk','datacap','datagen','mvchk','dirchk','replchk','exec','execchk')) {
+    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw','stream','hash','pipechk','datacap','datagen','mvchk','dirchk','replchk','exec','execchk','env','envchk','envrace')) {
         $name=$app.ToUpperInvariant()
         Invoke-Tool gcc ($flags+@('-c',"user/applications/$app.c",'-o',"$out/$app.o"))
         $extra=if ($app -eq 'shell') { @("$out/app_args.o") } else { @() }
         if ($app -eq 'hash') { $extra+=@("$out/sha256.o") }
-        $limit=if ($app -eq 'shell') { 8192 } else { 4096 }
+        $limit=if ($app -in @('shell','envchk')) { 8192 } else { 4096 }
         Invoke-Tool ld (@('--build-id=none','--no-undefined','--gc-sections','-z','max-page-size=4096',
             "--defsym=__app_max_bytes=$limit",
             '-T','user/runtime/user.ld',"-Map=$out/$name.map",'-o',"$out/$name.ELF","$out/start.o","$out/$app.o","$out/memory.o")+$extra)

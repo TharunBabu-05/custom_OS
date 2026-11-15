@@ -65,7 +65,8 @@ done:
 bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
-    if (same(verb,"sha256") || same(verb,"runio") || same(verb,"run") || same(verb,"pipe") || same(verb,"pipeio") || same(verb,"status") || same(verb,"exec") || same(verb,"path")) {
+    if (same(verb,"sha256") || same(verb,"runio") || same(verb,"run") || same(verb,"pipe") || same(verb,"pipeio") || same(verb,"status") || same(verb,"exec") || same(verb,"path") ||
+        same(verb,"env") || same(verb,"getenv") || same(verb,"setenv") || same(verb,"unsetenv")) {
         console_write("Shell command: use appshell and wait for user:/$ (timerstart first if stopped).\n");return true;
     }
     if (same(verb,"appshell")) {

@@ -56,6 +56,10 @@ package authenticity and durable version history remain separate work.
 The next [application exec phase](application-exec.md) now adds staged image
 replacement, preserved process/file identity and fixed program lookup. It keeps
 the existing three-slot, foreground and direct-child limits.
+The [new Pi capture](../proofs/pi5-exec-lookup-2026-11-15.txt) now verifies
+HELLO lookup and shell exec to ECHO with cleanup. The current
+[environment phase](application-environment.md) adds private inherited
+variables and configurable PATH/HOME; persistent profiles remain later work.
 
 ## Applications and multitasking
 
@@ -65,7 +69,7 @@ the existing three-slot, foreground and direct-child limits.
 | Process memory | Private bounded user image/stack pages, kernel-only mappings, RX/RO/RW and NX permissions | Dynamic mappings, larger address spaces, memory accounting, copy-on-write if needed and robust OOM policy |
 | Exceptions | Kernel diagnostics and new contained EL0 faults/timeouts | Rich per-process reporting, debugging, signals or another application fault policy |
 | System calls | Checked files/console/time/args/cwd/sleep/mutations/spawn/wait/file streams; new two-stage PIPE_RUN | ABI evolution, general descriptors/IPC, longer pipes, sockets and broader blocking I/O |
-| Executables | Static AArch64 ELF subset, 41 sample/test ELFs, shell/file tools/streams/pipes, Pi MVCHK/DIRCHK, nested installation, atomic update and new exec/lookup | Pi exec/update validation, stored-shell persistence, larger files, environment, job control and broader toolchain tests |
+| Executables | Static AArch64 ELF subset, 44 sample/test ELFs, shell/file tools/streams/pipes, Pi MVCHK/DIRCHK/exec lookup, atomic updates and private environments | Pi environment/broader exec/update validation, stored-shell persistence, larger files, persistent profiles, job control and broader toolchain tests |
 | Concurrency | Single active CPU; syscalls/drivers complete synchronously | Preemptive kernel synchronization, IRQ-safe driver queues, SMP startup/locking and multicore scheduling |
 
 Acceptance should keep checking resource restoration, failure containment and

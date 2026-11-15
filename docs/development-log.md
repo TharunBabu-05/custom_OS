@@ -1,5 +1,46 @@
 # Development log
 
+## 2026-11-15 - Private process environments and configurable PATH/HOME
+
+- Recorded proofs/pi5-exec-lookup-2026-11-15.txt: bare HELLO lookup, default
+  path, shell exec to ECHO, execs=1, exit 0 and resources restored. Broader
+  physical EXECCHK/stream inheritance and new environment acceptance retain
+  their separate scopes; no repetition of completed tests was requested.
+- Added a pure bounded environment store: eight entries including defaults,
+  31-byte ASCII identifier names, 127-byte printable values, empty strings,
+  case sensitivity, full-table replacement/reuse and zeroed removal. No heap
+  allocation or disk writes. Defaults are PATH=/data/bin:/boot,
+  HOME=/home/user and TERM=serial.
+- Appended checked ENV_GET/SET/UNSET/ENTRY=32..35 and ENOSPC=-12 without
+  changing earlier calls. User ranges and complete strings validate before
+  mutation. Entry and value results are copied, with no kernel pointers.
+  Missing/small-output reads and EOF enumeration preserve user buffers.
+- Root sessions start with defaults; spawn and both pipeline peers get private
+  snapshots. Exec preserves variables; failed exec leaves them intact.
+  Cleanup wipes stored environments. Environment state is intentionally not
+  persistent across a new monitor session or reboot.
+- Added shell env/getenv/setenv/unsetenv, variable PATH lookup and HOME for cd
+  without a path. Empty/relative PATH components are skipped; unset/empty PATH
+  disables bare external lookup while explicit paths/builtins still work.
+  Added ENV.ELF, ENVCHK.ELF and ENVRACE.ELF.
+- Native store checks pass explicit bounds/capacity/error preservation and
+  20000 operations against an independent model. QEMU A53/EL1 and A76/EL2 pass
+  real environment ABI checks, spawn snapshot isolation, both pipeline peers
+  exec with separate values and binary streams, concurrent three-root privacy,
+  variable PATH precedence, HOME, empty/unset paths, fresh-session defaults and
+  installed-program lookup after fresh emulator boots. Handles zero and
+  heap/pages restored; source image/boot/unused sectors unchanged.
+- The previous -Exec acceptance also passes both profiles against this kernel,
+  including three occupied slots, PID/file cursors, timeout/fault containment,
+  pipe/redirected streams and installed-program cold boot. All 44 delivered
+  ELFs, 25000 ELF parser mutations and eight image corruption/profile checks
+  pass. Logs: build/phase-env-*.log.
+- Built full 134217728-byte IMG and verified 873769-byte full-image ZIP.
+  SHA256 e369217400f981f109ab71b019d11ec4b00d59e89b8b5bd944dcbfb7153ab582.
+  Kernel 438004 bytes, reserved end 0x1ca000 below the firmware DTB. Prior
+  7be53179... image archived and its full hash rechecked. Generated scratch
+  disks cleaned; no physical device written and no Git commit or push.
+
 ## 2026-11-15 - Application exec and fixed shell program lookup
 
 - Recorded the user's Pi file-command excerpt in

@@ -53,8 +53,11 @@ appupdate validates an ELF before replacing an existing /data executable.
 REPLCHK.ELF tests replacement/leases; physical acceptance is pending.
 New EXEC syscall replaces the current application, preserving its PID,
 cwd, owned file handles/cursors, streams and original time limits.
-The shell searches /data/bin then /boot for bare program names.
-EXECCHK.ELF tests image replacement; new physical acceptance is pending.
+Pi now verifies bare HELLO lookup and shell exec to ECHO, execs=1/cleanup.
+New environment variables are private per process and inherit across
+spawn, pipelines and exec. Commands: env, getenv, setenv, unsetenv, path.
+PATH controls shell program lookup; HOME supplies cd without arguments.
+ENVCHK.ELF tests inheritance/ABI; new physical acceptance is pending.
 Serial export, binary hashes and physical reboot still need hardware checks.
 
 Console: 3-pin UART connector between the HDMI ports. Terminal 115200 8N1.
@@ -67,8 +70,8 @@ WPA3/DHCP/DNS/Internet ping have earlier physical evidence. Networking is an
 explicit foreground console; no background renewal/rekey or downloads.
 
 Application setup: storageinit, datainit, mmuinit, irqinit, timerstart.
-New application test: appterm 120 /boot/EXECCHK.ELF
-Or run appshell, then hello, path, and exec echo shell-replaced.
+New application test: appterm 120 /boot/ENVCHK.ELF
+Or run appshell, env, setenv MESSAGE hello, and exec env MESSAGE.
 apptest runs original static ELF programs with private EL0 pages, checked
 syscalls and timer preemption. It contains deliberate null/kernel-access,
 RX-write and NX-stack faults and times out a runaway user loop.

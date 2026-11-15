@@ -1,8 +1,9 @@
 # Experimental Pi 5 disk image
 
-Current OS phase: [application exec and program lookup](application-exec.md).
-New applications retain their PID/cwd/file streams across checked image
-replacement; the shell searches `/data/bin` and `/boot` for bare program names.
+Current OS phase: [private application environments](application-environment.md).
+New variables inherit privately across spawn/pipelines and survive exec;
+PATH controls shell lookup and HOME supplies cd without a path. The Pi now
+verifies the preceding bare HELLO lookup and shell exec to ECHO with cleanup.
 MVCHK and DIRCHK now pass on Pi. New images default to v3; old v1/v2 volumes remain
 supported without conversion. Back up and explicitly migrate files before a
 full-image upgrade. New `replace`, EL0 `PUBLISH` and validated `appupdate` keep

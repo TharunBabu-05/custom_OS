@@ -1,6 +1,6 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
-param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,
+param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,
       [string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
@@ -50,6 +50,54 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($Environment) {
+    $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="env-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            @{Text='appterm 120 /boot/ENVCHK.ELF';Delay=5000},
+            'apprun /boot/ENVRACE.ELF /boot/ENVRACE.ELF /boot/ENVRACE.ELF',
+            'appshell','help','env','path','getenv HOME','cd','pwd','cd /','setenv MESSAGE "hello from environment"','getenv MESSAGE',
+            'run env MESSAGE','pipe env -- /boot/CAT.ELF','runio - /tmp/env-vars env','cat /tmp/env-vars',
+            'setenv PATH /boot','hello','mkdir /data/bin','cp /boot/ECHO.ELF /data/bin/speak',
+            'speak should-not-run','status','setenv PATH /data/bin','speak data-only-path','run env MESSAGE',
+            '/boot/ENV.ELF MESSAGE','setenv PATH /data/bin:/boot','speak search-order',
+            'cp /boot/ECHO.ELF /data/bin/hello.elf','hello local-before-boot','setenv PATH /boot:/data/bin','hello',
+            'setenv PATH :.:relative::/data/bin:','speak skipped-relative-components','setenv PATH :.:relative::','speak should-not-run','status',
+            'setenv PATH ""','path','hello should-not-run','/boot/HELLO.ELF',
+            'unsetenv PATH','hello should-not-run','/boot/ENV.ELF MESSAGE','setenv PATH /data/bin:/boot',
+            'setenv HOME /etc','cd','pwd','cd /','unsetenv MESSAGE','getenv MESSAGE','setenv MESSAGE exec-kept',
+            'exec env MESSAGE','appshell','getenv MESSAGE','status','path','env',
+            'setenv SESSION fresh-session','setenv 1BAD bad-name','getenv SESSION','unsetenv ABSENT','exit',
+            @{Text='appterm 120 /boot/ENVCHK.ELF';Delay=5000},'pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            'PASS: checked environment names/values/buffers, full-table recovery, private spawn snapshots, child exec preservation, failed-exec retention and cleanup.',
+            'PASS: both pipeline environments inherited privately and survived exec with binary streams.',
+            'PASS: concurrent root environments remain private across yields and sleeps.',
+            'env | getenv <name> | setenv <name> <value> | unsetenv <name>',
+            'PATH=/data/bin:/boot','HOME=/home/user','TERM=serial','user:/home/user$',
+            'hello from environment','MESSAGE=hello from environment','data-only-path','search-order','local-before-boot',
+            'skipped-relative-components','user:/etc$','exec-kept','fresh-session',
+            'path=/boot/env.elf state=exited code=0','execs=1','Open files: 0/16') 5
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
+        if ([regex]::Matches($capture,'path=/boot/ENVRACE.ELF state=exited code=0').Count -ne 3) { throw 'Concurrent private environment checks differ' }
+        if ([regex]::Matches($capture,'Hello from an OurOS EL0 application\.').Count -ne 3) { throw 'Configured PATH precedence/empty/unset behavior differs' }
+        if ([regex]::IsMatch($capture,'(?m)^should-not-run\r?$') -or
+            [regex]::Matches($capture,'\$ status\r?\n127\r?\n').Count -ne 2) { throw 'Disabled PATH lookup or missing-program status differs' }
+        $fresh=$capture.Substring($capture.LastIndexOf('OurOS EL0 shell. Type help; exit returns to monitor.'))
+        if ($fresh.Contains('MESSAGE=') -or $fresh.Contains('HOME=/etc') -or ![regex]::IsMatch($fresh,'getenv MESSAGE\r?\nshell: operation failed\r?\n')) { throw 'Environment leaked into a new monitor session' }
+        if (![regex]::IsMatch($capture,'getenv SESSION\r?\nfresh-session\r?\n') -or ![regex]::IsMatch($fresh,'\$ status\r?\n1\r?\n')) { throw 'Invalid name or missing-key handling differs' }
+        Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+            'env','getenv SESSION','speak persisted-app-default-path','setenv MESSAGE after-reboot','exec env MESSAGE',
+            'pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
+            'PATH=/data/bin:/boot','HOME=/home/user','TERM=serial','shell: operation failed',
+            'persisted-app-default-path','after-reboot','path=/boot/env.elf state=exited code=0','Open files: 0/16') 1
+        if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'Environment phase wrote outside data banks' }
+        Write-Output "PASS: $name checked environment ABI, spawn/exec/pipeline copies, configurable PATH/HOME, fresh sessions and installed-app cold boot."
+    }
+    if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: environment acceptance uses regular scratch disks; delivery unchanged.';return
 }
 if ($Exec) {
     $prefix=Range-Hash $source 0 (260097L*512);$tailAt=(260096L+$layout.UsedSectors)*512;$tail=Range-Hash $source $tailAt (134217728L-$tailAt)

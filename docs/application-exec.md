@@ -1,6 +1,11 @@
 # Application image replacement and shell program lookup
 
-This phase adds `EXEC=31`: a running EL0 application can replace its image
+The [new Pi capture](../proofs/pi5-exec-lookup-2026-11-15.txt) now verifies
+HELLO lookup and shell exec to ECHO, code 0, execs=1 and resource restoration.
+Broader EXECCHK/pipe/handle behavior retains emulator evidence. The current
+phase is [private environments and configurable lookup](application-environment.md).
+
+This phase added `EXEC=31`: a running EL0 application can replace its image
 with another validated static AArch64 ELF. Success starts at the new entry
 point with a fresh zeroed stack and never returns to the old code. Failure
 before publication returns to the original application. It does not create
@@ -11,7 +16,8 @@ completed with resource restoration. Its `replace` command targeted `not.txt`,
 while the subsequent read queried `note.txt`, which correctly kept its old
 contents. That capture does not establish overwrite or executable-update
 acceptance. Earlier completed hardware checks are accepted; this new phase
-is validated locally before delivery. New physical `exec` acceptance is pending.
+is validated locally before delivery. The narrower physical exec result is
+recorded above; broader physical acceptance remains pending.
 
 ## Using applications
 
@@ -39,7 +45,8 @@ Lookup also works with `run`, `runio`, `pipe`, `pipeio` and `exec`. The first
 regular-file candidate is selected; an invalid ELF there is refused rather
 than silently falling back to a program in the next directory. A missing bare
 program sets shell status 127. `exec` failure leaves the current shell running.
-The search path is fixed for now, without an environment-variable subsystem.
+This exec-stage release used a fixed path. The subsequent
+[environment phase](application-environment.md) now makes PATH configurable.
 
 On a v3 volume, install a persistent program from the shell using unused paths:
 

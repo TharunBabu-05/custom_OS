@@ -12,9 +12,12 @@ confirms file handles, cooperative task file I/O before/after USB storage,
 automatic handle cleanup and heap/page restoration with MMU/timer enabled.
 Earlier captures verify the heap baseline and [WPA3/DNS/Internet ping and
 cleanup](wifi-dns.md).
-**Current phase:** [application exec and shell program lookup](application-exec.md).
-Adds checked `EXEC`, staged image replacement preserving identity/streams,
-and fixed `/data/bin:/boot` lookup. New physical acceptance is pending.
+**Current phase:** [private application environments](application-environment.md).
+Adds checked environment calls, private spawn/pipeline snapshots, exec
+preservation and configurable PATH/HOME. New physical acceptance is pending.
+The preceding [exec/lookup phase](application-exec.md) now has
+[Pi evidence](../proofs/pi5-exec-lookup-2026-11-15.txt) for HELLO lookup and
+shell image replacement, code 0, execs=1 and resource restoration.
 The preceding [file-update phase](atomic-file-updates.md)
 adds explicit `replace`, checked EL0 `PUBLISH` and validated `appupdate` without
 changing the v1/v2/v3 disk formats. Local tests cover interrupted publication,
@@ -71,7 +74,7 @@ Display/HID/GPU/audio and general installation/packages remain in the
 | Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
 | Scheduling | Cooperative EL1 tasks, EL0 preemption/sleep/input/spawn/wait; new blocked FIFO reads/writes and two-child jobs | Pi pipe validation, general process trees/jobs, broader blocking I/O, SMP and background services |
 | Processes/system calls | Three private EL0 slots; checked files/console/time/args/cwd/mutations/spawn/wait/file streams; new two-stage PIPE_RUN | Pi new-call validation, broader IPC/descriptor API, credentials/access control and background services |
-| Programs/runtime | Bounded ELF loader, tiny runtime, 41 sample/test ELFs, shell/streams/pipes, Pi MVCHK/DIRCHK, nested installation, atomic updates and new exec/program lookup | Pi exec/update acceptance, installed-shell persistence, environment, larger programs/files, libraries/dynamic linking, packages and general installer |
+| Programs/runtime | Bounded ELF loader, tiny runtime, 44 sample/test ELFs, shell/streams/pipes, Pi MVCHK/DIRCHK/exec lookup, atomic updates and new private environments/PATH/HOME | Pi environment/broader exec/update acceptance, installed-shell persistence, larger programs/files, libraries/dynamic linking, packages and general installer |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked open/read/write/seek/close handles with cursors and path leases | General mounts, richer metadata, permissions, pseudo-filesystems and preemptive driver synchronization |
 | Persistent files | Pi verifies v2, restore excerpt and MVCHK; new v3 sixteen file/directory nodes, nested 8 KiB files and explicit legacy backup migration | Pi v3/export/power-cycle checks, larger files/volumes, richer metadata and power-loss tests |
 | Shell | Kernel monitor with shell-command hints; Pi-verified EL0 files/run/runio/pipes; new installable shell on v2 | Pi stored-shell acceptance, job control, longer pipelines, shell operators and environment |

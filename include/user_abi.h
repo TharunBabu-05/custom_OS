@@ -5,6 +5,7 @@
  * syscall compatibility is implied. All pointers are checked by the kernel. */
 #include <stddef.h>
 #include <stdint.h>
+#include "app_env.h"
 enum uos_syscall {
     UOS_SYS_EXIT=0,UOS_SYS_WRITE=1,UOS_SYS_YIELD=2,UOS_SYS_TIME_MS=3,
     UOS_SYS_OPEN=4,UOS_SYS_READ=5,UOS_SYS_WRITE_FILE=6,UOS_SYS_SEEK=7,UOS_SYS_CLOSE=8,
@@ -13,7 +14,8 @@ enum uos_syscall {
     UOS_SYS_READLINE=17,UOS_SYS_MKDIR=18,UOS_SYS_REMOVE=19,UOS_SYS_REPLACE=20,
     UOS_SYS_COPY=21,UOS_SYS_FILEHASH=22,UOS_SYS_SYNC=23,
     UOS_SYS_SPAWN=24,UOS_SYS_WAIT=25,UOS_SYS_SPAWN_IO=26,UOS_SYS_STDIN=27,
-    UOS_SYS_PIPE_RUN=28,UOS_SYS_RENAME=29,UOS_SYS_PUBLISH=30,UOS_SYS_EXEC=31
+    UOS_SYS_PIPE_RUN=28,UOS_SYS_RENAME=29,UOS_SYS_PUBLISH=30,UOS_SYS_EXEC=31,
+    UOS_SYS_ENV_GET=32,UOS_SYS_ENV_SET=33,UOS_SYS_ENV_UNSET=34,UOS_SYS_ENV_ENTRY=35
 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
  * index is a fresh traversal, not a stable cursor across filesystem edits. */
@@ -37,4 +39,5 @@ enum { UOS_SEEK_SET=0,UOS_SEEK_CUR=1,UOS_SEEK_END=2 };
 #define UOS_EXDEV (-9LL)
 #define UOS_EROFS (-10LL)
 #define UOS_EISDIR (-11LL)
+#define UOS_ENOSPC (-12LL)
 #endif

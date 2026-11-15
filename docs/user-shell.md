@@ -1,8 +1,10 @@
 # Interactive EL0 serial shell
 
 **Update:** [Physical shell acceptance passes](../proofs/pi5-user-shell-2026-11-13.txt).
-The new [application exec/lookup phase](application-exec.md) adds bare program
-names, a fixed `/data/bin:/boot` path and `exec` to replace the shell image.
+The current [environment phase](application-environment.md) adds env/getenv/
+setenv/unsetenv, configurable PATH, HOME for bare cd and private inheritance.
+The preceding [application exec/lookup phase](application-exec.md) adds bare
+program names and `exec` to replace the shell image; PATH is now configurable.
 The current shell also adds [`replace <source> <target>`](atomic-file-updates.md)
 for explicit atomic file publication; `mv` still refuses overwrite.
 The current image adds [two-stage pipes](pipelines.md), after
@@ -120,8 +122,10 @@ command logic run in user mode and use SVC for terminal/filesystem access; it
 never calls the kernel monitor's command dispatcher. Builtins are `help`,
 `pwd`, `cd`, `ls`, `cat`, `echo`, `write`, `mkdir`, `rm`, `rmdir`, and `exit`.
 This earlier release had no child ELF launch. Current images add bounded
-[foreground run/wait](shell-programs.md). Pipelines, redirection, job control,
-environment, a permission model and POSIX compatibility remain outstanding.
+[foreground run/wait](shell-programs.md), [file redirection](stdio.md),
+[pipelines](pipelines.md) and [private environments](application-environment.md).
+General job control, persistent profiles, a permission model and POSIX
+compatibility remain outstanding.
 
 New ABI calls preserve existing numbers 0..16:
 

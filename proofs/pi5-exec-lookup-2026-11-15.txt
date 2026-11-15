@@ -1,0 +1,30 @@
+User-provided Pi 5 serial excerpt, recorded 2026-11-15.
+Kernel: OUROS.IMG 433908 bytes, board=rpi5-header, entered EL2/running EL1.
+USB SanDisk Cruzer Blade VID=0781 PID=5567; /boot FAT32 mounted read-only.
+The excerpt below follows successful storageinit, datainit, mmuinit, irqinit
+and timerstart. No new or omitted command result is inferred.
+
+> datainit
+/data: OurOS snapshot v3; nodes=16 max_file_bytes=8192; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> appshell
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ hello
+Hello from an OurOS EL0 application.
+child exit=0
+user:/$ path
+/data/bin:/boot
+user:/$ exec echo shell-replaced
+shell-replaced
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=2 preemptions=1 yields=0 idle_waits=1424 terminal=yes budget_seconds=300 children_started=1 children_reaped=1 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/echo.elf state=exited code=0 syscalls=36 dispatches=10 sleeps=0 wakes=0 input_lines=3 execs=1
+App resources restored; monitor ready.
+>
+
+Verified scope: bare program lookup launched HELLO and reaped it successfully;
+the shell printed its default search path; exec replaced the session's root
+process image with ECHO, which exited code 0 with execs=1 and resources restored.
+The excerpt does not establish EXECCHK, handle/pipe inheritance during exec,
+installed-program reboot recovery, or the subsequent environment-variable phase.

@@ -24,11 +24,11 @@
 
 <h1 align="center">The kernel is on the board.</h1>
 
-Current development: [application exec and program lookup](docs/application-exec.md).
-Applications can replace their image while retaining PID, working directory
-and file streams. The shell searches `/data/bin` and `/boot` for program names.
-The preceding [file-update phase](docs/atomic-file-updates.md) adds `replace`
-and validated local application updates.
+Current development: [private application environments](docs/application-environment.md).
+Applications inherit private variables across spawn and retain them across
+exec; the shell now supports configurable `PATH` and `HOME`. The preceding
+[exec/lookup phase](docs/application-exec.md) passes its Pi HELLO and shell
+replacement example, with resources restored.
 
 <p align="center">
   <strong>An original operating-system kernel, written in C and AArch64 assembly.</strong><br />

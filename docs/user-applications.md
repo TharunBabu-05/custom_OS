@@ -47,8 +47,10 @@ processes use the same owned kernel file API introduced in the previous phase.
 Filesystem-created RAM files remain filesystem-owned until explicitly removed.
 
 This is a bounded original OurOS execution ABI. It provides no Linux syscall
-compatibility, dynamic linker, general POSIX environment, process spawning,
-signals, pipes, background jobs, SMP or general-purpose memory allocator.
+compatibility, dynamic linker, signals, background jobs, SMP or general-purpose
+user memory allocator. Later phases add bounded direct-child spawning,
+two-stage pipes, exec and private environment variables; they retain the
+original capacity limits and are not a general POSIX runtime.
 The user build disables floating-point/SIMD instructions; that context is not
 part of this first runtime.
 
@@ -82,6 +84,7 @@ arguments in `x0..x5`, and returns a signed result in `x0` using `svc #0`.
 | `RENAME` (29) | Rename a regular file on the same writable mount; no overwrite; checked source/target ranges and open-file leases |
 | `PUBLISH` (30) | Consume a prepared regular file and atomically replace its regular target on the same writable mount; both path leases checked |
 | `EXEC` (31) | Replace the calling process image with a validated packed argv; preserve PID/cwd/handles/streams and original deadline; success never returns |
+| `ENV_GET/SET/UNSET/ENTRY` (32..35) | Checked copies of bounded private environment variables; spawn/pipeline snapshots and preservation across exec |
 
 Every nonempty user pointer range is checked page by page against that
 process's private mapping. Output buffers must be writable. Kernel addresses,
