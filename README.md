@@ -24,14 +24,13 @@
 
 <h1 align="center">The kernel is on the board.</h1>
 
-Current development: [larger persistent files](docs/data-v4.md). New v4
-volumes support 16 KiB files and larger installed programs; old v1/v2/v3
-volumes retain their format and bounds. `df` reports mount limits. Native
-recovery tests and both QEMU capacity/installed-program cold-boot checks pass;
-physical v4 acceptance remains pending. The [boot-file update ZIP](build/apps/OurOS-data-v4-boot-update.zip)
-keeps an existing `/data`; the [full image ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip)
-creates a new v4 installation when flashed. See the guide before replacing data.
-The preceding Pi capture verifies bg/jobs/stop and a responsive parent shell.
+The Pi 5 header image now boots into the serial shell. The kernel mounts the
+existing USB volumes and starts the MMU and timer. Type `df` to inspect the
+mounts, `exit` to reach the monitor, and `startup` to reopen the shell.
+The Pi now verifies automatic startup, shell exit and the 16 KiB file checks.
+The Windows updater previews and copies changed boot files to an existing drive,
+with verified backups for rollback. [Boot update guide](docs/boot-updates.md)
+· [Pi capture](proofs/pi5-startup-v4chk-2026-11-21.txt)
 
 Project state: an early single-core OS with protected user applications, a
 serial shell and bounded persistent storage. MMU protection, GIC/timer IRQs,
@@ -288,7 +287,7 @@ Files are volatile and return to their initial contents after reboot.
 <summary><strong>Build the physically tested Pi 5 header-console variant</strong></summary>
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/image-rpi5.ps1 -Console header
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/image-rpi5.ps1 -Console header -KeepBuildFiles
 ```
 
 Generated whole-card image:

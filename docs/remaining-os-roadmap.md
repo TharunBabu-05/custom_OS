@@ -5,7 +5,7 @@ serial shell and bounded persistent storage**. The MMU, exceptions, GIC/timer
 IRQs, cooperative kernel tasks, preempted user programs, USB writes, ELF loading
 and checked system calls are implemented and have Pi evidence.
 
-The [latest Pi capture](../proofs/pi5-user-allocator-2026-11-15.txt) now passes
+The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes
 HEAPCHK and HEAPDEMO with exit 0, no remaining private pages and restored
 resources. This accepts the default byte-allocation checks on real hardware.
 The [status checklist](os-status.md) links the earlier protection, scheduling,
@@ -24,7 +24,8 @@ bg/jobs/stop/exit workflow with a responsive parent and restored resources.
 fg/bgio and broader physical lifecycle/reboot checks remain open. The
 shell-job kernel/API and data formats stay unchanged. The next
 [v4 storage phase](data-v4.md) adds 16 KiB files, mount queries and explicit
-legacy backup conversion; native/QEMU checks pass and Pi acceptance is pending. Multiple
+legacy backup conversion. Native and QEMU checks pass. The Pi now verifies
+a v4 mount and mount queries. Multiple
 jobs, process trees and indefinite services are still work.
 
 ## Applications and multitasking
@@ -98,13 +99,12 @@ USB classes or topologies are supported.
 
 ## Work order and evidence
 
-1. **Current: v4 persistent capacity.** New 16 KiB files, mount queries and
-   larger installed applications pass native/QEMU tests; old volumes keep
-   their limits. Physical v4 acceptance is pending. The preceding shell jobs
-   remain available, with base bg/jobs/stop/exit Pi evidence.
-2. Extend startup/mount policy and storage beyond fixed snapshots; strengthen backup,
-   recovery and updates without losing user data. Separate physical reboot,
-   power-cut and installed-shell evidence from existing DIRCHK and write tests.
+1. **Current phase** delivers verified boot-file updates and rollback for an
+   existing header-console drive. Automatic startup, shell exit and `V4CHK`
+   pass on Pi. [Boot updates](boot-updates.md) · [Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
+2. Extend storage beyond fixed snapshots and strengthen backup and recovery.
+   Exercise a larger installed ELF and a retained 16 KiB file across power-off
+   before testing interruption during a physical commit.
 3. Build background network handling and renewal/rekey/reconnect, then sockets,
    TCP and HTTP/TLS. Existing DNS/ICMP tests do not provide Internet downloads.
 4. Grow the application runtime, shell scripts and tools, followed by package

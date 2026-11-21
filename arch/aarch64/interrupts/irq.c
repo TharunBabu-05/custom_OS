@@ -57,6 +57,10 @@ static bool start(void)
     running=true;timer_control(1);__asm__ volatile("msr daifclr, #2; isb" ::: "memory");
     console_write("Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.\n");return true;
 }
+bool irq_ensure_periodic(void)
+{
+    return irq_timer_running() || (initialize() && start());
+}
 static void stop(void)
 {
     (void)irq_save();timer_control(0);running=false;

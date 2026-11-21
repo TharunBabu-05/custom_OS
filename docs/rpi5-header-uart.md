@@ -42,7 +42,7 @@ numbered row. Do not confuse physical pins 14/15 with GPIO14/15.
 Build without WSL:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/image-rpi5.ps1 -Console header
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/image-rpi5.ps1 -Console header -KeepBuildFiles
 ```
 
 Whole-card artifact (128 MiB):
@@ -77,9 +77,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-rpi5-image.ps1 
 OurOS: AArch64 kernel booted
 Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
 Board=rpi5-header entered EL2 running EL1
-Kernel monitor ready. Type help.
->
 ```
+
+On the current header image, the banner is followed by storage discovery and
+the `user:/$` shell prompt. Type `df` to inspect the mounts. Type `exit` for
+the `>` monitor prompt used below. For an existing v4 installation, use the
+[two-file update and startup guide](startup.md).
 
 The reported entry EL can differ; save the actual value. Run `help`, `info`,
 `cpuinfo`, `echo pi5-ok`, and `uptime`. Repeat `uptime` after ten seconds and

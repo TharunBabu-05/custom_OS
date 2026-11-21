@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param([ValidateSet('check','virt','rpi5','handoff-test')][string]$Target = 'check',
-      [ValidateSet('debug','header')][string]$Console = 'debug')
+      [ValidateSet('debug','header')][string]$Console = 'debug',[switch]$KeepBuildFiles)
 . "$PSScriptRoot/windows-tools.ps1"
 if ($Console -eq 'header' -and $Target -ne 'rpi5') { throw '-Console header requires -Target rpi5' }
 Push-Location $ProjectRoot
@@ -90,7 +90,7 @@ try {
         }
         if ($Target -eq 'rpi5') {
             Copy-Item -LiteralPath "$out/kernel.bin" -Destination "$out/ouros-rpi5.img"
-            & "$PSScriptRoot/clean-build.ps1"
+            if (!$KeepBuildFiles) { & "$PSScriptRoot/clean-build.ps1" }
             Write-Output "Built Pi 5 candidate: $out/ouros-rpi5.img. Console=$Console. Hardware boot remains UNTESTED."
         } else { Write-Output "Built $out/kernel.elf for QEMU only." }
     }

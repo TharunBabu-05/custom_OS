@@ -62,6 +62,12 @@ static void install(const char *source,const char *target,bool update)
 done:
     if (handle) { (void)kfile_close(owner,handle); }(void)kfile_close_owner(owner);wipe();
 }
+int process_shell(void)
+{
+    struct app_args args;
+    if (!app_args_parse("/boot/SHELL.ELF",&args)) { return 2; }
+    return process_terminal(&args,300);
+}
 bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
@@ -71,7 +77,7 @@ bool process_command(const char *line)
     }
     if (same(verb,"appshell")) {
         space(&p);if (*p) { console_write("Usage: appshell\n");return true; }
-        struct app_args args;(void)app_args_parse("/boot/SHELL.ELF",&args);(void)process_terminal(&args,300);return true;
+        (void)process_shell();return true;
     }
     if (same(verb,"appterm")) {
         char number[4];unsigned seconds=0;struct app_args args;

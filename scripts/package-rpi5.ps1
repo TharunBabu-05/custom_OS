@@ -1,6 +1,6 @@
 # Produces project-local files only. Does not enumerate or write storage devices.
 [CmdletBinding()]
-param([ValidateSet('debug','header')][string]$Console = 'debug')
+param([ValidateSet('debug','header')][string]$Console = 'debug',[switch]$KeepBuildFiles)
 . "$PSScriptRoot/windows-tools.ps1"
 . "$PSScriptRoot/rpi5-profile.ps1"
 $piProfile=Get-Rpi5Profile $Console
@@ -23,7 +23,7 @@ foreach ($asset in $assets.files) {
     }
 }
 # Always rebuild so the bundle cannot silently contain a stale kernel.
-& "$PSScriptRoot/build.ps1" -Target rpi5 -Console $Console
+& "$PSScriptRoot/build.ps1" -Target rpi5 -Console $Console -KeepBuildFiles:$KeepBuildFiles
 $out=Join-Path $ProjectRoot $piProfile.Output
 $stage=Join-Path $out ('boot-files-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage | Out-Null

@@ -31,8 +31,9 @@ bool mmu_cpu_config(uint64_t mmfr0,uint64_t largest_end,uint64_t *tcr);
 bool mmu_fault_matches(const struct mmu_fault_expect *,uint64_t esr,uintptr_t pc,uintptr_t far);
 const char *mmu_result_text(enum mmu_result);
 const char *mmu_kind_text(enum mmu_kind);
-/* AArch64 runtime; activation is opt-in at the normal kernel monitor. */
+/* AArch64 runtime with explicit activation via startup or the monitor. */
 bool mmu_enabled(void);
+bool mmu_ensure_enabled(void);
 bool mmu_dma_compatible(void);
 bool mmu_dma_buffer(uint64_t physical,size_t bytes);
 void mmu_setup(const char *board,uintptr_t dtb);

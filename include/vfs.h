@@ -21,6 +21,7 @@ enum fs_result vfs_prepare_write(const char *cwd,const char *path,char *absolute
 enum fs_result vfs_mount_data(const struct block_device *device);
 void vfs_data_info(void);
 bool vfs_data_failed(void);
+bool vfs_data_mounted(void);
 enum fs_result vfs_data_export(persist_emit,void *);
 enum fs_result vfs_data_restore(const char *boot_path);
 enum fs_result vfs_data_sync(void);

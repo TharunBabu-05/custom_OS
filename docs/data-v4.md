@@ -8,10 +8,16 @@ filesystem or package manager. The root `/` remains volatile RAMFS.
 
 The preceding Pi transcript verifies a responsive shell during a background
 SPIN job, stop/collection with 130 and restored resources. That evidence is
-retained in [the shell-job guide](shell-jobs.md). The v4 changes below pass native
-and QEMU tests; **physical Pi v4 acceptance is pending**.
+retained in [the shell-job guide](shell-jobs.md). The Pi mounts the SanDisk
+v4 volume during automatic shell startup. `V4CHK.ELF` verifies 16 KiB writes,
+copy/hash, overflow handling, replacement and cleanup on the Pi. Running an
+installed `BIGAPP.ELF` and matching a file hash after power-off are still open.
+[Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
 
 ## Existing installation or new capacity
+
+Use the [Windows boot updater](boot-updates.md) to apply current kernel and
+application builds on the supported header boot volume.
 
 For an existing Pi 5 header-console installation, the
 [boot-file update ZIP](../build/apps/OurOS-data-v4-boot-update.zip) updates
@@ -41,7 +47,10 @@ mount remains read-only in the OS.
 
 ## Pi commands
 
-At the kernel monitor, enter one line at a time:
+On the [automatic-startup build](startup.md), use `df` at the shell prompt,
+then `exit` and continue directly with `V4CHK.ELF`.
+
+For a manual boot, enter one command per line at the monitor.
 
 ```text
 storageinit

@@ -7,20 +7,20 @@ system can run without display, audio, Wi-Fi or even a disk. Our target is a
 usable, networked Pi OS with persistent files and applications, so those
 capabilities are tracked below.
 
-**Status as of 2026-11-15:** an early single-core OS with protected user
+**Status as of 2026-11-21:** an early single-core OS with protected user
 applications, a serial shell, bounded persistent storage and foreground
 networking. The original monitor-only stage is behind us. No percentage of a
 complete OS is assigned: the remaining features have very different scopes.
 
-**Current development:** [larger persistent files](data-v4.md). New snapshot
-v4 volumes allow 16 KiB files and larger installed applications. Native
-failure-injection, host conversion and both QEMU profiles pass; physical v4
-acceptance remains pending. Existing v1/v2/v3 volumes stay writable at old
-limits. The boot-file update preserves existing data; it adds mount-query
-syscall 43 and `df`. The preceding base bg/jobs/stop/exit path passes on Pi;
-fg/bgio and broader physical lifecycle/reboot cases remain open.
+**Current development** covers verified Windows updates to an existing
+Pi header boot volume, including a preview and rollback. [Boot updates](boot-updates.md)
 
-**Latest verified hardware path:** [single background-job control](shell-jobs.md).
+**Latest verified hardware path** covers automatic shell startup, the v4
+mount query, shell exit and 16 KiB file operations on the SanDisk drive.
+Running an installed larger ELF and cross-boot retention remain open on the Pi.
+[Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
+
+Earlier hardware evidence covers [single background-job control](shell-jobs.md).
 The [new Pi excerpt](../proofs/pi5-shell-jobs-2026-11-15.txt) shows a responsive
 parent while SPIN runs, stop/collection with 130, one child started/reaped and
 shell exit with code 0, zero live heap pages and restored resources.
@@ -136,13 +136,11 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-1. **Current phase: v4 persistent capacity.** Native/QEMU checks pass for
-   16 KiB files, larger installed applications, mount queries and explicit
-   legacy conversion. Physical v4 acceptance is pending. The preceding base
-   bg/jobs/stop/exit workflow passes on Pi; broader job cases remain open.
-2. **Persistent system services:** capacity beyond fixed snapshots and VFS capabilities,
-   startup/mount policy, recovery and data-preserving updates. Capture physical
-   reboot/power-cut evidence separately from existing same-boot tests.
+1. **Current phase** delivers Windows boot-file updates with a preview,
+   verified backups and rollback. Automatic startup and `V4CHK` pass on Pi.
+2. **Persistent system services** need capacity beyond fixed snapshots,
+   richer VFS capabilities and recovery across power loss. Exercise an
+   installed larger ELF and a retained file hash after power-off on Pi.
 3. **Background network service:** asynchronous driver/event handling,
    renewal/rekey/reconnect, then sockets, TCP, HTTP/TLS and time/certificate policy.
 4. **Userland and installation:** broader runtime/tools/scripts, package

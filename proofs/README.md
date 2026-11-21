@@ -1,5 +1,13 @@
 # Real Raspberry Pi 5 proof
 
+The SanDisk boots directly into the EL0 shell, `df /data` reports v4,
+and `exit` returns to the monitor. `V4CHK.ELF` passes its 16 KiB file
+checks with exit 0 and restored resources. [Pi capture](pi5-startup-v4chk-2026-11-21.txt)
+
+The [v4 mount capture](pi5-data-v4-mount-2026-11-21.txt) shows the SanDisk
+Cruzer Blade, a read-only FAT boot mount, the v4 data partition and a successful
+`DF.ELF` run with restored resources. It records a manual boot.
+
 The latest [shell-job excerpt](pi5-shell-jobs-2026-11-15.txt) verifies one
 background SPIN child, responsive parent input/echo, stop/collection with 130,
 an empty job record and shell exit with code 0/resources restored. Its scope

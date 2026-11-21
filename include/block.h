@@ -22,5 +22,7 @@ const char *block_error(enum block_result result);
 bool platform_storage_attach(struct block_device *device);
 void platform_storage_info(void);
 void storage_setup(const char *board,uintptr_t dtb);
+bool storage_mount_boot(void);
+bool storage_mount_data(void);
 bool storage_command(const char *line);
 #endif

@@ -1,7 +1,7 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
-      [switch]$Data4Backup,[string]$ExpectedTreeBackup,
+      [switch]$Data4Backup,[switch]$Startup,[string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
@@ -23,10 +23,11 @@ function Range-Hash([string]$Path,[long]$Offset,[long]$Length) {
         $null=$sha.TransformFinalBlock((New-Object byte[] 0),0,0);return [Convert]::ToBase64String($sha.Hash)
     } finally { $f.Dispose();$sha.Dispose() }
 }
-function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores) {
+function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs) {
     $si=New-Object Diagnostics.ProcessStartInfo
     $si.FileName=$QemuExe
     $si.Arguments="-machine virt-9.2,virtualization=$Virt,secure=off -cpu $Cpu -accel tcg -smp 1 -m 128 -display none -monitor none -serial stdio -net none -device qemu-xhci,id=xhci,p3=0 -drive file=`"$Disk`",if=none,format=raw,readonly=off,id=shelldisk -device usb-storage,bus=xhci.0,drive=shelldisk -kernel `"$kernel`""
+    if ($BootArgs) { $si.Arguments+=" -append `"$BootArgs`"" }
     $si.UseShellExecute=$false;$si.CreateNoWindow=$true;$si.RedirectStandardInput=$true;$si.RedirectStandardOutput=$true;$si.RedirectStandardError=$true
     $p=New-Object Diagnostics.Process;$p.StartInfo=$si;$started=$false
     try {
@@ -50,6 +51,38 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($Startup) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="startup-$($case[0])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk "$name-manual" $case[0] $case[1] @('storageinit','datainit','mmuinit','startup',
+            'setenv CHECK startup-retained','profile save','exit','pwd','halt') @('Storage is opt-in','Profile saved: /data/session.env') 1
+        $saved=(Get-FileHash -LiteralPath $disk).Hash
+        Session $disk "$name-auto" $case[0] $case[1] @('getenv CHECK','df /data','exit','startup','exit','pwd','fileinfo','halt') @(
+            'Starting serial shell from /boot/SHELL.ELF','user:/$','Kernel monitor ready.','shell: profile loaded /data/session.env','startup-retained',
+            "/data snapshot v$($layout.Version) max_file_bytes=$($layout.FileBytes)",'path=/boot/SHELL.ELF state=exited code=0','Open files: 0/16') 2 'console=ttyAMA0 ouros.startup=shell quiet'
+        $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name-auto.log")
+        if ($log.IndexOf('user:/$') -gt $log.IndexOf('Kernel monitor ready.') -or
+            [regex]::Matches($log,'Periodic physical timer started').Count -ne 1) { throw 'Automatic shell order or timer reuse differs' }
+        if ((Get-FileHash -LiteralPath $disk).Hash -ne $saved) { throw 'Read-only shell session changed the disk' }
+    }
+    $policies=@{monitor='ouros.startup=monitor'; unknown='ouros.startup=shell-extra'; conflicting='ouros.startup=shell ouros.startup=monitor'}
+    foreach ($policy in $policies.Keys) {
+        Session $disk "startup-policy-$policy" 'cortex-a76' 'on' @('pwd','halt') @('Storage is opt-in','Kernel monitor ready.') 0 $policies[$policy]
+    }
+    # Damage only the disposable superblock magic. A failed mount must yield a usable monitor.
+    $f=[IO.File]::OpenWrite($disk)
+    try { $f.Position=260096L*512;$f.WriteByte(0) } finally { $f.Dispose() }
+    $damaged=(Get-FileHash -LiteralPath $disk).Hash
+    Session $disk 'startup-data-recovery' 'cortex-a76' 'on' @('pwd','halt') @('Startup stopped at /data.','No formatting attempted.','Kernel monitor ready.') 0 'ouros.startup=shell'
+    if ((Get-FileHash -LiteralPath $disk).Hash -ne $damaged) { throw 'Recovery modified the invalid data volume' }
+    $f=[IO.File]::OpenWrite($disk)
+    try { $f.Position=510;$f.WriteByte(0) } finally { $f.Dispose() }
+    $damaged=(Get-FileHash -LiteralPath $disk).Hash
+    Session $disk 'startup-boot-recovery' 'cortex-a76' 'on' @('pwd','halt') @('Startup stopped at /boot.','Kernel monitor ready.') 0 'ouros.startup=shell'
+    if ((Get-FileHash -LiteralPath $disk).Hash -ne $damaged -or (Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Recovery modified a disk' }
+    return
 }
 if ($Data4) {
     if ($layout.Version -ne 4) { throw 'Data4 acceptance requires the v4 delivery' }

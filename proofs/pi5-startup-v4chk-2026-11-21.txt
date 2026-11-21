@@ -1,0 +1,30 @@
+User-supplied Raspberry Pi 5 header-UART capture, 2026-11-21.
+Selected lines from the boot and V4CHK run. Markdown line escapes removed.
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Starting serial shell from /boot/SHELL.ELF
+SCSI vendor=SanDisk. product=Cruzer Blade....
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS snapshot v4; nodes=16 max_file_bytes=16384; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ df /data
+/data snapshot v4 max_file_bytes=16384 nodes=0/16 persistent
+child exit=0
+user:/$ exit
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=24 dispatches=5 sleeps=0 wakes=0 input_lines=2 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> appterm 300 /boot/V4CHK.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+V4CHK: 16 KiB binary files, mount limits and checked pointers; wait for PASS.
+PASS: v4 16384-byte copy/hash, 8 KiB boundary write, EOF/overflow preservation, RAM limit, atomic replacement, mount queries/pointer checks and cleanup.
+process=0 path=/boot/V4CHK.ELF state=exited code=0 syscalls=51 dispatches=18 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+>

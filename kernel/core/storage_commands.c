@@ -43,6 +43,34 @@ void storage_setup(const char *board,uintptr_t dtb)
         for (unsigned i=0;i<6;++i) { wifi_mac[i]=p[i]; } have_wifi_mac=true;
     }
 }
+bool storage_mount_boot(void)
+{
+    if (!ramfs_get_stats().ready) { console_write("Storage mount requires an available RAM root.\n"); return false; }
+    if (!attached) { attached=platform_storage_attach(&disk); }
+    if (!attached) {
+        console_write("Storage attachment failed; /boot stays unmounted. No disk writes were issued.\n");
+        platform_storage_info(); return false;
+    }
+    if (!vfs_boot_mounted()) {
+        enum fs_result r=vfs_mount_boot(&disk);
+        if (r!=FS_OK) { console_write("FAT mount failed: "); console_write(ramfs_error(r)); console_write("\n"); }
+    }
+    vfs_boot_info();
+    return vfs_boot_mounted();
+}
+bool storage_mount_data(void)
+{
+    if (!attached || !vfs_boot_mounted()) { console_write("Run storageinit before datainit.\n");return false; }
+    if (!vfs_data_mounted()) {
+        enum fs_result r=vfs_mount_data(&disk);
+        if (r!=FS_OK) {
+            console_write("Data mount failed: ");console_write(ramfs_error(r));console_write(". No formatting attempted.\n");
+            vfs_data_info();platform_storage_info();return false;
+        }
+    }
+    vfs_data_info();
+    return !vfs_data_failed();
+}
 bool storage_command(const char *line)
 {
     if (same(line,"dataexport")) {
@@ -62,12 +90,7 @@ bool storage_command(const char *line)
         if (r!=FS_OK) { console_write(ramfs_error(r));console_write("; requires empty healthy /data, matching format and a valid boot backup.\n"); }
         if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); }return true;
     }
-    if (same(line,"datainit")) {
-        if (!attached || !vfs_boot_mounted()) { console_write("Run storageinit before datainit.\n");return true; }
-        enum fs_result r=vfs_mount_data(&disk);
-        if (r!=FS_OK && r!=FS_BUSY) { console_write("Data mount failed: ");console_write(ramfs_error(r));console_write(". No formatting attempted.\n"); }
-        vfs_data_info();if (r!=FS_OK && r!=FS_BUSY) { platform_storage_info(); }return true;
-    }
+    if (same(line,"datainit")) { (void)storage_mount_data();return true; }
     if (same(line,"datainfo")) { vfs_data_info();return true; }
     if (same(line,"sync")) {
         enum fs_result r=vfs_data_sync();console_write(r==FS_OK ? "Data cache flushed; file updates already commit synchronously.\n" : "Data sync failed: ");
@@ -104,19 +127,7 @@ bool storage_command(const char *line)
     if (same(line,"wifiprepare")) { platform_wifi_prepare(""); return true; }
     if (begins(line,"wifiprepare ")) { platform_wifi_prepare(line+12);return true; }
     if (same(line,"wifiprobe")) { platform_wifi_probe(); return true; }
-    if (same(line,"storageinit")) {
-        if (!ramfs_get_stats().ready) { console_write("Storage mount requires an available RAM root.\n"); return true; }
-        if (!attached) { attached=platform_storage_attach(&disk); }
-        if (!attached) {
-            console_write("Storage attachment failed; /boot stays unmounted. No disk writes were issued.\n");
-            platform_storage_info(); return true;
-        }
-        if (!vfs_boot_mounted()) {
-            enum fs_result r=vfs_mount_boot(&disk);
-            if (r!=FS_OK) { console_write("FAT mount failed: "); console_write(ramfs_error(r)); console_write("\n"); }
-        }
-        vfs_boot_info(); return true;
-    }
+    if (same(line,"storageinit")) { (void)storage_mount_boot();return true; }
     if (same(line,"storagetest")) {
         if (!attached) { console_write("Run storageinit first.\n"); return true; }
         unsigned char sector[512]; uint32_t hash=2166136261u;

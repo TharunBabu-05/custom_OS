@@ -1,10 +1,10 @@
 # Original freestanding sample executables. Outputs are regular project files.
 [CmdletBinding()]
-param()
+param([string]$OutputDirectory='build/apps')
 . "$PSScriptRoot/windows-tools.ps1"
 Push-Location $ProjectRoot
 try {
-    $out='build/apps'
+    $out=$OutputDirectory
     New-Item -ItemType Directory -Force -Path $out | Out-Null
     $flags=@('-std=c11','-Os','-Wall','-Wextra','-Werror','-Wstrict-prototypes',
         '-ffreestanding','-fno-builtin','-fno-stack-protector','-fno-pic','-fno-pie',

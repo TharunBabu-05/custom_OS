@@ -1,10 +1,10 @@
 # Writes a regular project-local disk-image file; never opens a physical device.
 [CmdletBinding()]
-param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4)][int]$DataVersion=4,[string]$DataBackup)
+param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4)][int]$DataVersion=4,[string]$DataBackup,[switch]$KeepBuildFiles)
 . "$PSScriptRoot/windows-tools.ps1"
 . "$PSScriptRoot/rpi5-profile.ps1"
 $piProfile=Get-Rpi5Profile $Console
-& "$PSScriptRoot/package-rpi5.ps1" -Console $Console
+& "$PSScriptRoot/package-rpi5.ps1" -Console $Console -KeepBuildFiles:$KeepBuildFiles
 $out=Join-Path $ProjectRoot $piProfile.Output
 $work=Join-Path $out ('disk-stage-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
@@ -161,6 +161,9 @@ Building creates regular project files, flashes no physical drive and pushes
 nothing to GitHub. Filesystem validation does not establish hardware boot.
 '@
 if ($Console -eq 'header') {
+    [IO.File]::WriteAllText((Join-Path $files 'CMDLINE.TXT'),"ouros.startup=shell`n",[Text.Encoding]::ASCII)
+    $readme=$readme.Replace('Application setup: storageinit, datainit, mmuinit, irqinit, timerstart.',
+        "On power-up CMDLINE.TXT selects the serial shell. Type df to see mounts.`r`nType exit to reach the monitor, then startup to reopen the shell.`r`nUse ouros.startup=monitor in CMDLINE.TXT for manual startup.")
     $readme=$readme.Replace('Only the dedicated UART10 console is used.', 'Only the RP1 UART0 header console is used.')
     $readme=$readme.Replace('3-pin UART connector between the HDMI ports.', '40-pin header: Pi pin 8 TX -> adapter RXD, pin 10 RX <- adapter TXD, pin 6 GND.')
     $readme+="`r`nLeave adapter power pins disconnected; use 3.3 V signals and Pi USB-C power.`r`nRequires firmware enable_rp1_uart=1, pciex4_reset=0; board=rpi5-header.`r`nSee docs/rpi5-header-uart.md. No PCIe reinitialization is implemented.`r`n"
@@ -271,6 +274,19 @@ $manifest=[ordered]@{board='Raspberry Pi 5 Model B';status='EXPERIMENTAL-HARDWAR
 $manifestPath=Join-Path $work 'image-manifest.json'
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding ASCII $manifestPath
 & "$PSScriptRoot/verify-rpi5-image.ps1" -Image $temporary -Manifest $manifestPath
+if ($Console -eq 'header') {
+    $update=Join-Path $work 'OurOS-startup-boot-update.zip'
+    $bootFiles=@((Join-Path $files 'OUROS.IMG'),(Join-Path $files 'CMDLINE.TXT'))
+    Compress-Archive -LiteralPath $bootFiles -DestinationPath $update
+    $roundtrip=Join-Path $work 'update-check'
+    Expand-Archive -LiteralPath $update -DestinationPath $roundtrip
+    if (@(Get-ChildItem -LiteralPath $roundtrip).Count -ne 2) { throw 'Unexpected startup update contents' }
+    foreach ($file in $bootFiles) {
+        $entry=Join-Path $roundtrip ([IO.Path]::GetFileName($file))
+        if ((Get-FileHash -LiteralPath $entry).Hash -cne (Get-FileHash -LiteralPath $file).Hash) { throw 'Startup update hash mismatch' }
+    }
+    Copy-Item -LiteralPath $update -Destination (Join-Path $out 'OurOS-startup-boot-update.zip') -Force
+}
 # Promote only a verified artifact. Output paths are fixed project-local files.
 if (Test-Path -LiteralPath $image) { & "$PSScriptRoot/archive-images.ps1" -Image $image }
 Copy-Item -LiteralPath $temporary -Destination $image -Force
@@ -279,7 +295,7 @@ $digest=(Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvaria
 "$digest  $([IO.Path]::GetFileName($image))" | Set-Content -Encoding ASCII "$image.sha256"
 & "$PSScriptRoot/archive-images.ps1" -Image $image
 & "$PSScriptRoot/compress-image.ps1" -Image $image
-& "$PSScriptRoot/clean-build.ps1" -IncludeTestImages
+if (!$KeepBuildFiles) { & "$PSScriptRoot/clean-build.ps1" -IncludeTestImages }
 Write-Output "IMAGE: $image"
 Write-Output "SHA256: $digest"
 Write-Output 'Experimental Pi 5 image. Filesystem verified; hardware boot UNTESTED. No physical device written.'

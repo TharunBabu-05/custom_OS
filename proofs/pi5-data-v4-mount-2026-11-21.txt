@@ -1,0 +1,27 @@
+User-supplied Raspberry Pi 5 header UART capture, 2026-11-21.
+Selected lines from the manual boot. Markdown line escapes removed.
+
+Board=rpi5-header entered EL2 running EL1
+> storageinit
+PASS: USB device and configuration descriptors read.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+> datainit
+/data: OurOS snapshot v4; nodes=16 max_file_bytes=16384; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+> mmuinit
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+> irqinit
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+> timerstart
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+> apprun /boot/DF.ELF
+/ ramfs v0 max_file_bytes=4096 nodes=16/64 volatile
+/boot fat32 v0 max_file_bytes=0 nodes=0/0 read-only
+/data snapshot v4 max_file_bytes=16384 nodes=0/16 persistent
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=no budget_seconds=2 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/DF.ELF state=exited code=0 syscalls=35 dispatches=3 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+>

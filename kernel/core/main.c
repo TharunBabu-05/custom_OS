@@ -1,5 +1,6 @@
 #include "board.h"
 #include "console.h"
+#include "dt_property.h"
 #include "cpu.h"
 #include "memory.h"
 #include "heap.h"
@@ -78,8 +79,47 @@ static bool math_command(const char *line)
     }
     return false;
 }
+/* Firmware may add its own words to /chosen/bootargs. Only a single, exact
+ * startup setting enables automatic controller takeover. */
+static bool shell_requested(uintptr_t dtb)
+{
+    const unsigned char *args;
+    uint32_t length;
+    if (!dtb || !dt_property((const void *)dtb,0x200000,"/chosen","bootargs",&args,&length) ||
+        !length || args[length-1]!=0) { return false; }
+    const char key[]="ouros.startup=";
+    const char setting[]="ouros.startup=shell";
+    bool selected=false;
+    uint32_t pos=0;
+    while (pos<length-1) {
+        unsigned char c=args[pos];
+        if (c==' ' || c=='\t') { ++pos;continue; }
+        uint32_t first=pos;
+        while (pos<length-1 && args[pos]!=' ' && args[pos]!='\t') {
+            if (!args[pos]) { return false; }
+            ++pos;
+        }
+        uint32_t n=pos-first;
+        uint32_t matched=0;
+        while (matched<n && setting[matched] && args[first+matched]==(unsigned char)setting[matched]) { ++matched; }
+        if (matched<sizeof(key)-1) { continue; }
+        if (selected || setting[matched] || matched!=n) { return false; }
+        selected=true;
+    }
+    return selected;
+}
+static void startup(void)
+{
+    console_write("Starting serial shell from /boot/SHELL.ELF\n");
+    if (!storage_mount_boot()) { console_write("Startup stopped at /boot.\n");return; }
+    if (!storage_mount_data()) { console_write("Startup stopped at /data.\n");return; }
+    if (!mmu_ensure_enabled()) { console_write("Startup stopped at MMU setup.\n");return; }
+    if (!irq_ensure_periodic()) { console_write("Startup stopped at timer setup.\n");return; }
+    if (process_shell()!=0) { console_write("Startup shell could not run or ended unsuccessfully.\n"); }
+}
 static void command(const char *line)
 {
+    if (equal(line,"startup")) { startup();return; }
     if (process_command(line) || task_command(line) || file_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
     if (mmu_command(line)) { return; }
@@ -93,6 +133,7 @@ static void command(const char *line)
     if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
+        console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
         console_write("excinfo exctest irqinit irqinfo timerstart timerinfo timertest timerstop\n");
@@ -219,12 +260,16 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     else { console_write("Root filesystem unavailable: "); console_write(ramfs_error(fs)); console_write("\n"); }
     storage_setup(board.name,dtb);
     usb_setup(board.name,dtb,board.uart_base);
-    console_write("Storage is opt-in: storageinit attempts read-only FAT32 at /boot.\n");
+    if (shell_requested(dtb)) {
+        startup();
+    } else {
+        console_write("Storage is opt-in: storageinit attempts read-only FAT32 at /boot.\n");
 #ifdef OUROS_PI5
-    console_write("Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.\n");
-    console_write("For USB storage use storageinit before usbtest/usbenum on a fresh boot.\n");
-    console_write("USB discovery: usbinfo (DT), usbprobe (read-only controller registers).\n");
+        console_write("Pi storageinit: SD handoff, or experimental read-only USB2 pendrive.\n");
+        console_write("For USB storage use storageinit before usbtest/usbenum on a fresh boot.\n");
+        console_write("USB discovery: usbinfo (DT), usbprobe (read-only controller registers).\n");
 #endif
+    }
     console_write("Kernel monitor ready. Type help.\n> ");
     char line[128];
     unsigned length=0;

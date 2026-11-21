@@ -57,6 +57,11 @@ static void initialize(void)
     console_write("MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.\n");return;
 failed:console_write("MMU activation refused before register changes: ");console_write(mmu_result_text(state.result));console_write(". Existing monitor remains available.\n");
 }
+bool mmu_ensure_enabled(void)
+{
+    if (!mmu_enabled()) { initialize(); }
+    return state.active && readback();
+}
 static void information(void)
 {
     console_write("MMU: ");console_write(!mmu_enabled() ? "off (run mmuinit)" : state.active && readback() ? "on; verified identity profile" : "on; UNRECOGNIZED profile");

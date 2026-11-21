@@ -1,12 +1,12 @@
 # Experimental Pi 5 disk image
 
-Current OS phase: [larger persistent files](data-v4.md). New images default to
-snapshot v4: sixteen file/directory nodes, 16384 bytes per file, same 1 MiB
-data partition. Both QEMU profiles pass larger installed programs and binary
-file cold-boot checks; physical v4 acceptance is pending. Old v1/v2/v3 volumes
-stay readable/writable without conversion. The [boot-file update](../build/apps/OurOS-data-v4-boot-update.zip)
-updates kernel/apps while keeping an existing `/data` at its old limits. The
-full image replaces `/data`; export and explicitly convert first if needed.
+New images default to snapshot v4 with sixteen file/directory nodes,
+16384 bytes per file and a 1 MiB data partition. `V4CHK` passes on Pi.
+Both QEMU profiles pass larger installed programs and binary file cold-boot
+checks. Use the Windows updater for routine kernel and app changes on the
+supported header boot volume. A full image replaces `/data`; export and
+explicitly convert first if needed. See [boot-file updates](boot-updates.md)
+and [v4 storage](data-v4.md).
 
 The Pi verifies the preceding profile example:
 save and automatic new-shell loading on the same boot, with expansion.

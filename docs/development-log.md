@@ -1,5 +1,22 @@
 # Development log
 
+## 2026-11-21 - Verified boot-file updates
+
+Added a Windows package builder and a boot-volume updater with a preview,
+SHA256 readback and rollback from verified PC backups. The package pairs the
+Pi header kernel with its user programs. The hardware capture verifies
+automatic shell startup, exit and the v4 capacity checks.
+[Update workflow](boot-updates.md) · [Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
+
+## 2026-11-21 — Automatic serial-shell startup
+
+The [Pi capture](../proofs/pi5-data-v4-mount-2026-11-21.txt) verifies manual
+mount of the SanDisk v4 volume and the mount-query utility. Added a firmware
+boot option and a monitor command to open the shell after mounting storage
+and initializing its execution environment. The header image now includes
+the boot option and the builder produces a two-file update for the existing
+v4 installation. [Usage and hardware acceptance](startup.md)
+
 ## 2026-11-15 - Snapshot v4 capacity and mount-query syscall
 
 - Added 16-node/16384-byte v4 persistent files with the v3 nested-directory
