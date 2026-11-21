@@ -17,7 +17,8 @@ enum uos_syscall {
     UOS_SYS_PIPE_RUN=28,UOS_SYS_RENAME=29,UOS_SYS_PUBLISH=30,UOS_SYS_EXEC=31,
     UOS_SYS_ENV_GET=32,UOS_SYS_ENV_SET=33,UOS_SYS_ENV_UNSET=34,UOS_SYS_ENV_ENTRY=35,
     UOS_SYS_ENV_PROFILE=36,UOS_SYS_ALLOC_PAGES=37,UOS_SYS_FREE_PAGES=38,UOS_SYS_MEMORY_INFO=39,
-    UOS_SYS_PROCESSES=40,UOS_SYS_CHILD_POLL=41,UOS_SYS_CHILD_CANCEL=42,UOS_SYS_STATFS=43
+    UOS_SYS_PROCESSES=40,UOS_SYS_CHILD_POLL=41,UOS_SYS_CHILD_CANCEL=42,UOS_SYS_STATFS=43,
+    UOS_SYS_RESIZE_PAGES=44,UOS_SYS_MEMORY_PRESSURE=45
 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
  * index is a fresh traversal, not a stable cursor across filesystem edits. */
@@ -31,6 +32,12 @@ _Static_assert(sizeof(struct uos_entry)==48,"directory ABI size");
 /* Private dynamic page arena, separate from the executable and stack. */
 struct uos_memory_info { uint64_t page_bytes,limit_pages,live_pages,peak_pages,allocations,free_calls; };
 _Static_assert(sizeof(struct uos_memory_info)==48,"memory info ABI size");
+/* Caller-local heap diagnostics, including unsuccessful resize attempts. */
+struct uos_memory_pressure {
+    uint64_t free_pages,largest_run;
+    uint64_t quota_failures,fragmentation_failures,backing_failures,mapping_failures;
+};
+_Static_assert(sizeof(struct uos_memory_pressure)==48,"memory pressure ABI size");
 /* One coherent snapshot of the active foreground batch. No kernel addresses,
  * arguments, credentials, cwd or environment are exported. Unused bytes zero. */
 enum { UOS_PROCESS_MAX=3,UOS_PROCESS_VERSION=1,UOS_PROCESS_SELF=1,UOS_PROCESS_CHILD=2 };

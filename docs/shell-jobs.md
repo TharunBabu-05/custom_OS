@@ -75,8 +75,8 @@ terminal-ok
 
 The reader cannot take shell input before `fg`. `fg` waits for the child and
 hands it the terminal. After the reader exits, the shell prompt returns.
-Ctrl+C while a child is foreground cancels that child; Ctrl+C at the shell
-prompt cancels the shell session and its outstanding child.
+Ctrl+C cancels a foreground child. At the boot-shell or `appshell` prompt,
+it clears the input line and leaves a background job running.
 
 ## Commands and limits
 
@@ -89,9 +89,8 @@ prompt cancels the shell session and its outstanding child.
 | `stop` | Cancel then wait/collect; preserve an already completed result |
 
 SECONDS must be an integer from 1 through 30. Waiting or foregrounding never
-restarts that deadline. The shell retains its terminal session budget, normally
-300 seconds from `appshell`. Pending includes runnable, sleeping or input-wait
-states; use the process API for detailed states.
+restarts that deadline. The shell opened by `appshell` stays open until exit.
+Pending includes runnable, sleeping or input-wait states.
 
 There is one outstanding job record, including an unreaped completed child.
 Collect it with `fg` or `stop` before another external launch, exec or pipeline.
@@ -117,10 +116,9 @@ cat /data/job.txt
 
 The output path must be new. Existing output files are refused; input/output
 handles are owned by the child and close through the existing exit, collection
-and parent-teardown paths. Its cwd and environment are snapshots taken at launch. Parent exit,
-Ctrl+C or session timeout reclaims an outstanding child using the existing
-kernel lifetime rules. The root filesystem remains volatile RAMFS; `/data`
-is the persistent mount.
+and parent-teardown paths. Its cwd and environment are snapshots taken at
+launch. If the shell runs under `appterm`, cancelling or timing out the
+session also reclaims any outstanding child.
 
 ## Implementation and verification
 

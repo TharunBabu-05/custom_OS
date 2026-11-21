@@ -24,6 +24,7 @@ struct process {
     struct user_tables tables;
     struct user_mapping maps[USER_MAPPING_LIMIT];unsigned map_count;
     struct user_heap heap;
+    struct uos_memory_pressure pressure;
     struct exception_frame context;
     uint64_t sp,owner,calls,dispatches,esr,far,pc;
     enum status status;int code;
@@ -254,9 +255,23 @@ static void children_refresh(void)
 }
 static void terminal_cancel(struct process *p,int code)
 {
-    p->status=CANCELLED;p->code=code;input_count=input_head=0;input_dropping=false;
-    zero(input_queue,sizeof(input_queue));zero(&input_line,sizeof(input_line));
+    p->status=CANCELLED;p->code=code;input_clear();
     console_write(code==130 ? "^C\n" : "\nTerminal queue overflow; application cancelled.\n");
+}
+static void terminal_interrupt(struct process *p)
+{
+    if (!budget_seconds && p==&tasks[0] && !p->execs && p->status==INPUT_WAIT &&
+        user_range(p,p->input_address,1,true)) {
+        char empty='\0';
+        user_copy(p,p->input_address,&empty,1,true);
+        p->context.x[0]=0;
+        p->input_address=0;
+        p->status=READY;
+        input_clear();
+        console_write("^C\n");
+        return;
+    }
+    terminal_cancel(p,130);
 }
 static void terminal_deliver(struct process *p,int ch)
 {
@@ -264,7 +279,7 @@ static void terminal_deliver(struct process *p,int ch)
     if (a==TERM_ECHO) { console_putc((char)ch); }
     else if (a==TERM_ERASE) { console_write("\b \b"); }
     else if (a==TERM_CLEAR) { while (previous--) { console_write("\b \b"); } }
-    else if (a==TERM_CANCEL) { terminal_cancel(p,130); }
+    else if (a==TERM_CANCEL) { terminal_interrupt(p); }
     else if (a==TERM_LINE || a==TERM_REJECT || a==TERM_EOF) {
         console_write("\n");p->context.x[0]=(uint64_t)(a==TERM_EOF ? UOS_EOF : UOS_ERROR);
         if (a==TERM_LINE) {
@@ -299,7 +314,7 @@ static void terminal_poll(void)
      * UART read in exception context. Ctrl+C also stops non-reading loops. */
     for (unsigned i=0;i<32 && live(p);++i) {
         int ch=console_getc();if (ch<0) { break; }
-        if (ch==3) { terminal_cancel(p,130);break; }
+        if (ch==3) { terminal_interrupt(p);break; }
         if (input_dropping) { if (ch=='\r' || ch=='\n') { terminal_cancel(p,75); }continue; }
         if (p->status==INPUT_WAIT && !input_count) { terminal_deliver(p,ch); }
         else if (input_count<TERMINAL_BYTES) { input_queue[(input_head+input_count)%TERMINAL_BYTES]=(unsigned char)ch;++input_count; }
@@ -311,7 +326,7 @@ static void terminal_poll(void)
 }
 static void refresh(void)
 {
-    uint64_t now=timer_ticks();bool expired=now-started>=timer_frequency()*budget_seconds;
+    uint64_t now=timer_ticks();bool expired=budget_seconds && now-started>=timer_frequency()*budget_seconds;
     for (unsigned i=0;i<total;++i) {
         struct process *p=&tasks[i];if (!live(p)) { continue; }
         if (!irq_timer_running()) { p->status=FAULTED;p->code=126; }
@@ -596,6 +611,13 @@ static bool heap_publish(void *context,const struct user_mapping *maps,unsigned 
 }
 static int64_t memory_call(struct process *p,struct exception_frame *f)
 {
+    if (f->x[8]==UOS_SYS_MEMORY_PRESSURE) {
+        if (!user_range(p,f->x[0],sizeof(struct uos_memory_pressure),true)) { return UOS_EFAULT; }
+        struct uos_memory_pressure info=p->pressure;
+        info.free_pages=USER_HEAP_PAGES-p->heap.live;
+        info.largest_run=user_heap_largest_free_run(&p->heap);
+        user_copy(p,f->x[0],&info,sizeof(info),true);return 0;
+    }
     if (f->x[8]==UOS_SYS_MEMORY_INFO) {
         if (!user_range(p,f->x[0],sizeof(struct uos_memory_info),true)) { return UOS_EFAULT; }
         struct uos_memory_info info={4096,USER_HEAP_PAGES,p->heap.live,p->heap.peak,p->heap.allocations,p->heap.free_calls};
@@ -605,9 +627,18 @@ static int64_t memory_call(struct process *p,struct exception_frame *f)
     if (f->x[8]==UOS_SYS_ALLOC_PAGES) {
         if (!f->x[0] || f->x[0]>USER_HEAP_PAGES) { return UOS_ERROR; }
         r=user_heap_allocate(&p->heap,p->maps,&p->map_count,(unsigned)f->x[0],&ops,&address);
-    }else { r=user_heap_free(&p->heap,p->maps,&p->map_count,f->x[0],&ops); }
+    } else if (f->x[8]==UOS_SYS_RESIZE_PAGES) {
+        if (!f->x[1] || f->x[1]>USER_HEAP_PAGES) { return UOS_ERROR; }
+        r=user_heap_resize(&p->heap,p->maps,&p->map_count,f->x[0],(unsigned)f->x[1],&ops);
+    } else { r=user_heap_free(&p->heap,p->maps,&p->map_count,f->x[0],&ops); }
     if (r==USER_HEAP_CORRUPT) { child_cleanup_failed=true;p->status=FAULTED;p->code=126; }
-    if (r==USER_HEAP_NO_SPACE || r==USER_HEAP_NO_MEMORY) { return UOS_ENOMEM; }
+    switch (r) {
+    case USER_HEAP_QUOTA:++p->pressure.quota_failures;return UOS_ENOMEM;
+    case USER_HEAP_FRAGMENTED:++p->pressure.fragmentation_failures;return UOS_ENOMEM;
+    case USER_HEAP_NO_MEMORY:++p->pressure.backing_failures;return UOS_ENOMEM;
+    case USER_HEAP_MAP_FAILED:++p->pressure.mapping_failures;break;
+    default:break;
+    }
     return r==USER_HEAP_OK ? (int64_t)address : UOS_ERROR;
 }
 static int64_t replace_image(struct process *p,uint64_t address,struct exception_frame *f)
@@ -626,10 +657,14 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
         zero(&exec_stage,sizeof(exec_stage));return UOS_ERROR;
     }
     exec_stage.parent=p->parent;exec_stage.deadline=p->deadline;
+    if (!budget_seconds && p==&tasks[0] && !p->execs) {
+        exec_stage.deadline=timer_ticks()+timer_frequency()*30;
+    }
     exec_stage.stdin_handle=p->stdin_handle;exec_stage.stdout_handle=p->stdout_handle;exec_stage.io_failed=p->io_failed;
     exec_stage.calls=p->calls;exec_stage.dispatches=p->dispatches;
     exec_stage.sleeps=p->sleeps;exec_stage.wakes=p->wakes;exec_stage.lines=p->lines;exec_stage.execs=p->execs+1;
     exec_stage.heap.peak=p->heap.peak;exec_stage.heap.allocations=p->heap.allocations;exec_stage.heap.free_calls=p->heap.free_calls;
+    exec_stage.pressure=p->pressure;
     /* No fallible load operation remains. An allocator corruption during
      * teardown is contained as a process fault, never a return to freed code. */
     if (!release_memory(p)) {
@@ -709,7 +744,8 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
     }
     ++p->calls;
     if ((f->esr>>26)==0x15 && !(f->esr&0xffff)) {
-        if (f->x[8]==UOS_SYS_ALLOC_PAGES || f->x[8]==UOS_SYS_FREE_PAGES || f->x[8]==UOS_SYS_MEMORY_INFO) {
+        if (f->x[8]==UOS_SYS_ALLOC_PAGES || f->x[8]==UOS_SYS_FREE_PAGES || f->x[8]==UOS_SYS_MEMORY_INFO ||
+            f->x[8]==UOS_SYS_RESIZE_PAGES || f->x[8]==UOS_SYS_MEMORY_PRESSURE) {
             f->x[0]=(uint64_t)memory_call(p,f);if (!live(p)) { return schedule(f,false); }return true;
         }
         if (f->x[8]==UOS_SYS_EXEC) {
@@ -781,7 +817,8 @@ void process_info(void)
     console_write("EL0 processes: limit=3; private pages; timer preempts users only; runs=");console_u64(epoch);
     console_write(" switches=");console_u64(switches);console_write(" preemptions=");console_u64(preemptions);console_write(" yields=");console_u64(yields);
     console_write(" idle_waits=");console_u64(idles);
-    console_write(" terminal=");console_write(interactive ? "yes" : "no");console_write(" budget_seconds=");console_u64(budget_seconds);
+    console_write(" terminal=");console_write(interactive ? "yes" : "no");console_write(" budget_seconds=");
+    if (interactive && !budget_seconds) { console_write("unlimited"); }else { console_u64(budget_seconds); }
     console_write(" children_started=");console_u64(children_spawned);console_write(" children_reaped=");console_u64(children_reaped);
     console_write(" last_child_code=");console_u64((unsigned)child_last_code);
     console_write(" cleanup=");console_write(last_clean ? "restored" : "not-run/failed");console_write("\n");
@@ -802,9 +839,9 @@ void process_info(void)
         console_write("\n");
     }
 }
-static int run(const char *const *paths,unsigned count,const struct app_args *args,unsigned terminal_seconds)
+static int run(const char *const *paths,unsigned count,const struct app_args *args,bool terminal,unsigned seconds)
 {
-    if (!paths || !count || count>PROCESS_LIMIT || terminal_seconds>300 || (terminal_seconds && count!=1) || running || !mmu_enabled() || !mmu_dma_compatible() || !irq_timer_running() || epoch>=(1ULL<<60)-2) {
+    if (!paths || !count || count>PROCESS_LIMIT || (terminal && count!=1) || running || !mmu_enabled() || !mmu_dma_compatible() || !irq_timer_running() || epoch>=(1ULL<<60)-2) {
         console_write("App run refused: require mmuinit, irqinit, timerstart and 1..3 valid paths.\n");return 2;
     }
     uint64_t flags=irq_save();if (flags&0x80) { irq_restore(flags);console_write("App run refused: CPU IRQs must be unmasked.\n");return 2; }
@@ -813,12 +850,16 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     zero(tasks,sizeof(tasks));++epoch;total=count;current=0;switches=preemptions=yields=idles=0;last_clean=false;bool loaded=true,clean=true;
     children_spawned=children_reaped=0;child_last_code=0;child_cleanup_failed=false;
     zero(&channel,sizeof(channel));pipe_runs=pipe_completions=pipe_written=pipe_read=pipe_read_waits=pipe_write_waits=0;pipe_left_code=pipe_right_code=0;
-    interactive=terminal_seconds!=0;budget_seconds=interactive ? terminal_seconds : 2;
-    input_count=input_head=0;input_dropping=false;zero(input_queue,sizeof(input_queue));zero(&input_line,sizeof(input_line));
+    interactive=terminal;budget_seconds=seconds;
+    input_clear();
     for (unsigned i=0;i<count;++i) { if (!paths[i] || !load(&tasks[i],paths[i],filesystem_cwd(),args,NULL)) { loaded=false;break; } }
     zero(image,sizeof(image));
     if (loaded) {
-        if (interactive) { console_write("Terminal assigned to EL0; Ctrl+C cancels; session_seconds=");console_u64(budget_seconds);console_write("\n"); }
+        if (interactive && !budget_seconds) {
+            console_write("Terminal assigned to EL0; shell stays open until exit.\n");
+        } else if (interactive) {
+            console_write("Terminal assigned to EL0; Ctrl+C cancels; session_seconds=");console_u64(budget_seconds);console_write("\n");
+        }
         started=timer_ticks();running=true;
         __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
         for (;;) {
@@ -835,7 +876,7 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
         }
         running=false;
     }
-    zero(input_queue,sizeof(input_queue));zero(&input_line,sizeof(input_line));input_count=input_head=0;input_dropping=false;
+    input_clear();
     bool success=loaded;
     for (unsigned i=0;i<total;++i) { if (tasks[i].status!=UNUSED && (tasks[i].status!=EXITED || tasks[i].code)) { success=false; }if (!release(&tasks[i])) { clean=false; } }
     struct page_stats after=pages_stats();struct heap_stats final=heap_get_stats();
@@ -848,13 +889,19 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); }
     return !loaded ? 2 : success && last_clean ? 0 : 1;
 }
-int process_run(const char *const *paths,unsigned count) { return run(paths,count,NULL,0); }
-static int exec_args(const struct app_args *args,unsigned seconds)
+int process_run(const char *const *paths,unsigned count) { return run(paths,count,NULL,false,2); }
+static int exec_args(const struct app_args *args,bool terminal,unsigned seconds)
 {
-    if (!args_valid(args)) { return 2; }const char *paths[]={args->bytes};return run(paths,1,args,seconds);
+    if (!args_valid(args)) { return 2; }const char *paths[]={args->bytes};return run(paths,1,args,terminal,seconds);
 }
-int process_exec(const struct app_args *args) { return exec_args(args,0); }
-int process_terminal(const struct app_args *args,unsigned seconds) { return seconds && seconds<=300 ? exec_args(args,seconds) : 2; }
+int process_exec(const struct app_args *args) { return exec_args(args,false,2); }
+int process_terminal(const struct app_args *args,unsigned seconds) { return seconds && seconds<=300 ? exec_args(args,true,seconds) : 2; }
+int process_shell(void)
+{
+    struct app_args args;
+    if (!app_args_parse("/boot/SHELL.ELF",&args)) { return 2; }
+    return exec_args(&args,true,0);
+}
 bool process_test(void)
 {
     struct page_stats pages=pages_stats();struct heap_stats heap=heap_get_stats();unsigned handles=kfile_count();

@@ -135,17 +135,20 @@ static void allocator_cases(void)
         for (unsigned j=0;j<i;++j) { assert(p[i]!=p[j]); }
     }
     assert(p[4]==0x100000000ULL); assert(!page_alloc(&p[6]));
+    assert(pages_stats().peak_allocated_pages==6 && pages_stats().exhausted_allocations==1);
     assert(!page_free(0x2000)); assert(!page_free(0x9000)); assert(!page_free(p[0]+1));
     assert(!page_free(PMM_ADDRESS_LIMIT));
     assert(page_free(p[2])); assert(!page_free(p[2]));
     uint64_t replacement; assert(page_alloc(&replacement) && replacement==p[2]);
     for (unsigned i=0;i<6;++i) { assert(page_free(p[i])); }
     assert(pages_stats().free_pages==6 && pages_stats().allocated_pages==0);
+    assert(pages_stats().peak_allocated_pages==6 && pages_stats().exhausted_allocations==1);
 
     memset(&m,0,sizeof(m)); m.ram_count=1;
     m.ram[0]=(struct memory_range){PMM_ADDRESS_LIMIT-PAGE_SIZE,2*PAGE_SIZE};
     assert(memory_normalize(&m) && INIT(&m));
-    assert(pages_stats().managed_pages==1); assert(page_alloc(&replacement) && replacement==PMM_ADDRESS_LIMIT-PAGE_SIZE);
+    assert(pages_stats().managed_pages==1 && !pages_stats().peak_allocated_pages && !pages_stats().exhausted_allocations);
+    assert(page_alloc(&replacement) && replacement==PMM_ADDRESS_LIMIT-PAGE_SIZE);
     assert(!page_alloc(&replacement));
     m.ram[0]=(struct memory_range){PMM_ADDRESS_LIMIT,2*PAGE_SIZE}; assert(!INIT(&m));
     assert(!page_alloc(&replacement) && !page_free(p[0]));

@@ -7,11 +7,13 @@ enum { UOS_ALLOC_BLOCKS=64,UOS_ALLOC_GROUPS=16,UOS_ALLOC_PAGE=4096,UOS_ALLOC_MAX
 struct uos_alloc_group { uintptr_t base;uint32_t unit;uint16_t pages,live; };
 struct uos_alloc_block { uintptr_t pointer;uint32_t bytes;uint16_t group,slot; };
 /* Providers return a fresh, page-aligned, disjoint run or NULL. Release must
- * leave the run mapped/owned on failure and wipe/release it on success. */
+ * preserve the run on failure. Optional resize keeps the same base, preserves
+ * retained pages, and leaves the original run intact on failure. */
 struct uos_allocator_ops {
     void *(*allocate)(void *,unsigned);
     bool (*release)(void *,void *);
     void *context;
+    bool (*resize)(void *,void *,unsigned);
 };
 struct uos_allocator {
     struct uos_alloc_group groups[UOS_ALLOC_GROUPS];

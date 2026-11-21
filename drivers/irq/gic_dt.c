@@ -1,5 +1,6 @@
 #include "gic.h"
 #include "dt_property.h"
+#include "irq_probe.h"
 static uint32_t be32(const unsigned char *p) { return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3]; }
 static uint64_t be64(const unsigned char *p) { return (uint64_t)be32(p)<<32|be32(p+4); }
 static bool same(const char *a,const char *b) { if (!a || !b) { return false; }while (*a && *a==*b) { ++a;++b; }return *a==*b; }
@@ -43,4 +44,37 @@ bool gic_discover(const char *board,const void *dtb,size_t bytes,struct gic_desc
     if (!(flags&0x100)) { return false; } /* CPU0 wired according to DT PPI mask. */
     if (dt_property(dtb,bytes,"/timer","status",&p,&n) && !((n==3 && same((const char *)p,"ok")) || (n==5 && same((const char *)p,"okay")))) { return false; }
     *out=result;return true;
+}
+bool irq_probe_discover(const char *board,const void *dtb,size_t bytes,struct irq_probe *out)
+{
+    struct gic_description gic;
+    if (!out || !gic_discover(board,dtb,bytes,&gic)) { return false; }
+    bool pi=gic.distributor==0x107fff9000ULL;
+    const char *soc="/soc@107c000000";
+    const char *gic_node=pi ? "/soc@107c000000/interrupt-controller@7fff9000" : "/intc@8000000";
+    const char *node=pi ? "/soc@107c000000/timer@7c003000" : "/pl031@9010000";
+    const unsigned char *p;uint32_t n;
+    if (!dt_property(dtb,bytes,gic_node,"phandle",&p,&n) || n!=4) { return false; }
+    uint32_t gic_parent=be32(p);
+    if (dt_property(dtb,bytes,node,"interrupt-parent",&p,&n) ||
+        (pi && dt_property(dtb,bytes,soc,"interrupt-parent",&p,&n))) {
+        if (n!=4 || be32(p)!=gic_parent) { return false; }
+    } else if (!scalar(dtb,bytes,"/","interrupt-parent",gic_parent)) { return false; }
+    if (dt_property(dtb,bytes,node,"status",&p,&n) &&
+        !((n==3 && same((const char *)p,"ok")) || (n==5 && same((const char *)p,"okay")))) { return false; }
+    if (!dt_property(dtb,bytes,node,"compatible",&p,&n) ||
+        !string_list(p,n,pi ? "brcm,bcm2835-system-timer" : "arm,pl031") ||
+        !dt_property(dtb,bytes,node,"reg",&p,&n)) { return false; }
+    if (pi) {
+        if (n!=8 || be32(p)!=0x7c003000 || be32(p+4)!=0x1000 ||
+            !scalar(dtb,bytes,soc,"#address-cells",1) || !scalar(dtb,bytes,soc,"#size-cells",1) ||
+            !scalar(dtb,bytes,node,"clock-frequency",1000000)) { return false; }
+    } else if (n!=16 || be64(p)!=0x09010000 || be64(p+8)!=0x1000) { return false; }
+    if (!dt_property(dtb,bytes,node,"interrupts",&p,&n) || n!=(pi ? 48u : 12u)) { return false; }
+    if (pi) { p+=36; }
+    unsigned spi=pi ? 67 : 2;
+    if (be32(p)!=0 || be32(p+4)!=spi || be32(p+8)!=4) { return false; }
+    *out=(struct irq_probe){.base=pi ? 0x107c003000ULL : 0x09010000,
+        .intid=32+spi,.kind=pi ? IRQ_PROBE_BCM_TIMER : IRQ_PROBE_PL031};
+    return true;
 }

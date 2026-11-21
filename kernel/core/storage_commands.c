@@ -71,15 +71,47 @@ bool storage_mount_data(void)
     vfs_data_info();
     return !vfs_data_failed();
 }
+static void data_check(void)
+{
+    struct persist_report report;
+    enum fs_result result=vfs_data_check(&report);
+    if (result!=FS_OK) {
+        console_write("Data check unavailable: ");console_write(ramfs_error(result));console_write("\n");
+        return;
+    }
+    console_write("Mounted /data bank=");console_u64(report.mounted_bank);
+    console_write(" generation=");console_u64(report.mounted_generation);console_write("\n");
+    static const char *const states[]={
+        [PERSIST_BANK_EMPTY]="empty", [PERSIST_BANK_BAD_HEADER]="invalid header",
+        [PERSIST_BANK_BAD_PAYLOAD]="invalid payload", [PERSIST_BANK_UNREADABLE]="unreadable",
+        [PERSIST_BANK_VALID]="valid"
+    };
+    for (unsigned bank=0;bank<2;++bank) {
+        const struct persist_bank_report *info=&report.banks[bank];
+        console_write("bank=");console_u64(bank);console_write(" status=");console_write(states[info->state]);
+        if (info->generation) { console_write(" generation=");console_u64(info->generation); }
+        if (info->state==PERSIST_BANK_UNREADABLE) {
+            console_write(" lba=");console_u64(info->lba);console_write(" result=");console_write(block_error(info->io));
+        }
+        if (bank==report.mounted_bank) {
+            console_write(info->matches_mounted ? " matches_mounted=yes" : " matches_mounted=no");
+        }
+        console_write("\n");
+    }
+}
 bool storage_command(const char *line)
 {
-    if (same(line,"dataexport")) {
+    if (same(line,"datacheck")) { data_check();return true; }
+    bool previous=same(line,"dataexport previous");
+    if (previous || same(line,"dataexport")) {
         struct export_stream stream={0};sha256_init(&stream.hash);
-        enum fs_result r=vfs_data_export(export_hex,&stream);
+        enum fs_result r=previous ? vfs_data_export_previous(export_hex,&stream) : vfs_data_export(export_hex,&stream);
         if (r==FS_OK) {
             unsigned char hash[32];sha256_final(&stream.hash,hash);console_write("OUROS-DATA-SHA256 ");
             for (unsigned i=0;i<32;++i) { console_putc(digits[hash[i]>>4]);console_putc(digits[hash[i]&15]); }
             console_write("\n-----END OUROS DATA BACKUP V1-----\nData export complete; files unchanged.\n");
+        } else if (previous && r==FS_NOT_FOUND) {
+            console_write("No older committed snapshot available.\n");
         } else { console_write("Data export failed: ");console_write(ramfs_error(r));console_write("\n"); }return true;
     }
     if (same(line,"datarestore") || begins(line,"datarestore ")) {

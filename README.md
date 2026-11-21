@@ -29,7 +29,7 @@ existing USB volumes and starts the MMU and timer. Type `df` to inspect the
 mounts, `exit` to reach the monitor, and `startup` to reopen the shell.
 The Pi now verifies automatic startup, shell exit and the 16 KiB file checks.
 The Windows updater previews and copies changed boot files to an existing drive,
-with verified backups for rollback. [Boot update guide](docs/boot-updates.md)
+with verified backups for rollback. [Boot update guide](docs/boot-updates-tharun_verified.md)
 · [Pi capture](proofs/pi5-startup-v4chk-2026-11-21.txt)
 
 Project state: an early single-core OS with protected user applications, a

@@ -1,0 +1,18 @@
+User-supplied Raspberry Pi 5 header UART excerpt, 2026-11-21.
+Selected from the boot and bank-check transcript. Markdown line escapes removed.
+
+Board=rpi5-header entered EL2 running EL1
+Starting serial shell from /boot/SHELL.ELF
+SCSI vendor=SanDisk. product=Cruzer Blade....
+/data: OurOS snapshot v4; nodes=16 max_file_bytes=16384; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=11 valid_banks=2
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=300
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ exit
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> datacheck
+Mounted /data bank=0 generation=11
+bank=0 status=valid generation=11 matches_mounted=yes
+bank=1 status=valid generation=10
+>

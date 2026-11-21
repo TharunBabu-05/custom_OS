@@ -11,6 +11,7 @@
 #include "kfile.h"
 #include "process.h"
 #include "ramfs.h"
+#include "reboot.h"
 #include "block.h"
 #include "usb.h"
 #include "crypto.h"
@@ -132,11 +133,11 @@ static void command(const char *line)
     if (equal(line,"keytest")) { console_write(wpa_keys_selftest() ? "PASS: AES-128, CMAC, key unwrap, SAE PTK, offline M2/M4, key-data and M3-retry known-answer tests.\n" : "FAIL: WPA key primitives; live handshake unavailable.\n");console_write("Public fixtures only; no key installation or EAPOL transmission.\n");return; }
     if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
-        console_write("help info cpuinfo meminfo uptime echo <text> clear halt fault\n");
+        console_write("help info cpuinfo meminfo uptime echo <text> clear reboot halt fault\n");
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
-        console_write("excinfo exctest irqinit irqinfo timerstart timerinfo timertest timerstop\n");
+        console_write("excinfo exctest irqinit irqinfo irqtest timerstart timerinfo timertest timerstop\n");
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
         console_write("appinfo apptest apprun <ELF> [ELF2] [ELF3] (EL0; requires MMU/timer)\n");
         console_write("appexec <ELF> [arguments] tooltest (EL0 utilities and sleeping processes)\n");
@@ -147,6 +148,7 @@ static void command(const char *line)
         console_write("fopen <path> r|rw|w | fread <handle> <1..512> | fwrite <handle> <text>\n");
         console_write("fseek <handle> <signed offset> set|cur|end | fclose <handle>\n");
         console_write("datainit datainfo sync (persistent /data on the preformatted data partition)\n");
+        console_write("datacheck (read both on-disk snapshots)\n");
         console_write("heapinfo heaptest heapalloc <1..4096> heapfree <slot>\n");
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
         console_write("keytest (offline AES/CMAC/unwrap/PTK/M2/M4/key-data/M3-retry vectors; no radio)\n");
@@ -174,7 +176,7 @@ static void command(const char *line)
         console_write("usbcheck (after storageinit; read-only ring reuse and disk check)\n");
         console_write("mv <source-file> <new-path> (same filesystem; no overwrite) | stat <path>\n");
         console_write("replace <source-file> <target> (atomic publication; consumes source)\n");
-        console_write("dataexport | datarestore /boot/DATA.BAK (empty /data only)\n");
+        console_write("dataexport [previous] | datarestore /boot/DATA.BAK (empty /data only)\n");
         console_write("usbtest (takes over one USB controller, tests DMA, halts it; reboot to repeat)\n");
         console_write("usbenum (direct USB2 device descriptors; reboot before usbtest/usbenum reuse)\n");
     } else if (equal(line,"info")) {
@@ -225,6 +227,8 @@ static void command(const char *line)
         console_write(line+5); console_write("\n");
     } else if (equal(line,"clear")) {
         console_write("\033[2J\033[H");
+    } else if (equal(line,"reboot")) {
+        system_reboot(board.name,firmware_dtb);
     } else if (equal(line,"halt")) {
         irq_fatal_stop();
         console_write("CPU halted. Reset the board or close the emulator.\n"); cpu_halt();
@@ -275,6 +279,7 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     unsigned length=0;
     bool overflow=false;
     for (;;) {
+        irq_run_deferred();
         int input=console_getc();
         if (input < 0) { continue; }
         char c=(char)input;

@@ -59,9 +59,9 @@ try {
             $common+='-DOUROS_RPI5_HEADER_UART=1'
         }
         New-Item -ItemType Directory -Force -Path $out | Out-Null
-        $sources = @($entrySource,'arch/aarch64/interrupts/vectors.S','arch/aarch64/interrupts/test_context.S','arch/aarch64/interrupts/test_irq_context.S','arch/aarch64/interrupts/irq.c','kernel/interrupts/exception.c','kernel/interrupts/tick.c','drivers/irq/gic.c','drivers/irq/gic_dt.c','arch/aarch64/mmu/control.S','arch/aarch64/mmu/runtime.c','kernel/memory/mmu_tables.c',
+        $sources = @($entrySource,'arch/aarch64/interrupts/vectors.S','arch/aarch64/interrupts/test_context.S','arch/aarch64/interrupts/test_irq_context.S','arch/aarch64/interrupts/irq.c','kernel/interrupts/exception.c','kernel/interrupts/tick.c','kernel/interrupts/irq_work.c','drivers/irq/gic.c','drivers/irq/gic_dt.c','drivers/irq/irq_probe.c','arch/aarch64/mmu/control.S','arch/aarch64/mmu/runtime.c','kernel/memory/mmu_tables.c',
             $boardSource,'drivers/uart/pl011.c','drivers/timer/arch_timer.c','arch/aarch64/context/switch.S','arch/aarch64/context/test_switch.S','kernel/scheduler/policy.c','kernel/scheduler/tasks.c',
-            'kernel/core/console.c','kernel/core/terminal.c','kernel/core/console_input.c','kernel/core/main.c','lib/memory.c',
+            'kernel/core/console.c','kernel/core/terminal.c','kernel/core/console_input.c','kernel/core/main.c','kernel/core/reboot.c','arch/aarch64/boot/reset.c','drivers/reset/reset_dt.c','lib/memory.c',
             'kernel/memory/map.c','kernel/memory/fdt_memory.c','kernel/memory/pages.c',
             'kernel/memory/boot_memory.c','kernel/memory/heap.c','kernel/memory/heap_commands.c','filesystem/ramfs.c','kernel/core/fs_commands.c',
             'drivers/storage/block.c','filesystem/fat32.c','filesystem/persist.c','filesystem/vfs.c','filesystem/kfile.c','kernel/core/file_commands.c','kernel/core/storage_commands.c',

@@ -115,16 +115,22 @@ static void next_pipe(struct session *t,struct pipe *p)
         sync(t);p->index=0;p->cycle^=1;++p->wraps;
     }
 }
-static void stop_storage(void)
+static enum block_result stop_storage(void)
 {
     disk.online=false; disk.bot.ready=false;
     uint32_t value; struct session *t=&disk.t;
-    if (!rd(t,t->op,&value) || !wr(t,t->op,value&~13u)) { return; }
+    if (!rd(t,t->op,&value) || !wr(t,t->op,value&~13u)) { return BLOCK_IO; }
     uint64_t start=t->io->ticks(t->io->observer.context);
     for (unsigned spin=0;spin<20000000;++spin) {
-        if (rd(t,t->op+4,&value) && (value&1)) { t->s->halted=true; return; }
-        if (t->io->ticks(t->io->observer.context)-start>=t->io->hz*2) { return; }
+        if (!rd(t,t->op+4,&value)) { return BLOCK_IO; }
+        if (value&1) { t->s->halted=true;return BLOCK_OK; }
+        if (t->io->ticks(t->io->observer.context)-start>=t->io->hz*2) { break; }
     }
+    return BLOCK_TIMEOUT;
+}
+enum block_result xhci_storage_quiesce(void)
+{
+    return !disk.t.s || disk.t.s->halted ? BLOCK_OK : stop_storage();
 }
 static enum block_result bulk(void *context,bool input,void *data,unsigned length,unsigned *actual)
 {

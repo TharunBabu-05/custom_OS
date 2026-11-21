@@ -1,5 +1,14 @@
 # Private dynamic application pages
 
+Read the largest available virtual run and failure counters with the
+pressure query. [Memory pressure](memory-pressure.md)
+
+The current kernel supports resizing a live page allocation in place. To
+test the page syscall and allocator together, run `run /boot/HEAPCHK.ELF resize` in
+the serial shell. Expect the PASS message and `child exit=0`. The update
+pairs the kernel with the rebuilt allocator applications. The Pi run passed
+with child exit 0. [Pi capture](../proofs/pi5-heap-resize-2026-11-21.txt) · [Boot update guide](boot-updates-tharun_verified.md)
+
 The Pi's [latest profile capture](../proofs/pi5-session-profile-2026-11-15.txt)
 verifies expansion, profile save and automatic loading in a new shell session
 on the same boot. A power cycle is not shown. The preceding tests are accepted;
@@ -67,15 +76,17 @@ A 64 KiB application quota does not describe the Pi's total RAM capacity.
 
 ## Allocation and ABI
 
-The ABI appends three calls, without renumbering existing calls:
+The page-allocation and resize calls use the following ABI.
 
 | Call | Arguments/result |
 | --- | --- |
 | `ALLOC_PAGES=37` | x0: page count 1..16. Returns a page-aligned positive virtual address, ENOMEM (-13) when no contiguous arena run or backing pages are available, or ERROR for invalid counts/other recoverable mapping errors. |
 | `FREE_PAGES=38` | x0: exact base of one live allocation. Frees its entire run. Returns 0 or ERROR; NULL, interior/unaligned addresses, immediate double frees and addresses outside this process's owned allocations are refused. |
 | `MEMORY_INFO=39` | x0: writable 48-byte `uos_memory_info`. Returns 0 or EFAULT for invalid output ranges. Fields are page_bytes, limit_pages, live_pages, peak_pages, allocations and free_calls, all uint64_t. |
+| `RESIZE_PAGES=44` | x0: exact allocation base. x1: new page count 1..16. Returns 0 on success, including the same size, ENOMEM when an adjacent run or backing pages are unavailable, or ERROR for invalid parameters or a rejected mapping update. |
 
-Runtime wrappers are `uos_alloc_pages`, `uos_free_pages` and `uos_memory_info`.
+Runtime wrappers are `uos_alloc_pages`, `uos_free_pages`, `uos_memory_info`
+and `uos_resize_pages`.
 For example:
 
 ```c
@@ -90,6 +101,13 @@ Runs are contiguous in virtual address space; physical contiguity is not
 promised. Allocation uses free adjacent arena slots. Enough total free pages
 can still be fragmented into runs smaller than a request; ENOMEM then leaves
 existing data/mappings unchanged. Freed pages become available for reuse.
+
+Resize growth preserves the base address and the existing prefix, and maps
+new pages as zeroed RW/NX memory. Shrink unmaps the tail and returns those
+pages to the physical allocator. Allocation or table publication failure
+preserves the original mappings and contents. `MEMORY_INFO` reports the
+new live and peak page counts. The allocation and free counters count their
+respective calls, so a resize does not increment either counter.
 Memory is zeroed before allocation and wiped before release.
 
 These are ordinary virtual pointers, not generation-tagged handles. Accessing
@@ -145,6 +163,12 @@ it. Stats of a child that was collected are not a system-wide history.
 
 ## Verification
 
+The resize tests inject a failure at each of the five new pages in a
+ten-to-fifteen-page growth and check both grow and shrink table publication
+failures. The emulator's `HEAPCHK.ELF resize` exercises the new syscall
+and the byte allocator through the same user entry point as the Pi. Run it
+on both CPU profiles with `scripts/test-shell-qemu.ps1 -UserAllocator`.
+
 `test-user-heap.ps1` runs the actual allocation manager with a PMM model and
 real private-table builder. It checks all 136 partial allocation failures,
 32 publication failures, release failures, all 12 failure positions when
@@ -176,7 +200,8 @@ RX/NX/kernel isolation, preemption, task I/O, timeout/owner cleanup, metadata,
 sleep/wake and installed-ELF execution after fresh boots. All 47 delivered
 ELFs, 25000 ELF parser mutations and eight disk corruption/profile checks pass.
 
-The full image is 134217728 bytes; its verified full-image ZIP is 880646 bytes.
+The original private-memory release used a 134217728-byte image and an
+880646-byte ZIP.
 Image SHA-256:
 `d45b5d37bd6d61bc7069ea9560f1ffc59256eb25447b1b7079a5e22b4b87150e`.
 Kernel: 446196 bytes, reserved end `0x1d0000` below firmware DTB `0x200000`.

@@ -1,0 +1,41 @@
+Raspberry Pi 5 header UART, 2026-11-21. Selected lines from the COM3 repeat run.
+The user also supplied the boot transcript and the same passing test output.
+
+> info
+OurOS development kernel | board=rpi5-header | EL1 | entered EL2
+> meminfo
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+peak_allocated_pages=30 exhausted_allocations=0
+> heapinfo
+pages=2 objects=3 capacity_bytes=544
+page_limit_failures=0 backing_failures=0
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> appshell
+user:/$ run /boot/MEMDEMO.ELF pressure
+Private heap free_pages=16 largest_run=16
+quota_failures=0 fragmentation_failures=0 backing_failures=0 mapping_failures=0
+child exit=0
+user:/$ run /boot/MEMCHK.ELF pressure
+Full arena: quota_failures=1 free_pages=0
+Fragmented arena: fragmentation_failures=1 largest_run=1
+PASS: memory pressure distinguished quota and fragmentation, retained live data and recovered all private pages.
+child exit=0
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=8 preemptions=4 yields=0 idle_waits=119 terminal=yes budget_seconds=unlimited children_started=2 children_reaped=2 last_child_code=0 cleanup=restored
+App resources restored; monitor ready.
+> meminfo
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+peak_allocated_pages=30 exhausted_allocations=0
+> heapinfo
+pages=2 objects=3 capacity_bytes=544
+page_limit_failures=0 backing_failures=0
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> datacheck
+Mounted /data bank=1 generation=14
+bank=0 status=valid generation=13
+bank=1 status=valid generation=14 matches_mounted=yes
+
+The physical check exercised private allocation pressure. The native models
+cover physical exhaustion and failed mapping publication.

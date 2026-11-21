@@ -1,0 +1,22 @@
+User-supplied Raspberry Pi 5 header UART excerpt, 2026-11-21.
+Selected console lines from the open-ended shell test.
+
+Board=rpi5-header entered EL2 running EL1
+Starting serial shell from /boot/SHELL.ELF
+/data: OurOS snapshot v4; nodes=16 max_file_bytes=16384; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=11 valid_banks=2
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ echo still-alive
+still-alive
+user:/$ ^C
+user:/$ ^C
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=46953 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=26 dispatches=7 sleeps=0 wakes=0 input_lines=2 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> echo still-alive
+still-alive
+>

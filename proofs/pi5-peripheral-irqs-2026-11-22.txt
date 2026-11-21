@@ -1,0 +1,71 @@
+OurOS Raspberry Pi 5 peripheral IRQ verification, 2026-11-22
+COM3, 115200 8N1, header UART and SanDisk Cruzer Blade.
+Windows verified OUROS.IMG SHA-256 84eda78b939a0bc54fe82745ae27580cb9bd836308615b83b064fb65a52645d9.
+The serial capture begins at the running shell after the power cycle.
+The initial monitor help listing is omitted.
+
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=13476 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=19 dispatches=5 sleeps=0 wakes=0 input_lines=3 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> irqinfo
+IRQ controller: GICv2 ready fault=no
+PIDR2=0x000000000000002b TYPER=0x000000000000fc69 CPU_targets=0x0000000001010101 PMR=0x00000000000000f0 distributor=0x000000107fff9000 cpu_interface=0x000000107fffa000
+Timer: running CPU_IRQ=unmasked INTID=30 CNTP_CTL=0x0000000000000001
+frequency=54000000 period_ticks=540000 delivered=13534 elapsed_periods=13545 skipped=11
+acknowledgements=27068 completions=13534 special/spurious=13534 unexpected=0 last_unexpected=0 early=0
+peripheral_received=0 deferred=0 overflow=0 stuck=0
+> irqtest
+Peripheral IRQ source=BCM system timer compare 3 intid=99 received=1 deferred=1 timer_delta=5
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+> irqtest
+Peripheral IRQ source=BCM system timer compare 3 intid=99 received=1 deferred=1 timer_delta=5
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+> irqinfo
+IRQ controller: GICv2 ready fault=no
+PIDR2=0x000000000000002b TYPER=0x000000000000fc69 CPU_targets=0x0000000001010101 PMR=0x00000000000000f0 distributor=0x000000107fff9000 cpu_interface=0x000000107fffa000
+Timer: running CPU_IRQ=unmasked INTID=30 CNTP_CTL=0x0000000000000001
+frequency=54000000 period_ticks=540000 delivered=13656 elapsed_periods=13667 skipped=11
+acknowledgements=27316 completions=13658 special/spurious=13658 unexpected=0 last_unexpected=0 early=0
+peripheral_received=2 deferred=2 overflow=0 stuck=0
+> timertest
+PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.
+> cat /boot/CONFIG.TXT
+# OurOS Pi 5: RP1 UART0 on GPIO14/15 (physical pins 8/10), 115200 8N1.
+[pi5]
+kernel=OUROS.IMG
+kernel_address=0x80000
+device_tree=PI5.DTB
+device_tree_address=0x200000
+device_tree_end=0x300000
+uart_2ndstage=1
+init_uart_baud=115200
+# Firmware initializes UART0 and retains RP1/PCIe for bare-metal use.
+enable_rp1_uart=1
+pciex4_reset=0
+auto_initramfs=0
+kernel_watchdog_timeout=0
+bootloader_update=0
+> datacheck
+Mounted /data bank=1 generation=14
+bank=0 status=valid generation=13
+bank=1 status=valid generation=14 matches_mounted=yes
+> appshell
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ run /boot/BUSY.ELF
+PASS: EL0 busy loop completed under timer preemption.
+child exit=0
+user:/$ run /boot/DF.ELF
+/ ramfs v0 max_file_bytes=4096 nodes=16/64 volatile
+/boot fat32 v0 max_file_bytes=0 nodes=0/0 read-only
+/data snapshot v4 max_file_bytes=16384 nodes=3/16 persistent
+child exit=0
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=8 preemptions=4 yields=0 idle_waits=73 terminal=yes budget_seconds=unlimited children_started=2 children_reaped=2 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=29 dispatches=10 sleeps=0 wakes=0 input_lines=3 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+>

@@ -47,7 +47,8 @@ static void basics(void)
     assert(user_heap_allocate(&heap,maps,&count,17,&ops,&a)==USER_HEAP_ARGUMENT && !allocations);
     assert(user_heap_allocate(&heap,maps,&count,3,&ops,&a)==USER_HEAP_OK && a==USER_HEAP_BASE);filled(a,3,0);fill(a,3,0x5a);
     assert(user_heap_allocate(&heap,maps,&count,13,&ops,&b)==USER_HEAP_OK && b==a+3*PAGE && heap.live==16 && heap.peak==16);filled(b,13,0);
-    unsigned before=allocations;assert(user_heap_allocate(&heap,maps,&count,1,&ops,&c)==USER_HEAP_NO_SPACE && allocations==before);filled(a,3,0x5a);
+    unsigned before=allocations;assert(user_heap_allocate(&heap,maps,&count,1,&ops,&c)==USER_HEAP_QUOTA && allocations==before);filled(a,3,0x5a);
+    assert(user_heap_largest_free_run(&heap)==0);
     struct user_heap saved=heap;struct user_tables original=tables;unsigned n=count;
     const uint64_t bad[]={0,USER_VA_BASE,USER_STACK_BASE,USER_HEAP_BASE-4096,USER_HEAP_BASE+16*PAGE,USER_HEAP_BASE+1,USER_HEAP_BASE+PAGE,UINT64_MAX};
     for (unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i) { assert(user_heap_free(&heap,maps,&count,bad[i],&ops)==USER_HEAP_ARGUMENT && count==n && !memcmp(&heap,&saved,sizeof(heap)) && !memcmp(&tables,&original,sizeof(tables))); }
@@ -57,9 +58,11 @@ static void basics(void)
     assert(user_heap_free(&heap,maps,&count,b,&ops)==USER_HEAP_OK && user_heap_free(&heap,maps,&count,c,&ops)==USER_HEAP_OK && !active() && count==2 && heap.live==0);
     uint64_t all[16];for (unsigned i=0;i<16;++i) { assert(user_heap_allocate(&heap,maps,&count,1,&ops,&all[i])==USER_HEAP_OK); }
     for (unsigned i=0;i<16;i+=2) { assert(user_heap_free(&heap,maps,&count,all[i],&ops)==USER_HEAP_OK); }
-    assert(user_heap_allocate(&heap,maps,&count,2,&ops,&a)==USER_HEAP_NO_SPACE && heap.live==8);
+    assert(user_heap_allocate(&heap,maps,&count,2,&ops,&a)==USER_HEAP_FRAGMENTED && heap.live==8);
+    assert(user_heap_largest_free_run(&heap)==1);
     for (unsigned i=1;i<16;i+=2) { assert(user_heap_free(&heap,maps,&count,all[i],&ops)==USER_HEAP_OK); }
-    assert(!active() && !heap.live && count==2);puts("PASS: page quota, zeroing, retained data, exact-head/interior/double/foreign-range free refusal, reuse, fragmentation and complete coalescing.");
+    assert(!active() && !heap.live && count==2 && user_heap_largest_free_run(&heap)==USER_HEAP_PAGES);
+    puts("PASS: page quota, zeroing, retained data, exact-head/interior/double/foreign-range free refusal, reuse, fragmentation and complete coalescing.");
 }
 static void failures(void)
 {
@@ -108,7 +111,10 @@ static void model(void)
             unsigned pages=1+random_next()%4,run=0;bool fits=false;
             for (unsigned i=0;i<16;++i) { run=occupied[i] ? 0 : run+1;if (run>=pages) { fits=true; } }
             uint64_t address=999;enum user_heap_result r=user_heap_allocate(&heap,maps,&count,pages,&ops,&address);
-            if (!fits) { assert(r==USER_HEAP_NO_SPACE && address==999); }
+            if (!fits) {
+                enum user_heap_result expected=pages>USER_HEAP_PAGES-heap.live ? USER_HEAP_QUOTA : USER_HEAP_FRAGMENTED;
+                assert(r==expected && address==999);
+            }
             else {
                 assert(r==USER_HEAP_OK && address>=USER_HEAP_BASE && address+pages*PAGE<=USER_HEAP_BASE+16*PAGE);
                 unsigned start=(unsigned)((address-USER_HEAP_BASE)/PAGE);for (unsigned j=0;j<pages;++j) { assert(!occupied[start+j]); }
@@ -122,4 +128,48 @@ static void model(void)
     assert(!active() && !heap.live && count==2);
     puts("PASS: 3000 allocation/free operations against an independent occupancy model; every live byte, mapping count, zeroed new page and final release checked.");
 }
-int main(void) { basics();failures();retained_failures();model();return 0; }
+static void resize_run(void)
+{
+    seed();
+    uint64_t base,neighbor;
+    assert(user_heap_allocate(&heap,maps,&count,10,&ops,&base)==USER_HEAP_OK);
+    fill(base,10,0x7c);
+    assert(user_heap_allocate(&heap,maps,&count,1,&ops,&neighbor)==USER_HEAP_OK);
+    unsigned before=publishes;
+    assert(user_heap_resize(&heap,maps,&count,base,10,&ops)==USER_HEAP_OK && publishes==before);
+    assert(user_heap_resize(&heap,maps,&count,base,16,&ops)==USER_HEAP_QUOTA && publishes==before);
+    assert(user_heap_resize(&heap,maps,&count,base,15,&ops)==USER_HEAP_FRAGMENTED && publishes==before);
+    assert(user_heap_resize(&heap,maps,&count,base+PAGE,2,&ops)==USER_HEAP_ARGUMENT);
+    filled(base,10,0x7c);
+    assert(user_heap_free(&heap,maps,&count,neighbor,&ops)==USER_HEAP_OK);
+
+    struct user_heap saved=heap;
+    struct user_tables old=tables;
+    for (unsigned point=1;point<=5;++point) {
+        fail_alloc=allocations+point;
+        assert(user_heap_resize(&heap,maps,&count,base,15,&ops)==USER_HEAP_NO_MEMORY);
+        assert(count==12 && active()==10 && !memcmp(&heap,&saved,sizeof(heap)) && !memcmp(&tables,&old,sizeof(tables)));
+        filled(base,10,0x7c);
+    }
+    fail_alloc=0;
+    fail_publish=true;
+    assert(user_heap_resize(&heap,maps,&count,base,15,&ops)==USER_HEAP_MAP_FAILED && active()==10);
+    assert(user_heap_resize(&heap,maps,&count,base,2,&ops)==USER_HEAP_MAP_FAILED && active()==10);
+    assert(!memcmp(&heap,&saved,sizeof(heap)) && !memcmp(&tables,&old,sizeof(tables)));
+    fail_publish=false;
+
+    assert(user_heap_resize(&heap,maps,&count,base,15,&ops)==USER_HEAP_OK);
+    filled(base,10,0x7c);
+    filled(base+10*PAGE,5,0);
+    assert(user_heap_resize(&heap,maps,&count,base,2,&ops)==USER_HEAP_OK);
+    struct user_translation unused;
+    assert(!user_mmu_lookup(&tables,base+2*PAGE,&unused) && active()==2);
+    assert(heap.live==2 && heap.peak==15 && heap.allocations==2 && heap.free_calls==1);
+    filled(base,2,0x7c);
+    assert(user_heap_allocate(&heap,maps,&count,14,&ops,&neighbor)==USER_HEAP_OK && neighbor==base+2*PAGE);
+    filled(neighbor,14,0);
+    assert(user_heap_free(&heap,maps,&count,neighbor,&ops)==USER_HEAP_OK);
+    assert(user_heap_free(&heap,maps,&count,base,&ops)==USER_HEAP_OK && !active());
+    puts("PASS: in-place growth/shrink, adjacent-run refusal, zeroed page reuse and rollback for allocation or table publication failures.");
+}
+int main(void) { basics();failures();retained_failures();resize_run();model();return 0; }

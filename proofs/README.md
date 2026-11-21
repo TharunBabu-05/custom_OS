@@ -1,5 +1,28 @@
 # Real Raspberry Pi 5 proof
 
+The Pi delivered two BCM compare interrupts and ran two deferred callbacks.
+The periodic timer, EL0 preemption, FAT reads and snapshot bank checks passed.
+[Peripheral IRQ capture](pi5-peripheral-irqs-2026-11-22.txt)
+
+The Pi distinguished a full private quota from fragmentation and recovered
+all private pages. The physical-page, kernel heap and file-handle counts
+matched before and after. [Memory pressure capture](pi5-memory-pressure-2026-11-21.txt)
+
+The installed 10,664-byte ELF still ran after a power cycle on the SanDisk
+drive. The 16 KiB file retained its SHA-256 and the mounted generation
+remained 14. Windows verified the earlier generation 10 serial export.
+[Pi persistence capture](pi5-v4-persistence-2026-11-21.txt)
+
+The Pi passed `HEAPCHK.ELF resize` with child exit 0. The test checks
+in-place growth, preserved contents, zeroed new bytes and tail-page
+reclamation. [Pi capture](pi5-heap-resize-2026-11-21.txt)
+
+The open-ended shell responded after idling, gave another prompt after each
+Ctrl+C, and exited with code 0 and resource cleanup. [Pi capture](pi5-open-shell-2026-11-21.txt)
+
+The SanDisk v4 volume passed `datacheck` on the Pi. Both generations were
+valid and generation 11 matched the mounted filesystem. [Pi capture](pi5-datacheck-2026-11-21.txt)
+
 The SanDisk boots directly into the EL0 shell, `df /data` reports v4,
 and `exit` returns to the monitor. `V4CHK.ELF` passes its 16 KiB file
 checks with exit 0 and restored resources. [Pi capture](pi5-startup-v4chk-2026-11-21.txt)

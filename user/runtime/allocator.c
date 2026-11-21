@@ -74,10 +74,26 @@ void *uos_realloc(struct uos_allocator *a,void *p,size_t bytes)
     if (!p) { return uos_malloc(a,bytes); }if (!active(a)) { failure(a);return NULL; }
     int id=block_id(a,p);if (id<0 || !block_valid(a,(unsigned)id) || bytes>UOS_ALLOC_MAX) { failure(a);return NULL; }
     if (!bytes) { (void)uos_free(a,p);return NULL; }
-    struct uos_alloc_block *b=&a->blocks[id];unsigned previous=b->bytes;
-    if (bytes<=a->groups[b->group].unit) {
+    struct uos_alloc_block *b=&a->blocks[id];
+    struct uos_alloc_group *g=&a->groups[b->group];
+    unsigned previous=b->bytes;
+    if (g->unit>2048 && a->ops.resize) {
+        unsigned pages=(unsigned)((bytes+UOS_ALLOC_PAGE-1)/UOS_ALLOC_PAGE);
+        if (pages!=g->pages && page_count(a)-g->pages+pages<=UOS_ALLOC_MAX/UOS_ALLOC_PAGE &&
+            a->ops.resize(a->ops.context,p,pages)) {
+            g->pages=(uint16_t)pages;
+            g->unit=pages*UOS_ALLOC_PAGE;
+            unsigned live=page_count(a);
+            if (live>a->peak_pages) { a->peak_pages=live; }
+        }
+    }
+    if (bytes<=g->unit) {
         if (bytes>previous) { wipe((unsigned char *)p+previous,bytes-previous); }
-        else { wipe((unsigned char *)p+bytes,previous-bytes); }b->bytes=(uint32_t)bytes;increment(&a->resizes);return p;
+        else {
+            unsigned retained=previous<g->unit ? previous : g->unit;
+            wipe((unsigned char *)p+bytes,retained-bytes);
+        }
+        b->bytes=(uint32_t)bytes;increment(&a->resizes);return p;
     }
     void *next=uos_malloc(a,bytes);if (!next) { return NULL; }copy(next,p,previous);
     if (!uos_free(a,p)) {

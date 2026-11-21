@@ -10,6 +10,7 @@ struct heap_stats {
     unsigned pages,objects,peak_pages,peak_objects;
     size_t capacity_bytes;
     uint64_t allocations,frees,failures,rejected_frees;
+    uint64_t page_limit_failures,backing_failures;
     struct heap_class_stats classes[HEAP_CLASSES];
 };
 /* Single-core, synchronous kernel buffers; not IRQ/SMP safe or a DMA API.

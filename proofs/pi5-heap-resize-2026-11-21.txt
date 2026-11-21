@@ -1,0 +1,16 @@
+User-supplied Raspberry Pi 5 header UART excerpt, 2026-11-21.
+Selected console lines from the automatic boot and HEAPCHK resize run.
+
+Board=rpi5-header entered EL2 running EL1
+Starting serial shell from /boot/SHELL.ELF
+SCSI vendor=SanDisk. product=Cruzer Blade....
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS snapshot v4; nodes=16 max_file_bytes=16384; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=11 valid_banks=2
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ run /boot/HEAPCHK.ELF resize
+PASS: in-place page resize and realloc, preserved contents, zeroed growth and reclaimed tail pages.
+child exit=0
+user:/$

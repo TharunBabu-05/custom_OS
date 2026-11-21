@@ -99,27 +99,6 @@ USB classes or topologies are supported.
 
 ## Work order and evidence
 
-1. **Current phase** delivers verified boot-file updates and rollback for an
-   existing header-console drive. Automatic startup, shell exit and `V4CHK`
-   pass on Pi. [Boot updates](boot-updates.md) · [Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
-2. Extend storage beyond fixed snapshots and strengthen backup and recovery.
-   Exercise a larger installed ELF and a retained 16 KiB file across power-off
-   before testing interruption during a physical commit.
-3. Build background network handling and renewal/rekey/reconnect, then sockets,
-   TCP and HTTP/TLS. Existing DNS/ICMP tests do not provide Internet downloads.
-4. Grow the application runtime, shell scripts and tools, followed by package
-   metadata, authenticity/dependencies, installer transactions and rollback.
-5. Add display and USB HID incrementally when those devices can be tested;
-   keep serial as the diagnostic path. GPU/audio are later capabilities.
-6. Add platform shutdown/reboot, watchdog/RTC/thermal management and selected
-   peripherals, then SMP, synchronization, hardening and additional board ports.
-
-Open physical checks are evidence gaps, not a requirement to repeat every
-accepted test before progressing. The shell-job phase is an application-only
-update of SHELL.ELF on the process-control kernel; existing /data can be retained.
-
-The complete feature/driver status remains in [os-status.md](os-status.md).
-Native tests establish bounded parsing/mapping behavior, emulators establish
-their modeled boot/execution paths, and Pi captures establish only the hardware
-behavior actually exercised. Outstanding drivers are work items, not stubbed
-features or completed claims.
+The safe reboot command passed flush refusal tests and both QEMU reset paths.
+The next check is a Pi 5 watchdog reboot with file retention.
+[Safe reboot](safe-reboot.md) · [Implementation plan](implementation-plan.md)

@@ -19,6 +19,7 @@ struct memory_map {
 };
 struct page_stats {
     uint64_t ram_bytes, managed_pages, free_pages, allocated_pages;
+    uint64_t peak_allocated_pages, exhausted_allocations;
     unsigned usable_ranges;
     bool ready;
 };

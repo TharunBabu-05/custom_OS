@@ -46,10 +46,52 @@ static int basics(void)
         uos_memory_info(&info) || info.live_pages || info.peak_pages!=16 || info.allocations!=20 || info.free_calls!=20) { return 16; }
     uos_puts("PASS: private dynamic pages zeroed, quota/fragmentation/reuse, cross-page syscall buffers, freed-pointer rejection, concurrent isolation and complete release.\n");return 0;
 }
+static int pressure_check(void)
+{
+    struct uos_memory_pressure pressure;
+    if (uos_memory_pressure(&pressure) || pressure.free_pages!=USER_HEAP_PAGES ||
+        pressure.largest_run!=USER_HEAP_PAGES || pressure.quota_failures ||
+        pressure.fragmentation_failures || pressure.backing_failures || pressure.mapping_failures ||
+        uos_memory_pressure(0)!=UOS_EFAULT ||
+        uos_memory_pressure((void *)(uintptr_t)USER_VA_BASE)!=UOS_EFAULT) { return 34; }
+
+    volatile unsigned char *pages[USER_HEAP_PAGES];
+    for (unsigned i=0;i<USER_HEAP_PAGES;++i) {
+        int64_t address=uos_alloc_pages(1);
+        if (address<0) { return 35; }
+        pages[i]=(void *)(uintptr_t)address;
+        fill(pages[i],4096,(unsigned char)(i+1));
+    }
+    if (uos_alloc_pages(1)!=UOS_ENOMEM || uos_memory_pressure(&pressure) ||
+        pressure.free_pages || pressure.largest_run || pressure.quota_failures!=1 ||
+        pressure.fragmentation_failures || pressure.backing_failures || pressure.mapping_failures) { return 36; }
+    uos_puts("Full arena: quota_failures=1 free_pages=0\n");
+
+    for (unsigned i=0;i<USER_HEAP_PAGES;i+=2) {
+        if (uos_free_pages((void *)pages[i])) { return 37; }
+    }
+    if (uos_alloc_pages(2)!=UOS_ENOMEM || uos_memory_pressure(&pressure) ||
+        pressure.free_pages!=USER_HEAP_PAGES/2 || pressure.largest_run!=1 ||
+        pressure.quota_failures!=1 || pressure.fragmentation_failures!=1 ||
+        pressure.backing_failures || pressure.mapping_failures) { return 38; }
+    uos_puts("Fragmented arena: fragmentation_failures=1 largest_run=1\n");
+
+    for (unsigned i=1;i<USER_HEAP_PAGES;i+=2) {
+        if (!filled(pages[i],4096,(unsigned char)(i+1)) || uos_free_pages((void *)pages[i])) { return 39; }
+    }
+    int64_t retry=uos_alloc_pages(USER_HEAP_PAGES);
+    if (retry<0 || !zeroed((void *)(uintptr_t)retry,USER_HEAP_PAGES*4096) ||
+        uos_free_pages((void *)(uintptr_t)retry) || uos_memory_pressure(&pressure) ||
+        pressure.free_pages!=USER_HEAP_PAGES || pressure.largest_run!=USER_HEAP_PAGES ||
+        pressure.quota_failures!=1 || pressure.fragmentation_failures!=1) { return 40; }
+    uos_puts("PASS: memory pressure distinguished quota and fragmentation, retained live data and recovered all private pages.\n");
+    return 0;
+}
 int app_main(void)
 {
     char mode[24],text[24];int64_t argc=uos_argc();if (argc==1) { return basics(); }
     if (uos_arg(1,mode,sizeof(mode))<0) { return 17; }
+    if (same(mode,"pressure")) { return pressure_check(); }
     if (same(mode,"parent")) {
         const char *modes[]={"leak","exec","execbad","uaf","nx","guard","upper","timeout"};const int codes[]={23,37,0,125,125,125,125,124};
         for (unsigned round=0;round<3;++round) { for (unsigned i=0;i<8;++i) {

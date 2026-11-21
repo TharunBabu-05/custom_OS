@@ -46,6 +46,8 @@ void memory_print_info(void)
     console_write("\nmanaged_pages="); console_u64(s.managed_pages);
     console_write(" free_pages="); console_u64(s.free_pages);
     console_write(" allocated_pages="); console_u64(s.allocated_pages);
+    console_write("\npeak_allocated_pages=");console_u64(s.peak_allocated_pages);
+    console_write(" exhausted_allocations=");console_u64(s.exhausted_allocations);
     console_write("\nmanaged_bytes="); console_u64(s.managed_pages*PAGE_SIZE);
     console_write(" unavailable_bytes="); console_u64(boot_map.ram_bytes-s.managed_pages*PAGE_SIZE);
     console_write(" (reservations, alignment, address limit)\n");

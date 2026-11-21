@@ -1,5 +1,9 @@
 # Exceptions, GICv2 and periodic timer interrupts
 
+This page records the original periodic timer phase. The current
+`irqtest` command and SPI dispatcher are documented in
+[Peripheral interrupts](peripheral-irqs.md).
+
 The [latest Pi capture](../proofs/pi5-timer-irq-usb-2026-11-12.txt) passes
 synchronous/asynchronous exception return, GICv2/PPI30, advancing 100 Hz IRQ
 counts, timer start/stop, MMU protection, heap/pages, RAMFS edits and USB/FAT

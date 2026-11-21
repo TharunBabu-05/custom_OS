@@ -20,6 +20,8 @@ enum block_result block_write(const struct block_device *device,uint64_t lba,con
 enum block_result block_flush(const struct block_device *device);
 const char *block_error(enum block_result result);
 bool platform_storage_attach(struct block_device *device);
+/* Foreground only, after any writable mount has been flushed. */
+enum block_result platform_storage_quiesce(void);
 void platform_storage_info(void);
 void storage_setup(const char *board,uintptr_t dtb);
 bool storage_mount_boot(void);

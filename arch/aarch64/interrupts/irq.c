@@ -1,5 +1,7 @@
 #include "irq.h"
 #include "gic.h"
+#include "irq_probe.h"
+#include "irq_work.h"
 #include "tick.h"
 #include "mmu.h"
 #include "console.h"
@@ -11,6 +13,10 @@ static uintptr_t dtb;
 static bool running,failed;
 static uint64_t unexpected,spurious,early;
 static unsigned last_unexpected;
+static struct irq_work peripheral;
+static volatile bool deferred_ready;
+static struct irq_probe probe;
+static unsigned probe_events;
 extern uint64_t irq_test_registers(uint64_t duration_ticks);
 uint64_t irq_save(void)
 { uint64_t flags;__asm__ volatile("mrs %0, daif; msr daifset, #2; isb" : "=r"(flags) :: "memory");return flags; }
@@ -78,12 +84,94 @@ bool irq_dispatch(void)
              * deadlines once rather than generating an interrupt burst. */
             timer_control(2);enum tick_result r=tick_advance(&tick,timer_ticks());
             if (r==TICK_OK || r==TICK_EARLY) { if (r==TICK_EARLY) { ++early; }deadline(tick.deadline);timer_control(1);good=true; }
-        }else { ++unexpected;last_unexpected=id;(void)gic_mask_unexpected(&controller,id); }
+        } else {
+            enum irq_work_result result=irq_work_receive(&peripheral,id);
+            if (result==IRQ_WORK_QUEUED) {
+                deferred_ready=true;good=true;
+            } else if (result==IRQ_WORK_MASK) {
+                good=gic_mask_line(&controller,id)==GIC_OK;
+            } else {
+                ++unexpected;last_unexpected=id;
+                good=gic_mask_unexpected(&controller,id)==GIC_OK;
+            }
+        }
         if (!good) { timer_control(0);running=false;failed=true; }
         __asm__ volatile("dsb sy" ::: "memory");if (gic_eoi(&controller,raw)!=GIC_OK) { failed=true; }
         if (failed) { break; }
     }
     irq_fatal_stop();failed=true;return false;
+}
+void irq_run_deferred(void)
+{
+    if (!deferred_ready) { return; }
+    void *context=0;
+    uint64_t flags=irq_save();
+    if (flags&0x80) { return; }
+    irq_deferred_fn fn=irq_work_take(&peripheral,&context);
+    if (!fn) { deferred_ready=false; }
+    irq_restore(flags);
+    if (fn) { fn(context); }
+}
+static void probe_done(void *context)
+{
+    (void)context;
+    ++probe_events;
+}
+static void peripheral_test(void)
+{
+    if (!irq_probe_discover(board,(const void *)dtb,0x200000,&probe)) {
+        console_write("Peripheral IRQ test unavailable for this device tree.\n");return;
+    }
+    uint64_t flags=irq_save();
+    if (!running || failed || (flags&0x80)) {
+        irq_restore(flags);console_write("Peripheral IRQ test requires a running timer.\n");return;
+    }
+    if (!irq_probe_available(&probe)) {
+        irq_restore(flags);console_write("Peripheral IRQ test refused: source busy.\n");return;
+    }
+    struct gic_spi_route route;
+    enum gic_result status=gic_spi_claim(&controller,probe.intid,&route);
+    if (status!=GIC_OK) {
+        if (!controller.ready) { irq_fatal_stop();failed=true; }
+        else { irq_restore(flags); }
+        console_write("Peripheral SPI claim refused: ");console_write(gic_error(status));console_write("\n");return;
+    }
+    if (!irq_work_bind(&peripheral,probe.intid,irq_probe_ack,probe_done,&probe)) {
+        if (gic_spi_release(&controller,&route)!=GIC_OK) { irq_fatal_stop();failed=true; }
+        else { irq_restore(flags); }
+        console_write("Peripheral IRQ test refused: registry unavailable.\n");return;
+    }
+    uint64_t before=tick.delivered,received=peripheral.received;
+    probe_events=0;
+    status=gic_spi_enable(&controller,&route);
+    if (status==GIC_OK) { irq_probe_arm(&probe); }
+    irq_restore(flags);
+    if (status==GIC_OK) {
+        uint64_t start=timer_ticks(),limit=timer_frequency()*4;
+        while (timer_ticks()-start<limit) {
+            irq_run_deferred();
+            if (probe_events && irq_timer_delivered()!=before) { break; }
+        }
+    }
+    (void)irq_save();
+    if (status==GIC_OK) { irq_probe_restore(&probe); }
+    bool clean=gic_spi_release(&controller,&route)==GIC_OK;
+    if (!clean) { irq_fatal_stop();failed=true; }
+    if (!failed) { irq_restore(flags); }
+    for (unsigned i=0;i<IRQ_WORK_PENDING_MAX;++i) { irq_run_deferred(); }
+    (void)irq_save();
+    if (!irq_work_unbind(&peripheral,probe.intid)) { clean=false; }
+    uint64_t ticks=tick.delivered-before,handled=peripheral.received-received;
+    clean=clean && !failed;
+    if (!failed) { irq_restore(flags); }
+
+    console_write("Peripheral IRQ source=");
+    console_write(probe.kind==IRQ_PROBE_BCM_TIMER ? "BCM system timer compare 3" : "PL031 alarm");
+    console_write(" intid=");console_u64(probe.intid);console_write(" received=");console_u64(handled);
+    console_write(" deferred=");console_u64(probe_events);console_write(" timer_delta=");console_u64(ticks);console_write("\n");
+    console_write(status==GIC_OK && clean && handled==1 && probe_events==1 && ticks ?
+        "PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.\n" :
+        "FAIL: peripheral IRQ test could not complete.\n");
 }
 static void info(void)
 {
@@ -92,7 +180,12 @@ static void info(void)
     console_write("\nPIDR2=");console_hex(g.pidr2);console_write(" TYPER=");console_hex(g.typer);console_write(" CPU_targets=");console_hex(g.cpu_targets);console_write(" PMR=");console_hex(g.priority_mask);
     console_write(" distributor=");console_hex(g.description.distributor);console_write(" cpu_interface=");console_hex(g.description.cpu);console_write("\nTimer: ");console_write(active ? "running" : "stopped");console_write(" CPU_IRQ=");console_write(flags&0x80 ? "masked" : "unmasked");
     console_write(" INTID=");console_u64(g.description.timer_irq);console_write(" CNTP_CTL=");console_hex(ctl);console_write("\nfrequency=");console_u64(t.frequency);console_write(" period_ticks=");console_u64(t.period);console_write(" delivered=");console_u64(t.delivered);console_write(" elapsed_periods=");console_u64(t.periods);console_write(" skipped=");console_u64(t.late);
-    console_write("\nacknowledgements=");console_u64(g.acknowledgements);console_write(" completions=");console_u64(g.completions);console_write(" special/spurious=");console_u64(empty);console_write(" unexpected=");console_u64(bad);console_write(" last_unexpected=");console_u64(last_unexpected);console_write(" early=");console_u64(e);console_write("\nSingle CPU; timer ISR does not schedule tasks; no peripheral IRQ drivers yet.\n");
+    console_write("\nacknowledgements=");console_u64(g.acknowledgements);console_write(" completions=");console_u64(g.completions);console_write(" special/spurious=");console_u64(empty);console_write(" unexpected=");console_u64(bad);console_write(" last_unexpected=");console_u64(last_unexpected);console_write(" early=");console_u64(e);
+    flags=irq_save();
+    uint64_t received=peripheral.received,serviced=peripheral.serviced,overflow=peripheral.overflow,stuck=peripheral.stuck;
+    irq_restore(flags);
+    console_write("\nperipheral_received=");console_u64(received);console_write(" deferred=");console_u64(serviced);
+    console_write(" overflow=");console_u64(overflow);console_write(" stuck=");console_u64(stuck);console_write("\n");
 }
 static void test(void)
 {
@@ -109,5 +202,6 @@ bool irq_command(const char *line)
     if (same(line,"timerstart")) { (void)start();return true; }
     if (same(line,"timerstop")) { stop();console_write("Periodic timer stopped; CPU IRQ masked.\n");return true; }
     if (same(line,"irqinfo") || same(line,"timerinfo")) { info();return true; }
+    if (same(line,"irqtest")) { peripheral_test();return true; }
     if (same(line,"timertest")) { test();return true; }return false;
 }

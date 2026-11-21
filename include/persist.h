@@ -31,6 +31,21 @@ struct persist_volume {
     unsigned char live[DATA_V4_PAYLOAD_BYTES];
     unsigned char staged_directory[DATA_V4_DIRECTORY_BYTES],staged_file[DATA_V4_FILE_BYTES];
 };
+enum persist_bank_state {
+    PERSIST_BANK_EMPTY, PERSIST_BANK_BAD_HEADER, PERSIST_BANK_BAD_PAYLOAD,
+    PERSIST_BANK_UNREADABLE, PERSIST_BANK_VALID
+};
+struct persist_bank_report {
+    enum persist_bank_state state;
+    enum block_result io;
+    uint64_t lba,generation;
+    bool matches_mounted;
+};
+struct persist_report {
+    unsigned mounted_bank;
+    uint64_t mounted_generation;
+    struct persist_bank_report banks[2];
+};
 /* Original bounded snapshot format in its own MBR type-DA partition. No
  * format/resize/raw-write command; only preformatted, verified volumes mount. */
 enum fs_result persist_mount(struct persist_volume *,const struct block_device *);
@@ -44,11 +59,13 @@ enum fs_result persist_rename(struct persist_volume *,const char *source,const c
 enum fs_result persist_publish(struct persist_volume *,const char *source,const char *target);
 enum fs_result persist_mkdir(struct persist_volume *,const char *path);
 enum fs_result persist_sync(struct persist_volume *);
+enum fs_result persist_check(struct persist_volume *,struct persist_report *);
 typedef bool (*persist_emit)(const void *,size_t,void *);
 typedef bool (*persist_input)(void *,size_t,void *);
 /* A normalized bank-zero header + full payload; no disk writes on export.
  * Restore accepts only an empty, healthy volume of the same format and
  * validates every byte before one existing dual-bank commit. */
 enum fs_result persist_export(struct persist_volume *,persist_emit,void *);
+enum fs_result persist_export_previous(struct persist_volume *,persist_emit,void *);
 enum fs_result persist_restore(struct persist_volume *,size_t,persist_input,void *);
 #endif

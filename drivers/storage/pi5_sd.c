@@ -27,6 +27,11 @@ bool platform_storage_attach(struct block_device *device)
     struct sdhci_io io={.read=read_reg,.write=write_reg,.ticks=ticks,.hz=timer_frequency()};
     return sdhci_attach(&host,&io,device);
 }
+enum block_result platform_storage_quiesce(void)
+{
+    /* The read-only SD firmware handoff uses synchronous PIO. */
+    return xhci_storage_quiesce();
+}
 void platform_storage_info(void)
 {
     if (usb_backend) { console_write("Storage backend: USB2 xHCI / SCSI BOT.\n"); usb_storage_info(); return; }

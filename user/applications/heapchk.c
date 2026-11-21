@@ -41,6 +41,38 @@ static int basic(void)
     if (!uos_malloc(&a,123) || !uos_malloc(&a,7000) || !uos_allocator_destroy(&a) || uos_memory_info(&info) || info.live_pages) { return 19; }
     uos_puts("PASS: user malloc/calloc/realloc/free alignment, shared small pages, zeroed growth, failure retention, invalid pointers, record/quota limits and complete cleanup.\n");return 0;
 }
+static int resize_check(void)
+{
+    int64_t address=uos_alloc_pages(10);
+    if (address<0) { return 32; }
+    unsigned char *base=(void *)(uintptr_t)address;
+    fill(base,40000,0x51);
+    int64_t neighbor=uos_alloc_pages(1);
+    if (neighbor<0 || uos_resize_pages(base,15)!=UOS_ENOMEM ||
+        uos_resize_pages(base+4096,2)!=UOS_ERROR || uos_resize_pages(base,0)!=UOS_ERROR ||
+        uos_free_pages((void *)(uintptr_t)neighbor) || !filled(base,40000,0x51)) { return 33; }
+    if (uos_resize_pages(base,15) || !filled(base,40000,0x51) || !zeroed(base+40960,20480)) { return 34; }
+    if (uos_resize_pages(base,2) || uos_write(base+8192,1)!=UOS_EFAULT || !filled(base,8192,0x51)) { return 35; }
+    neighbor=uos_alloc_pages(14);
+    if (neighbor!=address+8192 || !zeroed((void *)(uintptr_t)neighbor,14*4096) ||
+        uos_free_pages((void *)(uintptr_t)neighbor) || uos_free_pages(base)) { return 36; }
+
+    struct uos_allocator heap={0};
+    struct uos_memory_info info;
+    if (!uos_allocator_init(&heap)) { return 38; }
+    base=uos_malloc(&heap,40000);
+    if (!base) { return 39; }
+    fill(base,40000,0x62);
+    if (uos_realloc(&heap,base,60000)!=base || !filled(base,40000,0x62) ||
+        !zeroed(base+40000,20000) || uos_memory_info(&info) || info.live_pages!=15) { return 40; }
+    if (uos_realloc(&heap,base,5000)!=base || !filled(base,5000,0x62) ||
+        uos_memory_info(&info) || info.live_pages!=2 || uos_write(base+8192,1)!=UOS_EFAULT) { return 41; }
+    if (uos_realloc(&heap,base,7000)!=base || !zeroed(base+5000,2000)) { return 42; }
+    if (!uos_free(&heap,base) || !uos_allocator_destroy(&heap) ||
+        uos_memory_info(&info) || info.live_pages) { return 43; }
+    uos_puts("PASS: in-place page resize and realloc, preserved contents, zeroed growth and reclaimed tail pages.\n");
+    return 0;
+}
 int app_main(void)
 {
     if (uos_argc()==1) { return basic(); }char mode[24],digits[24];if (uos_arg(1,mode,sizeof(mode))<0) { return 20; }
@@ -52,6 +84,7 @@ int app_main(void)
         } }
         uos_puts("PASS: byte-allocator leaks reclaimed on exit/exec/fault/timeout; failed exec preserves context/data and child slots remain reusable.\n");return 0;
     }
+    if (same(mode,"resize")) { return resize_check(); }
     struct uos_allocator heap={0};if (!uos_allocator_init(&heap)) { return 22; }
     if (same(mode,"after")) {
         struct uos_memory_info info;

@@ -53,7 +53,10 @@ static void packing(void)
 static void failures(void)
 {
     unsigned char *p=kmalloc(17);assert(p);memset(p,0x5a,32);unsigned oldlive=live;budget=0;
+    struct heap_stats initial=heap_get_stats();
     assert(!krealloc(p,4096) && heap_usable_size(p)==32 && live==oldlive);for (unsigned i=0;i<32;++i) { assert(p[i]==0x5a); }
+    assert(heap_get_stats().backing_failures==initial.backing_failures+1 &&
+        heap_get_stats().page_limit_failures==initial.page_limit_failures);
     assert(krealloc(p,1)==p && heap_usable_size(p)==32 && !krealloc(p,4097));budget=-1;
     unsigned char *grown=krealloc(p,257);assert(grown && heap_usable_size(grown)==512 && !heap_usable_size(p));
     for (unsigned i=0;i<512;++i) { assert(grown[i]==(i<32 ? 0x5a : 0)); }assert(!krealloc(grown,0));empty();
@@ -61,6 +64,7 @@ static void failures(void)
     void *full[HEAP_MAX_PAGES];for (unsigned i=0;i<HEAP_MAX_PAGES;++i) { full[i]=kmalloc(4096);assert(full[i]); }
     unsigned before=acquires;struct heap_stats snapshot=heap_get_stats();assert(!kmalloc(4096) && !kmalloc(1) && acquires==before && heap_check());
     struct heap_stats after=heap_get_stats();assert(after.objects==snapshot.objects && after.pages==snapshot.pages && after.capacity_bytes==snapshot.capacity_bytes);
+    assert(after.page_limit_failures==snapshot.page_limit_failures+2 && after.backing_failures==snapshot.backing_failures);
     for (unsigned i=0;i<HEAP_MAX_PAGES;++i) { assert(kfree(full[i])); }empty();
     budget=0;assert(!kmalloc(1) && !live && heap_check());budget=-1;
     puts("PASS: realloc/calloc data preservation and fresh zeroed capacity, failed growth atomicity, shrink, descriptor/PMM exhaustion, overflow and successful recovery without leaked pages");

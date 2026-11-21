@@ -100,9 +100,10 @@ Reflashing replaces `/data` and is not this persistence test.
 
 - Backspace/Delete removes one character; Ctrl+U clears the line.
 - Ctrl+D on an empty line exits the shell. On a nonempty line it is ignored.
-- Ctrl+C cancels the entire terminal application (code 130), including a user
-  program that is spinning instead of reading. Cancellation is serviced at
-  timer/idle scheduling points; synchronous kernel I/O can delay it.
+- Ctrl+C at the boot-shell or `appshell` prompt clears the line. With a
+  foreground child running it cancels that child with code 130. For a
+  standalone `appterm` program it cancels the terminal application.
+  Synchronous kernel I/O can delay cancellation.
 - Input is printable ASCII. There is no arrow-key/history/ANSI editor or hidden
   password input in this shell. Input is echoed; do not use it for credentials.
 - Lines contain at most 127 characters. Overflow rejects the whole line on
@@ -111,13 +112,19 @@ Reflashing replaces `/data` and is not this persistence test.
 - Only one foreground terminal process owns input. The kernel monitor is
   suspended during the session. Noninteractive `apprun`/`appexec` programs
   cannot consume serial input.
-- `appshell` has a **300-second total session limit**. It is a development
-  limit, including input waits. Reaching it returns code 124 and the monitor.
-  You may start another session. Ordinary application batches still have their
-  original two-second budget.
+- The boot shell and `appshell` stay open until exit. Child processes and
+  pipelines retain their per-launch deadlines. If `exec` replaces an
+  open-ended shell, the replacement gets a 30-second deadline. Subsequent
+  replacements inherit that deadline. Ordinary application batches have a
+  two-second budget.
 - `appterm <1..300 seconds> <ELF> [arguments]` assigns the terminal to another
   single application, or runs a shell with a chosen deadline. For example:
   `appterm 60 /boot/SHELL.ELF`. All launch prerequisites still apply.
+
+The `scripts/test-shell-qemu.ps1 -LongShell` regression checks prompt
+interruption, background-job retention and foreground cancellation on both
+CPU profiles. It advances the virtual clock past the old deadline and checks
+that `appterm` and an executable that replaces the shell still time out.
 
 UART remains polled without flow control. Input is serviced in bounded batches
 on timer/idle scheduling points. A 128-byte kernel queue preserves input while
@@ -152,7 +159,8 @@ READLINE checks the entire output capacity for writable private mappings before
 accepting a request. It copies a NUL-terminated line only after successful
 completion. Overflow/EOF errors leave the user's buffer untouched. Error codes
 are -1 for generic failure, -2 for invalid memory, -3 for EOF, and -4 for no
-terminal assignment. EOF is a result of the call; Ctrl+C ends the process.
+terminal assignment. Ctrl+C at the open-ended shell prompt completes the
+call with an empty line. EOF is a distinct result.
 
 INPUT_WAIT is a separate scheduler state. No blocking UART loop runs inside an
 exception handler. The all-blocked path restores the kernel root, leaves the

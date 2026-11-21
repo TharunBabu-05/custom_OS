@@ -70,14 +70,14 @@ static enum fs_result target_parent(const struct persist_volume *v,const char *p
     if (node>=0 && !is_dir(v,v->live+(unsigned)node*64)) { return FS_NOT_DIR; }
     *parent=(unsigned)(node+1);return FS_OK;
 }
-static bool valid_payload(const struct persist_volume *v,const unsigned char *p)
+static bool valid_directory(const struct persist_volume *v,const unsigned char *p)
 {
     for (unsigned i=0;i<v->files;++i) {
-        const unsigned char *e=p+i*64,*data=p+v->directory_bytes+i*v->file_bytes;
-        if (!e[0]) { if (!zeros(e,64) || !zeros(data,v->file_bytes)) { return false; }continue; }
+        const unsigned char *e=p+i*64;
+        if (!e[0]) { if (!zeros(e,64)) { return false; }continue; }
         if (!name_ok((const char *)e) || !zeros(e+(v->version>=3 ? 44 : 36),v->version>=3 ? 20 : 28)) { return false; }
         unsigned n=0;while (e[n]) { ++n; }if (!zeros(e+n,32-n)) { return false; }
-        uint32_t length=u32(e+32);if (length>v->file_bytes || !zeros(data+length,v->file_bytes-length)) { return false; }
+        uint32_t length=u32(e+32);if (length>v->file_bytes) { return false; }
         if (v->version>=3 && ((u32(e+36)!=1 && u32(e+36)!=2) || (is_dir(v,e) && length) || parent_id(v,e)>v->files)) { return false; }
         if (find(v,p,(const char *)e,parent_id(v,e))!=(int)i) { return false; }
     }
@@ -95,16 +95,90 @@ static bool valid_payload(const struct persist_volume *v,const unsigned char *p)
         if (path_bytes>RAMFS_PATH_MAX-6) { return false; }
     } }return true;
 }
+static bool valid_payload(const struct persist_volume *v,const unsigned char *p)
+{
+    if (!valid_directory(v,p)) { return false; }
+    for (unsigned i=0;i<v->files;++i) {
+        unsigned length=u32(p+i*64+32);
+        if (!zeros(p+v->directory_bytes+i*v->file_bytes+length,v->file_bytes-length)) { return false; }
+    }
+    return true;
+}
 static bool valid_header(const struct persist_volume *v,const unsigned char *h,unsigned bank)
 {
     return equal(h,"OUROSBK",7) && h[7]=='0'+v->version && u32(h+8)==v->version && u32(h+12)==bank && u64(h+16) && u32(h+24)==v->payload_bytes &&
         !u32(h+28) && zeros(h+96,416) && checksum(h,64,h+64);
 }
+static bool scan_read(const struct persist_volume *v,struct persist_bank_report *out,uint64_t lba,unsigned char *data)
+{
+    enum block_result io=block_read(&v->device,lba,data);
+    if (io==BLOCK_OK) { return true; }
+    out->state=PERSIST_BANK_UNREADABLE;
+    out->io=io;
+    out->lba=lba;
+    return false;
+}
+static uint64_t bank_start(const struct persist_volume *v,unsigned bank)
+{ return (uint64_t)v->start+1+bank*v->bank_sectors; }
+
+/* Verify a bank one sector at a time, leaving the live snapshot available. */
+static struct persist_bank_report scan_bank(const struct persist_volume *v,unsigned bank,unsigned char *header)
+{
+    struct persist_bank_report out={0};
+    uint64_t base=bank_start(v,bank);
+    if (!scan_read(v,&out,base,header) || zeros(header,512)) { return out; }
+    out.state=PERSIST_BANK_BAD_HEADER;
+    if (!valid_header(v,header,bank)) { return out; }
+    out.generation=u64(header+16);
+    out.state=PERSIST_BANK_BAD_PAYLOAD;
+
+    unsigned char directory[DATA_V4_DIRECTORY_BYTES],sector[512],digest[32];
+    for (unsigned i=0;i<v->directory_bytes;i+=512) {
+        if (!scan_read(v,&out,base+1+i/512,directory+i)) { return out; }
+    }
+    if (!valid_directory(v,directory)) { return out; }
+    bool matches=bank==v->bank && out.generation==v->generation &&
+        equal(directory,v->live,v->directory_bytes);
+    struct sha256 sum;
+    sha256_init(&sum);
+    sha256_update(&sum,directory,v->directory_bytes);
+    for (unsigned slot=0;slot<v->files;++slot) {
+        unsigned length=u32(directory+slot*64+32);
+        unsigned file=v->directory_bytes+slot*v->file_bytes;
+        for (unsigned offset=0;offset<v->file_bytes;offset+=512) {
+            unsigned at=file+offset;
+            if (!scan_read(v,&out,base+1+at/512,sector)) { return out; }
+            unsigned used=offset<length ? length-offset : 0;
+            if (used<512 && !zeros(sector+used,512-used)) { return out; }
+            sha256_update(&sum,sector,sizeof(sector));
+            matches=matches && equal(sector,v->live+at,sizeof(sector));
+        }
+    }
+    sha256_final(&sum,digest);
+    if (equal(digest,header+32,sizeof(digest))) {
+        out.state=PERSIST_BANK_VALID;
+        out.matches_mounted=matches;
+    }
+    return out;
+}
+enum fs_result persist_check(struct persist_volume *v,struct persist_report *report)
+{
+    if (!v || !report) { return FS_BAD_ARGUMENT; }
+    if (!v->ready) { return FS_NOT_READY; }
+    if (v->busy) { return FS_BUSY; }
+    unsigned char header[512];
+    v->busy=true;
+    report->mounted_bank=v->bank;
+    report->mounted_generation=v->generation;
+    for (unsigned bank=0;bank<2;++bank) { report->banks[bank]=scan_bank(v,bank,header); }
+    v->busy=false;
+    return FS_OK;
+}
 static enum block_result mount_read(struct persist_volume *v,uint64_t lba,unsigned char *data)
 { v->mount_lba=lba;v->mount_io=block_read(&v->device,lba,data);return v->mount_io; }
 static enum fs_result load(struct persist_volume *v,unsigned bank,uint64_t *generation,bool *valid,unsigned char digest[32],bool *overwritten)
 {
-    unsigned char h[512];uint64_t base=(uint64_t)v->start+1+bank*v->bank_sectors;*valid=false;*overwritten=false;
+    unsigned char h[512];uint64_t base=bank_start(v,bank);*valid=false;*overwritten=false;
     v->mount_phase=bank ? "bank1-header" : "bank0-header";
     if (mount_read(v,base,h)!=BLOCK_OK) { return FS_IO; }
     if (!valid_header(v,h,bank)) { return FS_OK; }
@@ -200,7 +274,7 @@ static void stage_hash(const struct persist_volume *v,unsigned char digest[32])
 }
 static enum fs_result commit(struct persist_volume *v)
 {
-    unsigned target=v->bank^1;uint64_t base=(uint64_t)v->start+1+target*v->bank_sectors;unsigned char h[512]={0},check[512];
+    unsigned target=v->bank^1;uint64_t base=bank_start(v,target);unsigned char h[512]={0},check[512];
     if (v->generation==UINT64_MAX) { stage_clear(v);return FS_UNSUPPORTED; }
     /* No write is addressed outside this partition's two fixed banks. */
     if (base<v->start+1ULL || base+v->bank_sectors>(uint64_t)v->start+v->sectors) { return FS_CORRUPT; }
@@ -314,6 +388,40 @@ enum fs_result persist_export(struct persist_volume *v,persist_emit emit,void *c
     bool ok=emit(h,sizeof(h),context);
     for (unsigned i=0;ok && i<v->payload_bytes;i+=512) { ok=emit(v->live+i,512,context); }
     v->busy=false;return ok ? FS_OK : FS_IO;
+}
+enum fs_result persist_export_previous(struct persist_volume *v,persist_emit emit,void *context)
+{
+    if (!v || !emit) { return FS_BAD_ARGUMENT; }
+    if (!v->ready) { return FS_NOT_READY; }
+    if (v->busy) { return FS_BUSY; }
+    v->busy=true;
+    unsigned bank=v->bank^1;
+    unsigned char header[512],sector[512],digest[32];
+    struct persist_bank_report report=scan_bank(v,bank,header);
+    enum fs_result result=FS_NOT_FOUND;
+    if (report.state==PERSIST_BANK_UNREADABLE) { result=FS_IO; }
+    else if (report.state==PERSIST_BANK_BAD_HEADER || report.state==PERSIST_BANK_BAD_PAYLOAD) { result=FS_CORRUPT; }
+    if (report.state!=PERSIST_BANK_VALID || report.generation>=v->generation) { goto done; }
+
+    /* The serial archive uses bank zero. Keep the verified payload digest
+     * and check it again while sending the second read of the payload. */
+    put32(header+12,0);
+    hash(header,64,header+64);
+    result=FS_IO;
+    if (!emit(header,sizeof(header),context)) { goto done; }
+    struct sha256 sum;
+    sha256_init(&sum);
+    uint64_t first=bank_start(v,bank)+1;
+    for (unsigned offset=0;offset<v->payload_bytes;offset+=512) {
+        if (block_read(&v->device,first+offset/512,sector)!=BLOCK_OK) { goto done; }
+        sha256_update(&sum,sector,sizeof(sector));
+        if (!emit(sector,sizeof(sector),context)) { goto done; }
+    }
+    sha256_final(&sum,digest);
+    result=equal(digest,header+32,sizeof(digest)) ? FS_OK : FS_CORRUPT;
+done:
+    v->busy=false;
+    return result;
 }
 enum fs_result persist_restore(struct persist_volume *v,size_t length,persist_input input,void *context)
 {

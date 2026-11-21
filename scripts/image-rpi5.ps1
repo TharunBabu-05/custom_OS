@@ -110,8 +110,9 @@ synchronous. Batch budget 2 seconds; image max32KiB, guarded stack16KiB.
 INTERACTIVE SHELL: after MMU/timer/storage setup, run appshell.
 EL0 prompt user:/$ supports help pwd cd ls cat echo write mkdir rm rmdir exit.
 write /tmp/note "hello from EL0" creates or replaces the whole file.
-Ctrl+C cancels; Ctrl+D at an empty line exits; Backspace/Delete and Ctrl+U edit.
-127-byte lines, 300-second maximum session. Kernel monitor returns on exit.
+Ctrl+C clears the prompt or cancels the foreground child. Ctrl+D at an empty
+line exits. Backspace/Delete and Ctrl+U edit. The shell stays open while idle.
+127-byte lines. Kernel monitor returns on exit.
 cp <source> <new-target> copies up to 16384 bytes; target mount limits apply.
 sha256 <file> checks up to 64 KiB; sync flushes mounted /data.
 run <ELF> [args] launches a private child and waits, with a 10-second limit.

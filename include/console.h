@@ -7,6 +7,7 @@ bool uart_init(uintptr_t base, uint32_t clock, uint32_t baud);
 bool uart_attach_firmware(uintptr_t base);
 void uart_putc(char c);
 int uart_getc(void);
+void uart_drain(void);
 /* Shared CR/LF filtering for monitor and hidden input. -1 means no char. */
 int console_getc(void);
 /* Printable ASCII, max 128 bytes. No echo; empty/invalid/overflow input is

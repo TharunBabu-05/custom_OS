@@ -12,13 +12,13 @@ applications, a serial shell, bounded persistent storage and foreground
 networking. The original monitor-only stage is behind us. No percentage of a
 complete OS is assigned: the remaining features have very different scopes.
 
-**Current development** covers verified Windows updates to an existing
-Pi header boot volume, including a preview and rollback. [Boot updates](boot-updates.md)
+**Current development** reports physical, kernel and per-process memory
+pressure. Private heap diagnostics distinguish quota, fragmentation and
+backing-page failures. [Memory pressure](memory-pressure.md)
 
-**Latest verified hardware path** covers automatic shell startup, the v4
-mount query, shell exit and 16 KiB file operations on the SanDisk drive.
-Running an installed larger ELF and cross-boot retention remain open on the Pi.
-[Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
+**Latest verified hardware path** covers private heap quota, fragmentation
+and reuse. Page, heap and open-file counts returned to their baselines.
+[Pi capture](../proofs/pi5-memory-pressure-2026-11-21.txt)
 
 Earlier hardware evidence covers [single background-job control](shell-jobs.md).
 The [new Pi excerpt](../proofs/pi5-shell-jobs-2026-11-15.txt) shows a responsive
@@ -52,15 +52,13 @@ Hardware evidence also includes:
 - [Networking](../proofs/pi5-dns-hostname-ping-clean-disconnect-2026-11-12.txt):
   WPA3, DHCP, ARP, DNS and Internet ICMP followed by controlled disconnect.
 
-MMU, timer/GIC interrupts, the scheduler, ELF loader, system calls and USB
-writes should no longer be listed as pending. Their current implementations
-are bounded foundations, not complete versions of every related service.
-Many are opt-in: boot still enters the monitor, and storage/MMU/IRQs/timer
-are explicitly initialized before applications run.
+The header image selects automatic startup, which mounts storage and sets up
+the MMU and timer before opening the shell. Manual monitor boot is available
+through the firmware command line. [Startup guide](startup.md)
 
-Open hardware evidence includes persistent readback after a genuine power
-cycle without reflashing, broader memory lifecycle/concurrency, atomic
-overwrite/appupdate, installed-shell persistence and serial backup export.
+Open hardware evidence includes interrupted-write recovery on physical
+media, broader memory lifecycle/concurrency, atomic overwrite/appupdate,
+and installed-shell persistence.
 The [publication excerpt](../proofs/pi5-file-publication-2026-11-15.txt) used
 a different destination spelling and does not establish replacement of the
 original file. These gaps are tracked without requiring old passing tests
@@ -76,7 +74,7 @@ to be repeated at every development step.
 | Physical memory | DT RAM/reservations, 4 KiB page bitmap allocator, allocation/free tests; Pi verified | Per-owner accounting, richer allocation policies and contiguous multi-page allocation |
 | Kernel heap | Zeroed 16..4096-byte buffers, calloc/realloc/free, page sharing/reclamation; Pi self-tests verified | Large allocations, IRQ/SMP synchronization and additional consumers |
 | Virtual memory/protection | Pi verified identity/private pages and single-process dynamic RW/NX allocation; guarded arena and checked copies | Broader Pi dynamic lifecycle/concurrent checks, larger VM, shared/file mappings and cache acceleration |
-| Interrupts | GICv2 PPI30, raw acknowledge/EOI, IRQ return and bounded unexpected-source quarantine; opt-in, Pi verified | General peripheral handlers/registration, IRQ-safe locks and SMP |
+| Interrupts | Pi-verified GICv2/PPI30, IRQ return and BCM compare channel 3 through the bounded SPI dispatcher and deferred callbacks. [Peripheral IRQs](peripheral-irqs.md) | Additional interrupt-driven drivers, IRQ-safe locks and SMP |
 | Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
 | Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/spawn/wait/pipes/process control; Pi bg/jobs/stop responsiveness and cleanup | Pi fg/bgio and broader lifecycle checks, multiple jobs/process trees, broader blocking I/O, SMP and indefinite services |
 | Processes/system calls | Three private EL0 slots; checked files/console/args/cwd/spawn/wait/streams/pipes/exec/env/profiles/pages; snapshot/poll/cancel 40..42 and mount query 43 | Broader lifecycle hardware checks, IPC/descriptor API, credentials/access control and background services |
@@ -124,7 +122,7 @@ different evidence; no individual self-test proves the entire OS.
 | Bluetooth | Optional; not implemented |
 | Audio | Optional; controller/codec/audio service not implemented |
 | I2C/SPI/PWM/general GPIO | Add for attached peripherals as needed; not general-purpose drivers yet |
-| RTC/watchdog/power/reboot | Add platform drivers and lifecycle handling; `halt` only stops the CPU; not a shutdown/reboot implementation |
+| RTC/watchdog/power/reboot | Monitor `reboot` flushes and quiesces storage, with a QEMU-verified PSCI path and Pi watchdog verification pending. RTC and power-off remain future work. [Safe reboot](safe-reboot.md) |
 | Thermal/fan management | Firmware may manage hardware during boot; no OurOS management policy/driver |
 | Camera, touch, other sensors | Optional board/device-specific work after core services |
 | NVMe/SATA/other storage | Optional extra transports, not covered by the USB BOT or SD handoff driver |
@@ -136,23 +134,5 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-1. **Current phase** delivers Windows boot-file updates with a preview,
-   verified backups and rollback. Automatic startup and `V4CHK` pass on Pi.
-2. **Persistent system services** need capacity beyond fixed snapshots,
-   richer VFS capabilities and recovery across power loss. Exercise an
-   installed larger ELF and a retained file hash after power-off on Pi.
-3. **Background network service:** asynchronous driver/event handling,
-   renewal/rekey/reconnect, then sockets, TCP, HTTP/TLS and time/certificate policy.
-4. **Userland and installation:** broader runtime/tools/scripts, package
-   metadata/dependencies/authenticity, transactional installation and rollback.
-5. **Local interaction:** USB HID and display/text console when hardware can be
-   tested; then UI, optional GPU/audio and additional peripheral drivers.
-6. **Platform lifecycle and expansion:** reboot/shutdown/watchdog/RTC/thermal
-   support, SMP and synchronization, hardening, performance and other boards.
-
-Previously passed hardware checks are accepted. The remaining evidence gaps
-do not require repeating all earlier tests before every new phase.
-
-This list is the roadmap, not a claim that all remaining subsystems fit into
-one phase. Each stage needs its own implementation and evidence before the
-next layer can rely on it.
+Phase 3 safe reboot passed native and QEMU tests. The Pi watchdog acceptance
+run is pending. [Implementation plan](implementation-plan.md)

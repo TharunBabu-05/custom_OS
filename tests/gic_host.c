@@ -4,6 +4,8 @@
 #include "host_assert.h"
 #include "gic.h"
 #include "dt_property.h"
+#include "irq_probe.h"
+#include "irq_work.h"
 static struct gic_state state;
 static struct { uint32_t d[1024],c[1024];unsigned calls,fail_at,writes;bool inaccessible,bad_pmr,disable_ignored;uint32_t eoi; } model;
 static bool read32(void *ctx,bool cpu,unsigned at,uint32_t *v)
@@ -19,10 +21,11 @@ static bool write32(void *ctx,bool cpu,unsigned at,uint32_t value)
         if (at==16) { model.eoi=value;return true; }
         if (at==4 && model.bad_pmr) { return true; }model.c[at/4]=value;return true;
     }
-    assert(at==0 || (at>=0x100 && at<0x200) || at==0x280 || at==0x41c || at==0xc04);
+    assert(at==0 || (at>=0x100 && at<0x200) || (at>=0x280 && at<0x300) ||
+        at==0x41c || at==0x428 || at==0x828 || at==0xc04);
     if (at>=0x100 && at<0x180) { if (!model.inaccessible) { model.d[at/4]|=value; }return true; }
     if (at>=0x180 && at<0x200) { if (!model.disable_ignored) { model.d[(at-0x80)/4]&=~value; }return true; }
-    if (at==0x280) { model.d[0x200/4]&=~value;return true; }
+    if (at>=0x280 && at<0x300) { model.d[(at-0x80)/4]&=~value;return true; }
     if (at==0x41c && model.inaccessible) { return true; }model.d[at/4]=value;return true;
 }
 static const struct gic_io io={&model,read32,write32};
@@ -70,6 +73,95 @@ static void failures(void)
     struct gic_description bad=description;bad.timer_irq=29;seed();assert(gic_initialize(&state,&bad,&io)==GIC_ARGUMENT && !model.calls && !state.attempted);
     puts("PASS: every GIC init I/O failure and operation failures stop readiness, timer cleanup remains possible, unsupported architecture/targets/active timer and inaccessible NS priority/enable/PMR readback refused before IRQ unmask");
 }
+static void spi_routes(void)
+{
+    seed();assert(gic_initialize(&state,&description,&io)==GIC_OK);
+    struct gic_spi_route route;
+    unsigned before=model.writes;
+    assert(gic_spi_claim(&state,30,&route)==GIC_ARGUMENT && model.writes==before);
+    assert(gic_spi_claim(&state,40,&route)==GIC_STATE && model.writes==before); /* Already enabled */
+    model.d[0x104/4]=0x200;
+    model.d[0x204/4]=0x100;
+    assert(gic_spi_claim(&state,40,&route)==GIC_STATE && model.writes==before);
+    model.d[0x204/4]=0;
+    model.d[0x304/4]=0x100;
+    assert(gic_spi_claim(&state,40,&route)==GIC_STATE && model.writes==before);
+    model.d[0x304/4]=0;
+    model.d[0xc08/4]=0x20000; /* Edge-select bit for ID 40 */
+    assert(gic_spi_claim(&state,40,&route)==GIC_STATE && model.writes==before);
+    model.d[0xc08/4]=0;
+    model.d[0x428/4]=0x72463250;
+    model.d[0x828/4]=0x01020408;
+    unsigned first=model.calls;
+    assert(gic_spi_claim(&state,40,&route)==GIC_OK && route.priority==0x50 && route.target==8);
+    unsigned steps=model.calls-first;
+    assert(model.d[0x428/4]==0x724632a0 && model.d[0x828/4]==0x01020401 && model.d[0x104/4]==0x200);
+    assert(gic_spi_enable(&state,&route)==GIC_OK && model.d[0x104/4]==0x300);
+    uint32_t raw;model.c[12/4]=40;
+    assert(gic_ack(&state,&raw)==GIC_OK && raw==40);
+    assert(gic_mask_line(&state,40)==GIC_OK && model.d[0x104/4]==0x200 && !state.masked_unexpected);
+    assert(gic_eoi(&state,raw)==GIC_OK && model.eoi==40);
+    assert(gic_spi_release(&state,&route)==GIC_OK && model.d[0x428/4]==0x72463250 && model.d[0x828/4]==0x01020408);
+    for (unsigned step=1;step<=steps;++step) {
+        seed();assert(gic_initialize(&state,&description,&io)==GIC_OK);
+        model.d[0x104/4]=0x200;
+        model.d[0xc08/4]=0;
+        model.d[0x428/4]=0x72463250;model.d[0x828/4]=0x01020408;
+        model.fail_at=model.calls+step;
+        assert(gic_spi_claim(&state,40,&route)==GIC_IO && state.ready);
+        assert(model.d[0x428/4]==0x72463250 && model.d[0x828/4]==0x01020408 && model.d[0x104/4]==0x200);
+    }
+    model.c[12/4]=41;model.fail_at=0;
+    assert(gic_ack(&state,&raw)==GIC_OK && raw==41);
+    model.disable_ignored=true;
+    assert(gic_mask_unexpected(&state,41)==GIC_STATE && !state.ready);
+    assert(gic_eoi(&state,raw)==GIC_OK && model.eoi==raw);
+    seed();model.d[4/4]=8;model.d[0x800/4]=0;
+    model.d[0x104/4]=0x200;model.d[0xc08/4]=0;model.d[0x428/4]=0x72463250;
+    assert(gic_initialize(&state,&description,&io)==GIC_OK && !state.cpu_targets);
+    before=model.writes;
+    assert(gic_spi_claim(&state,40,&route)==GIC_OK && model.writes==before+1 && !model.d[0x828/4]);
+    assert(gic_spi_enable(&state,&route)==GIC_OK && gic_spi_release(&state,&route)==GIC_OK);
+    assert(model.d[0x428/4]==0x72463250 && !model.d[0x828/4] && model.d[0x104/4]==0x200);
+    puts("PASS: SPI ownership, programmable and fixed routing, adjacent fields, rollback, quarantine and raw EOI on mask failure.");
+}
+struct event_probe { unsigned acks,calls;bool stuck; };
+static bool event_ack(void *context)
+{ struct event_probe *probe=context;++probe->acks;return !probe->stuck; }
+static void event_deferred(void *context)
+{ struct event_probe *probe=context;++probe->calls; }
+static void deferred_work(void)
+{
+    struct irq_work work={0};
+    struct event_probe normal={0},broken={.stuck=true},other={0};
+    assert(!irq_work_bind(&work,30,event_ack,event_deferred,&normal));
+    assert(irq_work_bind(&work,34,event_ack,event_deferred,&normal));
+    assert(!irq_work_bind(&work,34,event_ack,event_deferred,&normal));
+    assert(irq_work_bind(&work,35,event_ack,event_deferred,&broken));
+    assert(irq_work_bind(&work,36,event_ack,event_deferred,&other));
+    assert(irq_work_bind(&work,37,event_ack,event_deferred,&normal));
+    assert(!irq_work_bind(&work,38,event_ack,event_deferred,&normal));
+    assert(irq_work_receive(&work,38)==IRQ_WORK_UNBOUND);
+    assert(irq_work_receive(&work,35)==IRQ_WORK_MASK && irq_work_receive(&work,35)==IRQ_WORK_MASK && broken.acks==1);
+    for (unsigned i=0;i<IRQ_WORK_PENDING_MAX;++i) { assert(irq_work_receive(&work,34)==IRQ_WORK_QUEUED); }
+    assert(irq_work_receive(&work,34)==IRQ_WORK_MASK && irq_work_receive(&work,34)==IRQ_WORK_MASK);
+    assert(normal.acks==IRQ_WORK_PENDING_MAX+1 && !normal.calls && !irq_work_unbind(&work,34));
+    for (unsigned i=0;i<IRQ_WORK_PENDING_MAX;++i) {
+        void *context=0;irq_deferred_fn fn=irq_work_take(&work,&context);
+        assert(fn==event_deferred && context==&normal);fn(context);
+    }
+    void *unused=0;assert(!irq_work_take(&work,&unused));
+    assert(work.overflow==1 && work.stuck==1 && work.serviced==IRQ_WORK_PENDING_MAX);
+    assert(irq_work_unbind(&work,34) && irq_work_unbind(&work,35));
+    assert(irq_work_bind(&work,34,event_ack,event_deferred,&normal) && irq_work_receive(&work,34)==IRQ_WORK_QUEUED);
+    assert(irq_work_receive(&work,34)==IRQ_WORK_QUEUED && irq_work_receive(&work,36)==IRQ_WORK_QUEUED);
+    assert(irq_work_take(&work,&unused)==event_deferred && unused==&other);
+    assert(irq_work_take(&work,&unused)==event_deferred && unused==&normal);
+    assert(irq_work_receive(&work,36)==IRQ_WORK_QUEUED);
+    assert(irq_work_take(&work,&unused)==event_deferred && unused==&other);
+    assert(irq_work_take(&work,&unused)==event_deferred && unused==&normal);
+    puts("PASS: bounded IRQ registrations, round-robin dispatch, unowned and stuck sources, overflow quarantine and safe reuse.");
+}
 static unsigned char *load(const char *path,size_t *length)
 {
     FILE *file=fopen(path,"rb");assert(file && !fseek(file,0,SEEK_END));long size=ftell(file);assert(size>0 && size<0x200000 && !fseek(file,0,SEEK_SET));unsigned char *data=malloc((size_t)size);assert(data && fread(data,1,(size_t)size,file)==(size_t)size);fclose(file);*length=(size_t)size;return data;
@@ -78,6 +170,13 @@ static void dt(const char *path,bool pi)
 {
     size_t n;unsigned char *data=load(path,&n);struct gic_description d;const char *board=pi ? "rpi5-header" : "qemu_virt";
     assert(gic_discover(board,data,n,&d) && d.timer_irq==30 && d.distributor==(pi ? 0x107fff9000ULL : 0x08000000) && d.cpu==(pi ? 0x107fffa000ULL : 0x08010000));
+    struct irq_probe probe;
+    assert(irq_probe_discover(board,data,n,&probe) && probe.intid==(pi ? 99 : 34) &&
+        probe.base==(pi ? 0x107c003000ULL : 0x09010000));
+    const unsigned char *irq;uint32_t irq_bytes;
+    assert(dt_property(data,n,pi ? "/soc@107c000000/timer@7c003000" : "/pl031@9010000","interrupts",&irq,&irq_bytes));
+    size_t irq_flags=(size_t)(irq-data)+irq_bytes-1;
+    data[irq_flags]^=1;assert(!irq_probe_discover(board,data,n,&probe));data[irq_flags]^=1;
     struct gic_description sentinel;memset(&sentinel,0xa5,sizeof(sentinel));
     for (size_t bytes=0;bytes<n;++bytes) { d=sentinel;assert(!gic_discover(board,data,bytes,&d) && !memcmp(&d,&sentinel,sizeof(d))); }
     const unsigned char *p;uint32_t bytes;assert(dt_property(data,n,"/timer","interrupts",&p,&bytes) && (bytes==48 || (!pi && bytes==60)));size_t offset=(size_t)(p-data);unsigned char old=data[offset+19];data[offset+19]=13;d=sentinel;assert(!gic_discover(board,data,n,&d) && !memcmp(&d,&sentinel,sizeof(d)));data[offset+19]=old;
@@ -91,4 +190,4 @@ static void dt(const char *path,bool pi)
     free(mutated);free(data);printf("PASS: %s GIC/timer DT binding/translation/CPU mask discovery, every truncation, altered timer rejection, 2000 mutations and unchanged output on failure\n",board);
 }
 int main(int argc,char **argv)
-{ assert(argc==4);driver();failures();dt(argv[1],true);dt(argv[2],false);dt(argv[3],false);return 0; }
+{ assert(argc==4);driver();failures();spi_routes();deferred_work();dt(argv[1],true);dt(argv[2],false);dt(argv[3],false);return 0; }

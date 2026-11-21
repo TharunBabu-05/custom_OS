@@ -5,7 +5,7 @@ New images default to snapshot v4 with sixteen file/directory nodes,
 Both QEMU profiles pass larger installed programs and binary file cold-boot
 checks. Use the Windows updater for routine kernel and app changes on the
 supported header boot volume. A full image replaces `/data`; export and
-explicitly convert first if needed. See [boot-file updates](boot-updates.md)
+explicitly convert first if needed. See [boot-file updates](boot-updates-tharun_verified.md)
 and [v4 storage](data-v4.md).
 
 The Pi verifies the preceding profile example:

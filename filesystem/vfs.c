@@ -23,7 +23,9 @@ enum fs_result vfs_mount_data(const struct block_device *device)
 enum fs_result vfs_data_sync(void) { return persist_sync(&data_volume); }
 bool vfs_data_failed(void) { return data_volume.failed; }
 bool vfs_data_mounted(void) { return data_volume.ready; }
+enum fs_result vfs_data_check(struct persist_report *out) { return persist_check(&data_volume,out); }
 enum fs_result vfs_data_export(persist_emit emit,void *context) { return persist_export(&data_volume,emit,context); }
+enum fs_result vfs_data_export_previous(persist_emit emit,void *context) { return persist_export_previous(&data_volume,emit,context); }
 static struct fat32_file restore_source;
 struct restore_cursor { uint32_t offset; };
 static bool restore_read(void *buffer,size_t bytes,void *context)

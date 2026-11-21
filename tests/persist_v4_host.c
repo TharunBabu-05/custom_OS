@@ -118,8 +118,92 @@ static void selection(void)
     }
     puts("PASS: v4 selected-bank revalidation, all 516 reload/flush failures, changed generation/digest, corrupt-newest fallback and strict version/geometry refusal.");
 }
+static void recovery(void)
+{
+    void (*const create[])(void)={genesis,genesis_v2,genesis_v3,genesis_v4};
+    for (unsigned i=0;i<sizeof(create)/sizeof(create[0]);++i) {
+        create[i]();
+        assert(persist_mount(&v,&device)==FS_OK && v.version==i+1);
+        reset_counters();
+        struct persist_report report;
+        assert(persist_check(&v,&report)==FS_OK && report.mounted_bank==0 && report.mounted_generation==1);
+        assert(report.banks[0].state==PERSIST_BANK_VALID && report.banks[0].matches_mounted);
+        assert(report.banks[1].state==PERSIST_BANK_EMPTY);
+        struct archive_io io={0};
+        assert(persist_export_previous(&v,export_bytes,&io)==FS_NOT_FOUND && !io.calls && !writes && !flushes);
+
+        assert(persist_write(&v,"/note",pattern,v.file_bytes,false)==FS_OK);
+        memcpy(old_payload,v.live,v.payload_bytes);
+        assert(persist_write(&v,"/note","latest",6,false)==FS_OK);
+        memcpy(new_payload,v.live,v.payload_bytes);
+        memcpy(original,media,sizeof(media));
+        reset_counters();
+        assert(persist_check(&v,&report)==FS_OK && report.mounted_generation==3);
+        assert(report.banks[0].state==PERSIST_BANK_VALID && report.banks[0].matches_mounted);
+        assert(report.banks[1].state==PERSIST_BANK_VALID && report.banks[1].generation==2);
+
+        assert(persist_export_previous(&v,export_bytes,&io)==FS_OK);
+        assert(io.offset==512+v.payload_bytes && archive[12]==0 && archive[16]==2);
+        assert(!memcmp(archive+512,old_payload,v.payload_bytes));
+        size_t archive_bytes=io.offset;
+
+        uint64_t previous=(uint64_t)START+1+v.bank_sectors;
+        reset_counters();fail_event=1;
+        assert(persist_check(&v,&report)==FS_OK && report.banks[0].state==PERSIST_BANK_UNREADABLE);
+        assert(report.banks[0].io==BLOCK_IO && report.banks[0].lba==START+1 && report.banks[1].state==PERSIST_BANK_VALID);
+        reset_counters();fail_event=1;io=(struct archive_io){0};
+        assert(persist_export_previous(&v,export_bytes,&io)==FS_IO && !io.calls);
+
+        /* A change between validation and emission must invalidate the export. */
+        reset_counters();corrupt_event=v.bank_sectors+1;io=(struct archive_io){0};
+        assert(persist_export_previous(&v,export_bytes,&io)==FS_CORRUPT && io.offset==archive_bytes);
+        reset_counters();io=(struct archive_io){.fail_call=2};
+        assert(persist_export_previous(&v,export_bytes,&io)==FS_IO && io.offset==512);
+
+        unsigned char *header=media+previous*512;
+        header[0]^=1;
+        assert(persist_check(&v,&report)==FS_OK && report.banks[1].state==PERSIST_BANK_BAD_HEADER);
+        header[0]^=1;
+        header[512+v.directory_bytes]^=1;
+        assert(persist_check(&v,&report)==FS_OK && report.banks[1].state==PERSIST_BANK_BAD_PAYLOAD);
+        io=(struct archive_io){0};
+        assert(persist_export_previous(&v,export_bytes,&io)==FS_CORRUPT && !io.calls);
+        header[512+v.directory_bytes]^=1;
+        assert(!memcmp(media,original,sizeof(media)) && !memcmp(v.live,new_payload,v.payload_bytes));
+
+        /* A valid bank can differ from the mounted bytes or be newer after
+         * an ambiguous commit. Neither case counts as the mounted snapshot. */
+        unsigned char *active=media+(START+1)*512;
+        active[512+v.directory_bytes]^=1;
+        digest(active+512,v.payload_bytes,active+32);digest(active,64,active+64);
+        p32(header+16,4);digest(header,64,header+64);
+        assert(persist_check(&v,&report)==FS_OK);
+        assert(report.banks[0].state==PERSIST_BANK_VALID && !report.banks[0].matches_mounted);
+        assert(report.banks[1].state==PERSIST_BANK_VALID && report.banks[1].generation==4);
+        assert(persist_export_previous(&v,export_bytes,&io)==FS_NOT_FOUND && !io.calls);
+        memcpy(media,original,sizeof(media));
+        assert(!writes && !flushes && v.generation==3 && v.valid_banks==2);
+        workspace_clean();
+
+        /* After an ambiguous write/flush failure the check stays available. */
+        reset_counters();fail_event=1;
+        assert(persist_sync(&v)==FS_IO && v.failed);
+        reset_counters();
+        assert(persist_check(&v,&report)==FS_OK && report.banks[0].matches_mounted);
+        assert(persist_export_previous(&v,export_bytes,&io)==FS_OK && io.offset==archive_bytes);
+        assert(!writes && !flushes && v.failed);
+
+        create[i]();
+        assert(persist_mount(&reopened,&device)==FS_OK);
+        io=(struct archive_io){.length=archive_bytes};
+        assert(persist_restore(&reopened,io.length,import_bytes,&io)==FS_OK);
+        assert(!memcmp(reopened.live,old_payload,reopened.payload_bytes));
+    }
+    puts("PASS: v1-v4 bank checks, read errors, corrupt banks, interrupted export, previous archive restore and untouched live/media state.");
+    fflush(stdout);
+}
 int main(void)
 {
     for (unsigned i=0;i<sizeof(pattern);++i) { pattern[i]=(unsigned char)(i*29+7); }
-    capacity();commit_cuts(0);commit_cuts(1);restore_checks();selection();return 0;
+    recovery();capacity();commit_cuts(0);commit_cuts(1);restore_checks();selection();return 0;
 }

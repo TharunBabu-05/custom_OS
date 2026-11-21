@@ -1,0 +1,56 @@
+Raspberry Pi 5 header UART, 2026-11-21. Selected output captured from COM3.
+The files below were created on the existing SanDisk v4 installation.
+
+> datacheck
+Mounted /data bank=0 generation=11
+bank=0 status=valid generation=11 matches_mounted=yes
+bank=1 status=valid generation=10
+> dataexport previous
+
+Windows converted the complete export to a 263680-byte v4 archive.
+Archive generation 10. SHA256 82227d7ddd93f9f61a6cad6040a4446b236aeb33bd1ad3f4ce249271b263f21e.
+Native restore reproduced the payload byte for byte.
+
+> mkdir /data/phase0
+> appinstall /boot/BIGAPP.ELF /data/phase0/big.elf
+Installed validated ELF: /data/phase0/big.elf bytes=10664; synchronous commit and full readback verified.
+> appshell
+user:/$ run /data/phase0/big.elf
+PASS: installed application reads all 10000 RX bytes beyond the former 8 KiB file limit.
+child exit=0
+user:/$ cp /boot/LARGE.BIN /data/phase0/large.bin
+user:/$ sha256 /boot/LARGE.BIN
+a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3  /boot/LARGE.BIN
+user:/$ sha256 /data/phase0/large.bin
+a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3  /data/phase0/large.bin
+user:/$ stat /data/phase0/large.bin
+type=file bytes=16384 path=/data/phase0/large.bin
+user:/$ exit
+App resources restored; monitor ready.
+> sync
+Data cache flushed; file updates already commit synchronously.
+> datacheck
+Mounted /data bank=1 generation=14
+bank=0 status=valid generation=13
+bank=1 status=valid generation=14 matches_mounted=yes
+
+After the reported power cycle, COM3 was initially silent. The successful
+connection began at the automatic shell prompt after boot had finished.
+
+user:/$ run /data/phase0/big.elf
+PASS: installed application reads all 10000 RX bytes beyond the former 8 KiB file limit.
+child exit=0
+user:/$ stat /data/phase0/large.bin
+type=file bytes=16384 path=/data/phase0/large.bin
+user:/$ sha256 /data/phase0/large.bin
+a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3  /data/phase0/large.bin
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=2 preemptions=1 yields=0 idle_waits=12443 terminal=yes budget_seconds=unlimited children_started=1 children_reaped=1 last_child_code=0 cleanup=restored
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> uptime
+uptime_seconds=128
+> datacheck
+Mounted /data bank=1 generation=14
+bank=0 status=valid generation=13
+bank=1 status=valid generation=14 matches_mounted=yes

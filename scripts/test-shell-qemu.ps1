@@ -1,7 +1,7 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
-      [switch]$Data4Backup,[switch]$Startup,[string]$ExpectedTreeBackup,
+      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
@@ -23,11 +23,17 @@ function Range-Hash([string]$Path,[long]$Offset,[long]$Length) {
         $null=$sha.TransformFinalBlock((New-Object byte[] 0),0,0);return [Convert]::ToBase64String($sha.Hash)
     } finally { $f.Dispose();$sha.Dispose() }
 }
-function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs) {
+function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs,[bool]$FastClock,[bool]$ReadOnlyVirtio) {
     $si=New-Object Diagnostics.ProcessStartInfo
     $si.FileName=$QemuExe
-    $si.Arguments="-machine virt-9.2,virtualization=$Virt,secure=off -cpu $Cpu -accel tcg -smp 1 -m 128 -display none -monitor none -serial stdio -net none -device qemu-xhci,id=xhci,p3=0 -drive file=`"$Disk`",if=none,format=raw,readonly=off,id=shelldisk -device usb-storage,bus=xhci.0,drive=shelldisk -kernel `"$kernel`""
+    $si.Arguments="-machine virt-9.2,virtualization=$Virt,secure=off -cpu $Cpu -accel tcg -smp 1 -m 128 -display none -monitor none -serial stdio -net none -kernel `"$kernel`""
+    if ($ReadOnlyVirtio) {
+        $si.Arguments+=" -global virtio-mmio.force-legacy=false -drive file=`"$Disk`",if=none,format=raw,readonly=on,id=shelldisk -device virtio-blk-device,drive=shelldisk"
+    } else {
+        $si.Arguments+=" -device qemu-xhci,id=xhci,p3=0 -drive file=`"$Disk`",if=none,format=raw,readonly=off,id=shelldisk -device usb-storage,bus=xhci.0,drive=shelldisk"
+    }
     if ($BootArgs) { $si.Arguments+=" -append `"$BootArgs`"" }
+    if ($FastClock) { $si.Arguments+=' -icount shift=10,sleep=off' }
     $si.UseShellExecute=$false;$si.CreateNoWindow=$true;$si.RedirectStandardInput=$true;$si.RedirectStandardOutput=$true;$si.RedirectStandardError=$true
     $p=New-Object Diagnostics.Process;$p.StartInfo=$si;$started=$false
     try {
@@ -51,6 +57,188 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($Reboot) {
+    $banner='OurOS: AArch64 kernel booted'
+    $fileHash='a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3  /data/reboot.bin'
+    foreach ($case in @(@('cortex-a53','off','HVC'),@('cortex-a76','on','SMC'))) {
+        $name="reboot-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $reset="Reboot: storage synchronized and idle. Reset via PSCI $($case[2])."
+            Session $disk "$name-monitor" $case[0] $case[1] @(
+                @{Text='reboot';Delay=2000},'pwd','halt') @($reset,'Storage is opt-in') 0
+            $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-monitor.log")
+            if ([regex]::Matches($capture,[regex]::Escape($banner)).Count -ne 2 -or
+                !$capture.Substring($capture.IndexOf($reset)).Contains($banner) -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name reboot without mounts differs" }
+            Session $disk "$name-virtio" $case[0] $case[1] @(
+                'storageinit','storageinfo',@{Text='reboot';Delay=2000},'storageinit','cat /boot/CONFIG.TXT','pwd','halt') @(
+                $reset,'QEMU virtio-mmio block: ready (read-only driver)','kernel=OUROS.IMG') 0 '' $false $true
+            $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-virtio.log")
+            if ([regex]::Matches($capture,[regex]::Escape($banner)).Count -ne 2 -or
+                [regex]::Matches($capture,'(?m)^> storageinit\r?\n/boot: FAT32 read-only').Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name reboot with read-only virtio differs" }
+            $boot=Range-Hash $disk 0 (260096L*512)
+            Session $disk $name $case[0] $case[1] @(
+                @{Text='cp /boot/LARGE.BIN /data/reboot.bin';Delay=2500},'sha256 /data/reboot.bin','exit',
+                'write /tmp/reboot-marker volatile','datacheck',@{Text='reboot';Delay=3500},
+                'sha256 /data/reboot.bin','exit','cat /tmp/reboot-marker','datacheck','timertest','pwd','halt') @(
+                $reset,$fileHash,'matches_mounted=yes','fs: path not found','PASS: periodic timer IRQs delivered') 2 'ouros.startup=shell'
+            $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $halves=$capture -split [regex]::Escape($reset)
+            $generations=[regex]::Matches($capture,'Mounted /data bank=\d+ generation=(\d+)')
+            if ($halves.Count -ne 2 -or !$halves[0].Contains($banner) -or !$halves[1].Contains($banner) -or
+                !$halves[0].Contains($fileHash) -or !$halves[1].Contains($fileHash) -or
+                $generations.Count -ne 2 -or $generations[0].Value -cne $generations[1].Value -or
+                (Range-Hash $disk 0 (260096L*512)) -cne $boot) { throw "$name boot, persistence or boot partition differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($PeripheralIrq) {
+    $pass='PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.'
+    $alarm='Peripheral IRQ source=PL031 alarm intid=34 received=1 deferred=1 timer_delta='
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="peripheral-irq-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @('exit','irqinfo',
+                @{Text='irqtest';Delay=4500},'irqinfo',@{Text='irqtest';Delay=4500},'irqinfo',
+                @{Text='timertest';Delay=800},'cat /boot/CONFIG.TXT','datacheck',
+                'appshell',@{Text='run /boot/BUSY.ELF';Delay=2500},'run /boot/DF.ELF','exit','pwd','halt') @(
+                $pass,$alarm,'peripheral_received=0 deferred=0 overflow=0 stuck=0',
+                'peripheral_received=1 deferred=1 overflow=0 stuck=0',
+                'peripheral_received=2 deferred=2 overflow=0 stuck=0',
+                'Timer: running CPU_IRQ=unmasked INTID=30','PASS: periodic timer IRQs delivered',
+                'kernel=OUROS.IMG','matches_mounted=yes','PASS: EL0 busy loop completed under timer preemption.',
+                '/boot fat32','/data snapshot v4','child exit=0') 2 'ouros.startup=shell'
+            $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($capture,[regex]::Escape($pass)).Count -ne 2 -or
+                [regex]::Matches($capture,[regex]::Escape($alarm)+'[1-9]\d*').Count -ne 2 -or
+                [regex]::Matches($capture,'(?m)^child exit=0\r?$').Count -ne 2 -or
+                $capture -notmatch 'preemptions=[1-9]\d*' -or $capture -match '\bunexpected=[1-9]\d*') {
+                throw "$name repeat delivery, preemption or controller counters differ"
+            }
+            if ((Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name changed the scratch disk" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($MemoryPressure) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="memory-pressure-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        Session $disk $name $case[0] $case[1] @('exit','meminfo','heapinfo','fileinfo','appshell',
+            'run /boot/MEMDEMO.ELF pressure','run /boot/MEMCHK.ELF pressure','run /boot/MEMDEMO.ELF pressure',
+            'exit','meminfo','heapinfo','fileinfo','pwd','halt') @(
+            'Private heap free_pages=16 largest_run=16','quota_failures=0 fragmentation_failures=0 backing_failures=0 mapping_failures=0',
+            'Full arena: quota_failures=1 free_pages=0','Fragmented arena: fragmentation_failures=1 largest_run=1',
+            'PASS: memory pressure distinguished quota and fragmentation, retained live data and recovered all private pages.',
+            'exhausted_allocations=0','page_limit_failures=0 backing_failures=0') 2 'ouros.startup=shell'
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+        foreach ($pattern in @('(?m)^managed_pages=\d+ free_pages=\d+ allocated_pages=\d+',
+            '(?m)^pages=\d+ objects=\d+ capacity_bytes=\d+', '(?m)^Open files: 0/16')) {
+            $snapshots=[regex]::Matches($capture,$pattern)
+            if ($snapshots.Count -ne 2 -or $snapshots[0].Value -cne $snapshots[1].Value) { throw 'Resource baseline differs' }
+        }
+        if ([regex]::Matches($capture,'(?m)^child exit=0\r?$').Count -ne 3 -or
+            [regex]::Matches($capture,'(?m)^quota_failures=0 fragmentation_failures=0 backing_failures=0 mapping_failures=0\r?$').Count -ne 2) {
+            throw 'Memory reports or child exit status differ'
+        }
+        if ((Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw 'Memory test changed the scratch disk' }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($LongShell) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="long-shell-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        $interrupt=@{Text=[string][char]3;Raw=$true;Delay=700}
+        Session $disk "$name-interrupt" $case[0] $case[1] @(
+            @{Text='echo discard-this';Raw=$true;Delay=300},$interrupt,
+            'echo prompt-survived','bg 30 /boot/SPIN.ELF',$interrupt,'jobs','stop',
+            'run /boot/SPIN.ELF',$interrupt,'echo child-status=$?','exit',
+            'appshell','exit',@{Text='appterm 1 /boot/SHELL.ELF';Delay=1800},'pwd','halt') @(
+            "user:/$ echo discard-this^C`r`nuser:/$ echo prompt-survived",
+            'child-status=130','budget_seconds=unlimited','session_seconds=1',
+            'path=/boot/SHELL.ELF state=timeout code=124') 3 'ouros.startup=shell'
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-interrupt.log")
+        if ($capture -notmatch '(?m)^job pid=\d+ pending\r?$') { throw 'Prompt interrupt stopped the background job' }
+        Session $disk "$name-idle" $case[0] $case[1] @(
+            @{Text='uptime';Delay=200},@{Text='startup';Delay=800},@{Text='echo before-idle';Delay=4000},
+            'echo shell-after-idle','exit','uptime','pwd','halt') @(
+            'Starting serial shell from /boot/SHELL.ELF','budget_seconds=unlimited',
+            "user:/$ echo before-idle`r`nbefore-idle","user:/$ echo shell-after-idle`r`nshell-after-idle") 1 '' $true
+        $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-idle.log")
+        $uptimes=[regex]::Matches($capture,'uptime_seconds=(\d+)')
+        if ($uptimes.Count -ne 2 -or [long]$uptimes[1].Groups[1].Value-[long]$uptimes[0].Groups[1].Value -le 300) {
+            throw 'Accelerated clock did not cross the former 300-second limit'
+        }
+        Session $disk "$name-exec" $case[0] $case[1] @(
+            @{Text='exec /boot/SPIN.ELF';Delay=4000},'pwd','halt') @(
+            'path=/boot/SPIN.ELF state=timeout code=124','execs=1') 1 'ouros.startup=shell' $true
+        if ((Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw 'Shell test changed the disk' }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($DataRecovery) {
+    if ($layout.Version -ne 4) { throw 'DataRecovery requires the v4 image' }
+    . "$PSScriptRoot/data-format.ps1"
+    . "$PSScriptRoot/data-backup.ps1"
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="recovery-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        $stream=[IO.File]::OpenWrite($disk)
+        try {
+            [byte[]]$partition=New-OurOSDataPartition -Version 4
+            $stream.Position=260096L*512
+            $stream.Write($partition,0,$partition.Length)
+        } finally { $stream.Dispose() }
+        Session $disk "$name-create" $case[0] $case[1] @('datacheck','storageinit','datainit',
+            @{Text='datacheck';Delay=1500},'dataexport previous',
+            @{Text='write /data/recovery.txt older';Delay=2000},@{Text='write /data/recovery.txt newer';Delay=2000},'pwd','halt') @(
+            'Data check unavailable:', 'bank=0 status=valid generation=1 matches_mounted=yes',
+            'bank=1 status=empty','No older committed snapshot available.') 0
+        $saved=(Get-FileHash -LiteralPath $disk).Hash
+        Session $disk "$name-previous" $case[0] $case[1] @('storageinit','datainit',
+            @{Text='datacheck';Delay=2000},@{Text='dataexport previous';Delay=8000},'cat /data/recovery.txt','pwd','halt') @(
+            'bank=0 status=valid generation=3 matches_mounted=yes','bank=1 status=valid generation=2',
+            '-----END OUROS DATA BACKUP V1-----',"cat /data/recovery.txt`r`nnewer") 0
+        $exportedBackup=Join-Path $out ($name+'-'+[guid]::NewGuid().ToString('N')+'.bak')
+        & "$PSScriptRoot/convert-data-backup.ps1" -Log (Join-Path $out "$name-previous.log") -Output $exportedBackup
+        $decoded=Get-OurOSDataBackup $exportedBackup
+        if ($decoded.Version -ne 4 -or $decoded.Generation -ne 2 -or $decoded.Entries.Count -ne 1 -or
+            $decoded.Entries[0].Path -cne 'recovery.txt' -or
+            [Text.Encoding]::ASCII.GetString($decoded.Raw,$decoded.Entries[0].DataOffset,$decoded.Entries[0].Bytes) -cne 'older') {
+            throw 'Previous serial archive differs'
+        }
+        if ((Get-FileHash -LiteralPath $disk).Hash -ne $saved) { throw 'Check/export changed disk bytes' }
+
+        $stream=[IO.File]::OpenWrite($disk)
+        try {
+            $stream.Position=260100L*512
+            $stream.WriteByte(0)
+        } finally { $stream.Dispose() }
+        $damaged=(Get-FileHash -LiteralPath $disk).Hash
+        Session $disk "$name-fallback" $case[0] $case[1] @('storageinit','datainit',
+            @{Text='datacheck';Delay=2000},@{Text='dataexport previous';Delay=2000},'cat /data/recovery.txt','pwd','halt') @(
+            'bank=0 status=invalid payload generation=3','bank=1 status=valid generation=2 matches_mounted=yes',
+            'Data export failed: corrupt filesystem',"cat /data/recovery.txt`r`nolder") 0
+        if ((Get-FileHash -LiteralPath $disk).Hash -ne $damaged) { throw 'Fallback check changed disk bytes' }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    Write-Output 'PASS: verified previous-generation serial backup, corrupt-newest fallback and read-only disk integrity.'
+    return
 }
 if ($Startup) {
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
@@ -212,16 +400,18 @@ if ($ShellJobs) {
             'bg 30 /boot/PS.ELF input /tmp/job-lease','jobs','echo parent-kept-input','stop',
             'bg 30 /boot/TTYCHK.ELF','jobs','echo parent-before-fg','fg','terminal-ok','echo terminal-returned',
             'bg 30 /boot/SPIN.ELF','fg',@{Text=[string][char]3;Raw=$true;Delay=700},'echo fg-cancel=$?','jobs',
-            'setenv MESSAGE original','bgio 30 - /data/bg-env env MESSAGE','setenv MESSAGE later','fg','cat /data/bg-env',
-            'cd /home/user','bgio 30 - /data/bg-cwd pwd','cd /tmp','fg','cat /data/bg-cwd','cd /',
-            'bgio 30 /data/bg-env /data/bg-hash hash','fg','cat /data/bg-hash',
+            'setenv MESSAGE original',@{Text='bgio 30 - /data/bg-env env MESSAGE';Delay=2000},'setenv MESSAGE later',
+            @{Text='fg';Delay=1500},'cat /data/bg-env',
+            'cd /home/user',@{Text='bgio 30 - /data/bg-cwd pwd';Delay=2000},'cd /tmp',
+            @{Text='fg';Delay=1500},'cat /data/bg-cwd','cd /',
+            @{Text='bgio 30 /data/bg-env /data/bg-hash hash';Delay=2000},@{Text='fg';Delay=1500},'cat /data/bg-hash',
             'bgio 30 - /data/bg-env echo should-not-overwrite','jobs','cat /data/bg-env',
             'pipe echo foreground-restored -- hash','ps','exit',
-            'appshell','bg 30 /boot/PS.ELF worker /tmp/job-lease',@{Text=[string][char]3;Raw=$true;Delay=700},
+            'appterm 120 /boot/SHELL.ELF','bg 30 /boot/PS.ELF worker /tmp/job-lease',@{Text=[string][char]3;Raw=$true;Delay=700},
             'appterm 2 /boot/SHELL.ELF --noprofile',@{Text='bg 30 /boot/PS.ELF worker /tmp/job-lease';Delay=3500},
             'appshell','write /tmp/job-lease after-timeout','bg 30 /boot/PS.ELF worker /tmp/job-lease','exit',
-            'mkdir /data/bin','appinstall /boot/SHELL.ELF /data/bin/shell.elf','appterm 120 /data/bin/shell.elf',
-            'jobs','bgio 30 - /data/installed-bg echo installed-bg','fg','cat /data/installed-bg',
+            @{Text='mkdir /data/bin';Delay=1500},@{Text='appinstall /boot/SHELL.ELF /data/bin/shell.elf';Delay=1500},'appterm 120 /data/bin/shell.elf',
+            'jobs',@{Text='bgio 30 - /data/installed-bg echo installed-bg';Delay=2000},@{Text='fg';Delay=1500},'cat /data/installed-bg',
             'bg 30 /boot/PS.ELF worker /tmp/job-lease','exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt')
         Session $disk "$name-create" $case[0] $case[1] $actions @(
             'bg SECONDS PROGRAM [args]','No background job.','shell: timeout must be 1..30s',
@@ -317,20 +507,23 @@ if ($UserAllocator) {
         $name="ualloc-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
         Copy-Item -LiteralPath $source -Destination $disk
         Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
+            @{Text='appterm 120 /boot/HEAPCHK.ELF resize';Delay=2500},
             @{Text='appterm 120 /boot/HEAPCHK.ELF';Delay=4500},@{Text='apprun /boot/HEAPCHK.ELF /boot/HEAPCHK.ELF /boot/HEAPCHK.ELF';Delay=4500},
             @{Text='appterm 120 /boot/HEAPCHK.ELF parent';Delay=12000},'appexec /boot/HEAPCHK.ELF leak',
             'appexec /boot/HEAPCHK.ELF exec','appexec /boot/HEAPCHK.ELF execbad','appexec /boot/HEAPCHK.ELF uaf',
             'appexec /boot/HEAPCHK.ELF nx',@{Text='appexec /boot/HEAPCHK.ELF timeout';Delay=3500},
             @{Text='appterm 120 /boot/HEAPCHK.ELF cancel';Delay=1000},@{Text=[string][char]3;Raw=$true;Delay=800},
             'appshell','run heapdemo','run heapchk','pipe heapdemo -- hash',
-            @{Text='runio - /data/byteheap.txt heapdemo';Delay=7000},'sha256 /data/byteheap.txt','cat /data/byteheap.txt','exit',
-            'mkdir /data/bin','appinstall /boot/HEAPDEMO.ELF /data/bin/byteheap.elf','appexec /data/bin/byteheap.elf',
+            @{Text='runio - /data/byteheap.txt heapdemo';Delay=20000},'sha256 /data/byteheap.txt','cat /data/byteheap.txt','exit',
+            @{Text='mkdir /data/bin';Delay=1500},@{Text='appinstall /boot/HEAPDEMO.ELF /data/bin/byteheap.elf';Delay=1500},
+            'appexec /data/bin/byteheap.elf',
             'pwd','fileinfo','heaptest','pagetest','mmutest','timerstop','halt') @(
             $basicPass,$parentPass,'HEAPCHK ready for cancellation.','state=cancelled code=130','state=timeout code=124',
             'state=exited code=23','state=exited code=37',
             'Small buffers: requested=768 bytes; reserved_pages=1','After resize: requested=5744 bytes; reserved_pages=3',
             'After calloc: requested=6000 bytes; reserved_pages=4','Released buffers; private_pages=0',
-            $demoHash,($demoHash+'  /data/byteheap.txt'),'path=/data/bin/byteheap.elf state=exited code=0','Open files: 0/16') 12
+            'PASS: in-place page resize and realloc, preserved contents, zeroed growth and reclaimed tail pages.',
+            $demoHash,($demoHash+'  /data/byteheap.txt'),'path=/data/bin/byteheap.elf state=exited code=0','Open files: 0/16') 13
         $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
         if ([regex]::Matches($capture,'process=[012] path=/boot/HEAPCHK.ELF state=exited code=0[^\r\n]*heap_peak_pages=16').Count -lt 4 -or
             [regex]::Matches($capture,[regex]::Escape($basicPass)).Count -ne 5) { throw 'Byte allocator default/concurrent results differ' }

@@ -17,7 +17,7 @@ static bool release(void *context,void *base)
     uintptr_t at=(uintptr_t)base-(uintptr_t)pool;assert(at<sizeof(pool) && !(at&4095));unsigned first=(unsigned)(at/4096),pages=runs[first];
     assert(pages && pages!=255 && first+pages<=16);memset(base,0,pages*4096);for (unsigned i=0;i<pages;++i) { runs[first+i]=0; }return true;
 }
-static const struct uos_allocator_ops ops={allocate,release,NULL};
+static const struct uos_allocator_ops ops={.allocate=allocate,.release=release};
 static unsigned active_pages(void) { unsigned n=0;for (unsigned i=0;i<16;++i) { n+=runs[i]!=0; }return n; }
 static void reset(void) { memset(runs,0,sizeof(runs));memset(pool,0xdd,sizeof(pool));allocations=releases=fail_allocate=fail_release_count=0; }
 static bool zeroed(const void *p,size_t n) { const unsigned char *b=p;for (size_t i=0;i<n;++i) { if (b[i]) { return false; } }return true; }

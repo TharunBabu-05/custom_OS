@@ -41,7 +41,8 @@ void *kmalloc(size_t bytes)
     unsigned cls=class_index(size);
     if (!page) {
         uint64_t physical=0;
-        if (!empty || !page_alloc(&physical)) { ++stats.failures;return NULL; }
+        if (!empty) { ++stats.failures;++stats.page_limit_failures;return NULL; }
+        if (!page_alloc(&physical)) { ++stats.failures;++stats.backing_failures;return NULL; }
         bool valid=physical && physical<=UINTPTR_MAX-(PAGE_SIZE-1) && !(physical&(PAGE_SIZE-1));
         for (unsigned i=0;i<HEAP_MAX_PAGES;++i) { if (pool[i].base==physical) { valid=false; } }
         /* A broken PMM must not let us clear a foreign/live page or release

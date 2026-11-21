@@ -60,7 +60,8 @@ bool pages_init(const struct memory_map *map,void *bitmap,size_t bytes)
 }
 bool page_alloc(uint64_t *physical)
 {
-    if (!physical || !stats.ready || !stats.free_pages) { return false; }
+    if (!physical || !stats.ready) { return false; }
+    if (!stats.free_pages) { ++stats.exhausted_allocations;return false; }
     size_t word=next_word;
     do {
         if (used[word] != UINT64_MAX) {
@@ -69,6 +70,7 @@ bool page_alloc(uint64_t *physical)
             used[word]|=1ULL<<bit;
             *physical=((uint64_t)word*64+bit)*PAGE_SIZE;
             next_word=word; --stats.free_pages; ++stats.allocated_pages;
+            if (stats.allocated_pages>stats.peak_allocated_pages) { stats.peak_allocated_pages=stats.allocated_pages; }
             return true;
         }
         if (++word == BITMAP_WORDS) { word=0; }

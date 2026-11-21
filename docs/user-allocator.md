@@ -103,10 +103,10 @@ implementation of the standard library.
 | free | Returns true on success, including NULL; rejects untracked, interior, cross-context and immediate double-free pointers |
 | realloc(NULL, n) | Same as malloc(n) |
 | realloc(p, 0) | Attempts free and returns NULL; a provider release failure retains ownership, so inspect status or destroy |
-| Resize in place | Keeps the address when capacity suffices; newly exposed bytes are zeroed and truncated logical bytes wiped |
+| Resize in place | Keeps the address when capacity suffices, or when a dedicated run can grow into adjacent pages; newly exposed bytes are zeroed |
 | Moving resize | Acquires replacement capacity before releasing the old object; copies old requested bytes and zeroes growth |
 | Failure | Returns NULL without losing the original allocation; moving resize needs spare pages, a spare record and a suitable virtual run |
-| Reclamation | Last object in a group returns its backing run; shrinking alone retains that group's capacity |
+| Reclamation | Last object in a group returns its run. Shrinking a dedicated run can release whole tail pages. Shared small-object pages stay reserved until their last object is freed. |
 
 `uos_allocator_stats` reports live objects, requested bytes, per-object capacity,
 backing pages, peak pages and operation/failure counters. Metadata lives in the
@@ -115,11 +115,17 @@ successful destroy clears the context, including these statistics.
 
 `uos_allocator_setup` also accepts a provider for model tests. Its allocation
 must return a fresh, aligned, disjoint run. Failed release must leave ownership
-and bytes intact; successful release wipes and relinquishes the run. Failed
+and bytes intact. An optional resize provider can grow or trim a dedicated run.
+If it declines growth, the allocator falls back to a moving resize. Failed
 moving-resize cleanup rolls back the candidate. If that cleanup also fails,
 the context retains both runs and becomes poisoned; normal operations refuse,
 and destroy can retry release. A partial destroy similarly retains failed runs.
 The kernel teardown remains responsible for allocations leaked by a process.
+
+`run /boot/HEAPCHK.ELF resize` verifies growth from 40,000 to 60,000 bytes at the same
+address, shrink to 5,000 bytes, zeroed regrowth and return of the unused pages.
+The test also verifies explicit page resize, including blocked growth and
+rejection of a syscall buffer in a released page. [Page resize ABI](user-memory.md)
 
 All metadata and pointer checking here belong to the application, not a kernel
 security boundary. Do not call raw `uos_free_pages` on allocator-owned pages.
@@ -158,9 +164,10 @@ The full image is still available as the regular 134217728-byte
 images remain archived flat in `image_files`. Full-image reflashing replaces
 `/data`; the two-ELF update above avoids that operation for this phase.
 
-Delivery sizes: HEAPCHK 6416 bytes; HEAPDEMO 3680; application ZIP 8223;
-full-image ZIP 885237. The Pi kernel remains 446196 bytes, reserved end
-`0x1d0000` below the firmware DTB at `0x200000`; SHELL.ELF remains 8094 bytes.
+The original allocator release used a 6416-byte HEAPCHK, a 3680-byte
+HEAPDEMO, an 8223-byte application ZIP and an 885237-byte full-image ZIP.
+Its 446196-byte kernel reserved memory through `0x1d0000`, below the
+firmware DTB at `0x200000`. SHELL.ELF was 8094 bytes.
 Full-image SHA-256:
 `a9e8199de534f8dcf4d44c67d576883719608e74128152fbc4cbf5c2152e246d`.
 Application ZIP SHA-256:

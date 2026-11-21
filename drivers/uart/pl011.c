@@ -1,6 +1,7 @@
 /* Arm PL011 DDI0183: offsets and bits, 32-bit accesses.
  * The caller supplies the CPU physical base and UART input clock. */
 #include "console.h"
+#include "cpu.h"
 enum { DR=0x00, FR=0x18, IBRD=0x24, FBRD=0x28, LCRH=0x2c,
        CR=0x30, IMSC=0x38, ICR=0x44 };
 static uintptr_t uart_base;
@@ -50,6 +51,11 @@ void uart_putc(char c)
 {
     while (read_reg(FR) & (1u << 5)) { }
     write_reg(DR, (unsigned char)c);
+}
+void uart_drain(void)
+{
+    uint64_t start=timer_ticks(),limit=timer_frequency()/20;
+    while ((read_reg(FR)&(1u<<3)) && timer_ticks()-start<limit) { }
 }
 int uart_getc(void)
 {

@@ -1,12 +1,64 @@
 # Development log
 
+## 2026-11-22 - Safe reboot
+
+Added a monitor `reboot` command that flushes a mounted `/data` and waits
+for the storage controller before requesting reset. Native tests confirm
+that a failed flush or controller stop blocks reset. QEMU passed PSCI HVC
+and SMC reboots with retained data hashes. The Pi watchdog check is pending.
+[Commands and evidence](safe-reboot.md)
+
+## 2026-11-21 - Peripheral IRQ dispatch
+
+Added bounded GICv2 SPI dispatch, deferred callbacks outside IRQ context,
+and stuck-source and overflow quarantine. `irqtest` exercises two board
+profiles using BCM system timer compare channel 3 on the Pi 5 and the PL031
+alarm on QEMU. `irqinfo` exposes delivery, deferred and quarantine counts.
+The native model, both QEMU profiles and the boot updater passed. On
+2026-11-22 the Pi 5 delivered two compare interrupts and two deferred
+callbacks. Timer context preservation, EL0 preemption, FAT reads and snapshot
+generation 14 verification also passed.
+[Commands and evidence](peripheral-irqs.md) · [Pi capture](../proofs/pi5-peripheral-irqs-2026-11-22.txt)
+
+## 2026-11-21 - Memory accounting and pressure
+
+`meminfo` reports peak physical page use and exhaustion. `heapinfo` counts
+page-limit and backing-page failures. User allocations and in-place resize
+classify quota, fragmentation and backing-page failures through syscall 45.
+`MEMCHK.ELF pressure` verifies that exhaustion preserves live pages and the
+arena can be reused afterward. The Pi test passed with both children reaped
+and the physical-page, kernel heap and file-handle counts restored.
+[Commands and ABI](memory-pressure.md) · [Pi capture](../proofs/pi5-memory-pressure-2026-11-21.txt)
+
+## 2026-11-21 - In-place application memory resizing
+
+Added `RESIZE_PAGES=44` for private allocation runs. It preserves existing
+pages during growth, maps zeroed new pages and releases the unmapped tail on
+shrink. `uos_realloc` tries in-place resizing for dedicated runs before moving
+them. The Pi passed `HEAPCHK.ELF resize` with child exit 0.
+[Memory ABI](user-memory.md) · [Pi capture](../proofs/pi5-heap-resize-2026-11-21.txt)
+
+## 2026-11-21 - Open-ended serial shell sessions
+
+The boot shell and `appshell` stay open while idle. Ctrl+C clears the input
+line without losing an outstanding background job. Foreground children
+and `appterm` keep their deadlines. A program that replaces the shell with
+`exec` gets a 30-second deadline. [Terminal behavior](user-shell.md)
+
+## 2026-11-21 - Snapshot bank verification and previous-generation backup
+
+Added `datacheck` to verify both mounted snapshot banks from media and
+`dataexport previous` to export the older valid generation through the
+existing serial backup format. Both use bounded sector reads while the live
+snapshot remains available. [Data recovery](data-recovery.md)
+
 ## 2026-11-21 - Verified boot-file updates
 
 Added a Windows package builder and a boot-volume updater with a preview,
 SHA256 readback and rollback from verified PC backups. The package pairs the
 Pi header kernel with its user programs. The hardware capture verifies
 automatic shell startup, exit and the v4 capacity checks.
-[Update workflow](boot-updates.md) · [Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
+[Update workflow](boot-updates-tharun_verified.md) · [Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
 
 ## 2026-11-21 — Automatic serial-shell startup
 

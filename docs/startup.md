@@ -9,7 +9,7 @@ table or `exit` for the kernel monitor.
 
 ## Original two-file update for the SanDisk installation
 
-For future releases, use the [Windows boot updater](boot-updates.md).
+For future releases, use the [Windows boot updater](boot-updates-tharun_verified.md).
 
 1. Power off the Pi and connect the drive to Windows. Open the FAT volume
    containing `CONFIG.TXT`, `OUROS.IMG` and `SHELL.ELF`. Save the current
@@ -34,8 +34,9 @@ pwd
 The v4 drive should report `max_file_bytes=16384`. After `exit`, expect
 `App resources restored; monitor ready.` and a `>` prompt. Monitor `pwd`
 should print `/`. Type `startup` to enter the shell again using the existing
-mounts, MMU and timer. Each session has the existing 300-second terminal
-budget. Exit, timeout or a refused prerequisite returns control to the monitor.
+mounts, MMU and timer. The shell stays open while idle. Ctrl+C clears the
+line at the prompt or cancels the foreground child. Use `exit` or Ctrl+D on
+an empty line to return to the monitor. [Shell behavior](user-shell.md)
 
 For manual boot, change the setting to `ouros.startup=monitor` or remove the
 startup token. Unknown or repeated startup settings also select the monitor.

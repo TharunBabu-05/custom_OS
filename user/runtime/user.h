@@ -92,6 +92,10 @@ static inline int64_t uos_profile(unsigned action,const char *path)
 static inline int64_t uos_alloc_pages(unsigned pages) { return uos_call2(UOS_SYS_ALLOC_PAGES,pages,0); }
 static inline int64_t uos_free_pages(void *base) { return uos_call2(UOS_SYS_FREE_PAGES,(uintptr_t)base,0); }
 static inline int64_t uos_memory_info(struct uos_memory_info *out) { return uos_call2(UOS_SYS_MEMORY_INFO,(uintptr_t)out,0); }
+static inline int64_t uos_resize_pages(void *base,unsigned pages)
+{ return uos_call2(UOS_SYS_RESIZE_PAGES,(uintptr_t)base,pages); }
+static inline int64_t uos_memory_pressure(struct uos_memory_pressure *out)
+{ return uos_call2(UOS_SYS_MEMORY_PRESSURE,(uintptr_t)out,0); }
 static inline int64_t uos_processes(struct uos_process_table *out)
 { return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
 /* Poll/cancel never reap. Only a live direct-child relation grants authority;

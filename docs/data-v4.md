@@ -10,13 +10,13 @@ The preceding Pi transcript verifies a responsive shell during a background
 SPIN job, stop/collection with 130 and restored resources. That evidence is
 retained in [the shell-job guide](shell-jobs.md). The Pi mounts the SanDisk
 v4 volume during automatic shell startup. `V4CHK.ELF` verifies 16 KiB writes,
-copy/hash, overflow handling, replacement and cleanup on the Pi. Running an
-installed `BIGAPP.ELF` and matching a file hash after power-off are still open.
-[Pi capture](../proofs/pi5-startup-v4chk-2026-11-21.txt)
+copy/hash, overflow handling, replacement and cleanup on the Pi. The
+installed `BIGAPP.ELF` also ran after a physical power cycle, and the saved
+16 KiB file retained its SHA-256. [Pi V4CHK capture](../proofs/pi5-startup-v4chk-2026-11-21.txt) · [Pi persistence capture](../proofs/pi5-v4-persistence-2026-11-21.txt)
 
 ## Existing installation or new capacity
 
-Use the [Windows boot updater](boot-updates.md) to apply current kernel and
+Use the [Windows boot updater](boot-updates-tharun_verified.md) to apply current kernel and
 application builds on the supported header boot volume.
 
 For an existing Pi 5 header-console installation, the
@@ -46,6 +46,9 @@ Old v1/v2/v3 volumes stay readable and writable at their original bounds.
 mount remains read-only in the OS.
 
 ## Pi commands
+
+The current kernel can verify both snapshot banks on the drive and export
+the older valid generation. [Snapshot recovery commands](data-recovery.md)
 
 On the [automatic-startup build](startup.md), use `df` at the shell prompt,
 then `exit` and continue directly with `V4CHK.ELF`.

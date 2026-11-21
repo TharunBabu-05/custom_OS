@@ -17,6 +17,8 @@ static void information(void)
     console_write("\npages=");console_u64(s.pages);console_write(" objects=");console_u64(s.objects);console_write(" capacity_bytes=");console_u64(s.capacity_bytes);console_write("\nBacking RAM: ");console_memory_size((uint64_t)s.pages*PAGE_SIZE);
     console_write("\npeak_pages=");console_u64(s.peak_pages);console_write(" peak_objects=");console_u64(s.peak_objects);console_write(" allocations=");console_u64(s.allocations);console_write(" frees=");console_u64(s.frees);
     console_write(" failures=");console_u64(s.failures);console_write(" rejected_frees=");console_u64(s.rejected_frees);console_write("\n");
+    console_write("page_limit_failures=");console_u64(s.page_limit_failures);
+    console_write(" backing_failures=");console_u64(s.backing_failures);console_write("\n");
     for (unsigned i=0;i<HEAP_CLASSES;++i) { if (s.classes[i].pages) { console_write("class_bytes=");console_u64(s.classes[i].size);console_write(" pages=");console_u64(s.classes[i].pages);console_write(" objects=");console_u64(s.classes[i].objects);console_write("\n"); } }
     console_write("16-byte alignment; allocation limit=4096; page limit=128 (512 KiB).\nCapacity counts rounded live buffers; it is not free RAM. Empty pages return to PMM.\nSingle core; MMU ");console_write(mmu_enabled() ? "on" : "off");console_write("; not an IRQ, user-space or DMA allocator.\n");
 }

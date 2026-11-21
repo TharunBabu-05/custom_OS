@@ -72,6 +72,18 @@ bool platform_storage_attach(struct block_device *device)
     if (!stable || !capacity || capacity>UINT64_MAX/512) { return false; }
     ready=true; *device=(struct block_device){.name="qemu-virtio-blk",.sectors=capacity,.capacity_known=true,.read=read_sector}; return true;
 }
+enum block_result platform_storage_quiesce(void)
+{
+    enum block_result usb=xhci_storage_quiesce();
+    if (usb!=BLOCK_OK || !base) { return usb; }
+    ready=false;
+    wr(0x70,0);
+    uint64_t start=timer_ticks(),limit=timer_frequency();
+    do {
+        if (rd(0x70)==0) { return BLOCK_OK; }
+    } while (timer_ticks()-start<limit);
+    return BLOCK_TIMEOUT;
+}
 void platform_storage_info(void)
 {
     if (usb_backend) { usb_storage_info(); return; }
