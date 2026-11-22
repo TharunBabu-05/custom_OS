@@ -97,7 +97,8 @@ Serial export, binary hashes and physical reboot still need hardware checks.
 
 Console: 3-pin UART connector between the HDMI ports. Terminal 115200 8N1.
 Only the dedicated UART10 console is used. No flow control.
-No HDMI display, USB keyboard/mouse, GPU or audio driver is included.
+Connect HDMI0 at boot and use fbinfo, fbtest, fbon and fboff for text output.
+UART remains the input console. USB keyboard, mouse, GPU and audio are future work.
 
 Earlier Pi logs verify page/heap allocation, MMU protection, exception/IRQ
 return, GICv2 timer, cooperative task/file I/O and USB mount/write/read/sync.

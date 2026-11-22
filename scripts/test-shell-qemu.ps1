@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -13,7 +13,7 @@ $original=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
 $contentHasher=[Security.Cryptography.SHA256]::Create()
 try { $contentHash=([BitConverter]::ToString($contentHasher.ComputeHash([Text.Encoding]::ASCII.GetBytes('persistent shell data')))).Replace('-','').ToLowerInvariant() } finally { $contentHasher.Dispose() }
 $out=Join-Path $ProjectRoot 'build/handoff-test'
-$kernel=Join-Path $out 'kernel.bin'
+$kernel=if ($Kernel) { (Resolve-Path -LiteralPath $Kernel).Path } else { Join-Path $out 'kernel.bin' }
 New-Item -ItemType Directory -Force (Join-Path $ProjectRoot 'build/usb-tests') | Out-Null
 function Range-Hash([string]$Path,[long]$Offset,[long]$Length) {
     $f=[IO.File]::OpenRead($Path);$sha=[Security.Cryptography.SHA256]::Create();$b=New-Object byte[] 65536
@@ -57,6 +57,203 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($BinaryTools) {
+    . "$PSScriptRoot/data-backup.ps1"
+    . "$PSScriptRoot/data-format.ps1"
+    [byte[]]$binary=0..1536 | ForEach-Object { [byte](($_*29+7)%256) }
+    [byte[]]$changed=$binary.Clone()
+    $changed[777]=$changed[777] -bxor 1
+    $partition=New-OurOSDataPartition -Version 4
+    $bank=New-OurOSDataBackup -Version 4 -Files @(
+        @{Name='sample.bin';Data=$binary},@{Name='changed.bin';Data=$changed},@{Name='short.bin';Data=[byte[]]$binary[0..1024]})
+    $bank.CopyTo($partition,512)
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="binary-tools-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $file=[IO.File]::OpenWrite($disk)
+            try { $file.Position=260096L*512;$file.Write($partition,0,$partition.Length) } finally { $file.Dispose() }
+            $fixture=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+                'cmp /data/sample.bin /data/sample.bin && echo cmp-identical',
+                'cmp /data/sample.bin /data/changed.bin || echo cmp-difference=$?',
+                'cmp /data/short.bin /data/sample.bin || echo cmp-length=$?',
+                'cmp /data/sample.bin /tmp/missing || echo cmp-missing=$?',
+                'cmp - - || echo cmp-invalid=$?',
+                'cat /data/sample.bin | cmp - /data/sample.bin',
+                'hexdump -n 5 -s 510 /data/sample.bin > /tmp/inspect',
+                'cat /tmp/inspect','cat /data/sample.bin | hexdump -n 17',
+                'hexdump -s 65536 -n 1 /data/sample.bin',
+                'cat /data/sample.bin | hexdump -n 0',
+                'hexdump -n 65537 /data/sample.bin || echo dump-range=$?',
+                'hexdump -s 1 -s 2 /data/sample.bin || echo dump-duplicate=$?',
+                'exit','fileinfo','pwd','timerstop','halt'
+            ) @('cmp-identical','cmp: first difference at byte 778','cmp-difference=1','cmp: length differs at byte 1026',
+                'cmp-length=1','cmp-missing=2','cmp-invalid=2','dump-range=2','dump-duplicate=2',
+                'Open files: 0/16','cleanup=restored') 1
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if (![regex]::IsMatch($log,'(?m)^000001fe  cd ea 07 24 41 +\|\.\.\.\$A\|\r?$') -or
+                ![regex]::IsMatch($log,'(?m)^00000000  07 24 41 5e') -or
+                ![regex]::IsMatch($log,'(?m)^00000010  d7 +\|\.\|\r?$') -or
+                [regex]::Matches($log,'(?m)^pipeline exit=0\r?$').Count -ne 3 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $fixture) { throw "$name binary output or disk mutation" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($DirectoryTools) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="directory-tools-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+                'mkdir /tmp/walk; mkdir /tmp/walk/sub; mkdir /tmp/walk/empty',
+                'write /tmp/walk/one.txt alpha; write /tmp/walk/sub/two.txt beta; write /tmp/walk/zero.bin ""',
+                'find /tmp/walk/','du /tmp/walk','du /tmp/walk/empty','du /tmp/walk/one.txt',
+                "find /tmp/walk -name 't?o*.txt'","find /tmp/walk -name '*.txt' | wc",
+                'find /tmp/walk -name NO-MATCH; echo nomatch=$?',
+                'cd /tmp/walk; find -name zero.bin; du; cd /',
+                'du /tmp/does-not-exist; echo missing=$?',
+                'find /tmp/walk -other value; echo invalid=$?',
+                @{Text="find /boot -name 'FIND.ELF'";Delay=2500},'du /boot/ECHO.ELF','find /data','du /data',
+                'exit','fileinfo','pwd','timerstop','halt'
+            ) @('bytes=9 files=3 directories=3','bytes=0 files=0 directories=1','bytes=5 files=1 directories=0',
+                'bytes=640 files=1 directories=0','nomatch=0','missing=1','invalid=2','pipeline exit=0','Open files: 0/16') 1
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $entryLines=@('/tmp/walk','/tmp/walk/empty','/tmp/walk/one.txt','/tmp/walk/sub','/tmp/walk/sub/two.txt',
+                '/tmp/walk/zero.bin','./zero.bin','/boot/FIND.ELF','/data','2 2 40')
+            foreach ($line in $entryLines) {
+                if (![regex]::IsMatch($log,'(?m)^'+[regex]::Escape($line)+'\r?$')) { throw "$name missing output line $line" }
+            }
+            if ([regex]::Matches($log,'(?m)^/tmp/walk/sub/two\.txt\r?$').Count -ne 2 -or
+                ![regex]::IsMatch($log,'\$ du /data\r?\nbytes=0 files=0 directories=1\r?\nchild exit=0') -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name bad filter or disk mutation" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($ShellHistory) {
+    $long='echo '+('x'*122)
+    $ring=1..18 | ForEach-Object { "echo ring-$_" }
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="shell-history-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $actions=@('storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+                'history','!!','echo first','echo "latest" | cat','history','  !!','!1',
+                '  # skipped','!99','!18446744073709551616','echo "!! !1"',$long,'  !6',
+                'history -c','history','!1','echo reset')+$ring+
+                @('history','!8','!11','history','exit','appshell','history','exit','fileinfo','pwd','timerstop','halt')
+            Session $disk $name $case[0] $case[1] $actions @(
+                '1  echo first','2  echo "latest" | cat','Replay: echo "latest" | cat',
+                'pipeline exit=0','Replay: echo first',"Replay: $long",
+                'History cleared.','11  echo ring-3','26  echo ring-18',
+                'Replay: echo ring-3','27  echo ring-3','Open files: 0/16','cleanup=restored') 2
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,'(?m)^History is empty\.\r?$').Count -ne 3 -or
+                [regex]::Matches($log,'(?m)^shell: history entry unavailable\r?$').Count -ne 5 -or
+                [regex]::Matches($log,'(?m)^!! !1\r?$').Count -ne 1 -or
+                [regex]::Matches($log,'(?m)^pipeline exit=0\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'state=exited code=0 [^\r\n]*heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1').Count -ne 2 -or
+                $log -match '(?m)^(?:8  echo reset|9  echo ring-1|10  echo ring-2)\r?$' -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name history behavior or disk mutation" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($StreamSyntax) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="stream-syntax-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+                'echo "hello from OurOS">/tmp/syntax-in',
+                'cat </tmp/syntax-in|grep OurOS > /tmp/syntax-out', 'cat /tmp/syntax-out',
+                'wc </tmp/syntax-out | head -n 1 && echo chain-ok',
+                'echo "a | b < c > d"','echo e\|f \< \>',
+                'setenv MARK "raw | < >"; echo "$MARK" | cat',
+                'setenv OUT /tmp/env-out; echo via-path > "$OUT"; cat "$OUT"',
+                'echo hello | grep absent || echo pipe-status=$?',
+                'echo "no overwrite" > /tmp/syntax-in || echo exists-status=$?',
+                'cat < /tmp/nonexistent > /tmp/failed || echo input-status=$?',
+                'stat /tmp/failed || echo no-partial-output',
+                'echo must-not-run; cat | wc | head',
+                'echo "blocked" >> /tmp/append',
+                'cat > /tmp/wrong-side | wc', 'echo text | cat < /tmp/syntax-in',
+                'cd /tmp > /tmp/bad-builtin || echo builtin-status=$?',
+                'echo "retained"; cat /tmp/syntax-in',
+                "write /tmp/stream-script 'cat </tmp/syntax-in | wc'",
+                'source /tmp/stream-script',
+                'pipe ECHO legacy-pipe -- CAT','runio - /tmp/legacy-out ECHO legacy-redir','cat /tmp/legacy-out',
+                'exit','fileinfo','pwd','timerstop','halt'
+            ) @('OurOS EL0 shell.','hello from OurOS','chain-ok','a | b < c > d','e|f < >','raw | < >',
+                'via-path','pipe-status=1','exists-status=127','input-status=127','no-partial-output',
+                'builtin-status=2','retained','legacy-pipe','legacy-redir','Open files: 0/16','cleanup=restored') 1
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,'(?m)^1 3 17\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'shell: invalid pipe or redirection syntax').Count -ne 4 -or
+                [regex]::IsMatch($log,'(?m)^must-not-run\r?$') -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name stream syntax or disk mutation" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($TextTools) {
+    . "$PSScriptRoot/data-backup.ps1"
+    . "$PSScriptRoot/data-format.ps1"
+    $prefix="alpha needle`r`n"+('x'*496)+"needle two`n"
+    $suffix='last needle'
+    $text=$prefix+"skip`n"+$suffix
+    $ascii=[Text.Encoding]::ASCII
+    $partition=New-OurOSDataPartition -Version 4
+    $bank=New-OurOSDataBackup -Version 4 -Files @(
+        @{Name='sample.txt';Data=$ascii.GetBytes($text)},@{Name='long.txt';Data=$ascii.GetBytes('x'*4097)})
+    $bank.CopyTo($partition,512)
+    $sum=[Security.Cryptography.SHA256]::Create()
+    try {
+        $grepHash=([BitConverter]::ToString($sum.ComputeHash($ascii.GetBytes($prefix+$suffix)))).Replace('-','').ToLowerInvariant()
+        $headHash=([BitConverter]::ToString($sum.ComputeHash($ascii.GetBytes($prefix)))).Replace('-','').ToLowerInvariant()
+    } finally { $sum.Dispose() }
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="text-tools-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $file=[IO.File]::OpenWrite($disk)
+            try { $file.Position=260096L*512;$file.Write($partition,0,$partition.Length) } finally { $file.Dispose() }
+            $fixture=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','datainit','mmuinit','irqinit','timerstart','appshell',
+                'wc /data/sample.txt','pipe CAT /data/sample.txt -- wc',
+                'runio /data/sample.txt /tmp/filtered grep needle','sha256 /tmp/filtered',
+                'pipeio /data/sample.txt /tmp/prefix CAT -- head -n 2','sha256 /tmp/prefix',
+                'pipe STREAM -- head -n 0','grep Needle /data/sample.txt','echo nomatch=$?',
+                'grep x /data/long.txt','echo large=$?','head -n -1 /data/sample.txt','echo badarg=$?',
+                'wc /data/missing.txt','echo missing=$?','exit','fileinfo','pwd','timerstop','halt'
+            ) @("3 7 $($text.Length)",'pipeline exit=0',"$grepHash  /tmp/filtered","$headHash  /tmp/prefix",
+                'nomatch=1','grep: line exceeds 4096 bytes','large=2','badarg=2','missing=2','Open files: 0/16') 1
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,"(?m)^3 7 $($text.Length)`r?$").Count -ne 2 -or
+                ![regex]::IsMatch($log,'\$ pipe STREAM -- head -n 0\r?\npipeline exit=0\r?\n') -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $fixture) {
+                throw "$name unexpected pipeline outcomes or disk mutation"
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($PackageDownload) {
     $hash='0'*64

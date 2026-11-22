@@ -1,5 +1,25 @@
 # Real Raspberry Pi 5 proof
 
+The Pi found both nested text files and counted the seven bytes written
+to them. Both commands exited with code 0.
+[Directory tools capture](pi5-directory-tools-2026-11-22.txt)
+
+The Pi listed numbered shell history, replayed a pipeline with `!!`
+and an earlier command with `!1`, then cleared the history.
+[Shell history capture](pi5-shell-history-2026-11-22.txt)
+
+The Pi passed shell redirection and two-stage pipelines. Both pipelines
+exited with code 0, and the shell printed `1 3 17` and `streams-ok`.
+[Shell streams capture](pi5-shell-streams-2026-11-22.txt)
+
+The Pi passed `grep`, `wc`, and `head` from the serial shell. Both
+direct input and a pipeline returned `1 3 17` with exit code 0.
+[Text tools capture](pi5-text-tools-2026-11-22.txt)
+
+The Pi saved and installed a 512-byte ELF served by Windows over pinned
+TLS. It refused the duplicate download and ran the managed app with
+exit code 0. [Package download capture](pi5-package-download-2026-11-22.txt)
+
 The Pi and Windows passed a live 9-byte TLS 1.3 encrypted echo. Windows
 verified client Finished, and the Pi exited with code 0 and restored
 app resources. [Live test result](../docs/tls-live.md#local-verification)

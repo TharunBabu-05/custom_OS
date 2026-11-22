@@ -1,5 +1,13 @@
 # Development log
 
+## 2026-11-22 - Pi package download verified and HDMI text output
+
+The Pi downloaded and verified the Windows ELF, refused to overwrite it
+on a repeated download, and installed and ran it as `netdemo`. Phase 11
+adds discovery and reservation of the firmware framebuffer, a color-bar
+test, and an opt-in HDMI mirror of UART text.
+[Pi package capture](../proofs/pi5-package-download-2026-11-22.txt) · [HDMI test](hdmi-framebuffer.md)
+
 ## 2026-11-22 - Verified HTTPS package download
 
 `PKGGET.ELF` retrieves an application over pinned TLS, verifies the

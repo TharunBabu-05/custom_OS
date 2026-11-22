@@ -76,15 +76,14 @@ empty destination; automatic preservation, merging and in-place migration remain
 
 ## Local hardware and UI
 
-The current supported interaction is the header UART. No HDMI framebuffer,
-USB keyboard/mouse, GPU, audio or general peripheral driver is claimed complete.
-Because the present Pi setup has serial only, new local-device work must keep
-UART diagnostics and distinguish emulator checks from physical verification.
+The header UART provides input and diagnostics. The opt-in HDMI text
+mirror is ready for physical scanout testing. Keep UART available
+during that test and the later USB input work. [HDMI test](hdmi-framebuffer.md)
 
 | Layer | Next implementation and acceptance |
 | --- | --- |
-| Display discovery | Establish the Pi 5 firmware/display handoff, pixel format, address translation and valid framebuffer ownership; verify hardware scanout |
-| Framebuffer console | Bounded framebuffer writes, clipping/stride checks, font/text rendering, scrolling and serial/display console routing |
+| Display discovery | Validate the Pi 5 firmware handoff and reserved scanout memory on hardware |
+| Framebuffer console | Verify the color pattern, font, scrolling and UART mirror on HDMI |
 | USB input transport | Extend host transfers/enumeration for hubs and interrupt-IN endpoints without breaking boot storage; bounded disconnect/error recovery |
 | Keyboard/mouse HID | Descriptor/report parsing, boot-protocol fallback where appropriate, key/button transitions, keyboard layout and input event queue |
 | Terminal/UI | Console input discipline, cursor/selection policy, text shell integration, later a window/compositor model if desired |

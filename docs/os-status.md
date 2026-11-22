@@ -78,7 +78,7 @@ to be repeated at every development step.
 | Time | Counter, uptime, 100 Hz CNTP IRQ and cooperative sleep verified on Pi. The Pi passed operator-set UTC, the EL0 query, and trust validity preflight. [UTC and trust guide](trust-time.md) | RTC and automatic time synchronization |
 | Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/spawn/wait/pipes/process control; Pi bg/jobs/stop responsiveness and cleanup | Pi fg/bgio and broader lifecycle checks, multiple jobs/process trees, broader blocking I/O, SMP and indefinite services |
 | Processes/system calls | Three private EL0 slots; checked files/console/args/cwd/spawn/wait/streams/pipes/exec/env/profiles/pages; snapshot/poll/cancel 40..42 and mount query 43 | Broader lifecycle hardware checks, IPC/descriptor API, credentials/access control and background services |
-| Programs/runtime | Bounded ELF loader, 60 sample/test ELFs, Pi PS/memory/allocator checks, and QEMU-verified named app installs, upgrades and rollback. `PKGGET.ELF` retrieves and verifies an ELF over pinned HTTPS. [Local app lifecycle](app-lifecycle.md) · [Package download test](package-download.md) | Pi download and managed-app checks, larger VM, general libc/dynamic linking and package catalog |
+| Programs/runtime | Bounded ELF loader, 60 sample/test ELFs, Pi PS/memory/allocator checks, and QEMU-verified app upgrades and rollback. The Pi downloaded and verified an ELF over pinned HTTPS, installed it and ran it. [Local app lifecycle](app-lifecycle.md) · [Package download test](package-download.md) | Pi upgrade and rollback checks, larger VM, general libc/dynamic linking and package catalog |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked open/read/write/seek/close handles with cursors and path leases | General mounts, richer metadata, permissions, pseudo-filesystems and preemptive driver synchronization |
 | Persistent files | Pi-verified v4 retention and v5 startup. Optional v5 raises the limits to 32 nodes and 32 KiB files and imports v4 backups. [Storage prototype](data-v5.md) | Physical v5 migration, retention and power-cut checks, and richer metadata |
 | Shell | Pi-verified files/run/runio/pipes/exec/env/profiles/expansion. Two jobs, PID selection, command lists and `source` passed on Pi. [Shell workflows](shell-workflows.md) | Longer pipelines |
@@ -118,7 +118,7 @@ different evidence; no individual self-test proves the entire OS.
 | Wi-Fi station/authentication | WPA3-Personal SAE + required PMF and data key setup, foreground DHCP/DNS/ping verified on Jack's; not general long-lived station management |
 | GPIO/pin control | Limited WLAN power/mux setup and firmware-initialized UART; no general user GPIO API |
 | USB keyboard/mouse (HID) | Needed for local interactive use; not implemented |
-| HDMI/display/framebuffer | Needed for a local screen; no OurOS display driver or graphical console yet |
+| HDMI/display/framebuffer | Firmware framebuffer discovery, color bars and UART text mirroring implemented. Physical HDMI verification is pending. [HDMI test](hdmi-framebuffer.md) |
 | Graphics/GPU acceleration | Optional later desktop capability; not implemented |
 | Ethernet | Optional alternative network transport on Pi 5; MAC/PHY driver and integration not implemented |
 | Bluetooth | Optional; not implemented |

@@ -1,0 +1,12 @@
+Raspberry Pi 5 serial shell, operator capture, 2026-11-22.
+The rerun starts by renaming the input file created with a typo.
+
+user:/$ mv /tmp/sreams-in /tmp/streams-in
+user:/$ cat < /tmp/streams-in | grep OurOS > /tmp/streams-out
+pipeline exit=0
+user:/$ wc < /tmp/streams-out | head -n 1 && echo streams-ok                   1 3 17
+pipeline exit=0
+streams-ok
+user:/$ rm /tmp/streams-in
+user:/$ rm /tmp/streams-out
+user:/$

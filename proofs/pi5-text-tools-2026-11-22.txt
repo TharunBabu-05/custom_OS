@@ -1,0 +1,20 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The USB boot mounted FAT32 at /boot and /data extents v5.
+Excerpt begins at the startup shell.
+
+user:/$ runio - /tmp/text-demo ECHO "hello from OurOS"
+child exit=0
+user:/$ grep OurOS /tmp/text-demo
+hello from OurOS
+child exit=0
+user:/$ wc /tmp/text-demo
+1 3 17
+child exit=0
+user:/$ head -n 1 /tmp/text-demo
+hello from OurOS
+child exit=0
+user:/$ pipe CAT /tmp/text-demo -- wc
+1 3 17
+pipeline exit=0
+user:/$ rm /tmp/text-demo
+user:/$

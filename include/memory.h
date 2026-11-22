@@ -16,6 +16,7 @@ struct memory_map {
     unsigned ram_count, reserved_count;
     uint32_t dtb_size;
     uint64_t ram_bytes;
+    struct memory_range framebuffer; /* page-rounded, reserved before allocation */
 };
 struct page_stats {
     uint64_t ram_bytes, managed_pages, free_pages, allocated_pages;

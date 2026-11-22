@@ -84,4 +84,10 @@ the missing-clock, unavailable-network, wrong-hash and invalid-ELF
 checks. They also checked storage readback, destination preservation,
 stage cleanup and app resource cleanup.
 
-The Pi download, installation and execution still need hardware verification.
+The Pi accepted the operator-set clock and the Windows certificate pin,
+saved the verified 512-byte ELF and exited with code 0. A repeated
+download to the same path reported that the destination already
+existed. `appadd` installed `netdemo` 1.0, `appstart` printed the
+expected greeting with exit code 0, and `applist` showed the active
+version. The session cleared its trust store and stopped Wi-Fi.
+[Pi and Windows capture](../proofs/pi5-package-download-2026-11-22.txt)

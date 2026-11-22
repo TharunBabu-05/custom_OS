@@ -1,0 +1,23 @@
+Raspberry Pi 5 serial shell, operator capture, 2026-11-22.
+The Pi booted from USB with FAT32 /boot and extents v5 /data.
+
+user:/$ echo first
+first
+user:/$ echo second | cat
+second
+pipeline exit=0
+user:/$ history
+1  echo first
+2  echo second | cat
+user:/$ !!
+Replay: echo second | cat
+second
+pipeline exit=0
+user:/$ !1
+Replay: echo first
+first
+user:/$ history -c
+History cleared.
+user:/$ history
+History is empty.
+user:/$

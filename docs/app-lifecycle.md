@@ -92,9 +92,10 @@ Native ELF parsing passed 25,000 deterministic mutations. The QEMU
 Cortex-A76/EL2. It checked invalid and duplicate versions, a blocked
 record write after staging, cold-boot selection, rollback, uninstall,
 and retention of an unrelated user file. The Windows updater passed
-preview, apply, and rollback on scratch files. The Pi booted the update and
-`applist` reported an empty store. Pi install, rollback and uninstall checks
-remain open. [Pi capture](../proofs/pi5-app-lifecycle-boot-2026-11-22.txt)
+preview, apply, and rollback on scratch files. The Pi later installed
+`netdemo` 1.0 from the downloaded ELF, ran it with exit code 0, and
+listed the active version. Pi upgrade, rollback and uninstall checks
+remain open. [Pi package capture](../proofs/pi5-package-download-2026-11-22.txt)
 
 | File | SHA-256 |
 | --- | --- |

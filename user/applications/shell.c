@@ -20,10 +20,10 @@ static void monitor_network_hint(void)
 {
     print("Type exit, then run this command at the > monitor prompt. For the EL0 test use networktest el0 (lowercase L, digit zero).\n");
 }
-enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE };
+enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE,CMD_HISTORY };
 static unsigned command_kind(const char *cmd)
 {
-    const char *name="jobs\0""stop\0""status\0""exit\0""help\0""fg\0""path\0""getenv\0""env\0""setenv\0""unsetenv\0""profile\0""exec\0""run\0""runio\0""pipe\0""pipeio\0""bg\0""bgio\0""cp\0""mv\0""replace\0""stat\0""sync\0""sha256\0""pwd\0""cd\0""ls\0""cat\0""echo\0""write\0""mkdir\0""rm\0""rmdir\0""source\0";unsigned kind=1;
+    const char *name="jobs\0""stop\0""status\0""exit\0""help\0""fg\0""path\0""getenv\0""env\0""setenv\0""unsetenv\0""profile\0""exec\0""run\0""runio\0""pipe\0""pipeio\0""bg\0""bgio\0""cp\0""mv\0""replace\0""stat\0""sync\0""sha256\0""pwd\0""cd\0""ls\0""cat\0""echo\0""write\0""mkdir\0""rm\0""rmdir\0""source\0""history\0";unsigned kind=1;
     while (*name) { if (same(cmd,name)) { return kind; }while (*name++) { }++kind; }return CMD_OTHER;
 }
 static void number(uint64_t n)
@@ -146,13 +146,196 @@ static int environment(const char *key)
         print(entry.name);print("=");print(entry.value);print("\n");
     }return 0;
 }
-enum { SHELL_LINE_BYTES=128, COMMAND_LIMIT=8, SCRIPT_BYTES=4096, SCRIPT_LINES=32 };
+enum { SHELL_LINE_BYTES=128, COMMAND_LIMIT=8, SCRIPT_BYTES=4096, SCRIPT_LINES=32, HISTORY_LIMIT=16 };
+_Static_assert(HISTORY_LIMIT*SHELL_LINE_BYTES<=4096,"history must fit in one private page");
 enum list_operator { LIST_ALWAYS,LIST_AND,LIST_OR };
 struct command_list {
     unsigned count;
     struct { char *text;enum list_operator op; } entries[COMMAND_LIMIT];
 };
-struct shell_state { uint64_t status,jobs[JOB_LIMIT];bool exiting,sourcing; };
+struct shell_history {
+    uint64_t last;
+    unsigned count;
+    char (*lines)[SHELL_LINE_BYTES];
+};
+struct shell_state {
+    uint64_t status,jobs[JOB_LIMIT];
+    bool exiting,sourcing,history_used;
+    struct shell_history history;
+};
+
+static void copy_line(char *out,const char *text)
+{
+    while ((*out++=*text++)) { }
+}
+
+static unsigned history_slot(uint64_t id)
+{ return (unsigned)((id-1)%HISTORY_LIMIT); }
+
+static void history_add(struct shell_history *history,const char *line)
+{
+    if (!history->lines || history->last==UINT64_MAX) { return; }
+    copy_line(history->lines[history_slot(++history->last)],line);
+    if (history->count<HISTORY_LIMIT) { ++history->count; }
+}
+
+static void history_command(struct shell_state *state,const struct app_args *args)
+{
+    struct shell_history *history=&state->history;
+    state->history_used=true;
+    if (!history->lines) { state->status=1;print("shell: history storage unavailable\n");return; }
+    if (args->count==2 && same(args->bytes+args->offset[1],"-c")) {
+        char *bytes=(char *)history->lines;
+        for (size_t i=0;i<HISTORY_LIMIT*SHELL_LINE_BYTES;++i) { bytes[i]=0; }
+        history->count=0;
+        print("History cleared.\n");
+    } else if (args->count!=1) {
+        state->status=2;print("Usage: history [-c]\n");
+    } else if (!history->count) {
+        print("History is empty.\n");
+    } else {
+        uint64_t first=history->last-history->count+1;
+        for (unsigned i=0;i<history->count;++i) {
+            uint64_t id=first+i;
+            number(id);print("  ");print(history->lines[history_slot(id)]);print("\n");
+        }
+    }
+}
+
+/* Recognize standalone !! or ! followed by a decimal ID before expansion. */
+static bool history_recall(const struct shell_history *history,const char *text,const char **entry)
+{
+    if (*text!='!') { return false; }
+    const char *p=text+1;
+    uint64_t id=0;
+    if (*p=='!') {
+        id=history->last;++p;
+    } else {
+        if (*p<'0' || *p>'9') { return false; }
+        bool overflow=false;
+        while (*p>='0' && *p<='9') {
+            unsigned digit=(unsigned)(*p++-'0');
+            if (id>(UINT64_MAX-digit)/10) { overflow=true; }
+            if (!overflow) { id=id*10+digit; }
+        }
+        if (overflow) { id=0; }
+    }
+    while (*p==' ' || *p=='\t') { ++p; }
+    if (*p) { return false; }
+    *entry=id && id<=history->last && history->last-id<history->count ?
+        history->lines[history_slot(id)] : 0;
+    return true;
+}
+enum stream_syntax { STREAM_PLAIN,STREAM_VALID,STREAM_INVALID };
+struct stream_command {
+    char stages[2][SHELL_LINE_BYTES];
+    char input[SHELL_LINE_BYTES],output[SHELL_LINE_BYTES];
+    bool piping;
+};
+
+/* Operators are recognized only in the original text. Leave quote removal
+ * and expansion to the same argument parser as ordinary commands. */
+static const char *stream_word_end(const char *p)
+{
+    char quote=0;
+    for (;*p;++p) {
+        char c=*p;
+        if (c=='\\' && p[1]) { ++p;continue; }
+        if (c=='\'' || c=='"') {
+            if (!quote || quote==c) { quote=quote ? 0 : c; }
+        } else if (!quote && (c==' ' || c=='\t' || c=='|' || c=='<' || c=='>')) { break; }
+    }
+    return p;
+}
+
+static enum stream_syntax parse_stream(const char *p,struct stream_command *command)
+{
+    *command=(struct stream_command){0};
+    size_t used[2]={0};
+    char *destination=0;
+    bool operated=false;
+    while (*p) {
+        char c=*p;
+        if (c==' ' || c=='\t') { ++p;continue; }
+        unsigned stage=command->piping;
+        if (c=='|' || c=='<' || c=='>') {
+            operated=true;
+            if (destination) { return STREAM_INVALID; }
+            if (c=='|') {
+                if (stage || !used[0] || command->output[0]) { return STREAM_INVALID; }
+                command->piping=true;
+            } else {
+                destination=c=='<' ? command->input : command->output;
+                if (*destination || (c=='<' && stage)) { return STREAM_INVALID; }
+            }
+            ++p;
+            continue;
+        }
+        const char *end=stream_word_end(p);
+        size_t bytes=(size_t)(end-p);
+        if (destination) {
+            if (bytes>=SHELL_LINE_BYTES) { return STREAM_INVALID; }
+            while (p<end) { *destination++=*p++; }
+            *destination=0;
+            destination=0;
+        } else {
+            char *text=command->stages[stage];
+            size_t at=used[stage];
+            if (at) { text[at++]=' '; }
+            if (bytes>=SHELL_LINE_BYTES-at) { return STREAM_INVALID; }
+            while (p<end) { text[at++]=*p++; }
+            text[at]=0;
+            used[stage]=at;
+        }
+    }
+    if (!operated) { return STREAM_PLAIN; }
+    return destination || !used[0] || (command->piping && !used[1]) ? STREAM_INVALID : STREAM_VALID;
+}
+
+static bool stream_path(const char *text,char *path,size_t capacity,uint64_t *status)
+{
+    if (!*text) { return true; }
+    struct app_args arg;
+    if (!app_args_expand(text,expand_value,status,&arg) || arg.count!=1 || arg.used>capacity) { return false; }
+    for (unsigned i=0;i<arg.used;++i) { path[i]=arg.bytes[i]; }
+    return true;
+}
+
+static bool stream_program(const struct app_args *args)
+{
+    unsigned kind=command_kind(args->bytes);
+    return kind==CMD_OTHER || kind==CMD_ECHO || kind==CMD_CAT || kind==CMD_LS || kind==CMD_PWD;
+}
+
+static void execute_stream(struct shell_state *state,const struct stream_command *command)
+{
+    struct app_args left,right;
+    struct uos_stdio io={0};
+    bool piping=command->piping;
+    if ((piping && (state->jobs[0] || state->jobs[1])) || (state->jobs[0] && state->jobs[1])) {
+        state->status=1;print("shell: use fg or stop first\n");return;
+    }
+    if (!app_args_expand(command->stages[0],expand_value,&state->status,&left) ||
+        (piping && !app_args_expand(command->stages[1],expand_value,&state->status,&right)) ||
+        !stream_path(command->input,io.input,sizeof(io.input),&state->status) ||
+        !stream_path(command->output,io.output,sizeof(io.output),&state->status)) {
+        state->status=2;print("shell: invalid arguments or redirection path\n");return;
+    }
+    if (!stream_program(&left) || (piping && !stream_program(&right))) {
+        state->status=2;print("shell: use runnable programs with | < >\n");return;
+    }
+    if (program(&left) || (piping && program(&right))) {
+        state->status=127;print("shell: program not found\n");return;
+    }
+    int64_t code;
+    if (piping) {
+        code=uos_pipeline(&left,&right,30,&io);
+    } else {
+        int64_t pid=uos_spawn_io(&left,30,&io);
+        code=pid<0 ? pid : uos_wait((uint64_t)pid);
+    }
+    job_result(code,piping,&state->status);
+}
 
 /* Split before expanding so a variable's value cannot introduce operators.
  * Match the argument parser's quote and backslash handling. */
@@ -229,9 +412,23 @@ static bool execute_line(struct shell_state *state,char *line)
         else { print("shell: invalid quoting, expansion or argument bounds (command list)\n"); }
         return false;
     }
+    struct stream_command stream;
+    bool streams[COMMAND_LIMIT];
+    for (unsigned i=0;i<commands.count;++i) {
+        enum stream_syntax syntax=parse_stream(commands.entries[i].text,&stream);
+        if (syntax==STREAM_INVALID) {
+            state->status=2;print("shell: invalid pipe or redirection syntax\n");return false;
+        }
+        streams[i]=syntax==STREAM_VALID;
+    }
     for (unsigned step=0;step<commands.count && !state->exiting;++step) {
         enum list_operator op=commands.entries[step].op;
         if ((op==LIST_AND && state->status) || (op==LIST_OR && !state->status)) { continue; }
+        if (streams[step]) {
+            (void)parse_stream(commands.entries[step].text,&stream);
+            execute_stream(state,&stream);
+            continue;
+        }
         struct app_args args;
         if (!app_args_expand(commands.entries[step].text,expand_value,&state->status,&args)) {
             state->status=2;print("shell: invalid quoting, expansion or argument bounds\n");return false;
@@ -243,7 +440,10 @@ static bool execute_line(struct shell_state *state,char *line)
             print("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nrun|exec PROGRAM [args]\nrunio IN|- OUT|- PROGRAM [args]\npipe PROGRAM [args] -- PROGRAM [args]\npipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]\n");
             print("bg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg [PID] | stop [PID] (two jobs, 1..30 seconds)\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\nsource PATH | lists with ; && ||\n$NAME ${NAME} $?; single quotes keep literals\n");
             print("Use exit for the kernel monitor (Wi-Fi commands and networktest).\n");
+            print("PROGRAM < IN > NEWOUT | two-stage pipes: LEFT | RIGHT\n");
+            print("history [-c] | !! repeats last | !N repeats entry N\n");
         } else if ((kind==CMD_STATUS) && args.count==1) { number(state->status);print("\n"); }
+        else if (kind==CMD_HISTORY) { history_command(state,&args); }
         else if (kind==CMD_SOURCE && args.count==2) {
             if (state->sourcing) { state->status=2;print("shell: nested source refused\n"); }
             else { source_file(state,p); }
@@ -352,6 +552,26 @@ static bool execute_line(struct shell_state *state,char *line)
     }
     return true;
 }
+
+static void submit_line(struct shell_state *state,char *line)
+{
+    const char *record=line,*entry;
+    while (*record==' ' || *record=='\t') { ++record; }
+    if (!*record || *record=='#') { return; }
+    char work[SHELL_LINE_BYTES];
+    if (history_recall(&state->history,record,&entry)) {
+        if (!entry) { state->status=1;print("shell: history entry unavailable\n");return; }
+        /* Copy the entry before running it because replay can clear history. */
+        copy_line(line,entry);
+        record=line;
+        print("Replay: ");print(line);print("\n");
+    }
+    copy_line(work,record);
+    state->history_used=false;
+    if (execute_line(state,work) && !state->history_used && !state->exiting) {
+        history_add(&state->history,record);
+    }
+}
 int app_main(void)
 {
     char line[SHELL_LINE_BYTES],cwd[256];struct shell_state state={0};
@@ -366,12 +586,17 @@ int app_main(void)
             else { print("shell: profile loaded /data/session.env\n"); }
         }
     }
+    /* Leave the fixed user stack available for nested source/launch frames. */
+    int64_t page=uos_alloc_pages(1);
+    if (page>0) { state.history.lines=(void *)(uintptr_t)page; }
+    int result=0;
     while (!state.exiting) {
-        if (uos_getcwd(cwd,sizeof(cwd))<0) { return 1; }
+        if (uos_getcwd(cwd,sizeof(cwd))<0) { result=1;break; }
         print("user:");print(cwd);print("$ ");
         int64_t n=uos_readline(line,sizeof(line));if (n==UOS_EOF) { break; }
-        if (n<0) { state.status=2;print("shell: input rejected; command not executed\n");if (n==UOS_ERROR) { continue; }return 1; }
-        if (n) { (void)execute_line(&state,line); }
+        if (n<0) { state.status=2;print("shell: input rejected; command not executed\n");if (n==UOS_ERROR) { continue; }result=1;break; }
+        if (n) { submit_line(&state,line); }
     }
-    return 0;
+    if (state.history.lines && uos_free_pages(state.history.lines)) { return 1; }
+    return result;
 }

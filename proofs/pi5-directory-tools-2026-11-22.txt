@@ -1,0 +1,15 @@
+Raspberry Pi 5 serial shell, operator capture, 2026-11-22.
+The Pi booted from USB with FAT32 /boot and extents v5 /data.
+
+user:/$ mkdir /tmp/du-demo
+user:/$ mkdir /tmp/du-demo/sub
+user:/$ write /tmp/du-demo/one.txt alpha
+user:/$ write /tmp/du-demo/sub/two.txt ba
+user:/$ find /tmp/du-demo -name '\*.txt'
+/tmp/du-demo/sub/two.txt
+/tmp/du-demo/one.txt
+child exit=0
+user:/$ du /tmp/du-demo
+bytes=7 files=2 directories=2
+child exit=0
+user:/$

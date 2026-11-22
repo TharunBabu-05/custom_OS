@@ -22,6 +22,7 @@
 #include "wpa_keys.h"
 #include "network_worker.h"
 #include "trust_time.h"
+#include "framebuffer.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -126,6 +127,7 @@ static void command(const char *line)
     if (process_command(line) || task_command(line) || file_command(line) || trust_time_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
     if (mmu_command(line)) { return; }
+    if (framebuffer_command(line)) { return; }
     if (heap_command(line)) { return; }
     if (filesystem_command(line)) { return; }
     if (storage_command(line)) { return; }
@@ -141,6 +143,7 @@ static void command(const char *line)
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
+        console_write("fbinfo fbtest fbon fboff (firmware HDMI framebuffer and UART mirror)\n");
         console_write("excinfo exctest irqinit irqinfo irqtest timerstart timerinfo timertest timerstop\n");
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
         console_write("appinfo apptest apprun <ELF> [ELF2] [ELF3] (EL0; requires MMU/timer)\n");
@@ -234,7 +237,9 @@ static void command(const char *line)
     } else if (line[0]=='e' && line[1]=='c' && line[2]=='h' && line[3]=='o' && line[4]==' ') {
         console_write(line+5); console_write("\n");
     } else if (equal(line,"clear")) {
-        console_write("\033[2J\033[H");
+        const char *escape="\033[2J\033[H";
+        while (*escape) { uart_putc(*escape++); }
+        framebuffer_console_clear();
     } else if (equal(line,"reboot")) {
         if (network_worker_stop()) { system_reboot(board.name,firmware_dtb); }
         else { console_write("Reboot refused: Wi-Fi worker still running.\n"); }

@@ -1,8 +1,10 @@
 #include "console.h"
+#include "framebuffer.h"
 void console_putc(char c)
 {
     if (c == '\n') { uart_putc('\r'); }
     uart_putc(c);
+    framebuffer_console_putc(c);
 }
 void console_write(const char *text)
 {

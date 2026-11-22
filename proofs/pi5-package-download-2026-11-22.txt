@@ -1,0 +1,43 @@
+Raspberry Pi 5 header UART and Windows PowerShell, 2026-11-22.
+Windows served 512 bytes from build/apps/HELLO.ELF over pinned TLS.
+Windows: PASS: authenticated TLSv1.3 client Finished and served 512 package bytes.
+Package SHA-256 f56e61563de3ef535903c5a14bd39c8ca87992556bcabf614efbe8b3a288d2ff
+
+Pi UART excerpt:
+> utc set 2026-11-22T10:43:19Z
+UTC 2026-11-22T10:43:19Z source=operator age_seconds=0 remaining_seconds=86400
+> trustadd c6aff2d6d4324728d6353b4a46c05782bbacc3bceb63ab5125acbc1d42baaafc
+Anchor enrolled for this boot.
+> Package SHA-256 f56e61563de3ef535903c5a14bd39c8ca87992556bcabf614efbe8b3a288d2ff
+Unknown command. Type help.
+> appadd netdemo 1.0 /data/DLHELLO.ELF
+app: path not found
+> appterm 120 /boot/PKGGET.ELF 10.103.105.51 4043 f56e61563de3ef535903c5a14bd39c8ca87992556bcabf614efbe8b3a288d2ff DLHELLO.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=120
+PASS: HTTPS package SHA-256 and ELF verified. Saved /data/DLHELLO.ELF
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=0 preemptions=0 yields=0 idle_waits=17 terminal=yes budget_seconds=120 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/PKGGET.ELF state=exited code=0 syscalls=112 dispatches=1996 sleeps=9 wakes=9 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=8 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+> appterm 120 /boot/PKGGET.ELF 10.103.105.51 4043 f56e61563de3ef535903c5a14bd39c8ca87992556bcabf614efbe8b3a288d2ff DLHELLO.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=120
+Package destination already exists.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=3 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=yes budget_seconds=120 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/PKGGET.ELF state=exited code=1 syscalls=10 dispatches=1 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+> appadd netdemo 1.0 /data/DLHELLO.ELF
+netdemo active=1.0 previous=none
+> appstart netdemo
+Hello from an OurOS EL0 application.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=4 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=no budget_seconds=2 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/data/.apps/netdemo.1.elf state=exited code=0 syscalls=2 dispatches=1 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+> applist
+netdemo active=1.0 previous=none
+> trustclear
+Trust anchors cleared.
+> netdown
+Wi-Fi worker stopped. Use netinfo for cleanup status.
+>

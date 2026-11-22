@@ -65,6 +65,12 @@ enum mmu_result mmu_plan_make(const struct memory_map *map,enum mmu_profile prof
         if (!aligned(l->task_base) || !span(l->task_base,bytes) || l->task_base<l->rodata_end || l->task_base+bytes>l->guard || !mmu_plan_range(&p,l->task_base,(size_t)bytes,MMU_RW)) { return MMU_ARGUMENT; }
         for (unsigned i=0;i<l->task_count;++i) { if (!change(&p,l->task_base+(uint64_t)i*TASK_STACK_STRIDE,TASK_GUARD_BYTES,MMU_NONE)) { return MMU_RAM; } }
     }
+    struct memory_range fb=map->framebuffer;
+    if (fb.size && !mmu_plan_range(&p,fb.base,(size_t)fb.size,MMU_RW)) {
+        if (profile!=MMU_PI5 || fb.base<0x3c000000 || fb.base>=0x40000000 ||
+            fb.size>0x40000000-fb.base) { return MMU_RAM; }
+        enum mmu_result result=add(&p,fb.base,fb.size,MMU_RW);if (result!=MMU_OK) { return result; }
+    }
     const struct mmu_region pi[]={{0x1000000000ULL,0x80000000ULL,MMU_DEVICE},{0x1c00000000ULL,0x400000,MMU_DEVICE}};
     const struct mmu_region qemu[]={{0x08000000,0x04000000,MMU_DEVICE},{0x10000000,0x4000,MMU_DEVICE},{0x4010000000ULL,0x10000000,MMU_DEVICE}};
     const struct mmu_region *devices=profile==MMU_PI5 ? pi : qemu;unsigned count=profile==MMU_PI5 ? 2 : 3;

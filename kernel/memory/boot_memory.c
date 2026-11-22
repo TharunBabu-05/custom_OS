@@ -1,6 +1,7 @@
 #include "memory.h"
 #include "console.h"
 #include "mmu.h"
+#include "framebuffer.h"
 extern unsigned char __kernel_start[], __kernel_end[];
 static struct memory_map boot_map;
 static const char *status="not initialized";
@@ -22,6 +23,7 @@ void memory_boot_init(uintptr_t dtb)
         !memory_reserve(&boot_map,dtb,boot_map.dtb_size,"DTB")) {
         status="boot reservation limit or overflow; allocator disabled"; return;
     }
+    framebuffer_boot_init((const void *)dtb,boot_map.dtb_size,&boot_map);
     map_valid=true;
     if (!memory_claim_bitmap(&boot_map,&bitmap_address)) { status="no safe RAM arena for page bitmap; allocator disabled";return; }
     if (!pages_init(&boot_map,(void *)(uintptr_t)bitmap_address,PMM_BITMAP_BYTES)) { status="unsupported or exhausted usable RAM; allocator disabled"; return; }

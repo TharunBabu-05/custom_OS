@@ -25,6 +25,9 @@ check ELF/input/output paths. The kernel does not silently guess or rename files
 
 ## Pipe commands
 
+The shell also accepts `LEFT | RIGHT`, with `< INPUT` on the left
+and `> NEWFILE` on the right. [Shell examples](shell-workflows.md#pipe-and-redirection-operators)
+
 ```text
 pipe <producer ELF> [args] -- <consumer ELF> [args]
 pipeio <input|-> <new-output|-> <producer ELF> [args] -- <consumer ELF> [args]
@@ -93,11 +96,12 @@ persistence acceptance item. RAM files disappear on reset.
 
 One foreground pipeline uses all three process slots: parent plus two children.
 It requires an original/root process with no outstanding child and two unused
-slots. Nested pipelines/spawn, background jobs, longer chains, a public general
-file-descriptor API and shell `|` parsing remain future work. The explicit `--`
-separator is required exactly once and cannot currently be a pipeline argument.
-The shell keeps its 127-byte line and eight-word bound. Both stages share the
-ten-second shell job budget and remain subject to the enclosing session limit.
+slots. Nested pipelines/spawn, background pipelines, longer chains and a public
+general file-descriptor API remain future work. The `pipe` and `pipeio` commands
+require one `--` separator and keep their eight-word combined limit. The `|`
+syntax allows eight words per stage. All forms keep the 127-byte line limit.
+Both stages share a 10-second budget with `pipe` or a 30-second budget with
+`pipeio` and the operator syntax, subject to the enclosing session limit.
 
 The return status is the consumer's nonzero exit, otherwise the producer's exit;
 Ctrl+C returns 130. A producer ignoring EPIPE and returning zero reports 74 via
