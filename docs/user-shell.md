@@ -1,14 +1,11 @@
 # Interactive EL0 serial shell
 
-The [v4 storage phase](data-v4.md) now adds `df` for mount limits and larger
-persistent files. SHELL.ELF remains 8162 bytes and still fits v2/v3 volumes;
-the new kernel preserves their old bounds. Use the v4 boot-file update for
-the new kernel/apps together, or the full image for a new v4 volume.
+The current shell supports two background jobs, command lists and `source`.
+For commands and installation limits, see [Phase 4 shell workflows](shell-workflows.md).
 
-The current [bounded job phase](shell-jobs.md) adds bg/bgio, jobs, fg and stop
-to this same shell. It retains the 8 KiB installation bound and Pi-tested
-process-control kernel; copy its updated SHELL.ELF for the new commands.
-The earlier release details below describe the original shell stage.
+The v4 storage phase added `df` and larger persistent files. The original
+single-job release fit the 8 KiB v2/v3 limit. The Phase 4 shell runs from
+`/boot` and fits under `/data` on v4. [v4 storage](data-v4.md) · [Original job release](shell-jobs.md)
 
 **Update:** [Physical shell acceptance passes](../proofs/pi5-user-shell-2026-11-13.txt).
 The current [session-profile phase](session-profiles.md) adds `$NAME`/`${NAME}`/

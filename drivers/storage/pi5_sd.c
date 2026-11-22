@@ -18,10 +18,13 @@ static void write_reg(void *context,unsigned offset,uint32_t value)
     __asm__ volatile("dsb sy" ::: "memory");
 }
 static uint64_t ticks(void *context) { (void)context; return timer_ticks(); }
-bool platform_storage_attach(struct block_device *device)
+bool platform_storage_attach(struct block_device *device,uintptr_t dtb)
 {
-    /* Do not touch the unclocked/empty SD controller on a USB-only boot. */
-    if (!(read_reg(NULL,0x24)&(1u<<16)) || !(read_reg(NULL,0x2c)&4) || !(read_reg(NULL,0x28)&(1u<<8))) {
+    /* A warm reset can leave SDHCI looking clocked and populated. The
+     * firmware's selected USB boot source takes precedence over those bits. */
+    bool usb_boot=pi5_usb_boot_selected((const void *)dtb,0x200000);
+    if (usb_boot || !(read_reg(NULL,0x24)&(1u<<16)) || !(read_reg(NULL,0x2c)&4) || !(read_reg(NULL,0x28)&(1u<<8))) {
+        if (usb_boot) { console_write("Firmware boot source: USB mass storage.\n"); }
         usb_backend=true; return usb_storage_attach(device);
     }
     struct sdhci_io io={.read=read_reg,.write=write_reg,.ticks=ticks,.hz=timer_frequency()};

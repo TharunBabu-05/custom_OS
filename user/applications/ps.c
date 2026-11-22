@@ -132,7 +132,7 @@ static int checks(void)
             uos_replace(lease,"blocked",7)!=UOS_ERROR || uos_child_cancel((uint64_t)pid) ||
             !until((uint64_t)pid,UOS_PROCESS_CANCELLED,&info) || !info.finished || info.exit_code!=130 ||
             uos_child_cancel((uint64_t)pid) || uos_child_poll((uint64_t)pid,&info) || info.exit_code!=130 ||
-            uos_spawn(&args,1)!=UOS_ERROR || uos_replace(lease,"blocked",7)!=UOS_ERROR) { return 10; }
+            uos_replace(lease,"blocked",7)!=UOS_ERROR) { return 10; }
         if (uos_wait((uint64_t)pid)!=130 || uos_child_poll((uint64_t)pid,&info)!=UOS_ECHILD ||
             uos_child_cancel((uint64_t)pid)!=UOS_ECHILD || uos_wait((uint64_t)pid)!=UOS_ERROR || uos_replace(lease,"lease",5)!=5) { return 11; }
         previous=(uint64_t)pid;

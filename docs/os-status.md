@@ -78,10 +78,10 @@ to be repeated at every development step.
 | Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
 | Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/spawn/wait/pipes/process control; Pi bg/jobs/stop responsiveness and cleanup | Pi fg/bgio and broader lifecycle checks, multiple jobs/process trees, broader blocking I/O, SMP and indefinite services |
 | Processes/system calls | Three private EL0 slots; checked files/console/args/cwd/spawn/wait/streams/pipes/exec/env/profiles/pages; snapshot/poll/cancel 40..42 and mount query 43 | Broader lifecycle hardware checks, IPC/descriptor API, credentials/access control and background services |
-| Programs/runtime | Bounded ELF loader, 53 sample/test ELFs, Pi PS/memory/allocator checks; 8162-byte job-enabled shell; larger installed ELF cold-boot tests pass in QEMU | Pi v4/broader update acceptance, installed-shell persistence, larger VM, general libc/dynamic linking, packages and installer |
+| Programs/runtime | Bounded ELF loader, 53 sample/test ELFs, Pi PS/memory/allocator checks. The current shell fits the v4 file limit. | Broader installed-shell persistence, larger VM, general libc/dynamic linking, packages and installer |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked open/read/write/seek/close handles with cursors and path leases | General mounts, richer metadata, permissions, pseudo-filesystems and preemptive driver synchronization |
 | Persistent files | Pi verifies v2 capacity, restore/MVCHK and v3 DIRCHK; new v4 sixteen nodes/16 KiB files, explicit v1-v3 backup conversion and mount limits pass native/QEMU | Physical v4/reboot/export/power-cut checks, atomic-update hardware cases, capacity beyond fixed snapshots and richer metadata |
-| Shell | Pi-verified files/run/runio/pipes/exec/env/profiles/expansion and bg/jobs/stop; fg/bgio, deadlines and handoff pass in QEMU | Pi fg/bgio/deadline/parent-teardown and installed-shell reboot checks, multiple jobs, scripts/operators and longer pipelines |
+| Shell | Pi-verified files/run/runio/pipes/exec/env/profiles/expansion. Two jobs, PID selection, command lists and `source` passed on Pi. [Shell workflows](shell-workflows.md) | Longer pipelines |
 | Networking | WPA3/SAE, keys/port, DHCP, ARP, IPv4, ICMP and UDP DNS; Pi Internet pings verified | Renewal/rekey/reconnect, background service, neighbor cache, sockets, TCP, HTTP/TLS; IPv6 if required |
 | Security | Reservation-aware allocation, hidden volatile credentials, verified handshake checks, kernel/user page isolation, RW/NX and checked user copies | Credentials/permissions, broader access control, syscall/driver hardening, secure update/boot design and independent review |
 | Multicore/concurrency | One active CPU; secondary cores parked | SMP startup, per-CPU state, locking, memory-order/IRQ-safe primitives and concurrent drivers |
@@ -122,7 +122,7 @@ different evidence; no individual self-test proves the entire OS.
 | Bluetooth | Optional; not implemented |
 | Audio | Optional; controller/codec/audio service not implemented |
 | I2C/SPI/PWM/general GPIO | Add for attached peripherals as needed; not general-purpose drivers yet |
-| RTC/watchdog/power/reboot | Monitor `reboot` flushes and quiesces storage, with a QEMU-verified PSCI path and Pi watchdog verification pending. RTC and power-off remain future work. [Safe reboot](safe-reboot.md) |
+| RTC/watchdog/power/reboot | Monitor `reboot` flushes and quiesces storage. Pi watchdog reboot and USB remount are verified. QEMU PSCI paths passed. RTC and power-off remain future work. [Safe reboot](safe-reboot.md) |
 | Thermal/fan management | Firmware may manage hardware during boot; no OurOS management policy/driver |
 | Camera, touch, other sensors | Optional board/device-specific work after core services |
 | NVMe/SATA/other storage | Optional extra transports, not covered by the USB BOT or SD handoff driver |
@@ -134,5 +134,5 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-Phase 3 safe reboot passed native and QEMU tests. The Pi watchdog acceptance
-run is pending. [Implementation plan](implementation-plan.md)
+The Pi passed the shell workflows and safe reboot with persisted data.
+Phase 5 covers storage capacity and recovery. [Implementation plan](implementation-plan.md)

@@ -90,9 +90,27 @@ static void observer_tests(void)
 }
 static void dt_tests(void)
 {
+    unsigned char boot_dtb[]={
+        0xd0,0x0d,0xfe,0xed, 0,0,0,134, 0,0,0,56, 0,0,0,124, 0,0,0,40,
+        0,0,0,17, 0,0,0,16, 0,0,0,0, 0,0,0,10, 0,0,0,68,
+        0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+        0,0,0,1, 0,0,0,0,
+        0,0,0,1, 'c','h','o','s','e','n',0,0,
+        0,0,0,1, 'b','o','o','t','l','o','a','d','e','r',0,0,
+        0,0,0,3, 0,0,0,4, 0,0,0,0, 0,0,0,4,
+        0,0,0,2, 0,0,0,2, 0,0,0,2, 0,0,0,9,
+        'b','o','o','t','-','m','o','d','e',0
+    };
+    assert(pi5_usb_boot_selected(boot_dtb,sizeof(boot_dtb)));
+    unsigned char *mode=boot_dtb+107;
+    *mode=1;assert(!pi5_usb_boot_selected(boot_dtb,sizeof(boot_dtb)));
+    *mode=5;assert(!pi5_usb_boot_selected(boot_dtb,sizeof(boot_dtb)));
+    *mode=4;assert(!pi5_usb_boot_selected(boot_dtb,sizeof(boot_dtb)-1));
+    puts("PASS: firmware USB boot source selection, SD and other mode refusal, and truncated DT rejection");
     FILE *f=fopen(".dist/rpi5-firmware/bcm2712-rpi-5-b.dtb","rb"); assert(f);
     assert(!fseek(f,0,SEEK_END)); long n=ftell(f); assert(n>40); rewind(f);
     unsigned char *data=malloc((size_t)n); assert(data && fread(data,1,(size_t)n,f)==(size_t)n); fclose(f);
+    assert(!pi5_usb_boot_selected(data,(size_t)n)); /* Firmware adds the property at boot. */
     struct pi5_usb_description d;
     for (unsigned i=0;i<2;++i) {
         assert(pi5_usb_describe(data,(size_t)n,i,&d));

@@ -28,6 +28,7 @@ struct pi5_usb_description {
 };
 /* Recognizes only the two documented RP1 DWC3 nodes, not arbitrary DT MMIO. */
 bool pi5_usb_describe(const void *dtb,size_t available,unsigned index,struct pi5_usb_description *out);
+bool pi5_usb_boot_selected(const void *dtb,size_t available);
 void usb_setup(const char *board,uintptr_t dtb,uintptr_t uart_base);
 bool usb_command(const char *line);
 #endif

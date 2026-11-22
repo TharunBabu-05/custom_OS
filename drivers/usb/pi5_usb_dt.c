@@ -3,6 +3,12 @@
 static uint32_t be32(const unsigned char *p)
 { return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3]; }
 static uint64_t be64(const unsigned char *p) { return (uint64_t)be32(p)<<32|be32(p+4); }
+bool pi5_usb_boot_selected(const void *dtb,size_t available)
+{
+    const unsigned char *p;uint32_t n;
+    /* EEPROM BOOT_ORDER mode 4 is USB mass storage through the host. */
+    return dt_property(dtb,available,"/chosen/bootloader","boot-mode",&p,&n) && n==4 && be32(p)==4;
+}
 static bool string_copy(char *to,size_t capacity,const unsigned char *p,uint32_t n)
 {
     if (!n || n>capacity || p[n-1]) { return false; }

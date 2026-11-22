@@ -1,0 +1,130 @@
+OurOS Pi 5 shell and watchdog acceptance, 2026-11-22
+COM3, 115200 8N1, header UART and SanDisk Cruzer Blade.
+Kernel SHA-256 d82cbda7805189b036c5c71950080dfa7c4c333e75ecd82abf346879bfb0591b.
+Shell SHA-256 327d64c3de64230c9a54e43cb8e79f237417249f290e8a87cf2d271a53500cc1.
+The capture starts in the shell. Bootloader debug output after reboot is omitted.
+
+user:/$ help
+help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit
+run|exec PROGRAM [args]
+runio IN|- OUT|- PROGRAM [args]
+pipe PROGRAM [args] -- PROGRAM [args]
+pipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]
+bg SECONDS PROGRAM [args]
+bgio SECONDS IN|- OUT|- PROGRAM [args]
+jobs | fg [PID] | stop [PID] (two jobs, 1..30 seconds)
+env | getenv NAME | setenv NAME VALUE | unsetenv NAME
+profile save|load [path]
+source PATH | lists with ; && ||
+$NAME ${NAME} $?; single quotes keep literals
+user:/$ sha256 /data/phase0/large.bin
+a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3  /data/phase0/large.bin
+user:/$ bg 30 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=3
+user:/$ bg 1 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=4
+user:/$ jobs
+job pid=3 pending
+job pid=4 pending
+user:/$ fg
+shell: specify a job PID
+user:/$ fg 4
+child exit=124
+user:/$ jobs
+job pid=3 pending
+user:/$ bg 30 /boot/TTYCHK.ELF
+TTYCHK ready: enter terminal-ok
+job pid=5
+user:/$ fg 5
+terminal-ok
+PASS: terminal pointer/capacity checks and blocking line delivery.
+child exit=0
+user:/$ run /boot/ECHO.ELF phase4-foreground
+phase4-foreground
+child exit=0
+user:/$ stop 3
+child exit=130
+user:/$ echo "phase4; literal"; cat /tmp/no-phase4 || echo missing=$?
+phase4; literal
+shell: operation failed
+missing=1
+user:/$ write /tmp/phase4-check 'echo script-phase4; cat /tmp/no-phase4'
+user:/$ source /tmp/phase4-check && echo unexpected-source || echo script-status=$?
+script-phase4
+shell: operation failed
+script-status=1
+user:/$ echo invalid-must-not-run;;
+shell: invalid quoting, expansion or argument bounds (command list)
+user:/$ bg 30 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=7
+user:/$ bg 30 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=8
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=147 preemptions=131 yields=0 idle_waits=1309 terminal=yes budget_seconds=unlimited children_started=6 children_reaped=6 last_child_code=130 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=187 dispatches=34 sleeps=0 wakes=0 input_lines=20 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> datacheck
+Mounted /data bank=1 generation=14
+bank=0 status=valid generation=13
+bank=1 status=valid generation=14 matches_mounted=yes
+> reboot
+Reboot: storage synchronized and idle. Reset via BCM2712 watchdog.
+[Bootloader diagnostics omitted]
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Starting serial shell from /boot/SHELL.ELF
+Firmware boot source: USB mass storage.
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit selected usb1; only this controller is reset. Firmware USB device state will be lost.
+Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+Recovery rings: clears=0 command_wraps=0 control_wraps=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS snapshot v4; nodes=16 max_file_bytes=16384; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=1 generation=14 valid_banks=2
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ sha256 /data/phase0/large.bin
+a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3  /data/phase0/large.bin
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=69 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=19 dispatches=6 sleeps=0 wakes=0 input_lines=2 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> datacheck
+Mounted /data bank=1 generation=14
+bank=0 status=valid generation=13
+bank=1 status=valid generation=14 matches_mounted=yes
+> timertest
+PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.
+>

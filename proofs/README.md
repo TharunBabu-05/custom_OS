@@ -1,5 +1,10 @@
 # Real Raspberry Pi 5 proof
 
+The corrected Pi build passed shell help, two-job control, terminal handoff,
+command lists and `source`. The watchdog reboot remounted USB storage, retained
+generation 14 and the saved file's SHA-256, and passed the timer test.
+[Passing capture](pi5-safe-reboot-2026-11-22.txt) · [First capture](pi5-shell-workflows-2026-11-22.txt)
+
 The Pi delivered two BCM compare interrupts and ran two deferred callbacks.
 The periodic timer, EL0 preemption, FAT reads and snapshot bank checks passed.
 [Peripheral IRQ capture](pi5-peripheral-irqs-2026-11-22.txt)

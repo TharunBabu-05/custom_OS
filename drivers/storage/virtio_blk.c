@@ -43,8 +43,9 @@ static enum block_result read_sector(void *context,uint64_t lba,unsigned char *d
     uint32_t irq=rd(0x60); if (irq) { wr(0x64,irq); }
     return BLOCK_OK;
 }
-bool platform_storage_attach(struct block_device *device)
+bool platform_storage_attach(struct block_device *device,uintptr_t dtb)
 {
+    (void)dtb;
     if (base) { return false; } /* Do not reset or reuse a queue after failure. */
     for (unsigned i=0;i<32;++i) {
         uintptr_t candidate=0x0a000000UL+i*0x200;

@@ -32,11 +32,11 @@ jobs, process trees and indefinite services are still work.
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/input/spawn/wait/process control and base shell bg/jobs/stop with Pi evidence | Pi fg/bgio/broader lifecycle tests, multiple jobs/process trees, blocking I/O, priorities, fairness and indefinite services |
+| Scheduling | Cooperative EL1 tasks and preempted EL0. A parent can own two children with independent wait and cancellation. | Pi two-job checks, deeper process trees, blocking I/O, priorities, fairness and indefinite services |
 | Process memory | Private image/stack pages, kernel-only mappings, W^X, bounded dynamic RW/NX pages with quota/rollback/cleanup; Pi page/byte allocator examples pass | Broader Pi lifecycle/concurrent checks, larger VM, shared/file mappings, copy-on-write if needed and broader OOM policy |
 | Exceptions | Kernel diagnostics and new contained EL0 faults/timeouts | Rich per-process reporting, debugging, signals or another application fault policy |
 | System calls | Checked files/console/time/args/cwd/sleep/mutations/spawn/wait/file streams; new two-stage PIPE_RUN | ABI evolution, general descriptors/IPC, longer pipes, sockets and broader blocking I/O |
-| Executables | Static AArch64 ELF subset, 53 sample/test ELFs and compact runtime; 8162-byte shell; 10664-byte installed program cold-boots in QEMU; Pi PS/memory/profile/exec examples pass | Pi v4/broader exec/update validation, stored-shell persistence, larger VM, scripts, multiple jobs and broader toolchain tests |
+| Executables | Static AArch64 ELF subset and compact runtime. The current shell adds command lists and bounded text scripts. [Shell workflows](shell-workflows.md) | Pi broader exec/update validation, stored-shell persistence, larger VM and broader toolchain tests |
 | Concurrency | Single active CPU; syscalls/drivers complete synchronously | Preemptive kernel synchronization, IRQ-safe driver queues, SMP startup/locking and multicore scheduling |
 
 Acceptance should keep checking resource restoration, failure containment and
@@ -99,6 +99,6 @@ USB classes or topologies are supported.
 
 ## Work order and evidence
 
-The safe reboot command passed flush refusal tests and both QEMU reset paths.
-The next check is a Pi 5 watchdog reboot with file retention.
-[Safe reboot](safe-reboot.md) · [Implementation plan](implementation-plan.md)
+The Pi passed safe reboot with file retention, two shell jobs, and bounded
+command lists. Phase 5 covers storage capacity and recovery.
+[Safe reboot](safe-reboot.md) · [Shell workflows](shell-workflows.md) · [Implementation plan](implementation-plan.md)

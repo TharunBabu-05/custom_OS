@@ -49,6 +49,15 @@ copy `/boot/LARGE.BIN` to `/data/phase0/large.bin` after creating `/data/phase0`
 The fixture SHA-256 is
 `a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3`.
 
+The first Pi run reached a fresh kernel banner after the watchdog reset.
+Warm boot left the SD host looking ready, so storage tried SD and timed out.
+The follow-up uses `/chosen/bootloader/boot-mode` to select USB mass storage
+when firmware booted the kernel that way. On the corrected build the Pi
+returned to the automatic shell, mounted generation 14 with both banks
+valid, and reported the same fixture SHA-256. The periodic timer test
+passed after reset.
+[First capture](../proofs/pi5-shell-workflows-2026-11-22.txt) · [Passing capture](../proofs/pi5-safe-reboot-2026-11-22.txt) · [Firmware properties](https://www.raspberrypi.com/documentation/computers/configuration.html#common-bootloader-properties-chosenbootloader)
+
 ## Host verification
 
 ```powershell
@@ -72,10 +81,11 @@ read-only virtio storage after reboot with the disk hash unchanged.
 
 ## Boot update
 
-The boot-update ZIP was built from `a2358ac` plus the preceding working-tree
+The initial boot-update ZIP was built from `a2358ac` plus the preceding working-tree
 phases and Phase 3. The updater passed its preview, installation and rollback
 checks. Preview against the verified Phase 2 payload selected `OUROS.IMG`
-only. The Pi 5 reboot test is pending.
+only. The corrected build used for the successful Pi run is in the Phase 4
+boot update. [Current boot update](shell-workflows.md#build-and-verify)
 
 | File | SHA-256 |
 | --- | --- |

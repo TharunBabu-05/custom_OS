@@ -23,7 +23,11 @@ int app_main(void)
     uint64_t v=(uint64_t)handle;unsigned n=0;do { digits[n++]=(char)('0'+v%10);v/=10; }while (v);
     for (unsigned i=0;i<n/2;++i) { char c=digits[i];digits[i]=digits[n-i-1];digits[n-i-1]=c; }digits[n]=0;
     make(&args,"../boot/CHILDCHK.ELF");word(&args,digits);word(&args,"hello world");word(&args,"");
-    int64_t pid=uos_spawn(&args,2);if (pid<0 || uos_spawn(&args,2)!=UOS_ERROR || uos_wait((uint64_t)pid+1)!=UOS_ERROR || uos_wait((uint64_t)pid)!=37) { return 10; }
+    int64_t pid=uos_spawn(&args,2),peer=uos_spawn(&args,2);
+    struct uos_child_info info;
+    if (pid<0 || peer<=pid || uos_spawn(&args,2)!=UOS_ERROR || uos_wait((uint64_t)peer+1)!=UOS_ERROR ||
+        uos_wait((uint64_t)peer)!=37 || uos_child_poll((uint64_t)pid,&info) || info.pid!=(uint64_t)pid ||
+        uos_wait((uint64_t)pid)!=37) { return 10; }
     if (uos_wait((uint64_t)pid)!=UOS_ERROR || uos_getcwd(text,sizeof(text))!=4 || !same(text,"/etc") || uos_read((uint64_t)handle,text,4)!=4 || uos_close((uint64_t)handle)) { return 11; }
     int64_t previous=pid;
     for (unsigned i=0;i<8;++i) {

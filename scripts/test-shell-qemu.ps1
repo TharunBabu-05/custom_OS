@@ -1,7 +1,7 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
-      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[string]$ExpectedTreeBackup,
+      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
@@ -57,6 +57,97 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($TwoJobs) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="two-jobs-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'bg 30 /boot/SPIN.ELF','bg 1 /boot/SPIN.ELF','jobs','fg','stop','fg 99',
+                'runio - /tmp/blocked echo capacity-failed','fg 4','echo timeout=$?','jobs',
+                'bg 30 /boot/TTYCHK.ELF','fg 5','terminal-ok','jobs',
+                'run /boot/ECHO.ELF foreground-peer','bgio 30 - /tmp/job-output echo redirected-peer',
+                'stop 3','echo cancelled=$?','fg','cat /tmp/job-output',
+                'write /tmp/lease-one one','write /tmp/lease-two two',
+                'bg 30 /boot/PS.ELF worker /tmp/lease-one','bg 30 /boot/PS.ELF worker /tmp/lease-two',
+                'jobs','exit','cat /tmp/blocked','write /tmp/lease-one reopened-one','write /tmp/lease-two reopened-two',
+                'cat /tmp/lease-one','cat /tmp/lease-two',@{Text='appterm 60 /boot/SPAWNCHK.ELF';Delay=4500},
+                'fileinfo','pwd','halt') @(
+                'shell: specify a job PID','shell: unknown job PID','shell: use fg or stop first','job pid=3 pending',
+                'timeout=124','cancelled=130','PASS: terminal pointer/capacity checks and blocking line delivery.',
+                "`r`nforeground-peer`r`n","`r`nredirected-peer`r`n","`r`nreopened-one`r`n","`r`nreopened-two`r`n",
+                'fs: path not found','PASS: spawn/wait args','Open files: 0/16','children_started=7 children_reaped=7') 2 'ouros.startup=shell'
+            $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($capture,'shell: specify a job PID').Count -ne 2 -or
+                [regex]::Matches($capture,'(?m)^job pid=3 pending\r?$').Count -lt 2 -or
+                $capture -match '(?m)^capacity-failed\r?$|heap_live_pages=[1-9]') { throw "$name job isolation or cleanup differs" }
+            if ((Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name changed the scratch disk" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($CommandLists) {
+    if ($layout.Version -ne 4) { throw 'CommandLists requires a v4 image with the current shell' }
+    . "$PSScriptRoot/data-backup.ps1"
+    . "$PSScriptRoot/data-format.ps1"
+    $ascii=[Text.Encoding]::ASCII
+    $nl=[Environment]::NewLine
+    $workflow=@('  # comment','setenv KEY "left;right"','echo "script=$KEY"', 'cd /tmp; pwd',
+        'run /boot/FAULT.ELF || echo caught-child=$?', 'cat /tmp/absent') -join $nl
+    $bank=New-OurOSDataBackup -Version 4 -Files @(
+        @{Name='workflow.txt';Data=$ascii.GetBytes($workflow)},
+        @{Name='nested.txt';Data=$ascii.GetBytes('source /data/nested.txt')},
+        @{Name='syntax.txt';Data=$ascii.GetBytes(@('echo before-bad','echo never-bad &&','echo never-after') -join $nl)},
+        @{Name='oversize.txt';Data=$ascii.GetBytes(('x'*4097))},
+        @{Name='many.txt';Data=$ascii.GetBytes((('echo never-many'+$nl)*33))},
+        @{Name='long.txt';Data=$ascii.GetBytes(('x'*128))},
+        @{Name='binary.txt';Data=[byte[]](65,0,66)})
+    $partition=New-OurOSDataPartition -Version 4
+    $bank.CopyTo($partition,512)
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="command-lists-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $file=[IO.File]::OpenWrite($disk)
+            try { $file.Position=260096L*512;$file.Write($partition,0,$partition.Length) } finally { $file.Dispose() }
+            $fixture=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk $name $case[0] $case[1] @(
+                'help','echo first; echo second && echo yes',
+                'cat /tmp/absent && echo never-and || echo caught=$?',
+                'echo pass || echo never-or && echo after-or',
+                'echo "a; b && c || d"; echo e\;f',
+                'setenv TOKEN "plain && echo never-expanded"; echo $TOKEN',
+                'echo never-empty;; echo never-after',
+                'echo never-unclosed; echo "unclosed',
+                'echo never-max;a;b;c;d;e;f;g;h',
+                'source /data/workflow.txt && echo never-source || echo script-status=$?',
+                'getenv KEY; pwd; cd /',
+                'source /data/nested.txt || echo nested-status=$?',
+                'source /data/syntax.txt || echo syntax-status=$?',
+                'source /data/oversize.txt; status','source /data/many.txt; status',
+                'source /data/long.txt; status','source /data/binary.txt; status',
+                'source /data/absent.txt || echo missing-status=$?',
+                'exit; echo never-exited','fileinfo','pwd','halt') @(
+                'help pwd cd ls','jobs | fg [PID] | stop [PID]','source PATH | lists with ; && ||',
+                'caught=1','after-or','a; b && c || d','e;f','plain && echo never-expanded',
+                'script=left;right','caught-child=125','script-status=1','nested-status=2','syntax-status=2',
+                'before-bad','missing-status=1','Open files: 0/16','cleanup=restored') 1 'ouros.startup=shell'
+            $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ($capture -match '(?m)^never-' -or $capture -notmatch '(?m)^first\r?\nsecond\r?\nyes\r?$' -or
+                $capture -notmatch '(?m)^/tmp\r?$' -or
+                [regex]::Matches($capture,'bounds \(command list\)').Count -ne 4 -or
+                [regex]::Matches($capture,'shell: invalid script text or size limits\r?\n2').Count -ne 4) {
+                throw "$name parsing, script bounds or status differs"
+            }
+            if ((Get-FileHash -LiteralPath $disk).Hash -ne $fixture) { throw "$name changed the scratch disk" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($Reboot) {
     $banner='OurOS: AArch64 kernel booted'
@@ -383,9 +474,8 @@ if ($ShellJobs) {
         $name="jobs-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
         Copy-Item -LiteralPath $source -Destination $disk
         $busy=@('jobs','echo shell-still-live','mkdir /tmp/while-job','write /tmp/while-job/note background-ok','cat /tmp/while-job/note',
-            'setenv MESSAGE parent-lives','getenv MESSAGE','cd /tmp/while-job','pwd','run hello','hello','ps','exec echo should-not-run',
-            'pipe echo -- hash','runio - /tmp/no-fgout echo should-not-run','bg 30 /boot/SPIN.ELF',
-            'bgio 30 - /tmp/no-bgout echo should-not-run','ls /tmp/no-fgout','ls /tmp/no-bgout',
+            'setenv MESSAGE parent-lives','getenv MESSAGE','cd /tmp/while-job','pwd','exec echo should-not-run',
+            'pipe echo -- hash',
             'write /tmp/job-lease blocked','stop','echo stopped=$?','jobs','write /tmp/job-lease changed','cat /tmp/job-lease','cd /') |
             ForEach-Object { @{Text=$_;Delay=120} }
         $actions=@('storageinit','datainit','mmuinit','irqinit','timerstart','appshell','help','jobs','fg','status','stop','status',
@@ -422,7 +512,7 @@ if ($ShellJobs) {
             $envHash,'installed-bg','Open files: 0/16') 5
         $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
         if ([regex]::Matches($capture,'shell: timeout must be 1..30s').Count -ne 6 -or
-            [regex]::Matches($capture,'shell: use fg or stop first').Count -ne 8) { throw 'Job bounds/busy refusal counts differ' }
+            [regex]::Matches($capture,'shell: use fg or stop first').Count -ne 2) { throw 'Job bounds/busy refusal counts differ' }
         if ([regex]::IsMatch($capture,'(?m)^(should-not-run|should-not-overwrite)\r?$') -or
             ![regex]::IsMatch($capture,'(?m)^job pid=\d+ done code=37\r?$') -or
             ![regex]::IsMatch($capture,'(?m)^job pid=\d+ done code=124\r?$')) { throw 'Job outcome/launch gate differs' }
@@ -459,7 +549,7 @@ if ($ProcessControl) {
             @{Text='appterm 2 /boot/PS.ELF demo';Delay=3500},
             'appterm 60 /boot/TTYPAR.ELF','terminal-ok',@{Text='appterm 120 /boot/SPAWNCHK.ELF';Delay=6500},
             'appterm 120 /boot/HEAPCHK.ELF','appshell','ps','pipe ps -- hash',
-            @{Text='runio - /data/procs.txt ps';Delay=7000},'cat /data/procs.txt','exit',
+            @{Text='runio - /data/procs.txt ps';Delay=15000},'cat /data/procs.txt','exit',
             'mkdir /data/bin','appinstall /boot/PS.ELF /data/bin/procs.elf','appexec /data/bin/procs.elf',
             'pwd','fileinfo','heaptest','pagetest','mmutest','timerstop','halt') @(
             $checkPass,$peerPass,'PID PPID STATE PAGES PATH',
@@ -1203,7 +1293,7 @@ if ($Smoke) {
         'run /boot/HELLO.ELF','run /boot/SHELL.ELF','run /boot/HELLO.ELF','exit','run /boot/FAULT.ELF','run /boot/SPIN.ELF',@{Text=[string][char]3;Raw=$true;Delay=600},
         'echo resumed-parent','exit','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
         'PASS: spawn/wait args, inherited private cwd, handle isolation, stale IDs, slot reuse, fault/timeout and child cleanup.',
-        'children_started=11 children_reaped=11 last_child_code=124 cleanup=restored',
+        'children_started=12 children_reaped=12 last_child_code=124 cleanup=restored',
         'Parent exits with live child;','child exit=0','child exit=125','child exit=130','resumed-parent','Open files: 0/16',
         'PASS: child readline before parent wait blocks until terminal handoff.') 4
     if ((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $original) { throw 'Delivery image changed' }
@@ -1249,7 +1339,7 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
         'PASS: binary copy, zero/4096-byte bounds, no overwrite, SHA256 vectors, leases and pointer checks.',
         'PASS: spawn/wait args, inherited private cwd, handle isolation, stale IDs, slot reuse, fault/timeout and child cleanup.',
         'PASS: full process table refuses child creation.','Parent exits with live child;',
-        'quoted child','children_started=11 children_reaped=11 last_child_code=124 cleanup=restored',
+        'quoted child','children_started=12 children_reaped=12 last_child_code=124 cleanup=restored',
         'child exit=125','child exit=130','shell: launch/wait failed','child-cancel-survived',
         'path=/boot/SHELL.ELF state=timeout code=124','PASS: child readline before parent wait blocks until terminal handoff.') 15
     Session $disk "$name-reopen" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',

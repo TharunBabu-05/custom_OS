@@ -1,0 +1,91 @@
+OurOS Pi 5 shell workflows and first watchdog reboot, 2026-11-22
+COM3, 115200 8N1, header UART and SanDisk Cruzer Blade.
+Kernel SHA-256 60cb12957004fed3e09a55fa713d8d0ed2b534cf108125cc3f1c541910c34082.
+Shell SHA-256 ebd0d7e1d35516448de9bf4eb5bdbe066a14143e23494cc416318ddf42155a96.
+The capture starts at the running shell and omits bootloader diagnostics.
+The watchdog restarted the kernel. Its first warm boot reached the monitor
+after the SD handoff timed out. The post-reset file hash was unavailable.
+
+user:/$ echo phase4-live; echo phase4-lists
+phase4-live
+phase4-lists
+user:/$ sha256 /data/phase0/large.bin
+a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3  /data/phase0/large.bin
+user:/$ bg 30 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=3
+user:/$ bg 1 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=4
+user:/$ jobs
+job pid=3 pending
+job pid=4 pending
+user:/$ fg
+shell: specify a job PID
+user:/$ fg 4
+child exit=124
+user:/$ jobs
+job pid=3 pending
+user:/$ bg 30 /boot/TTYCHK.ELF
+TTYCHK ready: enter terminal-ok
+job pid=5
+user:/$ fg 5
+terminal-ok
+PASS: terminal pointer/capacity checks and blocking line delivery.
+child exit=0
+user:/$ run /boot/ECHO.ELF phase4-foreground
+phase4-foreground
+child exit=0
+user:/$ stop 3
+child exit=130
+user:/$ echo "phase4; literal"; cat /tmp/no-phase4 || echo missing=$?
+phase4; literal
+shell: operation failed
+missing=1
+user:/$ write /tmp/phase4-check 'echo script-phase4; cat /tmp/no-phase4'
+user:/$ source /tmp/phase4-check && echo unexpected-source || echo script-status=$?
+script-phase4
+shell: operation failed
+script-status=1
+user:/$ echo invalid-must-not-run;;
+shell: invalid quoting, expansion or argument bounds (command list)
+user:/$ bg 30 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=7
+user:/$ bg 30 /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+job pid=8
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=147 preemptions=131 yields=0 idle_waits=10269 terminal=yes budget_seconds=unlimited children_started=6 children_reaped=6 last_child_code=130 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=228 dispatches=38 sleeps=0 wakes=0 input_lines=26 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> datacheck
+Mounted /data bank=1 generation=14
+bank=0 status=valid generation=13
+bank=1 status=valid generation=14 matches_mounted=yes
+> reboot
+Reboot: storage synchronized and idle. Reset via BCM2712 watchdog.
+[Bootloader diagnostics omitted]
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Starting serial shell from /boot/SHELL.ELF
+Storage attachment failed; /boot stays unmounted. No disk writes were issued.
+Storage backend: SD firmware handoff, or USB2 BOT when SD is absent/unclocked.
+Pi SDHCI base=0x0000001000fff000 present=0x000000001fff0206
+control0=0x0000000000800f00 control1=0x00000000000e8707
+control2=0x0000000000000000 cqe_config=0x0000000000000000
+last_irq=0x0000000000018000 last_response=0x0000000000000000
+SD handoff: controller timeout
+Requires firmware-selected SDHC/SDXC; no full card initialization yet.
+An empty/unclocked SD host is expected when booting only from USB.
+Startup stopped at /boot.
+Kernel monitor ready. Type help.
+>

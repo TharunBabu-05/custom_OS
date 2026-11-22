@@ -1,6 +1,6 @@
 # Writes a regular project-local disk-image file; never opens a physical device.
 [CmdletBinding()]
-param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4)][int]$DataVersion=4,[string]$DataBackup,[switch]$KeepBuildFiles)
+param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4)][int]$DataVersion=4,[string]$DataBackup,[switch]$KeepBuildFiles,[switch]$BuildOnly)
 . "$PSScriptRoot/windows-tools.ps1"
 . "$PSScriptRoot/rpi5-profile.ps1"
 $piProfile=Get-Rpi5Profile $Console
@@ -82,9 +82,10 @@ PS.ELF lists active batch processes. Poll and parent-owned cancellation do not
 reap a child; wait collects it. Completed outcomes survive cancellation.
 Pi now verifies PS check/demo, all 12 check children reaped, and slot reuse.
 New shell: bg SECONDS PROGRAM [args], bgio SECONDS IN|- OUT|- PROGRAM [args].
-jobs polls the one outstanding child; fg waits, stop cancels and collects.
+jobs polls outstanding children; fg waits, stop cancels and collects.
 Children retain 1..30-second deadlines and terminal reads wait for fg.
-Collect the job before another external program/exec/pipeline. Builtins work.
+Use jobs to list up to two PIDs. Use fg PID or stop PID when both slots are used.
+Collect both before exec or a two-stage pipeline.
 Pi now verifies a responsive shell during a background job and stop/reap.
 Serial export, binary hashes and physical reboot still need hardware checks.
 
@@ -100,7 +101,7 @@ explicit foreground console; no background renewal/rekey or downloads.
 Application setup: storageinit, datainit, mmuinit, irqinit, timerstart.
 New shell job example: appshell, then bg 30 /boot/SPIN.ELF, jobs, echo alive,
 stop, jobs, exit (one command per line). No datainit needed for that example.
-The updated SHELL.ELF fits the unchanged 8 KiB v2/v3 installer bound.
+Install the current SHELL.ELF on v4 /data, or run it from /boot.
 apptest runs original static ELF programs with private EL0 pages, checked
 syscalls and timer preemption. It contains deliberate null/kernel-access,
 RX-write and NX-stack faults and times out a runaway user loop.
@@ -123,7 +124,7 @@ CAT.ELF with no path reads redirected stdin. Use appterm 30 /boot/IOCHK.ELF.
 pipe <ELF> [args] -- <ELF> [args] connects concurrent producer/consumer.
 pipeio <input|-> <new-output|-> <ELF> [args] -- <ELF> [args] adds file endpoints.
 Try appterm 30 /boot/PIPECHK.ELF. Ctrl+C cancels both stages; status shows result.
-The expanded SHELL.ELF can now be installed on v2 /data (8192-byte files).
+Use ;, &&, and || for command lists. source PATH reads a bounded text script.
 New images default to v4: 16 nodes, nested directories, 16384 bytes/file.
 Use appterm 120 /boot/DATACAP.ELF on empty /data before installing files.
 Kernel monitor > differs from EL0 shell user:/$; restart timer then appshell.
@@ -275,6 +276,7 @@ $manifest=[ordered]@{board='Raspberry Pi 5 Model B';status='EXPERIMENTAL-HARDWAR
 $manifestPath=Join-Path $work 'image-manifest.json'
 $manifest | ConvertTo-Json -Depth 6 | Set-Content -Encoding ASCII $manifestPath
 & "$PSScriptRoot/verify-rpi5-image.ps1" -Image $temporary -Manifest $manifestPath
+if ($BuildOnly) { Write-Output "IMAGE: $temporary";return }
 if ($Console -eq 'header') {
     $update=Join-Path $work 'OurOS-startup-boot-update.zip'
     $bootFiles=@((Join-Path $files 'OUROS.IMG'),(Join-Path $files 'CMDLINE.TXT'))

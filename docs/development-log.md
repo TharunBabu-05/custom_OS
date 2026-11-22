@@ -1,12 +1,25 @@
 # Development log
 
+## 2026-11-22 - Two shell jobs and command lists
+
+Process ownership now lets a parent hold two children within the existing
+three-slot limit. The shell selects jobs by PID for foregrounding and
+cancellation. Both QEMU profiles passed the job tests and separately passed
+command lists and bounded `source` files. The Pi passed both workflows and
+returned to a fresh kernel banner after the watchdog reset. The follow-up
+splits shell help output and uses firmware boot metadata to route USB startup
+on a warm boot. The corrected build printed the complete help text, passed
+both workflows again, and booted back into the shell after the watchdog reset.
+[Commands and verification](shell-workflows.md) · [Pi capture](../proofs/pi5-safe-reboot-2026-11-22.txt)
+
 ## 2026-11-22 - Safe reboot
 
 Added a monitor `reboot` command that flushes a mounted `/data` and waits
 for the storage controller before requesting reset. Native tests confirm
 that a failed flush or controller stop blocks reset. QEMU passed PSCI HVC
-and SMC reboots with retained data hashes. The Pi watchdog check is pending.
-[Commands and evidence](safe-reboot.md)
+and SMC reboots with retained data hashes. The Pi watchdog test confirmed
+a fresh boot, remounted USB storage, and matching data generation and file hash.
+[Commands and evidence](safe-reboot.md) · [Pi capture](../proofs/pi5-safe-reboot-2026-11-22.txt)
 
 ## 2026-11-21 - Peripheral IRQ dispatch
 

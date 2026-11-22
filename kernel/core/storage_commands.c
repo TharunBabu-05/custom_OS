@@ -9,7 +9,7 @@
 #include "sha256.h"
 static struct block_device disk;
 static bool attached;
-static uintptr_t wifi_dtb;
+static uintptr_t firmware_dtb;
 static const char *board_name;
 static char wifi_path[256],wifi_compatible[64];
 static unsigned char wifi_mac[6];
@@ -31,7 +31,7 @@ static bool export_hex(const void *data,size_t bytes,void *context)
 }
 void storage_setup(const char *board,uintptr_t dtb)
 {
-    board_name=board; wifi_dtb=dtb; const unsigned char *p; uint32_t n;
+    board_name=board; firmware_dtb=dtb; const unsigned char *p; uint32_t n;
     if (!dtb || !dt_property((const void *)dtb,0x200000,"/aliases","wifi0",&p,&n) ||
         n<2 || n>sizeof(wifi_path) || p[n-1]) { return; }
     for (uint32_t i=0;i<n;++i) { wifi_path[i]=(char)p[i]; }
@@ -46,7 +46,7 @@ void storage_setup(const char *board,uintptr_t dtb)
 bool storage_mount_boot(void)
 {
     if (!ramfs_get_stats().ready) { console_write("Storage mount requires an available RAM root.\n"); return false; }
-    if (!attached) { attached=platform_storage_attach(&disk); }
+    if (!attached) { attached=platform_storage_attach(&disk,firmware_dtb); }
     if (!attached) {
         console_write("Storage attachment failed; /boot stays unmounted. No disk writes were issued.\n");
         platform_storage_info(); return false;
@@ -129,7 +129,7 @@ bool storage_command(const char *line)
         if (r!=FS_OK) { console_write(ramfs_error(r));console_write("\n");if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); } }return true;
     }
     if (same(line,"nettest")) { console_write(dhcp_selftest() ? "PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.\n" : "FAIL: DHCP packet fixtures.\n");console_write(netprobe_selftest() ? "PASS: ARP/ICMP gateway public packet fixtures; no network I/O.\n" : "FAIL: ARP/ICMP packet fixtures.\n");console_write(dns_selftest() ? "PASS: DNS A query/compressed-answer public fixtures; no network I/O.\n" : "FAIL: DNS packet fixtures.\n");return true; }
-    if (same(line,"wifiinit")) { platform_wifi_init(wifi_dtb); return true; }
+    if (same(line,"wifiinit")) { platform_wifi_init(firmware_dtb); return true; }
     if (same(line,"wificores")) { platform_wifi_cores(); return true; }
     if (same(line,"wififiles")) { wifi_files_command(); return true; }
     if (same(line,"wifiload")) { platform_wifi_load(); return true; }

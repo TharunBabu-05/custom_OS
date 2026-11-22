@@ -71,7 +71,7 @@ static inline int64_t uos_rename(const char *source,const char *target)
 /* Consume a prepared regular file, atomically replacing a regular target. */
 static inline int64_t uos_publish(const char *source,const char *target)
 { return uos_call4(UOS_SYS_PUBLISH,(uintptr_t)source,uos_length(source),(uintptr_t)target,uos_length(target)); }
-/* Copy a validated packed argv; one direct child, 1..30 seconds, no handles inherited. */
+/* Copy a validated packed argv into a free slot; direct children, 1..30 seconds. */
 static inline int64_t uos_spawn(const struct app_args *args,unsigned seconds) { return uos_call2(UOS_SYS_SPAWN,(uintptr_t)args,seconds); }
 static inline int64_t uos_wait(uint64_t pid) { return uos_call2(UOS_SYS_WAIT,pid,0); }
 /* Replace this process with a checked packed argv. Success never returns;

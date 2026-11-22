@@ -1,5 +1,8 @@
 # Bounded background jobs in the user shell
 
+This page records the original single-job release. The current shell supports
+two jobs with PID selection. [Phase 4 shell workflows](shell-workflows.md)
+
 The normal EL0 shell now supports one background child while it remains
 interactive. It uses the existing process-control calls; the kernel binary,
 syscall numbers, three process slots and v1/v2/v3 data formats are unchanged.

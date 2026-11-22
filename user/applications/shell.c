@@ -5,10 +5,10 @@
 /* Keep repeated console setup out of the command dispatcher. */
 static __attribute__((noinline,noclone)) void print(const char *text) { (void)uos_puts(text); }
 static int same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
-enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR };
+enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE };
 static unsigned command_kind(const char *cmd)
 {
-    const char *name="jobs\0""stop\0""status\0""exit\0""help\0""fg\0""path\0""getenv\0""env\0""setenv\0""unsetenv\0""profile\0""exec\0""run\0""runio\0""pipe\0""pipeio\0""bg\0""bgio\0""cp\0""mv\0""replace\0""stat\0""sync\0""sha256\0""pwd\0""cd\0""ls\0""cat\0""echo\0""write\0""mkdir\0""rm\0""rmdir\0";unsigned kind=1;
+    const char *name="jobs\0""stop\0""status\0""exit\0""help\0""fg\0""path\0""getenv\0""env\0""setenv\0""unsetenv\0""profile\0""exec\0""run\0""runio\0""pipe\0""pipeio\0""bg\0""bgio\0""cp\0""mv\0""replace\0""stat\0""sync\0""sha256\0""pwd\0""cd\0""ls\0""cat\0""echo\0""write\0""mkdir\0""rm\0""rmdir\0""source\0";unsigned kind=1;
     while (*name) { if (same(cmd,name)) { return kind; }while (*name++) { }++kind; }return CMD_OTHER;
 }
 static void number(uint64_t n)
@@ -69,15 +69,36 @@ static unsigned timeout(const char *s)
     unsigned n=0;for (unsigned i=0;s[i];++i) { if (s[i]<'0' || s[i]>'9' || n>30) { return 0; }n=n*10+(unsigned)(s[i]-'0'); }
     return n<=30 ? n : 0;
 }
-static void job_command(unsigned kind,uint64_t *pid,uint64_t *status)
+enum { JOB_LIMIT=2 };
+static uint64_t job_pid(const char *text)
 {
-    if (!*pid) { print("No background job.\n");*status=(kind==CMD_JOBS) ? 0 : 1;return; }
-    if ((kind==CMD_JOBS)) {
-        struct uos_child_info info;if (uos_child_poll(*pid,&info)) { *status=1;print("shell: job error\n");return; }
-        print("job pid=");number(*pid);print(info.finished ? " done code=" : " pending");
-        if (info.finished) { number((unsigned)info.exit_code); }print("\n");return;
+    uint64_t n=0;
+    for (;*text;++text) {
+        unsigned digit=(unsigned)(*text-'0');
+        if (digit>9 || n>(UINT64_MAX-digit)/10) { return 0; }
+        n=n*10+digit;
     }
-    if ((kind==CMD_STOP) && uos_child_cancel(*pid)) { *status=1;print("shell: job error\n");return; }
+    return n;
+}
+static void job_command(unsigned kind,uint64_t jobs[JOB_LIMIT],const char *selector,uint64_t *status)
+{
+    if (!jobs[0] && !jobs[1]) { print("No background job.\n");*status=(kind==CMD_JOBS) ? 0 : 1;return; }
+    if (kind==CMD_JOBS) {
+        for (unsigned i=0;i<JOB_LIMIT;++i) {
+            if (!jobs[i]) { continue; }
+            struct uos_child_info info;if (uos_child_poll(jobs[i],&info)) { *status=1;print("shell: job error\n");return; }
+            print("job pid=");number(jobs[i]);print(info.finished ? " done code=" : " pending");
+            if (info.finished) { number((unsigned)info.exit_code); }print("\n");
+        }
+        return;
+    }
+    if (!selector && jobs[0] && jobs[1]) { *status=2;print("shell: specify a job PID\n");return; }
+    uint64_t id=selector ? job_pid(selector) : jobs[0] ? jobs[0] : jobs[1];
+    if (!id || (id!=jobs[0] && id!=jobs[1])) { *status=1;print("shell: unknown job PID\n");return; }
+    uint64_t *pid=&jobs[id==jobs[0] ? 0 : 1];
+    if (kind==CMD_STOP && uos_child_cancel(*pid)) {
+        *status=1;print("shell: job error\n");return;
+    }
     int64_t result=uos_wait(*pid);if (result>=0) { *pid=0; }job_result(result,0,status);
 }
 static int list(const char *path)
@@ -110,64 +131,137 @@ static int environment(const char *key)
         print(entry.name);print("=");print(entry.value);print("\n");
     }return 0;
 }
-int app_main(void)
+enum { SHELL_LINE_BYTES=128, COMMAND_LIMIT=8, SCRIPT_BYTES=4096, SCRIPT_LINES=32 };
+enum list_operator { LIST_ALWAYS,LIST_AND,LIST_OR };
+struct command_list {
+    unsigned count;
+    struct { char *text;enum list_operator op; } entries[COMMAND_LIMIT];
+};
+struct shell_state { uint64_t status,jobs[JOB_LIMIT];bool exiting,sourcing; };
+
+/* Split before expanding so a variable's value cannot introduce operators.
+ * Match the argument parser's quote and backslash handling. */
+static bool split_commands(char *line,struct command_list *list)
 {
-    char line[128],cwd[256];struct app_args args;uint64_t last_status=0,background_pid=0;
-    print("OurOS EL0 shell. Type help; exit returns to monitor.\n");
-    if (uos_argc()>1) {
-        char option[16];if (uos_argc()!=2 || uos_arg(1,option,sizeof(option))<0 || !same(option,"--noprofile")) {
-            print("Usage: SHELL.ELF [--noprofile]\n");return 2;
+    list->count=0;
+    while (*line==' ' || *line=='\t') { ++line; }
+    if (!*line || *line=='#') { return true; }
+    char quote=0,*start=line;
+    bool word=false;
+    enum list_operator op=LIST_ALWAYS;
+    for (char *p=line;;++p) {
+        char c=*p;
+        if (c=='\\') {
+            if (!p[1]) { return false; }
+            word=true;++p;continue;
         }
-    }else {
-        struct uos_entry entry;if (!uos_stat("/data/session.env",&entry)) {
-            if (uos_profile(UOS_PROFILE_LOAD,"/data/session.env")) { print("shell: profile refused; environment retained\n"); }
-            else { print("shell: profile loaded /data/session.env\n"); }
+        if (c=='\'' || c=='"') {
+            if (!quote || quote==c) { quote=quote ? 0 : c; }
+            word=true;continue;
         }
+        bool pair=!quote && (c=='&' || c=='|') && p[1]==c;
+        if (!c || (!quote && c==';') || pair) {
+            if (quote || !word || list->count==COMMAND_LIMIT) { return false; }
+            list->entries[list->count].text=start;list->entries[list->count++].op=op;
+            if (!c) { return true; }
+            *p=0;
+            op=pair ? (c=='&' ? LIST_AND : LIST_OR) : LIST_ALWAYS;
+            if (pair) { ++p; }
+            start=p+1;word=false;
+        } else if (c!=' ' && c!='\t') { word=true; }
     }
-    for (;;) {
-        if (uos_getcwd(cwd,sizeof(cwd))<0) { return 1; }
-        print("user:");print(cwd);print("$ ");
-        int64_t n=uos_readline(line,sizeof(line));if (n==UOS_EOF) { return 0; }
-        if (n<0) { last_status=2;print("shell: input rejected; command not executed\n");if (n==UOS_ERROR) { continue; }return 1; }
-        if (!n) { continue; }
-        if (!app_args_expand(line,expand_value,&last_status,&args)) { last_status=2;print("shell: invalid quoting, expansion or argument bounds\n");continue; }
+}
+static bool execute_line(struct shell_state *state,char *line);
+static void source_file(struct shell_state *state,const char *path)
+{
+    char text[SCRIPT_BYTES+1];size_t bytes=0;
+    int64_t handle=uos_open(path,UOS_READ),got=0;
+    if (handle<0) { state->status=1;print("shell: cannot open script\n");return; }
+    while (bytes<sizeof(text)) {
+        size_t left=sizeof(text)-bytes;
+        got=uos_read((uint64_t)handle,text+bytes,left<512 ? left : 512);
+        if (got<=0) { break; }
+        bytes+=(size_t)got;
+    }
+    if (uos_close((uint64_t)handle) || got<0) { state->status=1;print("shell: cannot read script\n");return; }
+    char *lines[SCRIPT_LINES];unsigned count=0;
+    if (bytes>SCRIPT_BYTES) { goto invalid; }
+    for (size_t start=0;start<bytes;) {
+        size_t end=start;
+        while (end<bytes && text[end]!='\n') { ++end; }
+        size_t last=end;
+        if (end<bytes && last>start && text[last-1]=='\r') { --last; }
+        if (last-start>=SHELL_LINE_BYTES || count==SCRIPT_LINES) { goto invalid; }
+        for (size_t i=start;i<last;++i) {
+            unsigned char c=(unsigned char)text[i];
+            if (c!='\t' && (c<32 || c>126)) { goto invalid; }
+        }
+        text[last]=0;lines[count++]=text+start;start=end+1;
+    }
+    state->sourcing=true;
+    for (unsigned i=0;i<count && !state->exiting;++i) { if (!execute_line(state,lines[i])) { break; } }
+    state->sourcing=false;
+    return;
+invalid:
+    state->status=2;print("shell: invalid script text or size limits\n");
+}
+static bool execute_line(struct shell_state *state,char *line)
+{
+    struct command_list commands;
+    if (!split_commands(line,&commands)) {
+        state->status=2;print("shell: invalid quoting, expansion or argument bounds (command list)\n");return false;
+    }
+    for (unsigned step=0;step<commands.count && !state->exiting;++step) {
+        enum list_operator op=commands.entries[step].op;
+        if ((op==LIST_AND && state->status) || (op==LIST_OR && !state->status)) { continue; }
+        struct app_args args;
+        if (!app_args_expand(commands.entries[step].text,expand_value,&state->status,&args)) {
+            state->status=2;print("shell: invalid quoting, expansion or argument bounds\n");return false;
+        }
         const char *p=args.count>1 ? args.bytes+args.offset[1] : ".";unsigned kind=command_kind(args.bytes);int result=0;
-        if (!(kind==CMD_STATUS)) { last_status=0; }
-        if ((kind==CMD_EXIT) && args.count==1) { return 0; }
+        if (!(kind==CMD_STATUS)) { state->status=0; }
+        if (kind==CMD_EXIT && args.count==1) { state->exiting=true;return true; }
         if ((kind==CMD_HELP) && args.count==1) {
-            print("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nrun|exec PROGRAM [args]\nrunio IN|- OUT|- PROGRAM [args]\npipe PROGRAM [args] -- PROGRAM [args]\npipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]\nbg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg | stop (one job; 1..30 seconds)\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\n$NAME ${NAME} $?; single quotes keep literals\n");
-        } else if ((kind==CMD_STATUS) && args.count==1) { number(last_status);print("\n"); }
-        else if (((kind==CMD_JOBS) || (kind==CMD_FG) || (kind==CMD_STOP)) && args.count==1) {
-            job_command(kind,&background_pid,&last_status);
+            print("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nrun|exec PROGRAM [args]\nrunio IN|- OUT|- PROGRAM [args]\npipe PROGRAM [args] -- PROGRAM [args]\npipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]\n");
+            print("bg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg [PID] | stop [PID] (two jobs, 1..30 seconds)\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\nsource PATH | lists with ; && ||\n$NAME ${NAME} $?; single quotes keep literals\n");
+        } else if ((kind==CMD_STATUS) && args.count==1) { number(state->status);print("\n"); }
+        else if (kind==CMD_SOURCE && args.count==2) {
+            if (state->sourcing) { state->status=2;print("shell: nested source refused\n"); }
+            else { source_file(state,p); }
+        }
+        else if ((kind==CMD_JOBS && args.count==1) || ((kind==CMD_FG || kind==CMD_STOP) && args.count<=2)) {
+            job_command(kind,state->jobs,args.count==2 ? p : 0,&state->status);
         }
         else if (((kind==CMD_PATH) && args.count==1) || ((kind==CMD_GETENV) && args.count==2) || ((kind==CMD_ENV) && args.count==1)) {
-            result=environment((kind==CMD_ENV) ? 0 : (kind==CMD_PATH) ? "PATH" : p);last_status=result ? 1 : 0;
+            result=environment((kind==CMD_ENV) ? 0 : (kind==CMD_PATH) ? "PATH" : p);state->status=result ? 1 : 0;
         }
         else if (((kind==CMD_SETENV) && args.count==3) || ((kind==CMD_UNSETENV) && args.count==2)) {
             int64_t r=(kind==CMD_SETENV) ? uos_setenv(p,args.bytes+args.offset[2]) : uos_unsetenv(p);
-            result=r!=0;last_status=result ? 1 : 0;if (r==UOS_ENOSPC) { print("shell: environment is full (8 variables)\n"); }
+            result=r!=0;state->status=result ? 1 : 0;if (r==UOS_ENOSPC) { print("shell: environment is full (8 variables)\n"); }
         }
         else if ((kind==CMD_PROFILE) && (args.count==2 || args.count==3) && (same(p,"save") || same(p,"load"))) {
             const char *path=args.count==3 ? args.bytes+args.offset[2] : "/data/session.env";bool save=same(p,"save");
-            int64_t r=uos_profile(save ? UOS_PROFILE_SAVE : UOS_PROFILE_LOAD,path);last_status=r ? 1 : 0;
+            int64_t r=uos_profile(save ? UOS_PROFILE_SAVE : UOS_PROFILE_LOAD,path);state->status=r ? 1 : 0;
             if (r) { print("shell: profile refused; environment retained\n"); }
             else { print(save ? "Profile saved: " : "Profile loaded: ");print(path);print("\n"); }
         }
         else if ((kind==CMD_EXEC) && args.count>=2) {
-            if (background_pid) { last_status=1;print("shell: use fg or stop first\n");continue; }
+            if (state->jobs[0] || state->jobs[1]) { state->status=1;print("shell: use fg or stop first\n");continue; }
             struct app_args next;words(&next,&args,1,args.count);
             int64_t r=program(&next);if (!r) { r=uos_exec(&next); }
-            last_status=127;print(r==UOS_ENOENT ? "shell: program not found\n" : "shell: exec failed; current shell retained\n");
+            state->status=127;print(r==UOS_ENOENT ? "shell: program not found\n" : "shell: exec failed; current shell retained\n");
         }
         else if (((kind==CMD_RUN) && args.count>=2) || ((kind==CMD_RUNIO) && args.count>=4) ||
                  ((kind==CMD_PIPE) && args.count>=4) || ((kind==CMD_PIPEIO) && args.count>=6) ||
                  ((kind==CMD_BG) && args.count>=3) || ((kind==CMD_BGIO) && args.count>=5)) {
-            if (background_pid) { last_status=1;print("shell: use fg or stop first\n");continue; }
             struct app_args child,right;struct uos_stdio io={0};
             bool piping=(kind==CMD_PIPE) || (kind==CMD_PIPEIO),background=(kind==CMD_BG) || (kind==CMD_BGIO);
+            if ((piping && (state->jobs[0] || state->jobs[1])) || (state->jobs[0] && state->jobs[1])) {
+                state->status=1;print("shell: use fg or stop first\n");continue;
+            }
             bool redirected=(kind==CMD_RUNIO) || (kind==CMD_PIPEIO) || (kind==CMD_BGIO);
             unsigned first=(redirected ? 3u : 1u)+(background ? 1u : 0u),seconds=redirected ? 30 : 10;
-            if (background && !(seconds=timeout(p))) { last_status=2;print("shell: timeout must be 1..30s\n");continue; }
+            if (background && !(seconds=timeout(p))) { state->status=2;print("shell: timeout must be 1..30s\n");continue; }
             if (redirected) {
                 for (unsigned i=0;i<2;++i) {
                     const char *path=args.bytes+args.offset[i+1+(background ? 1u : 0u)];char *target=i ? io.output : io.input;
@@ -178,25 +272,25 @@ int app_main(void)
             if (piping) {
                 unsigned separators=0;
                 for (unsigned i=first;i<args.count;++i) { if (same(args.bytes+args.offset[i],"--")) { split=i;++separators; } }
-                if (separators!=1 || split==first || split+1==args.count) { last_status=2;print("shell: use pipe <ELF> [args] -- <ELF> [args]\n");continue; }
+                if (separators!=1 || split==first || split+1==args.count) { state->status=2;print("shell: use pipe <ELF> [args] -- <ELF> [args]\n");continue; }
             }
             words(&child,&args,first,split);int64_t code;
-            if (program(&child)) { last_status=127;print("shell: program not found\n");continue; }
+            if (program(&child)) { state->status=127;print("shell: program not found\n");continue; }
             if (piping) {
                 words(&right,&args,split+1,args.count);
-                if (program(&right)) { last_status=127;print("shell: program not found\n");continue; }
+                if (program(&right)) { state->status=127;print("shell: program not found\n");continue; }
                 code=uos_pipeline(&child,&right,seconds,redirected ? &io : 0);
             }
             else {
                 int64_t pid=redirected ? uos_spawn_io(&child,seconds,&io) : uos_spawn(&child,seconds);
-                if (background && pid>=0) { background_pid=(uint64_t)pid;print("job pid=");number(background_pid);print("\n");continue; }
+                if (background && pid>=0) { state->jobs[state->jobs[0]!=0]=(uint64_t)pid;print("job pid=");number((uint64_t)pid);print("\n");continue; }
                 code=pid<0 ? UOS_ERROR : uos_wait((uint64_t)pid);
             }
-            job_result(code,piping,&last_status);
+            job_result(code,piping,&state->status);
         }
         else if ((kind==CMD_CP) && args.count==3) { result=uos_copy(p,args.bytes+args.offset[2])<0; }
         else if (((kind==CMD_MV) || (kind==CMD_REPLACE)) && args.count==3) {
-            int64_t r=(kind==CMD_REPLACE) ? uos_publish(p,args.bytes+args.offset[2]) : uos_rename(p,args.bytes+args.offset[2]);last_status=r ? 1 : 0;
+            int64_t r=(kind==CMD_REPLACE) ? uos_publish(p,args.bytes+args.offset[2]) : uos_rename(p,args.bytes+args.offset[2]);state->status=r ? 1 : 0;
             if (r) { print(r==UOS_EEXIST ? "shell: target exists; mv does not overwrite\n" :
                 r==UOS_EBUSY ? "shell: file is open; close handles first\n" :
                 r==UOS_EXDEV ? "shell: operation requires the same filesystem\n" :
@@ -212,10 +306,10 @@ int app_main(void)
         else if ((kind==CMD_SHA256) && args.count==2) {
             unsigned char digest[32];char hex[65];const char *digits="0123456789abcdef";
             int64_t r=uos_filehash(p,digest);result=r!=0;
-            if (r==UOS_ENOENT) { last_status=1;print("shell: file not found: ");print(p);print("\n");continue; }
+            if (r==UOS_ENOENT) { state->status=1;print("shell: file not found: ");print(p);print("\n");continue; }
             if (!result) { for (unsigned i=0;i<32;++i) { hex[i*2]=digits[digest[i]>>4];hex[i*2+1]=digits[digest[i]&15]; }hex[64]=0;print(hex);print("  ");print(p);print("\n"); }
         }
-        else if ((kind==CMD_PWD) && args.count==1) { print(cwd);print("\n"); }
+        else if (kind==CMD_PWD && args.count==1) { char cwd[256];result=uos_getcwd(cwd,sizeof(cwd))<0;if (!result) { print(cwd);print("\n"); } }
         else if ((kind==CMD_CD) && args.count<=2) {
             char home[APP_ENV_VALUE_BYTES];if (args.count==1) {
                 if (uos_getenv("HOME",home,sizeof(home))<0) { result=1; }else { result=uos_chdir(home)!=0; }
@@ -230,10 +324,34 @@ int app_main(void)
         } else if ((kind==CMD_MKDIR) && args.count==2) { result=uos_mkdir(p)!=0; }
         else if (((kind==CMD_RM) || (kind==CMD_RMDIR)) && args.count==2) { result=uos_remove(p,(kind==CMD_RMDIR))!=0; }
         else {
-            if (background_pid) { last_status=1;print("shell: use fg or stop first\n");continue; }
-            if (program(&args)) { last_status=127;print("shell: unknown command or arguments; type help\n");continue; }
-            int64_t pid=uos_spawn(&args,10);job_result(pid<0 ? UOS_ERROR : uos_wait((uint64_t)pid),0,&last_status);
+            if (state->jobs[0] && state->jobs[1]) { state->status=1;print("shell: use fg or stop first\n");continue; }
+            if (program(&args)) { state->status=127;print("shell: unknown command or arguments; type help\n");continue; }
+            int64_t pid=uos_spawn(&args,10);job_result(pid<0 ? UOS_ERROR : uos_wait((uint64_t)pid),0,&state->status);
         }
-        if (result) { last_status=1;print("shell: operation failed\n"); }
+        if (result) { state->status=1;print("shell: operation failed\n"); }
     }
+    return true;
+}
+int app_main(void)
+{
+    char line[SHELL_LINE_BYTES],cwd[256];struct shell_state state={0};
+    print("OurOS EL0 shell. Type help; exit returns to monitor.\n");
+    if (uos_argc()>1) {
+        char option[16];if (uos_argc()!=2 || uos_arg(1,option,sizeof(option))<0 || !same(option,"--noprofile")) {
+            print("Usage: SHELL.ELF [--noprofile]\n");return 2;
+        }
+    }else {
+        struct uos_entry entry;if (!uos_stat("/data/session.env",&entry)) {
+            if (uos_profile(UOS_PROFILE_LOAD,"/data/session.env")) { print("shell: profile refused; environment retained\n"); }
+            else { print("shell: profile loaded /data/session.env\n"); }
+        }
+    }
+    while (!state.exiting) {
+        if (uos_getcwd(cwd,sizeof(cwd))<0) { return 1; }
+        print("user:");print(cwd);print("$ ");
+        int64_t n=uos_readline(line,sizeof(line));if (n==UOS_EOF) { break; }
+        if (n<0) { state.status=2;print("shell: input rejected; command not executed\n");if (n==UOS_ERROR) { continue; }return 1; }
+        if (n) { (void)execute_line(&state,line); }
+    }
+    return 0;
 }

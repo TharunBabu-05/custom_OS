@@ -17,8 +17,7 @@ try {
     Invoke-Tool gcc ($flags+@('-c','user/runtime/allocator.c','-o',"$out/allocator.o"))
     Invoke-Tool gcc ($flags+@('-c','user/runtime/allocator_svc.c','-o',"$out/allocator-svc.o"))
     Invoke-Tool gcc ($flags+@('-c','kernel/process/app_args.c','-o',"$out/app_args.o"))
-    # Optimize the growing shell across its parser boundary while preserving
-    # the existing 8192-byte executable/storage bound and ordinary app builds.
+    # Optimize the shell across its parser boundary.
     Invoke-Tool gcc ($flags+@('-fomit-frame-pointer','-flto','-c','kernel/process/app_args.c','-o',"$out/app_args-shell.o"))
     Invoke-Tool gcc ($flags+@('-c','lib/sha256.c','-o',"$out/sha256.o"))
     foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw','stream','hash','pipechk','datacap','datagen','mvchk','dirchk','replchk','exec','execchk','env','envchk','envrace','profchk','memchk','memdemo','heapchk','heapdemo','ps','v4chk','bigapp','df')) {
@@ -28,7 +27,7 @@ try {
         $extra=if ($app -eq 'shell') { @("$out/app_args-shell.o") } else { @() }
         if ($app -eq 'hash') { $extra+=@("$out/sha256.o") }
         if ($app -in @('heapchk','heapdemo')) { $extra+=@("$out/allocator.o","$out/allocator-svc.o") }
-        $limit=if ($app -in @('heapchk','bigapp')) { 16384 } elseif ($app -in @('shell','envchk','memchk','heapdemo','ps','v4chk')) { 8192 } else { 4096 }
+        $limit=if ($app -in @('shell','heapchk','bigapp')) { 16384 } elseif ($app -in @('envchk','memchk','heapdemo','ps','v4chk')) { 8192 } else { 4096 }
         if ($app -eq 'shell') {
             Invoke-Tool gcc (@('-flto','-Os','-fomit-frame-pointer','-nostdlib','-fno-pie','-Wl,--build-id=none','-Wl,--no-undefined','-Wl,--gc-sections',
                 '-Wl,-z,max-page-size=4096',"-Wl,--defsym=__app_max_bytes=$limit",'-T','user/runtime/user.ld',
@@ -39,12 +38,11 @@ try {
         $undefined=Invoke-Tool nm @('-u',"$out/$name.ELF")
         # Preserve the actual executable only. Symbol/section metadata is not
         # needed by the bounded loader. Small programs fit /data; the expanded
-        # shell may use two image pages and fits v2/v3 persistent files.
+        # shell uses the v4 persistent file bound.
         Invoke-Tool strip @('--strip-all',"$out/$name.ELF")
         if ($app -eq 'shell') {
             # The loader needs the ELF/program headers and sole LOAD segment.
-            # Keep a disassembly, then remove unused section-table metadata so
-            # the actual stored executable fits the same 8 KiB file limit.
+            # Keep a disassembly before removing unused section-table metadata.
             Invoke-Tool objdump @('-d',"$out/$name.ELF") | Set-Content -Encoding ASCII "$out/$name.disassembly.txt"
             $minimal=[IO.File]::ReadAllBytes((Join-Path $ProjectRoot "$out/$name.ELF"))
             $programAt=[int][BitConverter]::ToUInt64($minimal,32)

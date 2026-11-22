@@ -33,7 +33,7 @@ struct process {
     struct app_environment environment;
     uint64_t wake,sleeps,wakes,execs;
     uint64_t input_address,lines;unsigned input_capacity;
-    unsigned parent,child;uint64_t deadline;
+    unsigned parent,wait_child;uint64_t deadline;
     uint64_t stdin_handle,stdout_handle;bool io_failed;
     uint64_t pipe_address;size_t pipe_bytes;unsigned char pipe_buffer[512];
 };
@@ -102,7 +102,7 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
 {
     /* Keep process owners clear of the reserved kernel file-owner IDs. */
     if (!owner && pid_sequence>=(1ULL<<60)-1) { return false; }
-    p->owner=owner ? owner : (1ULL<<63)|++pid_sequence;p->status=UNUSED;p->parent=p->child=PROCESS_LIMIT;uint64_t h=0;uint32_t bytes=0;size_t n=0;
+    p->owner=owner ? owner : (1ULL<<63)|++pid_sequence;p->status=UNUSED;p->parent=p->wait_child=PROCESS_LIMIT;uint64_t h=0;uint32_t bytes=0;size_t n=0;
     char absolute[RAMFS_PATH_MAX];bool directory;
     enum fs_result r=vfs_resolve(cwd,path,absolute,&directory);
     if (r==FS_OK && directory) { r=FS_IS_DIR; }
@@ -153,11 +153,22 @@ static unsigned public_state(const struct process *p)
     case CANCELLED:return UOS_PROCESS_CANCELLED;default:return 0;
     }
 }
-static struct process *owned_child(const struct process *p,uint64_t pid)
+static bool is_child(unsigned parent,const struct process *child)
 {
-    if (p->child>=total || (channel.active && current==channel.parent)) { return NULL; }
-    struct process *child=&tasks[p->child];
-    return child->status!=UNUSED && child->parent==current && process_pid(child)==pid ? child : NULL;
+    return child->status!=UNUSED && child->parent==parent;
+}
+static struct process *owned_child(uint64_t pid)
+{
+    if (channel.active && current==channel.parent) { return NULL; }
+    for (unsigned i=0;i<total;++i) {
+        if (is_child(current,&tasks[i]) && process_pid(&tasks[i])==pid) { return &tasks[i]; }
+    }
+    return NULL;
+}
+static bool has_children(void)
+{
+    for (unsigned i=0;i<total;++i) { if (is_child(current,&tasks[i])) { return true; } }
+    return false;
 }
 static int64_t process_control(struct process *p,struct exception_frame *f)
 {
@@ -171,12 +182,12 @@ static int64_t process_control(struct process *p,struct exception_frame *f)
             if (source->parent<total && tasks[source->parent].status!=UNUSED) { e->parent_pid=process_pid(&tasks[source->parent]); }
             e->state=public_state(source);e->syscalls=source->calls;e->dispatches=source->dispatches;e->heap_pages=source->heap.live;
             if (!live(source)) { e->exit_code=source->code; }
-            e->flags=(i==current ? UOS_PROCESS_SELF : 0) | (source==owned_child(p,e->pid) ? UOS_PROCESS_CHILD : 0);
+            e->flags=(i==current ? UOS_PROCESS_SELF : 0) | (source==owned_child(e->pid) ? UOS_PROCESS_CHILD : 0);
             size_t n=0;while (n+1<sizeof(e->path) && source->path[n]) { e->path[n]=source->path[n];++n; }
         }
         user_copy(p,f->x[0],&table,sizeof(table),true);return 0;
     }
-    struct process *child=owned_child(p,f->x[0]);if (!child) { return UOS_ECHILD; }
+    struct process *child=owned_child(f->x[0]);if (!child) { return UOS_ECHILD; }
     if (f->x[8]==UOS_SYS_CHILD_CANCEL) {
         /* Preserve completed outcomes. Reaping remains explicit: retaining the
          * slot keeps poll idempotent and old PIDs cannot name a reused slot. */
@@ -191,7 +202,7 @@ static void input_clear(void)
 static unsigned terminal_owner(void)
 {
     if (!interactive || !live(&tasks[0])) { return PROCESS_LIMIT; }
-    return tasks[0].status==CHILD_WAIT ? tasks[0].child : 0;
+    return tasks[0].status==CHILD_WAIT ? tasks[0].wait_child : 0;
 }
 static int64_t pipe_transfer(struct process *p,bool reading,bool *blocked)
 {
@@ -229,27 +240,31 @@ static void pipeline_refresh(void)
     int result=channel.cancelled ? 130 : right->code ? right->code : left->code;
     bool left_clean=release(left),right_clean=release(right);
     if (!left_clean || !right_clean) { child_cleanup_failed=true;result=126; }
-    left->status=right->status=UNUSED;parent->child=PROCESS_LIMIT;children_reaped+=2;child_last_code=result;++pipe_completions;
+    left->status=right->status=UNUSED;children_reaped+=2;child_last_code=result;++pipe_completions;
     if (live(parent)) { parent->context.x[0]=(uint64_t)result;parent->status=READY; }
     zero(&channel,sizeof(channel));input_clear();
 }
-static int collect_child(struct process *parent)
+static int collect_child(struct process *child)
 {
-    struct process *child=&tasks[parent->child];int code=child->code;
+    int code=child->code;
     if (!release(child)) { child_cleanup_failed=true;code=126; }
-    child->status=UNUSED;parent->child=PROCESS_LIMIT;++children_reaped;child_last_code=code;return code;
+    child->status=UNUSED;++children_reaped;child_last_code=code;return code;
 }
 /* Called only with the kernel root active. Never clear/free active user tables. */
 static void children_refresh(void)
 {
     for (unsigned i=0;i<total;++i) {
-        struct process *p=&tasks[i];if ((channel.active && i==channel.parent) || p->parent!=PROCESS_LIMIT || p->child>=total) { continue; }
-        struct process *child=&tasks[p->child];
+        struct process *child=&tasks[i];
+        unsigned owner=child->parent;
+        if (child->status==UNUSED || owner>=total || (channel.active && owner==channel.parent)) { continue; }
+        struct process *p=&tasks[owner];
         if (!live(p)) {
             if (live(child)) { child->status=CANCELLED;child->code=130; }
-            (void)collect_child(p);
-        } else if (p->status==CHILD_WAIT && !live(child)) {
-            p->context.x[0]=(uint64_t)collect_child(p);p->status=READY;input_clear();
+            (void)collect_child(child);
+        } else if (p->status==CHILD_WAIT && p->wait_child==i && !live(child)) {
+            p->context.x[0]=(uint64_t)collect_child(child);
+            p->wait_child=PROCESS_LIMIT;p->status=READY;
+            if (owner==0) { input_clear(); }
         }
     }
 }
@@ -643,7 +658,7 @@ static int64_t memory_call(struct process *p,struct exception_frame *f)
 }
 static int64_t replace_image(struct process *p,uint64_t address,struct exception_frame *f)
 {
-    if (p->child!=PROCESS_LIMIT) { return UOS_EBUSY; }
+    if (has_children()) { return UOS_EBUSY; }
     if (!user_range(p,address,sizeof(struct app_args),false)) { return UOS_EFAULT; }
     struct app_args args;user_copy(p,address,&args,sizeof(args),false);
     if (!args_valid(&args) || p->execs==UINT64_MAX) { return UOS_ERROR; }
@@ -688,31 +703,30 @@ static int64_t streams_copy(struct process *p,uint64_t address,struct uos_stdio 
 }
 static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool redirected,uint64_t streams)
 {
-    /* One generation of children; one outstanding child per root process.
-     * No inherited handles. IDs never repeat when a slot is reused. */
-    if (p->parent!=PROCESS_LIMIT || p->child!=PROCESS_LIMIT || !seconds || seconds>30) { return UOS_ERROR; }
+    /* One generation of children. IDs never repeat when a slot is reused. */
+    if (p->parent!=PROCESS_LIMIT || !seconds || seconds>30) { return UOS_ERROR; }
+    unsigned slot=0;while (slot<PROCESS_LIMIT && tasks[slot].status!=UNUSED) { ++slot; }if (slot==PROCESS_LIMIT) { return UOS_ERROR; }
     if (!user_range(p,address,sizeof(struct app_args),false)) { return UOS_EFAULT; }
     struct app_args args;user_copy(p,address,&args,sizeof(args),false);if (!args_valid(&args)) { return UOS_ERROR; }
     struct uos_stdio io={0};char output[RAMFS_PATH_MAX];
     if (redirected) {
         int64_t result=streams_copy(p,streams,&io,output);if (result) { return result; }
     }
-    unsigned slot=0;while (slot<PROCESS_LIMIT && tasks[slot].status!=UNUSED) { ++slot; }if (slot==PROCESS_LIMIT) { return UOS_ERROR; }
     struct process *child=&tasks[slot];zero(child,sizeof(*child));
     if (!load(child,args.bytes,p->cwd,&args,&p->environment) ||
         (io.input[0] && kfile_open(child->owner,p->cwd,io.input,KFILE_READ,&child->stdin_handle)!=FS_OK) ||
         (io.output[0] && kfile_open(child->owner,"/",output,KFILE_WRITE|KFILE_CREATE,&child->stdout_handle)!=FS_OK)) {
-        if (!release(child)) { child_cleanup_failed=true; }zero(child,sizeof(*child));child->parent=child->child=PROCESS_LIMIT;
+        if (!release(child)) { child_cleanup_failed=true; }zero(child,sizeof(*child));
         zero(image,sizeof(image));return UOS_ERROR;
     }
-    zero(image,sizeof(image));child->parent=current;child->deadline=timer_ticks()+timer_frequency()*seconds;p->child=slot;
+    zero(image,sizeof(image));child->parent=current;child->deadline=timer_ticks()+timer_frequency()*seconds;
     if (slot>=total) { total=slot+1; }++children_spawned;
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     return (int64_t)(child->owner&~(1ULL<<63))+1;
 }
 static int64_t pipeline_start(struct process *p,struct exception_frame *f)
 {
-    if (channel.active || p->parent!=PROCESS_LIMIT || p->child!=PROCESS_LIMIT || !f->x[2] || f->x[2]>30) { return UOS_ERROR; }
+    if (channel.active || p->parent!=PROCESS_LIMIT || has_children() || !f->x[2] || f->x[2]>30) { return UOS_ERROR; }
     if (!user_range(p,f->x[0],sizeof(struct app_args),false) || !user_range(p,f->x[1],sizeof(struct app_args),false)) { return UOS_EFAULT; }
     struct app_args left_args,right_args;user_copy(p,f->x[0],&left_args,sizeof(left_args),false);user_copy(p,f->x[1],&right_args,sizeof(right_args),false);
     if (!args_valid(&left_args) || !args_valid(&right_args)) { return UOS_ERROR; }
@@ -726,11 +740,11 @@ static int64_t pipeline_start(struct process *p,struct exception_frame *f)
     if (!loaded || (io.input[0] && kfile_open(left->owner,p->cwd,io.input,KFILE_READ,&left->stdin_handle)!=FS_OK) ||
         (io.output[0] && kfile_open(right->owner,"/",output,KFILE_WRITE|KFILE_CREATE,&right->stdout_handle)!=FS_OK)) {
         bool a=release(left),b=release(right);if (!a || !b) { child_cleanup_failed=true; }
-        zero(left,sizeof(*left));zero(right,sizeof(*right));left->parent=left->child=right->parent=right->child=PROCESS_LIMIT;
+        zero(left,sizeof(*left));zero(right,sizeof(*right));
         zero(image,sizeof(image));return UOS_ERROR;
     }
     zero(image,sizeof(image));channel.active=true;channel.parent=current;channel.left=slots[0];channel.right=slots[1];byte_pipe_init(&channel.ring);
-    left->parent=right->parent=current;left->deadline=right->deadline=timer_ticks()+timer_frequency()*f->x[2];p->child=slots[0];p->status=CHILD_WAIT;
+    left->parent=right->parent=current;left->deadline=right->deadline=timer_ticks()+timer_frequency()*f->x[2];p->status=CHILD_WAIT;
     if (slots[1]>=total) { total=slots[1]+1; }children_spawned+=2;++pipe_runs;input_clear();
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");return 0;
 }
@@ -770,11 +784,12 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         }
         if (f->x[8]==UOS_SYS_SPAWN || f->x[8]==UOS_SYS_SPAWN_IO) { f->x[0]=(uint64_t)spawn(p,f->x[0],f->x[1],f->x[8]==UOS_SYS_SPAWN_IO,f->x[2]);return true; }
         if (f->x[8]==UOS_SYS_WAIT) {
-            if (!owned_child(p,f->x[0])) { f->x[0]=(uint64_t)UOS_ERROR;return true; }
-            if (!live(&tasks[p->child])) { f->x[0]=(uint64_t)collect_child(p);return true; }
-            p->status=CHILD_WAIT;f->x[0]=0;
+            struct process *child=owned_child(f->x[0]);
+            if (!child) { f->x[0]=(uint64_t)UOS_ERROR;return true; }
+            if (!live(child)) { f->x[0]=(uint64_t)collect_child(child);return true; }
+            p->wait_child=(unsigned)(child-tasks);p->status=CHILD_WAIT;f->x[0]=0;
             if (interactive && current==0) {
-                input_clear();struct process *child=&tasks[p->child];
+                input_clear();
                 if (child->status==INPUT_WAIT) { (void)terminal_begin(&input_line,child->input_capacity); }
             }
             return schedule(f,false);
@@ -786,7 +801,7 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             /* A child may run between spawn and wait. Validate and block its
              * read now, but do not consume input until its parent hands over
              * the terminal. Each waiter retains its own buffer/capacity. */
-            if (channel.active || p->stdin_handle || !interactive || (current!=0 && (p->parent!=0 || tasks[0].child!=current || !live(&tasks[0])))) { f->x[0]=(uint64_t)UOS_ENOTTY;return true; }
+            if (channel.active || p->stdin_handle || !interactive || (current!=0 && (p->parent!=0 || !live(&tasks[0])))) { f->x[0]=(uint64_t)UOS_ENOTTY;return true; }
             if (capacity<2 || capacity>TERMINAL_BYTES) { f->x[0]=(uint64_t)UOS_ERROR;return true; }
             if (!user_range(p,address,(size_t)capacity,true)) { f->x[0]=(uint64_t)UOS_EFAULT;return true; }
             if (current==terminal_owner()) { (void)terminal_begin(&input_line,(unsigned)capacity); }
