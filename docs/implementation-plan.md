@@ -1,5 +1,12 @@
 # OurOS implementation and verification plan
 
+**Current platform milestone on 2026-11-22.** The Pi booted from USB,
+mounted extents v5 and passed the binary shell tools. Phase 11 stays
+deferred until an HDMI cable is available. Phase 12 starts the
+[UART-first driver roadmap](platform-driver-plan.md) with Pi 5
+thermal, power status and RTC diagnostics. The audit below records
+the earlier baseline. [Pi binary tools capture](../proofs/pi5-binary-tools-2026-11-22.txt)
+
 **Baseline on 2026-11-21.** OurOS is a serial-first AArch64 OS for the tested
 Raspberry Pi 5 header UART, with a separate QEMU `virt` target. Its kernel
 already runs protected applications, boots into an interactive shell and
@@ -83,8 +90,8 @@ device is unavailable and the following phase has no dependency on it.
 | 8. Local UDP sockets | Process-owned IPv4 UDP sockets queue bounded datagrams over background Wi-Fi. [ABI and commands](udp-sockets.md) | Native tests and both QEMU profiles passed ownership, buffer, timeout and cleanup checks. The Pi passed the Windows echo test. Physical timeout and recovery remain open. [Pi and Windows capture](../proofs/pi5-udp-echo-2026-11-22.txt) |
 | 9. TCP | Bounded EL0 TCP client connections support reads, writes, retransmission and orderly close over background Wi-Fi. [ABI and test commands](tcp-sockets.md) | Native tests passed loss, reordering, duplicate data and reset. Both QEMU profiles and the physical Pi-to-Windows transfer passed the 16 KiB file echo with a matching SHA-256. [Pi and Windows capture](../proofs/pi5-tcp-echo-2026-11-22.txt) |
 | 10. Time, TLS and package retrieval | Operator-set UTC, boot-local SHA-256 pins, pinned live TLS 1.3, and downloads checked against the expected SHA-256 and ELF loader rules. [UTC and trust guide](trust-time.md) · [Live TLS test](tls-live.md) · [Package download test](package-download.md) | The Pi passed live TLS, downloaded a verified ELF from Windows, refused a duplicate download and ran the installed app with exit code 0. [Pi package capture](../proofs/pi5-package-download-2026-11-22.txt) |
-| 11. Local display and input | The text console can opt in to firmware HDMI scanout and mirror UART output. USB keyboard input is a later increment. [HDMI test](hdmi-framebuffer.md) | Verify the test pattern and the text mirror on the Pi. Then check keyboard input, detach/reconnect and continued boot-drive access. |
-| 12. Platform expansion | Add selected power, RTC and thermal features when testable. Introduce SMP after synchronization and interrupt ownership have standalone tests. | Verify each driver or concurrency increment on its actual target, including recovery, storage integrity and the serial smoke run. |
+| 11. Local display and input, HDMI deferred | The text console can opt in to firmware HDMI scanout and mirror UART output. USB keyboard input can proceed over UART in the platform roadmap. [HDMI test](hdmi-framebuffer.md) | Verify the test pattern and text mirror when the cable is available. |
+| 12. Platform expansion | Add Pi 5 device-tree resource checks and read-only thermal, power status and RTC commands. Stage additional drivers and SMP behind individual tests. [Driver roadmap](platform-driver-plan.md) | Run the native response models, both QEMU handoff paths and the Pi UART acceptance commands. Record the sensor, firmware reply and RTC behavior on the board. |
 
 ### First Pi verification run
 

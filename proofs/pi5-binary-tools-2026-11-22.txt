@@ -1,0 +1,20 @@
+Raspberry Pi 5 serial shell, operator capture, 2026-11-22.
+The Pi booted from USB with FAT32 /boot and extents v5 /data.
+The boot log reported bank 0, generation 9 and two valid banks.
+
+user:/$ write /tmp/bin-a alpha
+user:/$ write /tmp/bin-b alpha
+user:/$ cmp /tmp/bin-a /tmp/bin-b && echo binary-match
+child exit=0
+binary-match
+user:/$ write /tmp/bin-b alpxa
+user:/$ cmp /tmp/bin-a /tmp/bin-b || echo  mismatch=$?
+cmp: first difference at byte 4
+child exit=1
+mismatch=1
+user:/$ hexdump -s 1 -n 3 /tmp/bin-a
+00000001  6c 70 68                                         |lph|
+child exit=0
+user:/$ rm /tmp/bin-a
+user:/$ rm /tmp/bin-b
+user:/$

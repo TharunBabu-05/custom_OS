@@ -11,6 +11,9 @@ resources. This accepts the default byte-allocation checks on real hardware.
 The [status checklist](os-status.md) links the earlier protection, scheduling,
 storage, shell and networking evidence.
 
+The [UART-first platform driver plan](platform-driver-plan.md) tracks
+hardware discovery, driver ownership and extra devices for physical tests.
+
 Remaining work extends these foundations. It does not restart interrupts,
 multitasking or writable storage from zero. Each table below separates what
 exists from the missing capability. A passing same-boot file test is not yet

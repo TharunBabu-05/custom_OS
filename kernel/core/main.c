@@ -23,6 +23,7 @@
 #include "network_worker.h"
 #include "trust_time.h"
 #include "framebuffer.h"
+#include "platform_health.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -127,6 +128,8 @@ static void command(const char *line)
     if (process_command(line) || task_command(line) || file_command(line) || trust_time_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
     if (mmu_command(line)) { return; }
+    if (platform_health_command(line,(const void *)firmware_dtb,
+                                equal(board.name,"rpi5-header") || equal(board.name,"rpi5"))) { return; }
     if (framebuffer_command(line)) { return; }
     if (heap_command(line)) { return; }
     if (filesystem_command(line)) { return; }
@@ -138,6 +141,7 @@ static void command(const char *line)
     if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear reboot halt fault\n");
+        console_write("platforminfo therminfo powerinfo rtcinfo (Pi 5 diagnostics)\n");
         console_write("utc | utc set <YYYY-MM-DDTHH:MM:SSZ> | utc clear\n");
         console_write("trustlist trustadd <SHA-256> trustcheck <SHA-256> <from UTC> <to UTC> trustclear\n");
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");

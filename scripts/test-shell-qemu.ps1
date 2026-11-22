@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$PlatformHealth,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -57,6 +57,26 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($PlatformHealth) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="platform-health-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @('exit','datacheck','utc','platforminfo','therminfo','powerinfo','rtcinfo',
+                'utc','datacheck','appshell','echo platform-shell-ok','exit','pwd','halt') @(
+                'Starting serial shell from /boot/SHELL.ELF','status=valid',
+                'UTC unset. Use utc set','Platform health: requires Raspberry Pi 5.','platform-shell-ok') 2 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            foreach ($command in @('platforminfo','therminfo','powerinfo','rtcinfo')) {
+                if (!$log.Contains("> $command`r`nPlatform health: requires Raspberry Pi 5.")) { throw "Missing $command refusal" }
+            }
+            if ([regex]::Matches($log,'UTC unset\. Use utc set').Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name changed UTC or disk state" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    return
 }
 if ($BinaryTools) {
     . "$PSScriptRoot/data-backup.ps1"

@@ -73,6 +73,7 @@ try {
         if ($Target -eq 'rpi5') { $sources+=@('drivers/storage/sdhci.c','drivers/storage/sdio.c','drivers/storage/brcm_sdio.c','drivers/storage/brcm_chip.c','drivers/storage/pi5_sd.c','drivers/storage/pi5_wifi_probe.c','drivers/storage/pi5_wifi_power.c','drivers/usb/pi5_dma.c','drivers/usb/pi5_xhci_test.c') }
         else { $sources+=@('drivers/storage/virtio_blk.c','drivers/usb/qemu_xhci_test.c','tests/udp_worker.c') }
         $sources+=@('drivers/display/simple_framebuffer.c','drivers/display/framebuffer_terminal.c','kernel/core/framebuffer_commands.c')
+        $sources+=@('drivers/platform/pi5_health.c','drivers/platform/pi5_mailbox.c','kernel/core/platform_health_commands.c')
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }
         $objects = @()
         foreach ($source in $sources) {
@@ -80,7 +81,8 @@ try {
             # Keep the Pi kernel below the firmware DTB boundary.
             $optimize=if ($source -in @('kernel/core/trust_time_commands.c','lib/trust_time.c','network/tcp.c','network/netprobe.c','network/udp.c','drivers/storage/brcm_control.c','drivers/storage/brcm_assoc.c','drivers/storage/pi5_wifi_probe.c',
                 'drivers/display/simple_framebuffer.c','drivers/display/framebuffer_terminal.c','kernel/core/framebuffer_commands.c','kernel/core/dt_property.c','kernel/core/main.c',
-                'kernel/process/process.c','drivers/usb/xhci_enumerate.c','drivers/usb/xhci_test.c')) { @('-Os') } else { @() }
+                'drivers/platform/pi5_health.c','drivers/platform/pi5_mailbox.c','kernel/core/platform_health_commands.c',
+                'filesystem/persist.c','kernel/process/process.c','drivers/usb/xhci_enumerate.c','drivers/usb/xhci_test.c')) { @('-Os') } else { @() }
             Invoke-Tool gcc ($common + $optimize + @("-mcpu=$cpu",'-c',$source,'-o',$object))
             $objects += $object
         }

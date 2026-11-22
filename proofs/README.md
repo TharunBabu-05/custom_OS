@@ -1,5 +1,9 @@
 # Real Raspberry Pi 5 proof
 
+The Pi verified `cmp` for matching files and a mismatch at byte 4, and
+`hexdump` for a three-byte range starting at offset 1.
+[Binary tools capture](pi5-binary-tools-2026-11-22.txt)
+
 The Pi found both nested text files and counted the seven bytes written
 to them. Both commands exited with code 0.
 [Directory tools capture](pi5-directory-tools-2026-11-22.txt)

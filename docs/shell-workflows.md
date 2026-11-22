@@ -31,8 +31,10 @@ Use `build/rpi5-header/OurOS-Pi5-header-binary-tools-boot-update.zip`
 with the [boot updater](boot-updates-tharun_verified.md). Against the
 directory tools update, the preview should add `CMP.ELF` and `HEXDUMP.ELF`.
 Both QEMU profiles passed binary comparisons and hex ranges across
-read boundaries, pipe input, output redirection, and cleanup. Pi
-verification is pending.
+read boundaries, pipe input, output redirection, and cleanup. The Pi
+confirmed exit codes 0 and 1, the first mismatch at byte 4, offset
+and ASCII output for the three-byte range, and cleanup.
+[Pi capture](../proofs/pi5-binary-tools-2026-11-22.txt)
 
 ## Recursive search and directory usage
 
