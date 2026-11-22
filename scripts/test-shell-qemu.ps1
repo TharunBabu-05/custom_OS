@@ -1,7 +1,7 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
-      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[string]$ExpectedTreeBackup,
+      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
@@ -57,6 +57,25 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($TcpSockets) {
+    $digest='a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="tcp-sockets-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','mmuinit','irqinit','timerstart',@{Text='tcpmodeltest';Delay=9500},
+                'appterm 2 /boot/TCPCHK.ELF 192.0.2.2 34002','fileinfo','pwd','timerstop','halt'
+            ) @('PASS: EL0 TCP connect, checked buffers, ordered stream, EOF and close.',
+                'PASS: TCP worker and EL0 file transfer.',
+                "PASS: TCP echoed 16384 bytes. SHA-256 $digest",
+                'TCP requires an active background Wi-Fi session.','Open files: 0/16') 3
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($UdpSockets) {
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {

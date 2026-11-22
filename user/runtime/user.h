@@ -114,6 +114,16 @@ static inline int64_t uos_udp_recv(uint64_t handle,void *data,size_t capacity,un
 { return uos_call4(UOS_SYS_UDP_RECV,handle,(uintptr_t)data,capacity,wait_ms); }
 static inline int64_t uos_udp_close(uint64_t handle)
 { return uos_call2(UOS_SYS_UDP_CLOSE,handle,0); }
+static inline int64_t uos_tcp_open(const struct uos_tcp_peer *peer)
+{ return uos_call2(UOS_SYS_TCP_OPEN,(uintptr_t)peer,0); }
+static inline int64_t uos_tcp_status(uint64_t handle)
+{ return uos_call2(UOS_SYS_TCP_STATUS,handle,0); }
+static inline int64_t uos_tcp_write(uint64_t handle,const void *data,size_t bytes)
+{ return uos_call4(UOS_SYS_TCP_WRITE,handle,(uintptr_t)data,bytes,0); }
+static inline int64_t uos_tcp_read(uint64_t handle,void *data,size_t bytes)
+{ return uos_call4(UOS_SYS_TCP_READ,handle,(uintptr_t)data,bytes,0); }
+static inline int64_t uos_tcp_close(uint64_t handle)
+{ return uos_call2(UOS_SYS_TCP_CLOSE,handle,0); }
 static inline int64_t uos_spawn_io(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
 { return uos_call4(UOS_SYS_SPAWN_IO,(uintptr_t)args,seconds,(uintptr_t)io,0); }
 /* Binary file stdin only; terminal input uses readline. Up to 512 bytes/call. */

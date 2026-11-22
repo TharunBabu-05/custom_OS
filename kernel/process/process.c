@@ -19,6 +19,7 @@
 #include "user_heap.h"
 #include "network_worker.h"
 #include "udp.h"
+#include "tcp.h"
 static unsigned char copy_bytes[VFS_FILE_MAX];
 static unsigned char profile_bytes[APP_PROFILE_BYTES];
 enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,UDP_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
@@ -62,6 +63,10 @@ extern void process_arch_enter(const struct exception_frame *frame,uint64_t stac
 extern unsigned char process_arch_return[];
 static void zero(void *p,size_t n) { volatile unsigned char *d=p;while (n--) { *d++=0; } }
 static void copy(void *d,const void *s,size_t n) { unsigned char *a=d;const unsigned char *b=s;while (n--) { *a++=*b++; } }
+static uint64_t ticks_ms(uint64_t ticks,uint64_t hz)
+{ return hz ? (ticks/hz)*1000+(ticks%hz)*1000/hz : 0; }
+static void close_sockets(uint64_t owner)
+{ udp_close_owner(owner);tcp_close_owner(owner,ticks_ms(timer_ticks(),timer_frequency())); }
 static size_t length(const char *s) { size_t n=0;while (s[n]) { ++n; }return n; }
 static bool ancestor(const char *parent,const char *path)
 { size_t n=length(parent);for (size_t i=0;i<n;++i) { if (parent[i]!=path[i]) { return false; } }return n==1 || !path[n] || path[n]=='/'; }
@@ -100,7 +105,7 @@ static bool release_memory(struct process *p)
     zero(p->pipe_buffer,sizeof(p->pipe_buffer));p->pipe_bytes=p->pipe_address=0;return good;
 }
 static bool release(struct process *p)
-{ udp_close_owner(p->owner);(void)kfile_close_owner(p->owner);return release_memory(p); }
+{ close_sockets(p->owner);(void)kfile_close_owner(p->owner);return release_memory(p); }
 static bool load_at(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env,uint64_t owner,uint64_t table_root)
 {
     /* Keep process owners clear of the reserved kernel file-owner IDs. */
@@ -194,7 +199,7 @@ static int64_t process_control(struct process *p,struct exception_frame *f)
     if (f->x[8]==UOS_SYS_CHILD_CANCEL) {
         /* Preserve completed outcomes. Reaping remains explicit: retaining the
          * slot keeps poll idempotent and old PIDs cannot name a reused slot. */
-        if (live(child)) { child->status=CANCELLED;child->code=130;udp_close_owner(child->owner); }return 0;
+        if (live(child)) { child->status=CANCELLED;child->code=130;close_sockets(child->owner); }return 0;
     }
     if (!user_range(p,f->x[1],sizeof(struct uos_child_info),true)) { return UOS_EFAULT; }
     struct uos_child_info result={0};result.pid=process_pid(child);result.state=public_state(child);result.finished=!live(child);
@@ -374,7 +379,7 @@ static void refresh(void)
     pipeline_refresh();
     children_refresh();
     for (unsigned i=0;i<total;++i) {
-        if (tasks[i].status!=UNUSED && !live(&tasks[i])) { udp_close_owner(tasks[i].owner); }
+        if (tasks[i].status!=UNUSED && !live(&tasks[i])) { close_sockets(tasks[i].owner); }
     }
 }
 static bool network_checkpoint;
@@ -538,8 +543,6 @@ done:
     case FS_CROSS_DEVICE:return UOS_EXDEV;case FS_IS_DIR:return UOS_EISDIR;default:return UOS_ERROR;
     }
 }
-static uint64_t ticks_ms(uint64_t ticks,uint64_t hz)
-{ return hz ? (ticks/hz)*1000+(ticks%hz)*1000/hz : 0; }
 static int64_t udp_call(struct process *p,struct exception_frame *f)
 {
     uint64_t a=f->x[0],b=f->x[1],c=f->x[2],timeout=f->x[3];
@@ -564,6 +567,25 @@ static int64_t udp_call(struct process *p,struct exception_frame *f)
         p->udp_handle=a;p->udp_address=b;p->udp_capacity=(size_t)c;p->wake=now+(hz*timeout+999)/1000;p->status=UDP_WAIT;
     }
     return result;
+}
+static int64_t tcp_call(struct process *p,struct exception_frame *f)
+{
+    uint64_t handle=f->x[0],address=f->x[1],bytes=f->x[2],call=f->x[8];
+    if (call==UOS_SYS_TCP_STATUS) { return tcp_status(p->owner,handle); }
+    if (call==UOS_SYS_TCP_OPEN) {
+        struct uos_tcp_peer peer;
+        if (!user_range(p,handle,sizeof(peer),false)) { return UOS_EFAULT; }
+        user_copy(p,handle,&peer,sizeof(peer),false);return tcp_open(p->owner,&peer,ticks_ms(timer_ticks(),timer_frequency()));
+    }
+    if (call==UOS_SYS_TCP_CLOSE) { return tcp_close(p->owner,handle,ticks_ms(timer_ticks(),timer_frequency())); }
+    if (bytes>UOS_TCP_MAX_BYTES) { return UOS_EMSGSIZE; }
+    bool reading=call==UOS_SYS_TCP_READ;
+    if (!user_range(p,address,(size_t)bytes,reading)) { return UOS_EFAULT; }
+    unsigned char data[UOS_TCP_MAX_BYTES];
+    if (!reading) { user_copy(p,address,data,(size_t)bytes,false); }
+    int64_t r=reading ? tcp_read(p->owner,handle,data,(size_t)bytes) : tcp_write(p->owner,handle,data,(size_t)bytes);
+    if (reading && r>0) { user_copy(p,address,data,(size_t)r,true); }
+    zero(data,reading ? (r>0 ? (size_t)r : 0) : (size_t)bytes);return r;
 }
 static int64_t syscall(struct process *p,struct exception_frame *f)
 {
@@ -744,7 +766,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
         child_cleanup_failed=true;p->status=FAULTED;p->code=126;
         (void)release_memory(&exec_stage);zero(&exec_stage,sizeof(exec_stage));return UOS_ERROR;
     }
-    udp_close_owner(p->owner);
+    close_sockets(p->owner);
     copy(p,&exec_stage,sizeof(*p));zero(&exec_stage,sizeof(exec_stage));
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     __asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*f=p->context;return 0;
@@ -829,6 +851,7 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         if (f->x[8]>=UOS_SYS_UDP_OPEN && f->x[8]<=UOS_SYS_UDP_CLOSE) {
             f->x[0]=(uint64_t)udp_call(p,f);return p->status!=UDP_WAIT || schedule(f,false);
         }
+        if (f->x[8]>=UOS_SYS_TCP_OPEN && f->x[8]<=UOS_SYS_TCP_CLOSE) { f->x[0]=(uint64_t)tcp_call(p,f);return true; }
         if (f->x[8]==UOS_SYS_PIPE_RUN) {
             int64_t result=pipeline_start(p,f);f->x[0]=(uint64_t)result;return result ? true : schedule(f,false);
         }

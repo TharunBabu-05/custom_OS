@@ -2,6 +2,7 @@
  * brcmfmac sdio.c, bcmsdh.c, bcdc.c and fwil.h (see docs/wifi-control.md). */
 #include "brcm_control.h"
 #include "udp.h"
+#include "tcp.h"
 #include "brcm_keys.h"
 #include "dhcp.h"
 static void scrub(void *buffer,size_t n) { volatile unsigned char *p=buffer;while (n--) { *p++=0; } }
@@ -277,6 +278,12 @@ enum block_result brcm_control_udp(const struct brcm_control_io *io,struct brcm_
 {
     unsigned char frame[(16+UDP_FRAME_MAX+3)&~3u]={0};size_t bytes;
     if (!udp_encode(request,frame+16,UDP_FRAME_MAX,&bytes)) { return BLOCK_ARGUMENT; }
+    return data_write(io,s,frame,bytes,guard,ctx);
+}
+enum block_result brcm_control_tcp(const struct brcm_control_io *io,struct brcm_control_state *s,const struct tcp_packet *request,bool (*guard)(void *),void *ctx)
+{
+    unsigned char frame[(16+TCP_FRAME_MAX+3)&~3u]={0};size_t bytes;
+    if (!tcp_encode(request,frame+16,TCP_FRAME_MAX,&bytes)) { return BLOCK_ARGUMENT; }
     return data_write(io,s,frame,bytes,guard,ctx);
 }
 enum block_result brcm_control_key(const struct brcm_control_io *io,struct brcm_control_state *s,const void *wire,size_t n,uint32_t *status,bool (*guard)(void *),void *ctx)

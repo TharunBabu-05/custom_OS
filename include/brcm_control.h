@@ -67,6 +67,8 @@ enum block_result brcm_control_eapol_group2(const struct brcm_control_io *,struc
 enum block_result brcm_control_netprobe(const struct brcm_control_io *,struct brcm_control_state *,const struct netprobe *,enum netprobe_packet,unsigned,const void *,size_t,bool (*permitted)(void *),void *);
 struct udp_packet;
 enum block_result brcm_control_udp(const struct brcm_control_io *,struct brcm_control_state *,const struct udp_packet *,bool (*permitted)(void *),void *);
+struct tcp_packet;
+enum block_result brcm_control_tcp(const struct brcm_control_io *,struct brcm_control_state *,const struct tcp_packet *,bool (*permitted)(void *),void *);
 /* DHCP DISCOVER/REQUEST only, guarded after credit RX; no generic IP TX. */
 enum block_result brcm_control_dhcp(const struct brcm_control_io *,struct brcm_control_state *,const void *,size_t,bool (*permitted)(void *),void *);
 /* Typed, guarded wsec_key SET only. All shared payload/reply buffers erased. */

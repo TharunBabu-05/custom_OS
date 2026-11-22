@@ -9,6 +9,7 @@
 #include "netprobe.h"
 #include "network_session.h"
 #include "udp.h"
+#include "tcp.h"
 #define BRCM_ASSOC_IE_MAX 256
 struct brcm_assoc_io {
     struct brcm_join_probe_io join;
@@ -32,6 +33,7 @@ struct brcm_assoc_io {
     uint32_t packet_id; /* Zero selects the initial cookie range. */
     enum block_result (*group2_tx)(void *,const void *,size_t);
     udp_transmit udp_tx;
+    tcp_transmit tcp_tx;
 };
 struct brcm_assoc_probe {
     struct brcm_sae_probe sae;struct brcm_auth_peer peer;
@@ -56,6 +58,7 @@ struct brcm_assoc_probe {
     struct netprobe network;
     bool session_mode,background_mode,peer_lost,udp_live;struct network_session session;
     uint64_t udp_now;
+    bool tcp_live;
     bool first_m4_before_keys,port_attempted,port_issued,port_ack,port_verified,port_close_active,port_closed;
     unsigned port_phase,port_queries,port_deferrals;
     enum block_result port_result,port_final_result,port_close_result;

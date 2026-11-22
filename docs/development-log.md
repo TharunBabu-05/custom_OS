@@ -1,5 +1,15 @@
 # Development log
 
+## 2026-11-22 - EL0 local TCP clients
+
+Added outbound TCP connections for EL0 apps over background Wi-Fi. Native
+tests cover retransmission, acknowledgements, duplicate and reordered data,
+reset and close. `TCPCHK.ELF` transfers the 16 KiB boot fixture to a local
+peer, verifies the echoed bytes, and reports SHA-256. Both QEMU profiles
+passed the transfer and the Windows helper passed loopback. The Pi boot-file
+preview selects `OUROS.IMG` and the new app. Physical transfer remains
+pending. [TCP ABI and commands](tcp-sockets.md)
+
 ## 2026-11-22 - EL0 local UDP sockets
 
 Added process-owned UDP sockets that transmit through the background Wi-Fi

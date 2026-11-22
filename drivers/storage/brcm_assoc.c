@@ -104,6 +104,7 @@ void brcm_assoc_data(void *ctx,const void *payload,size_t n)
         if (s->network.armed) {
             netprobe_receive(&s->network,p,n);
             if (s->udp_live && s->network.active && !s->network.gateway_changed) { udp_receive(p,n,s->udp_now); }
+            if (s->tcp_live && s->network.active && !s->network.gateway_changed) { tcp_receive(p,n); }
             return;
         }
         if (s->dhcp.armed) { dhcp_receive(&s->dhcp,p,n);return; }
@@ -413,6 +414,7 @@ static enum block_result network_poll(void *ctx)
         netprobe_can_tx(&s->network,milliseconds(a))) {
         s->udp_now=milliseconds(a);
         r=udp_service(a->base->udp_tx,a->base->join.policy.context,s->udp_now);
+        if (r==BLOCK_OK && s->tcp_live) { r=tcp_service(a->base->tcp_tx,a->base->join.policy.context,s->udp_now); }
     }
     return r;
 }
@@ -496,11 +498,15 @@ static enum block_result session_run(struct adapter *a)
         const struct netprobe *net=&a->s->network;
         a->s->udp_live=udp_link_up(net->mac,net->lease.address,net->lease.mask);
         if (!a->s->udp_live) { return BLOCK_NOT_READY; }
+        unsigned char secret[32]={0};
+        if (a->base->tcp_tx && session_random(a,secret)) { a->s->tcp_live=tcp_link_up(net->mac,net->lease.address,net->lease.mask,secret); }
+        crypto_wipe(secret,sizeof(secret));
     }
     enum block_result r=a->base->session_yield ?
         network_session_background(&io,&a->s->network,&a->s->session,a->base->session_yield) :
         network_session_run(&io,&a->s->network,&a->s->session);
     if (a->s->udp_live) { udp_link_down();a->s->udp_live=false; }
+    if (a->s->tcp_live) { tcp_link_down();a->s->tcp_live=false; }
     a->s->renewal.exchange.armed=false;a->s->renewal.queued=false;
     if (a->s->network.conflict && !a->s->decline_attempted) { decline_lease(a); }return r;
 }

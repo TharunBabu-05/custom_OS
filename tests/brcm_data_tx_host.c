@@ -4,8 +4,9 @@
 #include "brcm_control.h"
 #include "dhcp.h"
 #include "udp.h"
+#include "tcp.h"
 static struct brcm_control_state s;
-static struct { unsigned calls,fail_at,writes,reads,delays;bool inject,fail_write,cancel,cancel_on_rx;unsigned char sent[388];size_t bytes; } m;
+static struct { unsigned calls,fail_at,writes,reads,delays;bool inject,fail_write,cancel,cancel_on_rx;unsigned char sent[584];size_t bytes; } m;
 static enum block_result touch(void) { return ++m.calls==m.fail_at ? BLOCK_IO : BLOCK_OK; }
 static enum block_result rd(void *ctx,uint32_t at,uint32_t *v)
 { assert(ctx==&m);enum block_result r=touch();*v=at==0x18004020 && m.inject ? 0x40 : 0;return r; }
@@ -14,7 +15,7 @@ static enum block_result wr(void *ctx,uint32_t at,uint32_t v)
 static enum block_result packet(void *ctx,bool write,void *data,size_t n)
 {
     assert(ctx==&m);enum block_result r=touch();if (r!=BLOCK_OK) { return r; }
-    if (write) { ++m.writes;assert(n<=388 && !(n%4));memcpy(m.sent,data,n);m.bytes=n;return m.fail_write ? BLOCK_IO : BLOCK_OK; }
+    if (write) { ++m.writes;assert(n<=sizeof(m.sent) && !(n%4));memcpy(m.sent,data,n);m.bytes=n;return m.fail_write ? BLOCK_IO : BLOCK_OK; }
     assert(m.inject && n==64);++m.reads;m.inject=false;if (m.cancel_on_rx) { m.cancel=true; }memset(data,0,n);unsigned char *p=data;p[0]=12;p[2]=0xf3;p[3]=0xff;p[7]=12;p[9]=8;return BLOCK_OK;
 }
 static enum block_result delay(void *ctx,unsigned us) { assert(ctx==&m && us==10000);++m.delays;return touch(); }
@@ -87,6 +88,13 @@ int main(void)
     seed();++udp.bytes;assert(brcm_control_udp(&io,&s,&udp,permitted,&m)==BLOCK_ARGUMENT && !m.calls);--udp.bytes;
     udp.peer_mac=NULL;seed();
     assert(brcm_control_udp(&io,&s,&udp,permitted,&m)==BLOCK_OK && m.bytes==76 && m.sent[28]==8 && m.sent[29]==6);
+    unsigned char stream[UOS_TCP_MAX_BYTES]={0x12,0x34};
+    const struct tcp_packet tcp={mac,lease.address,np.gateway_mac,lease.router,3,5,55003,4041,1024,TCP_ACK|TCP_PSH,stream,sizeof(stream)};
+    seed();assert(brcm_control_tcp(&io,&s,&tcp,permitted,&m)==BLOCK_OK && m.bytes==584 && m.writes==1);
+    assert(brcm_sdpcm_header(m.sent,m.bytes,&h)==BLOCK_OK && h.length==582 && m.sent[39]==6 &&
+        !memcmp(m.sent+70,stream,sizeof(stream)) && !m.sent[582] && !m.sent[583]);
+    seed();m.inject=m.cancel_on_rx=true;
+    assert(brcm_control_tcp(&io,&s,&tcp,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
     client.phase=DHCP_ACKED;client.ack_seen=client.request_written=true;client.lease=lease;
     assert(dhcp_encode_decline(&client,dhcp,sizeof(dhcp),&n)==BLOCK_OK);seed();assert(brcm_control_dhcp(&io,&s,dhcp,n,permitted,&m)==BLOCK_OK && m.sent[300]==4 && m.bytes==360 && s.request_id==51);
     assert(dhcp_client_init(&client,mac,entropy)==BLOCK_OK);
