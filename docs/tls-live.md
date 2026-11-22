@@ -10,8 +10,9 @@ client Finished, and checks the encrypted echo of the nine bytes
 
 The profile uses TLS_AES_128_GCM_SHA256, a single pinned leaf and a
 4,096-byte handshake buffer. This LAN demo uses the test DNS name
-`demo.ouros.test`, with a separately supplied IPv4 address. Public CA
-chains, HTTP, and package downloads remain future work.
+`demo.ouros.test`, with a separately supplied IPv4 address.
+`PKGGET.ELF` uses this TLS profile for HTTP package downloads.
+[Package download test](package-download.md)
 
 `UOS_SYS_RANDOM` (57) serves requests of 1 through 64 bytes into checked
 writable EL0 memory. It returns `UOS_ENORANDOM` without modifying the

@@ -187,10 +187,10 @@ static enum tls13_client_result read_server_flight(const struct tls13_io *io,str
     return TLS13_CLIENT_RECORD;
 }
 
-static enum tls13_client_result read_echo(const struct tls13_io *io,struct record *record,struct traffic *keys,
-    unsigned char *pending,const unsigned char *sent,size_t bytes)
+static enum tls13_client_result read_response(const struct tls13_io *io,struct record *record,struct traffic *keys,
+    unsigned char *pending,tls13_response_fn response,void *context)
 {
-    size_t received=0,buffered=0;
+    size_t buffered=0;
     for (unsigned records=0;records<RECORD_COUNT_MAX;++records) {
         enum tls13_client_result r=receive(io,record);
         if (r!=TLS13_CLIENT_OK) { return r; }
@@ -212,13 +212,14 @@ static enum tls13_client_result read_echo(const struct tls13_io *io,struct recor
             copy_bytes(pending,pending+cursor,buffered);
             continue;
         }
-        if (record->type==ALERT && !buffered && received==bytes && record->size==2 &&
-            payload[0]==1 && !payload[1]) { return TLS13_CLIENT_OK; }
-        if (buffered || record->type!=APPLICATION || record->size>bytes-received ||
-            !crypto_equal(payload,sent+received,record->size)) { return TLS13_CLIENT_ECHO; }
-        received+=record->size;
+        if (buffered) { return TLS13_CLIENT_RECORD; }
+        if (record->type==ALERT && record->size==2 && payload[0]==1 && !payload[1]) {
+            return response(context,NULL,0) ? TLS13_CLIENT_OK : TLS13_CLIENT_RESPONSE;
+        }
+        if (record->type!=APPLICATION) { return TLS13_CLIENT_RECORD; }
+        if (record->size && !response(context,payload,record->size)) { return TLS13_CLIENT_RESPONSE; }
     }
-    return TLS13_CLIENT_ECHO;
+    return TLS13_CLIENT_RECORD;
 }
 
 static enum tls13_client_result start(const struct tls13_io *io,struct record *record,unsigned char *transcript,
@@ -252,12 +253,13 @@ done:
     return result;
 }
 
-enum tls13_client_result tls13_echo(const struct tls13_io *io,const char *name,
-    tls13_trust_fn trust,void *trust_context,const void *message,size_t bytes,enum tls13_auth_result *auth)
+enum tls13_client_result tls13_request(const struct tls13_io *io,const char *name,
+    tls13_trust_fn trust,void *trust_context,const void *request,size_t bytes,
+    tls13_response_fn response,void *response_context,enum tls13_auth_result *auth)
 {
     size_t name_bytes=hostname_bytes(name),length=0;
     if (!io || !io->read_exact || !io->write_all || !io->random || !name_bytes ||
-        !trust || !message || !bytes || bytes>TLS13_ECHO_MAX || !auth) { return TLS13_CLIENT_ARGUMENT; }
+        !trust || !request || !bytes || bytes>1024 || !response || !auth) { return TLS13_CLIENT_ARGUMENT; }
     *auth=TLS13_AUTH_FORMAT;
     unsigned char transcript[TLS13_TRANSCRIPT_MAX],digest[32],finished[36]={20,0,0,32},secret[32];
     struct record record;
@@ -278,8 +280,8 @@ enum tls13_client_result tls13_echo(const struct tls13_io *io,const char *name,
         !send_protected(io,&record,&client,HANDSHAKE,finished,sizeof(finished))) { goto done; }
     if (!tls13_expand(secrets.master,"s ap traffic",digest,32,secret,32) || !traffic_keys(&server,secret) ||
         !tls13_expand(secrets.master,"c ap traffic",digest,32,secret,32) || !traffic_keys(&client,secret) ||
-        !send_protected(io,&record,&client,APPLICATION,message,bytes)) { goto done; }
-    result=read_echo(io,&record,&server,transcript,message,bytes);
+        !send_protected(io,&record,&client,APPLICATION,request,bytes)) { goto done; }
+    result=read_response(io,&record,&server,transcript,response,response_context);
     if (result==TLS13_CLIENT_OK) {
         static const unsigned char close_notify[]={1,0};
         if (!send_protected(io,&record,&client,ALERT,close_notify,sizeof(close_notify))) { result=TLS13_CLIENT_IO; }
@@ -292,4 +294,24 @@ done:
     crypto_wipe(finished,sizeof(finished));
     crypto_wipe(&record,sizeof(record));
     return result;
+}
+
+struct echo { const unsigned char *message;size_t size,received; };
+
+static bool verify_echo(void *context,const unsigned char *data,size_t bytes)
+{
+    struct echo *echo=context;
+    if (!data) { return echo->received==echo->size; }
+    if (bytes>echo->size-echo->received || !crypto_equal(data,echo->message+echo->received,bytes)) { return false; }
+    echo->received+=bytes;
+    return true;
+}
+
+enum tls13_client_result tls13_echo(const struct tls13_io *io,const char *name,
+    tls13_trust_fn trust,void *trust_context,const void *message,size_t bytes,enum tls13_auth_result *auth)
+{
+    if (bytes>TLS13_ECHO_MAX) { return TLS13_CLIENT_ARGUMENT; }
+    struct echo echo={message,bytes,0};
+    enum tls13_client_result result=tls13_request(io,name,trust,trust_context,message,bytes,verify_echo,&echo,auth);
+    return result==TLS13_CLIENT_RESPONSE ? TLS13_CLIENT_ECHO : result;
 }

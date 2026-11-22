@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][ipaddress]$PeerAddress,
     [ValidateRange(0,65535)][int]$Port=4042,
     [ValidateRange(1,600)][int]$TimeoutSeconds=300,
-    [string]$OpenSsl='C:/msys64/usr/bin/openssl.exe'
+    [string]$OpenSsl='C:/msys64/usr/bin/openssl.exe',
+    [string]$Package
 )
 $ErrorActionPreference='Stop'
 foreach ($address in @($BindAddress,$PeerAddress)) {
@@ -13,6 +14,12 @@ foreach ($address in @($BindAddress,$PeerAddress)) {
 }
 $opensslPath=(Get-Command $OpenSsl -CommandType Application).Source
 $node=(Get-Command node -CommandType Application).Source
+$packageArgs=@()
+if ($Package) {
+    $file=Get-Item -LiteralPath $Package
+    if ($file.PSIsContainer -or $file.Length -lt 64 -or $file.Length -gt 32768) { throw 'Package must be a file of 64 to 32768 bytes.' }
+    $packageArgs+=@($file.FullName)
+}
 $fixture=Join-Path ([IO.Path]::GetTempPath()) ('ouros-tls-'+[guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $fixture
 Push-Location $fixture
@@ -48,8 +55,8 @@ subjectAltName=DNS:demo.ouros.test
     $end=$now.AddDays(7).ToString("yyyyMMddHHmmss'Z'",$culture)
     & $opensslPath ca -batch -selfsign -config cert.cnf -in request.pem -startdate $start -enddate $end -notext -out cert.pem
     if ($LASTEXITCODE) { throw 'Could not generate the TLS certificate' }
-    & $node "$PSScriptRoot/tls-echo.mjs" $BindAddress.IPAddressToString $PeerAddress.IPAddressToString $Port $TimeoutSeconds cert.pem key.pem
-    if ($LASTEXITCODE) { throw 'TLS echo server did not complete' }
+    & $node "$PSScriptRoot/tls-echo.mjs" $BindAddress.IPAddressToString $PeerAddress.IPAddressToString $Port $TimeoutSeconds cert.pem key.pem @packageArgs
+    if ($LASTEXITCODE) { throw 'TLS test server did not complete' }
 } finally {
     Pop-Location
     Get-ChildItem -File -LiteralPath $fixture | ForEach-Object { Remove-Item -LiteralPath $_.FullName }

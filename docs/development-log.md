@@ -1,5 +1,13 @@
 # Development log
 
+## 2026-11-22 - Verified HTTPS package download
+
+`PKGGET.ELF` retrieves an application over pinned TLS, verifies the
+operator's SHA-256 and the ELF loader rules, and publishes a checked
+staging file under a new name in `/data`. The Windows helper serves one
+selected file and prints the corresponding PuTTY commands.
+[Package download test](package-download.md)
+
 ## 2026-11-22 - Pi transcript verified and live TLS over TCP
 
 The Pi passed the offline OpenSSL transcript and rejected a missing pin,

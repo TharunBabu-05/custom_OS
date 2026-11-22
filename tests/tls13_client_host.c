@@ -5,7 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "aes_gcm.h"
+#include "elf_app.h"
 #include "host_assert.h"
+#include "http_download.h"
 #include "tls13_client.h"
 #include "trust_time.h"
 
@@ -76,7 +78,16 @@ static void gcm_vectors(void)
 int main(int argc,char **argv)
 {
     gcm_vectors();
-    assert(argc==3);
+    assert(argc==3 || argc==4);
+    unsigned char expected[PACKAGE_MAX_BYTES],body[PACKAGE_MAX_BYTES];
+    size_t expected_size=0;
+    if (argc==4) {
+        FILE *file=fopen(argv[3],"rb");
+        assert(file);
+        expected_size=fread(expected,1,sizeof(expected),file);
+        assert(expected_size && !ferror(file) && fgetc(file)==EOF && !ferror(file));
+        assert(!fclose(file));
+    }
     unsigned char pin[32];
     assert(trust_parse_digest(argv[2],pin));
     const int port=atoi(argv[1]);
@@ -99,8 +110,15 @@ int main(int argc,char **argv)
         const struct tls13_io io={&client,socket_read,socket_write,random_bytes};
         enum tls13_auth_result auth;
         if (mode==3) { pin[0]^=1; }
-        enum tls13_client_result result=tls13_echo(&io,mode==2 ? "wrong.ouros.test" : "demo.ouros.test",
-            pin_matches,pin,message,sizeof(message)-1,&auth);
+        const char *name=mode==2 ? "wrong.ouros.test" : PACKAGE_TLS_NAME;
+        struct http_download download={.body=body,.capacity=sizeof(body)};
+        enum tls13_client_result result;
+        if (expected_size) {
+            static const char request[]=PACKAGE_HTTP_REQUEST;
+            result=tls13_request(&io,name,pin_matches,pin,request,sizeof(request)-1,http_download_receive,&download,&auth);
+        } else {
+            result=tls13_echo(&io,name,pin_matches,pin,message,sizeof(message)-1,&auth);
+        }
         if (mode==3) { pin[0]^=1; }
         if ((mode==0 && result!=TLS13_CLIENT_RANDOM) || (mode==1 && result!=TLS13_CLIENT_RECORD) ||
             (mode==2 && (result!=TLS13_CLIENT_AUTH || auth!=TLS13_AUTH_NAME)) ||
@@ -109,9 +127,16 @@ int main(int argc,char **argv)
             fprintf(stderr,"mode=%u result=%u auth=%u Winsock=%d\n",mode,result,auth,WSAGetLastError());
             return 1;
         }
+        if (expected_size && mode==4) {
+            struct app_image_plan plan;
+            assert(download.complete && download.received==expected_size && !memcmp(body,expected,expected_size));
+            assert(app_elf_plan(body,download.received,&plan)==APP_ELF_OK);
+        }
         closesocket(client.socket);
     }
     WSACleanup();
-    puts("PASS: AES-GCM vector, live OpenSSL TLS 1.3 echo, RNG failure, record tampering, wrong name and wrong pin.");
+    puts(expected_size
+        ? "PASS: HTTPS package bytes match and validate as an AArch64 ELF. RNG failure, bad tag, name and pin rejected."
+        : "PASS: AES-GCM vector, live OpenSSL TLS 1.3 echo, RNG failure, record tampering, wrong name and wrong pin.");
     return 0;
 }
