@@ -1,0 +1,38 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The Phase 12 build booted from USB, mounted extents v5, enabled the
+MMU and timer, and launched the serial shell.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> utc
+UTC unset. Use utc set <YYYY-MM-DDTHH:MM:SSZ>.
+> platforminfo
+Pi 5 AVS thermal register: 0x000000107d542200
+Pi 5 firmware mailbox: 0x000000107c013880
+Pi 5 RTC: described by device tree.
+> therminfo
+SoC temperature_mC=41900
+> rtcinfo
+Firmware query: invalid request or response.
+> rtcinfo
+Firmware query: invalid request or response.
+> powerinfo
+Firmware throttle_flags=0x0000000000000000 undervoltage_now=no undervoltage_seen=no
+> utc
+UTC unset. Use utc set <YYYY-MM-DDTHH:MM:SSZ>.
+> rtcinfo
+Firmware query: invalid request or response.
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ echo phase12-ok
+phase12-ok
+
+The sensor, firmware throttling reply and serial recovery passed.
+The RTC reply failed the original driver's validation on all three reads.

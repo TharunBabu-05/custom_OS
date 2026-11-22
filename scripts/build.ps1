@@ -40,6 +40,7 @@ try {
         Invoke-Tool gdb @('--version') | Set-Content -Encoding ASCII 'build/toolchain/gdb.txt'
         Write-Output 'Compiler checks only: probe binaries are NOT bootable kernels.'
     } else {
+        $common+=@('-ffunction-sections','-fdata-sections')
         $boardSource='boards/qemu_virt/board.c'
         $entrySource='arch/aarch64/boot/start.S'
         $linker='linker/qemu_virt.ld'
@@ -74,6 +75,7 @@ try {
         else { $sources+=@('drivers/storage/virtio_blk.c','drivers/usb/qemu_xhci_test.c','tests/udp_worker.c') }
         $sources+=@('drivers/display/simple_framebuffer.c','drivers/display/framebuffer_terminal.c','kernel/core/framebuffer_commands.c')
         $sources+=@('drivers/platform/pi5_health.c','drivers/platform/pi5_mailbox.c','kernel/core/platform_health_commands.c')
+        $sources+=@('kernel/core/dt_resources.c','kernel/core/device_inventory.c')
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }
         $objects = @()
         foreach ($source in $sources) {
@@ -82,11 +84,12 @@ try {
             $optimize=if ($source -in @('kernel/core/trust_time_commands.c','lib/trust_time.c','network/tcp.c','network/netprobe.c','network/udp.c','drivers/storage/brcm_control.c','drivers/storage/brcm_assoc.c','drivers/storage/pi5_wifi_probe.c',
                 'drivers/display/simple_framebuffer.c','drivers/display/framebuffer_terminal.c','kernel/core/framebuffer_commands.c','kernel/core/dt_property.c','kernel/core/main.c',
                 'drivers/platform/pi5_health.c','drivers/platform/pi5_mailbox.c','kernel/core/platform_health_commands.c',
+                'kernel/core/dt_resources.c','kernel/core/device_inventory.c',
                 'filesystem/persist.c','kernel/process/process.c','drivers/usb/xhci_enumerate.c','drivers/usb/xhci_test.c')) { @('-Os') } else { @() }
             Invoke-Tool gcc ($common + $optimize + @("-mcpu=$cpu",'-c',$source,'-o',$object))
             $objects += $object
         }
-        Invoke-Tool ld ($linkOptions + @('--build-id=none','--no-undefined','-T',$linker,"-Map=$out/kernel.map",'-o',"$out/kernel.elf") + $objects)
+        Invoke-Tool ld ($linkOptions + @('--build-id=none','--no-undefined','--gc-sections','-T',$linker,"-Map=$out/kernel.map",'-o',"$out/kernel.elf") + $objects)
         Verify-Elf $out 'kernel'
         if ($Target -ne 'virt') {
             $bytes=[IO.File]::ReadAllBytes((Join-Path $ProjectRoot "$out/kernel.bin"))
@@ -97,6 +100,8 @@ try {
         }
         if ($Target -eq 'rpi5') {
             Copy-Item -LiteralPath "$out/kernel.bin" -Destination "$out/ouros-rpi5.img"
+            $span=[BitConverter]::ToUInt64($bytes,16)
+            Write-Output "Pi 5 kernel span: $span bytes. Space before firmware DTB: $(0x180000-$span) bytes."
             if (!$KeepBuildFiles) { & "$PSScriptRoot/clean-build.ps1" }
             Write-Output "Built Pi 5 candidate: $out/ouros-rpi5.img. Console=$Console. Hardware boot remains UNTESTED."
         } else { Write-Output "Built $out/kernel.elf for QEMU only." }

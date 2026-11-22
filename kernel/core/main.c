@@ -1,6 +1,7 @@
 #include "board.h"
 #include "console.h"
 #include "dt_property.h"
+#include "dt_resources.h"
 #include "cpu.h"
 #include "memory.h"
 #include "heap.h"
@@ -128,6 +129,7 @@ static void command(const char *line)
     if (process_command(line) || task_command(line) || file_command(line) || trust_time_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
     if (mmu_command(line)) { return; }
+    if (device_inventory_command(line,(const void *)firmware_dtb,&board)) { return; }
     if (platform_health_command(line,(const void *)firmware_dtb,
                                 equal(board.name,"rpi5-header") || equal(board.name,"rpi5"))) { return; }
     if (framebuffer_command(line)) { return; }
@@ -142,6 +144,7 @@ static void command(const char *line)
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear reboot halt fault\n");
         console_write("platforminfo therminfo powerinfo rtcinfo (Pi 5 diagnostics)\n");
+        console_write("devlist [DT path|alias] | devinfo <DT path|alias> (device tree)\n");
         console_write("utc | utc set <YYYY-MM-DDTHH:MM:SSZ> | utc clear\n");
         console_write("trustlist trustadd <SHA-256> trustcheck <SHA-256> <from UTC> <to UTC> trustclear\n");
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-enum reply { VALID, NO_REPLY, WRONG_ADDRESS, BAD_LENGTH, BAD_SELECTOR, REFUSED, UNSUPPORTED };
+enum reply { VALID, SHORT_RTC, NO_REPLY, WRONG_ADDRESS, BAD_LENGTH, BAD_SELECTOR, REFUSED, UNSUPPORTED };
 static _Alignas(16) uint32_t message[PI5_MESSAGE_WORDS];
 static struct pi5_mailbox mailbox={message,0xc0080000,false};
 static enum reply mode;
@@ -40,7 +40,10 @@ static void write_reg(uintptr_t base, unsigned offset, uint32_t word)
         return;
     }
     message[1]=mode==REFUSED ? 0x80000001 : 0x80000000;
-    message[4]=mode==UNSUPPORTED ? 0 : 0x80000000 | (mode==BAD_LENGTH ? 3u : message[3]);
+    uint32_t reply_bytes=message[3];
+    if (mode==SHORT_RTC) { reply_bytes=4; }
+    if (mode==BAD_LENGTH) { reply_bytes=3; }
+    message[4]=mode==UNSUPPORTED ? 0 : 0x80000000 | reply_bytes;
     if (rtc) {
         message[5]=mode==BAD_SELECTOR ? 1 : 0;
         message[6]=1795341600;
@@ -58,8 +61,12 @@ static void mailbox_test(void)
 {
     uint32_t value=0;
     assert(pi5_property_read(&mailbox,&io,0x1000,4,PI5_RTC_TIME,&value)==PI5_REPLY_OK && value==1795341600);
+    mode=SHORT_RTC;
+    value=42;
+    assert(pi5_property_read(&mailbox,&io,0x1000,4,PI5_RTC_TIME,&value)==PI5_REPLY_OK && value==1795341600);
+    mode=VALID;
     assert(pi5_property_read(&mailbox,&io,0x1000,4,PI5_THROTTLED,&value)==PI5_REPLY_OK && value==0x10001);
-    assert(writes==2 && reads==2 && barriers==4);
+    assert(writes==3 && reads==3 && barriers==6);
     value=42;
     mode=BAD_LENGTH;
     assert(pi5_property_read(&mailbox,&io,0x1000,4,PI5_RTC_TIME,&value)==PI5_REPLY_INVALID);

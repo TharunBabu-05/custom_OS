@@ -16,8 +16,9 @@ enum pi5_reply pi5_property_read(struct pi5_mailbox *mailbox, const struct pi5_m
         return PI5_REPLY_BUSY;
     }
 
-    const uint32_t tag=property==PI5_RTC_TIME ? 0x30087 : 0x30046;
-    const uint32_t value_bytes=property==PI5_RTC_TIME ? 8 : 4;
+    const bool rtc=property==PI5_RTC_TIME;
+    const uint32_t tag=rtc ? 0x30087 : 0x30046;
+    const uint32_t value_bytes=rtc ? 8 : 4;
     const uint32_t end=5+value_bytes/4;
     const uint32_t message_bytes=(end+1)*4;
     volatile uint32_t *message=mailbox->message;
@@ -40,10 +41,14 @@ enum pi5_reply pi5_property_read(struct pi5_mailbox *mailbox, const struct pi5_m
             return PI5_REPLY_MISMATCH;
         }
         io->barrier();
-        if (message[1]!=RESPONSE_OK || !(message[4]&RESPONSE_OK)) { return PI5_REPLY_REJECTED; }
+        const uint32_t tag_response=message[4];
+        if (message[1]!=RESPONSE_OK || !(tag_response&RESPONSE_OK)) { return PI5_REPLY_REJECTED; }
+        const uint32_t reply_bytes=tag_response&~RESPONSE_OK;
+        /* Pi 5 firmware can report only the four-byte result. RTC_TIME still
+         * leaves the selector in word 0 and writes seconds in word 1. */
         if (message[0]!=message_bytes || message[2]!=tag || message[3]!=value_bytes ||
-            message[4]!=(RESPONSE_OK|value_bytes) || message[end] ||
-            (property==PI5_RTC_TIME && message[5])) { return PI5_REPLY_INVALID; }
+            (reply_bytes!=value_bytes && !(rtc && reply_bytes==4)) || message[end] ||
+            (rtc && message[5])) { return PI5_REPLY_INVALID; }
         *result=message[end-1];
         return PI5_REPLY_OK;
     }

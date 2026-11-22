@@ -1,5 +1,10 @@
 # Real Raspberry Pi 5 proof
 
+The Pi returned 41.9 °C and zero firmware throttling flags. UTC and
+the mounted data generation were unchanged. The original RTC read
+failed validation and needs a hardware rerun with the corrected driver.
+[Platform health capture](pi5-platform-health-2026-11-22.txt)
+
 The Pi verified `cmp` for matching files and a mismatch at byte 4, and
 `hexdump` for a three-byte range starting at offset 1.
 [Binary tools capture](pi5-binary-tools-2026-11-22.txt)

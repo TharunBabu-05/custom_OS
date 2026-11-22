@@ -65,8 +65,11 @@ if ($PlatformHealth) {
         Copy-Item -LiteralPath $source -Destination $disk
         try {
             Session $disk $name $case[0] $case[1] @('exit','datacheck','utc','platforminfo','therminfo','powerinfo','rtcinfo',
+                'devlist','devinfo /pl011@9000000','devinfo /does-not-exist',
                 'utc','datacheck','appshell','echo platform-shell-ok','exit','pwd','halt') @(
                 'Starting serial shell from /boot/SHELL.ELF','status=valid',
+                'DT children of /','/pl011@9000000 status=enabled','dt_cpu=0x0000000009000000',
+                'owner=serial-console live_mmio=0x0000000009000000','Device-tree node or alias not found.',
                 'UTC unset. Use utc set','Platform health: requires Raspberry Pi 5.','platform-shell-ok') 2 'ouros.startup=shell'
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             foreach ($command in @('platforminfo','therminfo','powerinfo','rtcinfo')) {

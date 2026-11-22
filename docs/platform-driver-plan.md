@@ -34,11 +34,10 @@ device. For each update, check the successful path, a failure or detach
 path, serial responsiveness, kernel resource cleanup and existing
 storage. Run the equivalent native or QEMU checks before the Pi test.
 
-Phase 13 also needs a kernel size budget. The current Pi header image's
-linked memory ends at `0x1ff000`, one page below the DTB at `0x200000`.
-Track text, static data and stacks in the link map before adding more
-drivers. Any later change to the DTB address needs its own cold-boot
-and memory-reservation checks.
+Phase 13 adds a kernel size budget. The kernel build removes unreferenced
+sections and reports its linked memory span and remaining space before
+the DTB at `0x200000`. This build has 4,096 bytes of space before that
+boundary. The linker still enforces it.
 
 ## Phase 12 platform diagnostics
 
@@ -73,10 +72,22 @@ boot, UTC and disk checks. Use an existing local v5 image, or set
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-pi5-health.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-device-inventory.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Target handoff-test -KeepBuildFiles
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/image-rpi5.ps1 -Console header -DataVersion 5 -BuildOnly -KeepBuildFiles
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-shell-qemu.ps1 -PlatformHealth -Image $image
 ```
+
+The Pi returned 41.9 °C and zero throttling flags. The mounted v5
+generation remained 9 and UTC remained unset. The original RTC driver
+rejected the response. Firmware can report a four-byte result count
+while leaving the selector in the first word and writing Unix seconds
+to the second word of the eight-byte value buffer. The updated driver
+accepts that reply and the full eight-byte reply, and still checks the
+mailbox address, tag, buffer size, terminator and selector.
+[OurOS Pi capture](../proofs/pi5-platform-health-2026-11-22.txt)
+· [Pi firmware reply capture](https://forums.raspberrypi.com/viewtopic.php?p=2388630)
+· [Raspberry Pi RTC driver](https://github.com/raspberrypi/linux/blob/rpi-6.12.y/drivers/rtc/rtc-rpi.c#L37-L45)
 
 The native suite passed against the pinned Pi device tree, including
 disabled and malformed bindings, bad replies and timeouts. Both QEMU
@@ -123,3 +134,61 @@ when the RTC has no plausible date or the firmware does not expose
 throttling. Compare UTC state and snapshot generations before and after,
 and check for `phase12-ok` at the end. A physical capture is required
 to accept the hardware readbacks.
+
+## Phase 13 device inventory
+
+`devlist [path|alias]` lists direct children and effective status.
+`devinfo <path|alias>` shows compatible strings, register ranges, the
+interrupt parent and specifier cells, and supported dependency properties
+with their provider paths. It handles common simple-bus and PCI memory
+ranges. A missing, malformed or ambiguous translation is reported as
+`dt_cpu=unresolved` or as raw `reg` cells for a different address layout.
+Firmware and board policy still determine which devices can be driven.
+General resource claims and conflict tracking follow this inventory.
+[Devicetree specification](https://devicetree-specification.readthedocs.io/en/stable/devicetree-basics.html)
+
+`dt_cpu` comes from the DTB's `ranges`. On the pinned Pi tree, RP1
+UART0 translates to `0x1f00030000`. The header console on the tested Pi
+uses the live firmware mapping `0x1c00030000`, which `devinfo serial0`
+reports separately. Inventory performs no device probes or register writes.
+
+The native suite verified translation and provider lookup against the
+pinned Pi DTB and rejected truncated nodes, duplicate phandles and
+out-of-window register ranges. Both QEMU handoff profiles verified the
+PL011 mapping, a missing node, and boot, UTC and disk integrity after
+running the new commands.
+
+Preview and apply the Phase 13 ZIP on the existing boot drive.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase13-inventory-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After the Pi boots into the shell, use the serial monitor. Wait at
+least two seconds between the RTC reads.
+
+```text
+exit
+datacheck
+utc
+rtcinfo
+rtcinfo
+devlist /soc@107c000000
+devinfo serial0
+devinfo usb1
+devinfo ethernet0
+devinfo /soc@107c000000/rpi_rtc
+devinfo /does-not-exist
+utc
+datacheck
+appshell
+echo phase13-ok
+```
+
+Check that the RTC emits two Unix timestamps, that the console shows
+its live address, and that the USB and Ethernet nodes show their RP1
+interrupt parent. The missing path should report an error and return
+to the prompt. Compare UTC and both data checks, then look for
+`phase13-ok`.
