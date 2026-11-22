@@ -25,16 +25,20 @@ bool wpa_sae_ptk(const unsigned char pmk[32],const unsigned char local[6],const 
     crypto_wipe(&w,sizeof(w));return ok;
 }
 static void be16(unsigned char *p,unsigned v) { p[0]=(unsigned char)(v>>8);p[1]=(unsigned char)v; }
-bool wpa_sae_m4(const struct wpa_m4_input *in,void *output,size_t capacity,size_t *actual)
+static bool key_response(const struct wpa_m4_input *in,unsigned info,void *output,size_t capacity,size_t *actual)
 {
     if (actual) { *actual=0; }
     if (!in || !output || !actual || !mac(in->local) || !mac(in->ap) || crypto_equal(in->local,in->ap,6) || in->version<1 || in->version>3 || capacity<113 || overlap(in,sizeof(*in),output,capacity)) { return false; }
     unsigned char packet[113]={0},mic[16];for (unsigned i=0;i<6;++i) { packet[i]=in->ap[i];packet[6+i]=in->local[i]; }be16(packet+12,0x888e);
-    unsigned char *e=packet+14,*k=e+4;e[0]=(unsigned char)in->version;e[1]=3;be16(e+2,95);k[0]=2;be16(k+1,0x308);
+    unsigned char *e=packet+14,*k=e+4;e[0]=(unsigned char)in->version;e[1]=3;be16(e+2,95);k[0]=2;be16(k+1,info);
     for (unsigned i=0;i<8;++i) { k[5+i]=in->replay[i]; }bool ok=aes128_cmac(in->kck,e,99,mic);
     if (ok) { for (unsigned i=0;i<16;++i) { k[77+i]=mic[i]; }for (unsigned i=0;i<113;++i) { ((unsigned char *)output)[i]=packet[i]; }*actual=113; }
     crypto_wipe(packet,sizeof(packet));crypto_wipe(mic,sizeof(mic));return ok;
 }
+bool wpa_sae_m4(const struct wpa_m4_input *in,void *output,size_t capacity,size_t *actual)
+{ return key_response(in,0x308,output,capacity,actual); }
+bool wpa_sae_group2(const struct wpa_m4_input *in,void *output,size_t capacity,size_t *actual)
+{ return key_response(in,0x300,output,capacity,actual); }
 bool wpa_sae_m2(const struct wpa_m2_input *in,void *output,size_t capacity,size_t *actual)
 {
     if (actual) { *actual=0; }

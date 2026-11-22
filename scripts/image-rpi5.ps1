@@ -1,6 +1,6 @@
 # Writes a regular project-local disk-image file; never opens a physical device.
 [CmdletBinding()]
-param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4)][int]$DataVersion=4,[string]$DataBackup,[switch]$KeepBuildFiles,[switch]$BuildOnly)
+param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4,5)][int]$DataVersion=4,[string]$DataBackup,[switch]$KeepBuildFiles,[switch]$BuildOnly)
 . "$PSScriptRoot/windows-tools.ps1"
 . "$PSScriptRoot/rpi5-profile.ps1"
 $piProfile=Get-Rpi5Profile $Console
@@ -16,17 +16,23 @@ New-Item -ItemType Directory -Path $files | Out-Null
 . "$PSScriptRoot/data-backup.ps1"
 if ($DataBackup) {
     $backup=Get-OurOSDataBackup $DataBackup
-    if ($backup.Version -ne $DataVersion) { throw 'Backup and target data format must match; no implicit migration' }
+    if ($backup.Version -ne $DataVersion -and !($DataVersion -eq 5 -and $backup.Version -eq 4)) { throw 'Backup format is incompatible with the target data format' }
     [IO.File]::WriteAllBytes((Join-Path $files 'DATA.BAK'),$backup.Raw)
 }
 # Public demonstration archive: restoring it is always explicit and empty-target-only.
 [byte[]]$pattern=New-Object byte[] 8192;for ($i=0;$i -lt $pattern.Length;$i++) { $pattern[$i]=[byte]($i%256) }
 if ($DataVersion -eq 1) { $pattern=New-Object byte[] 4096;for ($i=0;$i -lt $pattern.Length;$i++) { $pattern[$i]=[byte]($i%256) } }
-$demo=New-OurOSDataBackup -Version $DataVersion -Files @(
+$demoVersion=if ($DataVersion -eq 5) { 4 } else { $DataVersion }
+$demo=New-OurOSDataBackup -Version $demoVersion -Files @(
     @{Name='restore.txt';Data=[Text.Encoding]::ASCII.GetBytes("OurOS verified backup restore.`n")},@{Name='pattern.bin';Data=$pattern})
 [IO.File]::WriteAllBytes((Join-Path $files 'DEMO.BAK'),$demo)
 [byte[]]$large=New-Object byte[] 16384;for ($i=0;$i -lt $large.Length;$i++) { $large[$i]=[byte](($i*29+7)%256) }
 [IO.File]::WriteAllBytes((Join-Path $files 'LARGE.BIN'),$large)
+if ($DataVersion -eq 5) {
+    [byte[]]$extent=New-Object byte[] 32768
+    for ($i=0;$i -lt $extent.Length;$i++) { $extent[$i]=[byte](($i*13+5)%256) }
+    [IO.File]::WriteAllBytes((Join-Path $files 'EXTENT.BIN'),$extent)
+}
 & "$PSScriptRoot/build-apps.ps1"
 Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'build/apps') -Filter '*.ELF' -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $files $_.Name)
@@ -185,7 +191,8 @@ $sector=512; $diskSectors=262144; $start=2048; $dataSectors=2048; $dataStart=$di
 $reserved=32; $fatSectors=2048; $clusters=$total-$reserved-2*$fatSectors
 if ($clusters -lt 65525 -or ($clusters+2)*4 -gt $fatSectors*$sector) { throw 'Invalid FAT32 geometry' }
 $dataLba=$start+$reserved+2*$fatSectors
-$image=Join-Path $out $piProfile.Image
+$imageName=if ($DataVersion -eq 5) { $piProfile.Image.Replace('.img','-extents-v5.img') } else { $piProfile.Image }
+$image=Join-Path $out $imageName
 $temporary=Join-Path $work 'disk.img'
 function Put16([byte[]]$Buffer,[int]$Offset,[uint16]$Value) { [BitConverter]::GetBytes($Value).CopyTo($Buffer,$Offset) }
 function Put32([byte[]]$Buffer,[int]$Offset,[uint32]$Value) { [BitConverter]::GetBytes($Value).CopyTo($Buffer,$Offset) }

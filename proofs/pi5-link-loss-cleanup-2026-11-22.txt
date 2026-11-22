@@ -1,0 +1,30 @@
+Raspberry Pi 5 serial capture supplied by the user, excerpted.
+Hotspot identifiers and local network addresses are omitted.
+
+> netup -r [hotspot]
+SAE probe refused: a complete clean scan with interface DOWN and restored event mask is required
+> networktest el0
+PASS: network worker yielded, resumed, preserved its stack and stopped.
+
+[Firmware and country prepared. Scan and target check passed.]
+> netup [hotspot]
+Background Wi-Fi ready. Use netping [IPv4], netinfo or netdown; appshell remains available.
+> netping
+Ping queued. Use netinfo for the result.
+> netup -r [hotspot]
+Wi-Fi worker already owns the radio.
+> netup -r [hotspot]
+SAE preparation/probe already attempted; cached status. Reboot to repeat.
+Interface DOWN=acknowledged policy/mask restoration=verified transcript_buffers=erased
+Firmware key cleanup=acknowledged clear_mask=0x0000000000000007 result=ok status=0x0000000000000000
+failure_event=6 status=0x0000000000000000 reason=1
+> netinfo
+SCB final valid=yes version=4 bytes=200 flags=0x000000000000e002 authenticated=no associated=no authorized=no
+DEAUTHORIZE_SET=acknowledged status=0x0000000000000000
+ARP checks: probes=3 announcements=2 conflict=not-observed temporary_IP_used=yes active_now=no
+Session active=no ended=yes reason=3 pings_started=1 completed=1 timed_out=0
+Cleanup DOWN=yes keys_cleared=yes private_erased=yes policy_restored=yes
+
+The successful connection used plain netup, which disabled reconnect.
+This capture proves the link-loss cleanup path. Automatic reconnect was
+not active for this connection.

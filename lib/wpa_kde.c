@@ -20,15 +20,16 @@ bool wpa_ap_rsn_profile(const void *buffer,size_t n)
     if (at==n) { return true; }if (n-at<2 || le16(p+at)) { return false; }at+=2;
     return at==n || (n-at==4 && suite(p+at,6));
 }
-enum wpa_kde_result wpa_sae_key_data(const void *ap_rsn,size_t rn,const void *buffer,size_t n,const unsigned char rsc[8],struct wpa_kde_info *diag,struct wpa_group_keys *out)
+static enum wpa_kde_result key_data(bool initial,const void *ap_rsn,size_t rn,const void *buffer,size_t n,
+    const unsigned char rsc[8],struct wpa_kde_info *diag,struct wpa_group_keys *out)
 {
     if (!diag || !out) { if (out) { crypto_wipe(out,sizeof(*out)); }return KDE_ARGUMENT; }
     /* Validate aliases before clearing either output. No partial key publish. */
     if (overlap(out,sizeof(*out),diag,sizeof(*diag)) || overlap(out,sizeof(*out),ap_rsn,rn) || overlap(out,sizeof(*out),buffer,n) || overlap(out,sizeof(*out),rsc,8) ||
         overlap(diag,sizeof(*diag),ap_rsn,rn) || overlap(diag,sizeof(*diag),buffer,n) || overlap(diag,sizeof(*diag),rsc,8)) { crypto_wipe(out,sizeof(*out));return KDE_ARGUMENT; }
     *diag=(struct wpa_kde_info){0};crypto_wipe(out,sizeof(*out));
-    if (!buffer || !ap_rsn || !rsc) { return KDE_ARGUMENT; }
-    if (!wpa_ap_rsn_profile(ap_rsn,rn)) { return KDE_AP_PROFILE; }
+    if (!buffer || !rsc || (initial && !ap_rsn)) { return KDE_ARGUMENT; }
+    if (initial && !wpa_ap_rsn_profile(ap_rsn,rn)) { return KDE_AP_PROFILE; }
     if (n<16 || n>512 || n%8) { return KDE_LENGTH; }if (rsc[6] || rsc[7]) { return KDE_RSC; }
     const unsigned char *p=buffer;struct wpa_group_keys keys={0};enum wpa_kde_result result=KDE_OK;
     for (size_t at=0;at<n;) {
@@ -39,6 +40,7 @@ enum wpa_kde_result wpa_sae_key_data(const void *ap_rsn,size_t rn,const void *bu
         if (left<2 || (size_t)p[at+1]+2>left) { result=KDE_LENGTH;break; }
         size_t bytes=2u+p[at+1];const unsigned char *ie=p+at;
         if (ie[0]==48) {
+            if (!initial) { result=KDE_UNSUPPORTED;break; }
             if (diag->rsn_match) { result=KDE_DUPLICATE;break; }
             diag->rsn_bytes=(unsigned)bytes;
             if (bytes!=rn || !crypto_equal(ie,ap_rsn,rn)) { result=KDE_RSN_MISMATCH;break; }diag->rsn_match=true;
@@ -47,7 +49,7 @@ enum wpa_kde_result wpa_sae_key_data(const void *ap_rsn,size_t rn,const void *bu
             diag->selector=ie[5]==1 ? 1 : ie[5]==9 ? 9 : 0;if (ie[2] || ie[3]!=15 || ie[4]!=172) { result=KDE_UNSUPPORTED;break; }
             if (ie[5]==1) {
                 if (diag->gtk_seen) { result=KDE_DUPLICATE;break; }
-                if (bytes!=24 || (ie[6]&0xf8) || ie[7]) { result=KDE_GTK;break; }
+                if (bytes!=24 || (ie[6]&(initial ? 0xf8 : 0xfc)) || ie[7]) { result=KDE_GTK;break; }
                 keys.gtk_id=ie[6]&3;keys.gtk_tx=!!(ie[6]&4);diag->gtk_seen=true;diag->gtk_id=keys.gtk_id;diag->gtk_bytes=16;
                 for (unsigned i=0;i<16;++i) { keys.gtk[i]=ie[8+i]; }
             }else if (ie[5]==9) {
@@ -59,10 +61,16 @@ enum wpa_kde_result wpa_sae_key_data(const void *ap_rsn,size_t rn,const void *bu
         }else { result=KDE_UNSUPPORTED;break; }
         at+=bytes;
     }
-    if (result==KDE_OK && (!diag->rsn_match || !diag->gtk_seen || !diag->igtk_seen)) { result=KDE_MISSING; }
+    if (result==KDE_OK && ((initial && !diag->rsn_match) || !diag->gtk_seen || !diag->igtk_seen)) { result=KDE_MISSING; }
     if (result==KDE_OK) { for (unsigned i=0;i<6;++i) { keys.rsc[i]=rsc[i]; }*out=keys; }
     crypto_wipe(&keys,sizeof(keys));return result;
 }
+enum wpa_kde_result wpa_sae_key_data(const void *ap_rsn,size_t rn,const void *buffer,size_t n,
+    const unsigned char rsc[8],struct wpa_kde_info *diag,struct wpa_group_keys *out)
+{ return key_data(true,ap_rsn,rn,buffer,n,rsc,diag,out); }
+enum wpa_kde_result wpa_sae_group_data(const void *buffer,size_t n,const unsigned char rsc[8],
+    struct wpa_kde_info *diag,struct wpa_group_keys *out)
+{ return key_data(false,NULL,0,buffer,n,rsc,diag,out); }
 const char *wpa_kde_error(enum wpa_kde_result r)
 {
     static const char *const names[]={"ok","argument/alias","length","AP RSN profile","AP RSN differs from scan","duplicate element","GTK format","IGTK format/ID","unsupported element/selector","missing RSN/GTK/IGTK","padding","CCMP receive counter"};

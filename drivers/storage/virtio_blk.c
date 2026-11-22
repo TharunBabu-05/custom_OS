@@ -110,4 +110,7 @@ void platform_wifi_assoc(const char *ssid) { (void)ssid;console_write("No Pi Wi-
 void platform_wifi_dhcp(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; DHCP probe unavailable. No password requested.\n"); }
 void platform_wifi_ping(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; gateway ping unavailable. No password requested.\n"); }
 void platform_wifi_connect(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; live session unavailable. No password requested.\n"); }
+void platform_wifi_background(const char *ssid) { (void)ssid;console_write("No Pi Wi-Fi radio on QEMU virt; background session unavailable. No password requested.\n"); }
+void platform_network_ping(const char *target) { (void)target;console_write("No background Wi-Fi session.\n"); }
+void platform_network_renew(void) { console_write("No background Wi-Fi session.\n"); }
 void platform_network_info(void) { console_write("No live Pi Wi-Fi DHCP lease on QEMU virt.\n"); }

@@ -11,6 +11,10 @@ enum { DATA_V2_FILES=16,DATA_V2_FILE_BYTES=8192,DATA_V2_DIRECTORY_BYTES=1024,
 enum { DATA_V4_FILES=16,DATA_V4_FILE_BYTES=16384,DATA_V4_DIRECTORY_BYTES=1024,
        DATA_V4_PAYLOAD_BYTES=DATA_V4_DIRECTORY_BYTES+DATA_V4_FILES*DATA_V4_FILE_BYTES,
        DATA_V4_BANK_SECTORS=1+DATA_V4_PAYLOAD_BYTES/512,DATA_V4_MIN_SECTORS=1+2*DATA_V4_BANK_SECTORS };
+enum { DATA_V5_FILES=32,DATA_V5_FILE_BYTES=32768,DATA_V5_DIRECTORY_BYTES=DATA_V5_FILES*64,
+       DATA_V5_INDEX_BYTES=2*DATA_V5_DIRECTORY_BYTES,DATA_V5_BANK_SECTORS=1+DATA_V5_INDEX_BYTES/512,
+       DATA_V5_FIRST_EXTENT=1+2*DATA_V5_BANK_SECTORS,DATA_V5_SECTORS=2048,
+       DATA_V5_ARCHIVE_BYTES=512+DATA_V5_DIRECTORY_BYTES+DATA_V5_FILES*DATA_V5_FILE_BYTES };
 struct persist_volume {
     struct block_device device;
     uint32_t start,sectors;
@@ -29,7 +33,8 @@ struct persist_volume {
      * compact overlay rather than a second whole-payload RAM allocation. */
     unsigned staged_slot;
     unsigned char live[DATA_V4_PAYLOAD_BYTES];
-    unsigned char staged_directory[DATA_V4_DIRECTORY_BYTES],staged_file[DATA_V4_FILE_BYTES];
+    unsigned char staged_directory[DATA_V5_DIRECTORY_BYTES],staged_file[DATA_V5_FILE_BYTES];
+    unsigned char extents[DATA_V5_DIRECTORY_BYTES],staged_extents[DATA_V5_DIRECTORY_BYTES];
 };
 enum persist_bank_state {
     PERSIST_BANK_EMPTY, PERSIST_BANK_BAD_HEADER, PERSIST_BANK_BAD_PAYLOAD,
@@ -62,10 +67,12 @@ enum fs_result persist_sync(struct persist_volume *);
 enum fs_result persist_check(struct persist_volume *,struct persist_report *);
 typedef bool (*persist_emit)(const void *,size_t,void *);
 typedef bool (*persist_input)(void *,size_t,void *);
+typedef bool (*persist_read_at)(uint32_t,void *,size_t,void *);
 /* A normalized bank-zero header + full payload; no disk writes on export.
  * Restore accepts only an empty, healthy volume of the same format and
  * validates every byte before one existing dual-bank commit. */
 enum fs_result persist_export(struct persist_volume *,persist_emit,void *);
 enum fs_result persist_export_previous(struct persist_volume *,persist_emit,void *);
 enum fs_result persist_restore(struct persist_volume *,size_t,persist_input,void *);
+enum fs_result persist_restore_extents(struct persist_volume *,size_t,persist_read_at,void *);
 #endif

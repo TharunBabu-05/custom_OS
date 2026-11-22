@@ -58,9 +58,9 @@ still be checked; successful same-session write/read/sync is narrower evidence.
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Writable storage | USB2 writes, bounded flush/write-through policy, snapshot commits/readback, nested directories and atomic publication; new v4 16 KiB files pass native/QEMU | Pi v4 acceptance, larger volumes/files beyond fixed snapshots, richer metadata, general writable filesystem and more block-device drivers |
-| Recovery | SHA256/two banks/rollback, native interrupted-I/O tests, serial export/empty-target restore and explicit v1-v3 to v4 backup conversion | Pi backup/export/power-cut tests, richer recovery console, repair and automatic preservation policy |
-| Local installation | `appinstall` creates a validated ELF; `appupdate` validates before atomically updating an existing file, with full readback | General OS installer, layout planning, multi-file upgrades, uninstall/version rollback policy and preservation of user data |
+| Writable storage | USB2 writes with checked flushes, nested directories, atomic publication, Pi-verified v4 retention, and Pi-verified v5 startup with 32 KiB file limits | Pi v5 migration and recovery, larger volumes, richer metadata, a general writable filesystem and more block-device drivers |
+| Recovery | SHA-256 and two commit banks, native interrupted-I/O tests, serial export and restore, and explicit v4-to-v5 migration | Pi backup/export and power-cut tests, richer recovery console, repair and automatic preservation policy |
+| Local installation | Path-based ELF install and update, plus named app staging, listing, rollback and uninstall tested on v4 and v5. [Local app lifecycle](app-lifecycle.md) | Pi managed-app checks, a general OS installer, layout planning and multi-file upgrades |
 | Packages | Executable files can be stored and loaded locally | Package format/manifests, versions, dependencies, integrity/authenticity checks, transactions and repository metadata |
 | Downloads | Foreground Wi-Fi/IP/UDP DNS/ICMP foundations | Reliable background networking, TCP, HTTP/TLS, certificate/time policy, signatures and authenticated repositories |
 
@@ -100,5 +100,11 @@ USB classes or topologies are supported.
 ## Work order and evidence
 
 The Pi passed safe reboot with file retention, two shell jobs, and bounded
-command lists. Phase 5 covers storage capacity and recovery.
-[Safe reboot](safe-reboot.md) · [Shell workflows](shell-workflows.md) · [Implementation plan](implementation-plan.md)
+command lists. The Phase 5 storage prototype passed native and emulator
+tests and booted on Pi with the expected v5 mount limits. The Pi also verified
+the Phase 6 app listing, the Phase 7 worker tests, background gateway pings,
+three DHCP renewals, link-loss cleanup, and automatic reconnection to a
+changed BSSID. A manual same-boot join after cleanup still awaits Pi
+verification. The native model passes group-key rotation during a session.
+Pi rotation still needs an AP that rotates keys while the Pi stays online.
+[Storage prototype](data-v5.md) · [Local app lifecycle](app-lifecycle.md) · [Background Wi-Fi](background-networking.md) · [Implementation plan](implementation-plan.md)

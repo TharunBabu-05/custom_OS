@@ -4,7 +4,7 @@
 enum wifi_target_result {
     WIFI_TARGET_OK,WIFI_TARGET_ARGUMENT,WIFI_TARGET_SCAN,WIFI_TARGET_NOT_FOUND,
     WIFI_TARGET_AMBIGUOUS,WIFI_TARGET_PRIVACY,WIFI_TARGET_AKM,WIFI_TARGET_CIPHER,
-    WIFI_TARGET_PMF,WIFI_TARGET_MANAGEMENT,WIFI_TARGET_FIRMWARE
+    WIFI_TARGET_PMF,WIFI_TARGET_MANAGEMENT,WIFI_TARGET_FIRMWARE,WIFI_TARGET_RECONNECT_PROFILE
 };
 /* Cached advertisement checks only. No I/O, credentials, keys or association.
  * An SSID with multiple BSSIDs is deliberately refused until explicit selection exists. */
@@ -14,4 +14,8 @@ enum wifi_sae_method { WIFI_SAE_H2E,WIFI_SAE_HUNT,WIFI_SAE_METHOD_INVALID };
 /* Method choice is made once from validated advertisements, never by retrying
  * another method after authentication failure. WPA3 AKM/PMF checks are separate. */
 enum wifi_sae_method wifi_target_sae_method(const struct brcm_scan_ap *);
+/* Exact SSID and original SAE method. A NULL BSSID permits a single
+ * compatible advertisement for that SSID after a fresh scan. */
+enum wifi_target_result wifi_target_reconnect(const struct brcm_scan_state *,const struct brcm_caps_state *,
+    const void *ssid,size_t,const unsigned char bssid[6],enum wifi_sae_method,const struct brcm_scan_ap **);
 #endif

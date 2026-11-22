@@ -28,18 +28,26 @@ enum fs_result vfs_data_export(persist_emit emit,void *context) { return persist
 enum fs_result vfs_data_export_previous(persist_emit emit,void *context) { return persist_export_previous(&data_volume,emit,context); }
 static struct fat32_file restore_source;
 struct restore_cursor { uint32_t offset; };
+static bool restore_read_at(uint32_t offset,void *buffer,size_t bytes,void *context)
+{
+    (void)context;size_t n=0;
+    return fat32_file_read(&restore_source,offset,buffer,bytes,&n)==FS_OK && n==bytes;
+}
 static bool restore_read(void *buffer,size_t bytes,void *context)
 {
-    struct restore_cursor *c=context;size_t n=0;
-    enum fs_result r=fat32_file_read(&restore_source,c->offset,buffer,bytes,&n);
-    if (r!=FS_OK || n!=bytes) { return false; }c->offset+=(uint32_t)n;return true;
+    struct restore_cursor *c=context;
+    if (!restore_read_at(c->offset,buffer,bytes,NULL)) { return false; }
+    c->offset+=(uint32_t)bytes;return true;
 }
 enum fs_result vfs_data_restore(const char *path)
 {
     /* A fixed boot file source avoids writable path aliases and extra leases;
      * the archive may exceed the general per-file RAM/data bound. */
     struct restore_cursor cursor={0};enum fs_result r=vfs_boot_open(path,&restore_source);
-    if (r==FS_OK) { r=persist_restore(&data_volume,restore_source.entry.size,restore_read,&cursor); }
+    if (r==FS_OK) {
+        r=data_volume.version==5 ? persist_restore_extents(&data_volume,restore_source.entry.size,restore_read_at,NULL) :
+            persist_restore(&data_volume,restore_source.entry.size,restore_read,&cursor);
+    }
     restore_source.ready=false;return r;
 }
 void vfs_data_info(void)
@@ -52,7 +60,8 @@ void vfs_data_info(void)
             console_write(" last_read_lba=");console_u64(data_volume.mount_lba);console_write("\nMount failure retained; reboot before retrying. No file writes were accepted.\n");
         }return;
     }
-    console_write("/data: OurOS snapshot v");console_u64(data_volume.version);console_write(data_volume.version>=3 ? "; nodes=" : "; files=");console_u64(data_volume.files);
+    console_write(data_volume.version==5 ? "/data: OurOS extents v" : "/data: OurOS snapshot v");
+    console_u64(data_volume.version);console_write(data_volume.version>=3 ? "; nodes=" : "; files=");console_u64(data_volume.files);
     console_write(" max_file_bytes=");console_u64(data_volume.file_bytes);console_write("; writes=");console_write(data_volume.failed ? "failed (reboot required)" : "synchronous");
     console_write("\npartition_start_lba=");console_u64(data_volume.start);console_write(" sectors=");console_u64(data_volume.sectors);
     console_write(" bank=");console_u64(data_volume.bank);console_write(" generation=");console_u64(data_volume.generation);console_write(" valid_banks=");console_u64(data_volume.valid_banks);console_write("\n");

@@ -13,7 +13,7 @@ struct brcm_scan_ap {
 };
 struct brcm_scan_state {
     bool attempted,armed,request_accepted,complete,ready,interface_may_be_up,interface_down,mask_restored,truncated;
-    enum block_result error,last_parse_error;unsigned phase,count,events,ignored,malformed,duplicates,overflow,polls;
+    enum block_result error,last_parse_error,cleanup_error;unsigned phase,count,events,ignored,malformed,duplicates,overflow,polls;
     uint32_t firmware_status,event_status,event_reason,scan_version,escan_version,last_bss_version;
     uint16_t sync_id;unsigned char saved_mask[16];
     struct brcm_scan_ap ap[BRCM_SCAN_AP_MAX];
@@ -30,4 +30,6 @@ struct brcm_scan_io {
 void brcm_scan_event(void *,const void *,size_t);
 enum block_result brcm_scan_bss(const void *,size_t,struct brcm_scan_ap *);
 enum block_result brcm_scan_run(const struct brcm_scan_io *,const struct brcm_prepare_state *,struct brcm_scan_state *);
+/* Refresh a clean or unused scan with its next firmware transaction ID. */
+enum block_result brcm_scan_refresh(const struct brcm_scan_io *,const struct brcm_prepare_state *,struct brcm_scan_state *);
 #endif

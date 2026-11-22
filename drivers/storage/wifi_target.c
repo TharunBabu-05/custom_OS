@@ -9,14 +9,16 @@ enum wifi_sae_method wifi_target_sae_method(const struct brcm_scan_ap *ap)
     if (ap->rsnxe_length!=(unsigned)(ap->rsnxe[0]&15)+1) { return WIFI_SAE_METHOD_INVALID; }
     return ap->rsnxe[0]&32 ? WIFI_SAE_H2E : WIFI_SAE_HUNT;
 }
-enum wifi_target_result wifi_target_check(const struct brcm_scan_state *scan,const struct brcm_caps_state *caps,const void *ssid,size_t bytes,const struct brcm_scan_ap **target)
+static enum wifi_target_result target_check(const struct brcm_scan_state *scan,const struct brcm_caps_state *caps,
+    const void *ssid,size_t bytes,const unsigned char *bssid,const struct brcm_scan_ap **target)
 {
     if (!target) { return WIFI_TARGET_ARGUMENT; }*target=NULL;
     if (!scan || !caps || !ssid || !bytes || bytes>32) { return WIFI_TARGET_ARGUMENT; }
     if (!scan->ready || scan->error!=BLOCK_OK || !scan->interface_down || !scan->mask_restored || scan->interface_may_be_up || scan->truncated || scan->malformed || scan->count>BRCM_SCAN_AP_MAX) { return WIFI_TARGET_SCAN; }
     const struct brcm_scan_ap *ap=NULL;
     for (unsigned i=0;i<scan->count;++i) {
-        if (scan->ap[i].ssid_length==bytes && equal(scan->ap[i].ssid,ssid,bytes)) {
+        if (scan->ap[i].ssid_length==bytes && equal(scan->ap[i].ssid,ssid,bytes) &&
+            (!bssid || equal(scan->ap[i].bssid,bssid,6))) {
             if (ap) { return WIFI_TARGET_AMBIGUOUS; }ap=&scan->ap[i];
         }
     }
@@ -27,6 +29,20 @@ enum wifi_target_result wifi_target_check(const struct brcm_scan_state *scan,con
     if (!ap->pmf_capable || (ap->pmf_required && !ap->pmf_capable)) { return WIFI_TARGET_PMF; }
     if (ap->management_cipher!=0x000fac06) { return WIFI_TARGET_MANAGEMENT; }
     if (!caps->ready || caps->error!=BLOCK_OK || !caps->external_sae || !caps->mfp_known || !caps->mfp_supported) { return WIFI_TARGET_FIRMWARE; }
+    return WIFI_TARGET_OK;
+}
+enum wifi_target_result wifi_target_check(const struct brcm_scan_state *scan,const struct brcm_caps_state *caps,
+    const void *ssid,size_t bytes,const struct brcm_scan_ap **target)
+{ return target_check(scan,caps,ssid,bytes,NULL,target); }
+enum wifi_target_result wifi_target_reconnect(const struct brcm_scan_state *scan,const struct brcm_caps_state *caps,
+    const void *ssid,size_t bytes,const unsigned char bssid[6],enum wifi_sae_method method,const struct brcm_scan_ap **target)
+{
+    enum wifi_target_result r=target_check(scan,caps,ssid,bytes,bssid,target);
+    if (r!=WIFI_TARGET_OK) { return r; }
+    const struct brcm_scan_ap *ap=*target;
+    if (method==WIFI_SAE_METHOD_INVALID || wifi_target_sae_method(ap)!=method || ap->band!=2 || !ap->channel || ap->channel>13) {
+        return WIFI_TARGET_RECONNECT_PROFILE;
+    }
     return WIFI_TARGET_OK;
 }
 const char *wifi_target_error(enum wifi_target_result r)
@@ -42,7 +58,8 @@ const char *wifi_target_error(enum wifi_target_result r)
         "CCMP-128 pairwise and group advertisements are required",
         "PMF capability is required",
         "BIP-CMAC-128 management cipher is required",
-        "verified firmware external-SAE and PMF capabilities are required"
+        "verified firmware external-SAE and PMF capabilities are required",
+        "reconnect requires the original SAE method and a supported 2.4 GHz channel"
     };
     return (unsigned)r<sizeof(messages)/sizeof(messages[0]) ? messages[r] : "invalid target result";
 }

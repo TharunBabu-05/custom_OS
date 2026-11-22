@@ -78,20 +78,22 @@ to be repeated at every development step.
 | Time | Counter/uptime, opt-in 100 Hz CNTP IRQs, start/stop, IRQ-safe snapshots and cooperative timed sleep/wakeup verified on Pi | Wall clock/RTC/time synchronization and broader timer services |
 | Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/spawn/wait/pipes/process control; Pi bg/jobs/stop responsiveness and cleanup | Pi fg/bgio and broader lifecycle checks, multiple jobs/process trees, broader blocking I/O, SMP and indefinite services |
 | Processes/system calls | Three private EL0 slots; checked files/console/args/cwd/spawn/wait/streams/pipes/exec/env/profiles/pages; snapshot/poll/cancel 40..42 and mount query 43 | Broader lifecycle hardware checks, IPC/descriptor API, credentials/access control and background services |
-| Programs/runtime | Bounded ELF loader, 53 sample/test ELFs, Pi PS/memory/allocator checks. The current shell fits the v4 file limit. | Broader installed-shell persistence, larger VM, general libc/dynamic linking, packages and installer |
+| Programs/runtime | Bounded ELF loader, 53 sample/test ELFs, Pi PS/memory/allocator checks, and QEMU-verified named app installs, upgrades and rollback. [Local app lifecycle](app-lifecycle.md) | Pi managed-app checks, larger VM, general libc/dynamic linking, packages and installer |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked open/read/write/seek/close handles with cursors and path leases | General mounts, richer metadata, permissions, pseudo-filesystems and preemptive driver synchronization |
-| Persistent files | Pi verifies v2 capacity, restore/MVCHK and v3 DIRCHK; new v4 sixteen nodes/16 KiB files, explicit v1-v3 backup conversion and mount limits pass native/QEMU | Physical v4/reboot/export/power-cut checks, atomic-update hardware cases, capacity beyond fixed snapshots and richer metadata |
+| Persistent files | Pi-verified v4 retention and v5 startup. Optional v5 raises the limits to 32 nodes and 32 KiB files and imports v4 backups. [Storage prototype](data-v5.md) | Physical v5 migration, retention and power-cut checks, and richer metadata |
 | Shell | Pi-verified files/run/runio/pipes/exec/env/profiles/expansion. Two jobs, PID selection, command lists and `source` passed on Pi. [Shell workflows](shell-workflows.md) | Longer pipelines |
-| Networking | WPA3/SAE, keys/port, DHCP, ARP, IPv4, ICMP and UDP DNS; Pi Internet pings verified | Renewal/rekey/reconnect, background service, neighbor cache, sockets, TCP, HTTP/TLS; IPv6 if required |
+| Networking | WPA3/SAE, DHCP, ARP, IPv4, ICMP and UDP DNS. The Pi passed background pings, DHCP renewal and hotspot reconnect with a changed BSSID. Native tests cover live group-key processing and teardown. [Background networking](background-networking.md) | Pi group key rotation and DHCP rebinding, sockets, TCP and HTTP/TLS |
 | Security | Reservation-aware allocation, hidden volatile credentials, verified handshake checks, kernel/user page isolation, RW/NX and checked user copies | Credentials/permissions, broader access control, syscall/driver hardening, secure update/boot design and independent review |
 | Multicore/concurrency | One active CPU; secondary cores parked | SMP startup, per-CPU state, locking, memory-order/IRQ-safe primitives and concurrent drivers |
 | Diagnostics/testing | UART logs, self-tests, independent native fixtures, guard/mutation tests, QEMU A53/A76/EL1/EL2 and image checks | Continuous integration, longer hardware soak/failure/recovery tests, coverage and debugging tools |
 | Build/update/install | Windows-native build, FAT packaging, hashes and archived full IMG/ZIP files; boot-file update can retain older data formats; explicit backup conversion | General update policy, on-device installer/rollback, package format/manager and application repository |
 
-Current bounds matter: three process slots, a 64 KiB dynamic page arena per
-process, bounded foreground sessions, sixteen v4 persistent nodes and 16384
-bytes per persistent file (legacy mounts retain older bounds). The root `/` remains RAMFS; persistent files live
-under mounted `/data`. A general persistent root/startup service is still work.
+The system has three process slots, a 64 KiB dynamic page arena per process,
+and bounded foreground sessions. The default v4 format supports 16 persistent
+nodes and 16 KiB files. The optional v5 image supports 32 persistent nodes
+and 32 KiB files. The volatile root `/` uses RAMFS. Persistent files live
+under mounted `/data`. A general persistent root and startup service remain
+open work.
 
 Creating `/dev`, `/proc` and `/sys` directories does not implement device nodes
 or kernel information files. DNS and `ping` do not supply sockets, TCP or a
@@ -135,4 +137,10 @@ still needs its own boot, interrupt, peripheral and device implementations.
 ## Development order
 
 The Pi passed the shell workflows and safe reboot with persisted data.
-Phase 5 covers storage capacity and recovery. [Implementation plan](implementation-plan.md)
+The Pi booted the Phase 5 v5 image and reported the expected storage limits.
+Migration and recovery passed native and emulator tests. [Storage prototype](data-v5.md) · [Implementation plan](implementation-plan.md)
+
+The Pi verified the Phase 6 managed-app listing. The full lifecycle passed
+QEMU on v4 and v5. The first Phase 7 worker increment passed native and
+QEMU checks and is ready for live Pi verification.
+[Local app lifecycle](app-lifecycle.md) · [Background networking](background-networking.md)

@@ -23,7 +23,7 @@ static unsigned make_event(unsigned status,bool data)
     unsigned n=data ? make_bss() : 0,bytes=data ? 12+n : 0;memset(event,0,sizeof(event));event[0]=0x20;
     unsigned char *e=event+4;b16(e+12,0x886c);b16(e+14,0x8001);e[20]=16;e[21]=24;b16(e+22,1);b16(e+24,2);
     b32(e+28,69);b32(e+32,status);b32(e+44,bytes);
-    if (data) { unsigned char *p=e+72;p32(p,bytes);p32(p+4,109);p16(p+8,0x4f53);p16(p+10,1);memcpy(p+12,bss,n); }
+    if (data) { unsigned char *p=e+72;p32(p,bytes);p32(p+4,109);p16(p+8,scan.sync_id);p16(p+10,1);memcpy(p+12,bss,n); }
     return 4+72+bytes;
 }
 static enum block_result touch(void) { return ++m.calls==m.fail_at ? BLOCK_IO : BLOCK_OK; }
@@ -45,8 +45,10 @@ static enum block_result iovar(void *ctx,bool set,const char *name,const void *i
     if (!strcmp(name,"event_msgs")) {
         assert(len==16);if (m.mode==12 && m.sets==3) { return BLOCK_IO; }memcpy(m.mask,input,16);
     } else {
-        assert(!strcmp(name,"escan") && m.ups==1 && (m.mask[8]&32));const unsigned char *p=input;
-        unsigned v=m.mode==1 ? 2 : 1;assert(g32(p)==v && len==(v==2 ? 80u : 72u));assert(p[4]==1 && !p[5] && p[6]==0x53 && p[7]==0x4f);
+        assert(!strcmp(name,"escan") && scan.interface_may_be_up && (m.mask[8]&32));const unsigned char *p=input;
+        unsigned v=m.mode==1 ? 2 : 1;assert(g32(p)==v && len==(v==2 ? 80u : 72u));
+        assert(p[4]==1 && !p[5] && p[6]==(scan.sync_id&255) && p[7]==(scan.sync_id>>8));
+        m.polls=0;
         const unsigned char *params=p+8;unsigned off=v==2 ? 4 : 0;
         for (unsigned i=0;i<36;++i) { assert(params[off+i]==0); }for (unsigned i=0;i<6;++i) { assert(params[off+36+i]==255); }
         assert(params[off+42]==2 && (v==2 ? g32(params+48) : params[43])==1);
@@ -59,17 +61,21 @@ static enum block_result radio(void *ctx,bool up,uint32_t *status)
 {
     (void)ctx;if (touch()!=BLOCK_OK) { return BLOCK_IO; }*status=0;
     if (up) { ++m.ups;assert(scan.interface_may_be_up && (m.mask[8]&32));if (m.mode==8) { return BLOCK_IO; } }
-    else { ++m.downs;assert(scan.complete && scan.event_status==0);if (m.mode==11) { return BLOCK_IO; } }return BLOCK_OK;
+    else { ++m.downs;assert(!scan.armed && scan.interface_may_be_up);if (m.mode==11) { return BLOCK_IO; } }return BLOCK_OK;
 }
 static enum block_result poll(void *ctx)
 {
     (void)ctx;if (touch()!=BLOCK_OK) { return BLOCK_IO; }++m.polls;++m.ms;
-    if (m.mode==2) { return BLOCK_OK; }
+    if (m.mode==2 || m.mode==17) { return BLOCK_OK; }
+    if (scan.sync_id!=0x4f53 && m.polls==1) {
+        unsigned bytes=make_event(8,true);p16(event+4+72+8,scan.sync_id-1);
+        brcm_scan_event(&scan,event,bytes);assert(!scan.count);
+    }
     unsigned n=make_event(m.polls==1 && m.mode!=14 ? 8 : m.mode==10 ? 4 : 0,m.polls==1 && m.mode!=14);
     if (m.mode==15 && m.polls==1) { p32(event+4+72+12+4,0xffffffffu); }
     brcm_scan_event(&scan,event,n);return BLOCK_OK;
 }
-static enum block_result delay(void *ctx,unsigned us) { (void)ctx;assert(us==10000);m.ms+=10;return touch(); }
+static enum block_result delay(void *ctx,unsigned us) { (void)ctx;assert(us==10000);m.ms+=10;return m.mode==17 ? BLOCK_STALL : touch(); }
 static uint64_t now(void *ctx) { (void)ctx;return m.ms; }
 static void seed(unsigned mode) { memset(&m,0,sizeof(m));m.mode=mode;m.mask[0]=8;memset(&scan,0,sizeof(scan)); }
 int main(void)
@@ -82,12 +88,21 @@ int main(void)
     for (unsigned mode=1;mode<=16;++mode) {
         seed(mode);enum block_result r=brcm_scan_run(&io,&prep,&scan);
         if (mode==1 || mode==14 || mode==15 || mode==16) { assert(r==BLOCK_OK && scan.ready); }else { assert(r!=BLOCK_OK && !scan.ready); }
-        if (mode==2) { assert(r==BLOCK_TIMEOUT && !m.downs && scan.interface_may_be_up); }
+        if (mode==2) { assert(r==BLOCK_TIMEOUT && m.downs==1 && !scan.interface_may_be_up && scan.mask_restored); }
         if (mode==3 || mode==4 || mode==5 || mode==6) { assert(!m.ups && !m.sets); }
         if (mode==14) { assert(!scan.count); }if (mode==15) { assert(scan.malformed==1); }
         calls=m.calls;if (scan.attempted) { assert(brcm_scan_run(&io,&prep,&scan)==r && m.calls==calls); }
     }
-    for (unsigned fail=1;fail<=total;++fail) { seed(0);m.fail_at=fail;assert(brcm_scan_run(&io,&prep,&scan)==BLOCK_IO && m.calls==fail && !scan.ready); }
+    for (unsigned fail=1;fail<=total;++fail) { seed(0);m.fail_at=fail;assert(brcm_scan_run(&io,&prep,&scan)==BLOCK_IO && m.calls>=fail && !scan.ready); }
+    seed(17);
+    assert(brcm_scan_refresh(&io,&prep,&scan)==BLOCK_STALL && m.downs==1 && scan.mask_restored && !scan.interface_may_be_up);
+    m.mode=0;
+    assert(brcm_scan_refresh(&io,&prep,&scan)==BLOCK_OK && scan.sync_id==0x4f54 && scan.ignored==1 && scan.count==1);
+    assert(scan.mask_restored && m.mask[0]==8 && !m.mask[8]);
+    seed(11);
+    assert(brcm_scan_refresh(&io,&prep,&scan)==BLOCK_IO && scan.interface_may_be_up && !scan.mask_restored);
+    calls=m.calls;
+    assert(brcm_scan_refresh(&io,&prep,&scan)==BLOCK_NOT_READY && m.calls==calls);
     seed(0);prep.ready=false;assert(brcm_scan_run(&io,&prep,&scan)==BLOCK_NOT_READY && !m.calls);prep.ready=true;
     unsigned n=make_bss();struct brcm_scan_ap ap;assert(brcm_scan_bss(bss,n,&ap)==BLOCK_OK);
     p16(bss+116,128);p32(bss+120,0);p32(bss+4,128);assert(brcm_scan_bss(bss,128,&ap)==BLOCK_OK);
@@ -107,5 +122,6 @@ int main(void)
     unsigned char original[1024];n=make_event(8,true);memcpy(original,event,n);uint32_t random=123;
     for (unsigned i=0;i<5000;++i) { memcpy(event,original,n);random=random*1664525u+1013904223u;event[random%n]^=(unsigned char)(random>>24);scan=(struct brcm_scan_state){.armed=true,.sync_id=0x4f53};brcm_scan_event(&scan,event,i%7==0 ? random%n : n);assert(scan.count<=32); }
     printf("PASS: passive escan v1/v2, live country/mask checks, UP/scan/DOWN/restore lifecycle, synchronous events, %u operation failures, timeouts and cached refusal\n",total);
+    puts("PASS: cancelled scan restores policy, refresh uses fresh sync ID and ignores stale results, failed DOWN blocks refresh");
     puts("PASS: bounded BCDC/event/BSS109/IE/RSN parsing, 126/128-byte IE offsets, WPA2+SAE/PMF, channel/RSSI, hidden/duplicate/overflow results and 5000 packet mutations");return 0;
 }

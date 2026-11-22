@@ -20,6 +20,7 @@
 #include "sae_session.h"
 #include "rng200.h"
 #include "wpa_keys.h"
+#include "network_worker.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -144,6 +145,8 @@ static void command(const char *line)
         console_write("appshell | appterm <1..300 seconds> <ELF> [arguments] (interactive EL0 serial session)\n");
         console_write("appinstall <source ELF> </data/new-file> (validated ELF, no overwrite)\n");
         console_write("appupdate <source ELF> </data/existing-file> (validated atomic update)\n");
+        console_write("appadd | appupgrade <name> <version> <ELF>; applist; appstart <name> [arguments]\n");
+        console_write("approllback | appuninstall <name> (managed applications)\n");
         console_write("taskiotest (cooperative file I/O and automatic owner cleanup) fileinfo filetest\n");
         console_write("fopen <path> r|rw|w | fread <handle> <1..512> | fwrite <handle> <text>\n");
         console_write("fseek <handle> <signed offset> set|cur|end | fclose <handle>\n");
@@ -154,6 +157,8 @@ static void command(const char *line)
         console_write("keytest (offline AES/CMAC/unwrap/PTK/M2/M4/key-data/M3-retry vectors; no radio)\n");
         console_write("nettest (offline DHCP/ARP/ICMP/DNS fixtures) wifidhcp <SSID> (DHCP test) wifiping <SSID> (gateway test) netinfo\n");
         console_write("wificonnect <SSID> (foreground network console; ping IPv4/hostname, nslookup, netinfo, disconnect)\n");
+        console_write("netup [-r|-R] <SSID> netping [IPv4] netrenew netinfo netdown (background Wi-Fi)\n");
+        console_write("networktest [el0] (cooperative worker check)\n");
         console_write("p256test (SAE group-19 arithmetic/public vectors; no authentication)\n");
         console_write("h2etest (H2E token/password-element public fixtures; no connection)\n");
         console_write("saetest (in-memory SAE commit/confirm public exchange; no radio)\n");
@@ -165,7 +170,7 @@ static void command(const char *line)
         console_write("wifistart (release verified firmware; check shared memory; no connection yet)\n");
         console_write("wificontrol (F2/SDPCM and read-only firmware version queries)\n");
         console_write("wificaps (features/MAC) wifiprepare <CC> (verify/load CLM, set/read country)\n");
-        console_write("wifiscan (passive scan after preparation; cached one-shot results)\n");
+        console_write("wifiscan (refresh the passive scan after preparation)\n");
         console_write("wifitarget <SSID> (cached WPA3 cipher/PMF preflight; no association)\n");
         console_write("wifiauthprep <SSID> (temporary firmware SAE/PMF/event test, then restore)\n");
         console_write("wifijoinprobe <SSID> (bounded external-SAE request probe; then DOWN/restore)\n");
@@ -176,7 +181,7 @@ static void command(const char *line)
         console_write("usbcheck (after storageinit; read-only ring reuse and disk check)\n");
         console_write("mv <source-file> <new-path> (same filesystem; no overwrite) | stat <path>\n");
         console_write("replace <source-file> <target> (atomic publication; consumes source)\n");
-        console_write("dataexport [previous] | datarestore /boot/DATA.BAK (empty /data only)\n");
+        console_write("dataexport [previous] | datarestore /boot/DATA.BAK (empty /data; v5 accepts v4 archives)\n");
         console_write("usbtest (takes over one USB controller, tests DMA, halts it; reboot to repeat)\n");
         console_write("usbenum (direct USB2 device descriptors; reboot before usbtest/usbenum reuse)\n");
     } else if (equal(line,"info")) {
@@ -228,11 +233,14 @@ static void command(const char *line)
     } else if (equal(line,"clear")) {
         console_write("\033[2J\033[H");
     } else if (equal(line,"reboot")) {
-        system_reboot(board.name,firmware_dtb);
+        if (network_worker_stop()) { system_reboot(board.name,firmware_dtb); }
+        else { console_write("Reboot refused: Wi-Fi worker still running.\n"); }
     } else if (equal(line,"halt")) {
+        if (!network_worker_stop()) { console_write("Halt refused: Wi-Fi worker still running.\n");return; }
         irq_fatal_stop();
         console_write("CPU halted. Reset the board or close the emulator.\n"); cpu_halt();
     } else if (equal(line,"fault")) {
+        if (!network_worker_stop()) { console_write("Fault test refused: Wi-Fi worker still running.\n");return; }
         __asm__ volatile ("brk #0x42");
     } else if (*line) {
         console_write("Unknown command. Type help.\n");
@@ -280,6 +288,7 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     bool overflow=false;
     for (;;) {
         irq_run_deferred();
+        network_worker_service();
         int input=console_getc();
         if (input < 0) { continue; }
         char c=(char)input;

@@ -1,7 +1,7 @@
-# Explicit backup conversion to v3/v4; source archives/devices remain untouched.
+# Explicit backup conversion to a newer format.
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$InputBackup,[Parameter(Mandatory=$true)][string]$Output,
-      [ValidateSet(3,4)][int]$TargetVersion=3)
+      [ValidateSet(3,4,5)][int]$TargetVersion=3)
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/data-backup.ps1"
 . "$PSScriptRoot/disk-image-backups.ps1"

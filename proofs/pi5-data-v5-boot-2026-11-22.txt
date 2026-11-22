@@ -1,0 +1,21 @@
+2026-11-22 Raspberry Pi 5 serial output supplied by the user, excerpted.
+The capture covers startup and the fresh v5 mount query.
+
+OurOS: AArch64 kernel booted
+Board=rpi5-header entered EL2 running EL1
+Starting serial shell from /boot/SHELL.ELF
+Firmware boot source: USB mass storage.
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ df
+/ ramfs v0 max_file_bytes=4096 nodes=16/64 volatile
+/boot fat32 v0 max_file_bytes=0 nodes=0/0 read-only
+/data extents v5 max_file_bytes=32768 nodes=0/32 persistent
+child exit=0
+user:/$ ^C
+user:/$ df /data
+/data extents v5 max_file_bytes=32768 nodes=0/32 persistent
+child exit=0
+user:/$

@@ -3,7 +3,11 @@
 #include "block.h"
 #define DHCP_FRAME_BYTES 342
 enum dhcp_phase { DHCP_IDLE,DHCP_SELECTING,DHCP_REQUESTING,DHCP_ACKED,DHCP_FAILED };
-struct dhcp_lease { unsigned char address[4],mask[4],router[4],dns[4],server[4];uint32_t seconds;bool have_mask,have_router,have_dns; };
+struct dhcp_lease {
+    unsigned char address[4],mask[4],router[4],dns[4],server[4],server_mac[6];
+    uint32_t seconds,t1_seconds,t2_seconds;
+    bool have_mask,have_router,have_dns;
+};
 /* Public metadata only. An ACK is an observed lease, not an installed IP
  * address: this probe has no ARP conflict detection, routing or renewal. */
 struct dhcp_client {
@@ -12,6 +16,20 @@ struct dhcp_client {
     unsigned char mac[6];uint32_t xid;struct dhcp_lease offer,lease;
     unsigned discover_sent,request_sent,received,ignored,malformed,deferrals,polls;
     unsigned initial_delay_ms,retry_ms[2];
+    bool renewal,rebinding;
+};
+struct dhcp_renewal {
+    struct dhcp_client exchange;
+    uint64_t first_sent,next;
+    unsigned completed,requests,rebroadcasts;
+    uint32_t xid;
+    bool queued,rejected;
+};
+struct dhcp_renew_io {
+    void *context;
+    enum block_result (*tx)(void *,const void *,size_t);
+    bool (*random)(void *,unsigned char out[32]);
+    uint64_t (*milliseconds)(void *);
 };
 struct dhcp_io {
     void *context;enum block_result (*tx)(void *,const void *,size_t);
@@ -28,4 +46,8 @@ enum block_result dhcp_probe_run(const struct dhcp_io *,const unsigned char mac[
 bool dhcp_selftest(void);
 /* Typed transport guard; no arbitrary IPv4 or UDP TX entry point. */
 bool dhcp_wire_request_valid(const void *,size_t);
+/* Pump after receive and link validation. Updates the bound lease only on
+ * an accepted reply to a completed send before the old lease expires. */
+enum block_result dhcp_renew_service(const struct dhcp_renew_io *,struct dhcp_renewal *,
+    const unsigned char mac[6],struct dhcp_lease *,uint64_t *origin);
 #endif

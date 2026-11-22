@@ -17,6 +17,7 @@
 #include "byte_pipe.h"
 #include "app_profile.h"
 #include "user_heap.h"
+#include "network_worker.h"
 static unsigned char copy_bytes[VFS_FILE_MAX];
 static unsigned char profile_bytes[APP_PROFILE_BYTES];
 enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
@@ -352,16 +353,22 @@ static void refresh(void)
     pipeline_refresh();
     children_refresh();
 }
+static bool network_checkpoint;
 static bool schedule(struct exception_frame *frame,bool timer)
 {
     struct process *old=&tasks[current];old->context=*frame;old->context.spsr=(frame->spsr&0xf0000000ULL)|0x340;old->sp=user_sp();
     refresh();
+    if (timer && network_worker_due()) {
+        network_checkpoint=true;
+        goto kernel;
+    }
     for (unsigned step=1;step<=total;++step) {
         unsigned next=(current+step)%total;if (tasks[next].status!=READY) { continue; }
         if (next!=current) { ++switches;if (timer) { ++preemptions; } }
         current=next;struct process *p=&tasks[current];++p->dispatches;
         process_arch_root(p->tables.physical);__asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*frame=p->context;return true;
     }
+kernel:
     process_arch_root(kernel_root);frame->elr=(uintptr_t)process_arch_return;frame->spsr=0x3c5;return true;
 }
 static int64_t string_out(struct process *p,uint64_t address,uint64_t capacity,const char *text)
@@ -875,18 +882,25 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
         } else if (interactive) {
             console_write("Terminal assigned to EL0; Ctrl+C cancels; session_seconds=");console_u64(budget_seconds);console_write("\n");
         }
-        started=timer_ticks();running=true;
+        started=timer_ticks();running=true;network_checkpoint=false;
         __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
         for (;;) {
+            network_worker_service();
             refresh();unsigned next=total;bool pending=false;
-            for (unsigned i=0;i<total;++i) { if (live(&tasks[i])) { pending=true; }if (next==total && tasks[i].status==READY) { next=i; } }
+            bool checkpoint=network_checkpoint;
+            network_checkpoint=false;
+            for (unsigned step=0;step<total;++step) {
+                unsigned i=checkpoint ? (current+step+1)%total : step;
+                if (live(&tasks[i])) { pending=true; }
+                if (next==total && tasks[i].status==READY) { next=i; }
+            }
             if (!pending) { break; }
             if (next==total) {
                 /* Back on the kernel root/stack, outside exception dispatch.
                  * The periodic IRQ bounds the check-to-WFI wakeup race. */
                 ++idles;irq_restore(flags);__asm__ volatile("wfi" ::: "memory");(void)irq_save();continue;
             }
-            if (next!=current) { ++switches; }current=next;++tasks[next].dispatches;
+            if (next!=current) { ++switches;if (checkpoint) { ++preemptions; } }current=next;++tasks[next].dispatches;
             process_arch_root(tasks[next].tables.physical);process_arch_enter(&tasks[next].context,tasks[next].sp);
         }
         running=false;

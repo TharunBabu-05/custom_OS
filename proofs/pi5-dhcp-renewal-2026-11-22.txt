@@ -1,0 +1,35 @@
+2026-11-22 Raspberry Pi 5 serial capture supplied by the user, excerpted.
+Hotspot identifiers and local IPv4 addresses are omitted.
+
+Board=rpi5-header entered EL2 running EL1
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+> networktest el0
+EL0 timeout test: infinite user loop.
+process=0 path=/boot/SPIN.ELF state=timeout code=124 syscalls=1 dispatches=101 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+PASS: network worker yielded, resumed, preserved its stack and stopped.
+> netup [hotspot]
+SAE method selected from scan: hunting-and-pecking (H2E not advertised); SAE-only, required PMF; no method retry or WPA2 fallback.
+Background Wi-Fi ready. Use netping [IPv4], netinfo or netdown; appshell remains available.
+> netping
+Ping queued. Use netinfo for the result.
+> netrenew
+DHCP renewal queued. Use netinfo for the result.
+> netinfo
+Controlled port: ok phase=4 AUTHORIZE_SET=acknowledged readback=verified firmware_status=0x0000000000000000 deferrals=0
+DHCP probe: ok phase=3
+DISCOVER_writes=1 REQUEST_writes=1 OFFER=observed ACK=verified for transaction/server NAK=not-seen
+ICMP target [gateway] sent=3 reply_mask=0x0000000000000007
+Session active=yes ended=no reason=0 pings_started=1 completed=1 timed_out=0
+Background polls=2538 ping=ok association_result=device not ready
+DHCP renewal requests=1 rebind_requests=0 completed=1 state=idle remaining_seconds=3594
+> netinfo
+ICMP target [gateway] sent=3 reply_mask=0x0000000000000007
+Session active=yes ended=no reason=0 pings_started=2 completed=2 timed_out=0
+Background polls=4034 ping=ok association_result=device not ready
+DHCP renewal requests=3 rebind_requests=0 completed=3 state=idle remaining_seconds=3597
+
+The association_result field printed the pending return value of the
+still-running association scope. The active link and completed replies
+are evidenced by the adjacent session, renewal and ping fields.
+The capture ends while the connection is active.

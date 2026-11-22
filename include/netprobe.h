@@ -8,6 +8,7 @@ enum netprobe_packet { NP_ARP_PROBE,NP_ARP_ANNOUNCE,NP_ARP_RESOLVE,NP_ARP_REPLY,
 struct netprobe {
     enum netprobe_phase phase;enum block_result error;
     bool attempted,armed,active,was_active,conflict,gateway_known,gateway_changed,reply_pending,resolve_issued,live;
+    bool lease_rejected;
     unsigned char mac[6],gateway_mac[6],token[16],reply_mac[6],reply_ip[4],conflict_mac[6];
     struct dhcp_lease lease;unsigned identifier,initial_delay,probe_delay[2];
     unsigned char target[4];uint64_t ping_started,ping_next,arp_window;unsigned ping_finished,arp_window_replies;

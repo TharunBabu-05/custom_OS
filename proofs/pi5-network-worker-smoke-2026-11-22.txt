@@ -1,0 +1,30 @@
+2026-11-22 Raspberry Pi 5 serial output supplied by the user, excerpted.
+The Windows updater verified one boot-file change, OUROS.IMG.
+The transcript covers inactive-session commands and the monitor worker test.
+
+OurOS: AArch64 kernel booted
+Board=rpi5-header entered EL2 running EL1
+Firmware boot source: USB mass storage.
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ netup
+shell: unknown command or arguments; type help
+user:/$ exit
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> netup
+Usage: netup <SSID> (1..32 bytes)
+> netping
+No background Wi-Fi session.
+> netdown
+No background Wi-Fi session.
+> networktest
+PASS: network worker yielded, resumed, preserved its stack and stopped.
+> networktest e10
+Unknown command. Type help.
+> appshell
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ networktest
+shell: unknown command or arguments; type help
+user:/$

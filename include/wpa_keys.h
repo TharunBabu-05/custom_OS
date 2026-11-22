@@ -18,5 +18,6 @@ struct wpa_m4_input { unsigned char local[6],ap[6],kck[16],replay[8];unsigned ve
 /* Pure initial SAE M4 encoder: secure+pairwise+MIC, empty nonce/key-data,
  * replay from authenticated M3. It does not send, install keys or authorize. */
 bool wpa_sae_m4(const struct wpa_m4_input *,void *,size_t,size_t *);
+bool wpa_sae_group2(const struct wpa_m4_input *,void *,size_t,size_t *);
 bool wpa_keys_selftest(void);
 #endif

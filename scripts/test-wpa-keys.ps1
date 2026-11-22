@@ -18,4 +18,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Authenticated key-data compilation failed' }
     & ./build/wifi-tests/test-wpa-key-data.exe build/wifi-tests/wpa-key-public-vectors.txt.keydata
     if ($LASTEXITCODE -ne 0) { throw 'Authenticated key-data tests failed' }
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/wpa_group_rekey_host.c lib/wpa_group_rekey.c lib/wpa_keys.c lib/aes.c lib/wpa_kde.c lib/wpa_rsn.c lib/crypto.c lib/sha256.c -o build/wifi-tests/test-wpa-group.exe
+    if ($LASTEXITCODE -ne 0) { throw 'Offline group rekey compilation failed' }
+    & ./build/wifi-tests/test-wpa-group.exe build/wifi-tests/wpa-key-public-vectors.txt.group
+    if ($LASTEXITCODE -ne 0) { throw 'Offline group rekey tests failed' }
 } finally { Pop-Location }

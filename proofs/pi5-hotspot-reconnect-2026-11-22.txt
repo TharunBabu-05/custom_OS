@@ -1,0 +1,40 @@
+Raspberry Pi 5 serial capture supplied by the user, excerpted.
+Hotspot identifiers and local network addresses are omitted. Distinct peer
+labels indicate distinct BSSIDs in the original capture.
+
+> netup -R [hotspot]
+Background Wi-Fi ready. Hotspot reconnect enabled.
+> netinfo
+Reconnect state=online attempts=0 restored=0 peer_loss=not-observed
+Wi-Fi peer=[initial BSSID] channel=11 join_phase=8
+Session active=yes ended=no reason=0 pings_started=0 completed=0 timed_out=0
+
+[Hotspot toggled off and on.]
+> netinfo
+Reconnect state=waiting attempts=1 restored=0 peer_loss=confirmed
+Reconnect scans=1 last_scan=ok target=SSID not found in cached scan
+Session active=no ended=yes reason=3 pings_started=0 completed=0 timed_out=0
+Cleanup DOWN=yes keys_cleared=yes private_erased=yes policy_restored=yes
+> netinfo
+Reconnect state=scanning attempts=2 restored=0 peer_loss=confirmed
+> netinfo
+Reconnect state=joining attempts=3 restored=0 peer_loss=confirmed
+Reconnect scans=3 last_scan=ok target=advertisement matches SAE/CCMP-128/BIP-CMAC-128 with PMF
+Wi-Fi peer=[new BSSID] channel=11 join_phase=8
+> netinfo
+Reconnect state=online attempts=3 restored=1 peer_loss=confirmed
+Wi-Fi peer=[new BSSID] channel=11 join_phase=8
+DHCP probe: ok phase=3
+DISCOVER_writes=1 REQUEST_writes=1 OFFER=observed ACK=verified for transaction/server NAK=not-seen
+Session active=yes ended=no reason=0 pings_started=0 completed=0 timed_out=0
+> netping
+> netinfo
+ICMP target [gateway] sent=3 reply_mask=0x0000000000000007
+Session active=yes ended=no reason=0 pings_started=1 completed=1 timed_out=0
+> netdown
+Wi-Fi worker stopped. Use netinfo for cleanup status.
+> netinfo
+Reconnect state=stopped attempts=3 restored=1 peer_loss=confirmed
+DEAUTHORIZE_SET=acknowledged status=0x0000000000000000
+Session active=no ended=yes reason=1 pings_started=1 completed=1 timed_out=0
+Cleanup DOWN=yes keys_cleared=yes private_erased=yes policy_restored=yes

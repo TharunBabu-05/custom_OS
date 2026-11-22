@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 enum { TASK_LIMIT=4,TASK_STACK_BYTES=16384,TASK_GUARD_BYTES=4096,TASK_STACK_STRIDE=20480 };
+enum { NETWORK_STACK_SLOT=TASK_LIMIT-1 };
 enum task_status { TASK_UNUSED,TASK_READY,TASK_RUNNING,TASK_SLEEPING,TASK_EXITED,TASK_CANCELLED };
 enum task_result { TASK_OK,TASK_ARGUMENT,TASK_STATE,TASK_FULL,TASK_OVERFLOW };
 struct task_record { enum task_status status;uint64_t deadline,dispatches,yields,sleeps,wakes;int exit_code; };

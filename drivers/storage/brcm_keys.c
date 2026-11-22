@@ -32,15 +32,38 @@ enum block_result brcm_keys_install(const struct brcm_key_io *io,const unsigned 
     }
     crypto_wipe(wire,sizeof(wire));s->error=r;s->installed=r==BLOCK_OK && s->ack_mask==7;return r;
 }
+enum block_result brcm_key_rotate(const struct brcm_key_io *io,bool integrity,const struct wpa_group_keys *group,struct brcm_key_journal *s)
+{
+    if (!io || !io->set || !io->permitted || !group || !s) { return BLOCK_ARGUMENT; }
+    if (!s->installed || s->cleanup_active || s->cleared || !io->permitted(io->context)) { return BLOCK_NOT_READY; }
+    enum brcm_key_kind kind=integrity ? BRCM_KEY_INTEGRITY : BRCM_KEY_GROUP;
+    unsigned index=integrity ? group->igtk_id : group->gtk_id;
+    unsigned char wire[BRCM_KEY_BYTES]={0};
+    enum block_result r=brcm_key_encode(kind,index,NULL,integrity ? group->igtk : group->gtk,
+        integrity ? group->ipn : group->rsc,false,wire,sizeof(wire));
+    if (r==BLOCK_OK) {
+        if (index!=s->index[kind]) { s->rotation_issued|=1u<<index; }
+        r=io->set(io->context,wire,sizeof(wire),&s->status);
+    }
+    crypto_wipe(wire,sizeof(wire));
+    return r;
+}
 enum block_result brcm_keys_clear(const struct brcm_key_io *io,struct brcm_key_journal *s)
 {
     if (!io || !io->set || !s) { return BLOCK_ARGUMENT; }if (!s->issued_mask) { s->cleared=true;return BLOCK_OK; }
     if (s->cleared) { return BLOCK_OK; }s->cleanup_active=true;enum block_result first=BLOCK_OK;unsigned char wire[BRCM_KEY_BYTES]={0};
+    for (unsigned index=6;index--;) {
+        unsigned bit=1u<<index;
+        if (!(s->rotation_issued&bit) || (s->rotation_cleared&bit)) { continue; }
+        enum block_result r=brcm_key_encode(index>=4 ? BRCM_KEY_INTEGRITY : BRCM_KEY_GROUP,index,NULL,NULL,NULL,true,wire,sizeof(wire));
+        uint32_t status=0;if (r==BLOCK_OK) { r=io->set(io->context,wire,sizeof(wire),&status); }crypto_wipe(wire,sizeof(wire));
+        if (r==BLOCK_OK) { s->rotation_cleared|=bit; }else if (first==BLOCK_OK) { first=r;s->clear_status=status; }
+    }
     for (unsigned i=3;i--;) {
         if (!(s->issued_mask&(1u<<i)) || (s->clear_mask&(1u<<i))) { continue; }
         enum block_result r=brcm_key_encode((enum brcm_key_kind)i,s->index[i],s->peer,NULL,NULL,true,wire,sizeof(wire));
         uint32_t status=0;if (r==BLOCK_OK) { r=io->set(io->context,wire,sizeof(wire),&status); }crypto_wipe(wire,sizeof(wire));
         if (r==BLOCK_OK) { s->clear_mask|=1u<<i; }else if (first==BLOCK_OK) { first=r;s->clear_status=status; }
     }
-    s->cleanup_active=false;s->clear_error=first;s->cleared=s->clear_mask==s->issued_mask;return first;
+    s->cleanup_active=false;s->clear_error=first;s->cleared=s->clear_mask==s->issued_mask && s->rotation_cleared==s->rotation_issued;return first;
 }

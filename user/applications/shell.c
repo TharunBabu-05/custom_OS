@@ -5,6 +5,21 @@
 /* Keep repeated console setup out of the command dispatcher. */
 static __attribute__((noinline,noclone)) void print(const char *text) { (void)uos_puts(text); }
 static int same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
+static bool monitor_network_command(const char *line)
+{
+    static const char *const commands[]={"netup","netping","netrenew","netinfo","netdown","networktest"};
+    while (*line==' ' || *line=='\t') { ++line; }
+    for (unsigned i=0;i<sizeof(commands)/sizeof(commands[0]);++i) {
+        const char *name=commands[i],*word=line;
+        while (*name && *name==*word) { ++name;++word; }
+        if (!*name && (!*word || *word==' ' || *word=='\t')) { return true; }
+    }
+    return false;
+}
+static void monitor_network_hint(void)
+{
+    print("Type exit, then run this command at the > monitor prompt. For the EL0 test use networktest el0 (lowercase L, digit zero).\n");
+}
 enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE };
 static unsigned command_kind(const char *cmd)
 {
@@ -209,7 +224,10 @@ static bool execute_line(struct shell_state *state,char *line)
 {
     struct command_list commands;
     if (!split_commands(line,&commands)) {
-        state->status=2;print("shell: invalid quoting, expansion or argument bounds (command list)\n");return false;
+        state->status=2;
+        if (monitor_network_command(line)) { monitor_network_hint(); }
+        else { print("shell: invalid quoting, expansion or argument bounds (command list)\n"); }
+        return false;
     }
     for (unsigned step=0;step<commands.count && !state->exiting;++step) {
         enum list_operator op=commands.entries[step].op;
@@ -224,6 +242,7 @@ static bool execute_line(struct shell_state *state,char *line)
         if ((kind==CMD_HELP) && args.count==1) {
             print("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nrun|exec PROGRAM [args]\nrunio IN|- OUT|- PROGRAM [args]\npipe PROGRAM [args] -- PROGRAM [args]\npipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]\n");
             print("bg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg [PID] | stop [PID] (two jobs, 1..30 seconds)\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\nsource PATH | lists with ; && ||\n$NAME ${NAME} $?; single quotes keep literals\n");
+            print("Use exit for the kernel monitor (Wi-Fi commands and networktest).\n");
         } else if ((kind==CMD_STATUS) && args.count==1) { number(state->status);print("\n"); }
         else if (kind==CMD_SOURCE && args.count==2) {
             if (state->sourcing) { state->status=2;print("shell: nested source refused\n"); }
@@ -323,6 +342,7 @@ static bool execute_line(struct shell_state *state,char *line)
             const char *data=args.bytes+args.offset[2];size_t bytes=uos_length(data);result=uos_replace(p,data,bytes)!=(int64_t)bytes;
         } else if ((kind==CMD_MKDIR) && args.count==2) { result=uos_mkdir(p)!=0; }
         else if (((kind==CMD_RM) || (kind==CMD_RMDIR)) && args.count==2) { result=uos_remove(p,(kind==CMD_RMDIR))!=0; }
+        else if (monitor_network_command(args.bytes)) { state->status=2;monitor_network_hint(); }
         else {
             if (state->jobs[0] && state->jobs[1]) { state->status=1;print("shell: use fg or stop first\n");continue; }
             if (program(&args)) { state->status=127;print("shell: unknown command or arguments; type help\n");continue; }

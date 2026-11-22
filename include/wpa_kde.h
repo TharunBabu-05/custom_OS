@@ -18,6 +18,8 @@ bool wpa_ap_rsn_profile(const void *,size_t);
 /* Only call after authenticated M3 MIC + unwrap. Bind the AP RSN byte-for-byte
  * to the selected scan result, not to the station's SAE-only request RSN. */
 enum wpa_kde_result wpa_sae_key_data(const void *ap_rsn,size_t,const void *plain,size_t,const unsigned char rsc[8],struct wpa_kde_info *,struct wpa_group_keys *);
+/* Narrow GTK + IGTK layout for an authenticated SAE Group Key message 1. */
+enum wpa_kde_result wpa_sae_group_data(const void *plain,size_t,const unsigned char rsc[8],struct wpa_kde_info *,struct wpa_group_keys *);
 const char *wpa_kde_error(enum wpa_kde_result);
 bool wpa_kde_selftest(void);
 #endif

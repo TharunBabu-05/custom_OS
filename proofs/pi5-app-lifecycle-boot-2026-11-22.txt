@@ -1,0 +1,15 @@
+2026-11-22 Raspberry Pi 5 serial output supplied by the user, excerpted.
+The capture covers the Phase 6 boot and an empty managed-app listing.
+
+OurOS: AArch64 kernel booted
+Board=rpi5-header entered EL2 running EL1
+Firmware boot source: USB mass storage.
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ exit
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> applist
+No managed apps.
+>

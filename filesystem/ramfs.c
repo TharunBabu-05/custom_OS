@@ -281,7 +281,8 @@ const char *ramfs_error(enum fs_result result)
         "invalid path","name too long","path too long","node table full","out of kernel heap memory",
         "file too large for this operation","directory not empty","root or current directory is busy","filesystem not mounted or unavailable","invalid argument",
         "read-only filesystem","storage I/O error","corrupt filesystem","unsupported filesystem format",
-        "invalid or foreign file handle","file access mode denied","file handle table exhausted","cross-filesystem rename is unsupported"};
+        "invalid or foreign file handle","file access mode denied","file handle table exhausted","cross-filesystem rename is unsupported",
+        "no contiguous file extent available"};
     if ((unsigned)result>=sizeof(messages)/sizeof(messages[0])) { return "unknown filesystem error"; }
     return messages[result];
 }

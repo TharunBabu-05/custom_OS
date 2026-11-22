@@ -13,6 +13,7 @@ struct brcm_key_io {
 struct brcm_key_journal {
     bool attempted,installed,cleanup_active,cleared;
     unsigned issued_mask,ack_mask,clear_mask,phase,index[3];unsigned char peer[6];
+    unsigned rotation_issued,rotation_cleared;
     enum block_result error,clear_error;uint32_t status,clear_status;
 };
 enum block_result brcm_key_encode(enum brcm_key_kind,unsigned,const unsigned char peer[6],const unsigned char key[16],const unsigned char sequence[6],bool remove,void *,size_t);
@@ -29,5 +30,6 @@ static inline bool brcm_key_wire_valid(const void *buffer,size_t n)
 }
 
 enum block_result brcm_keys_install(const struct brcm_key_io *,const unsigned char peer[6],const unsigned char tk[16],const struct wpa_group_keys *,struct brcm_key_journal *);
+enum block_result brcm_key_rotate(const struct brcm_key_io *,bool integrity,const struct wpa_group_keys *,struct brcm_key_journal *);
 enum block_result brcm_keys_clear(const struct brcm_key_io *,struct brcm_key_journal *);
 #endif

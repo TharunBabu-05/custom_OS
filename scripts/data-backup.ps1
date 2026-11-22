@@ -6,10 +6,10 @@ function Assert-BackupZero([byte[]]$Bytes,[int]$At,[int]$Count) {
 function Get-OurOSDataBackup {
     param([Parameter(Mandatory=$true)][string]$Path)
     $file=Get-Item -LiteralPath $Path -ErrorAction Stop
-    if ($file.PSIsContainer -or $file.Length -notin 33792,132608,263680) { throw 'Invalid backup length (expected a supported bank header/payload)' }
+    if ($file.PSIsContainer -or $file.Length -notin 33792,132608,263680,1051136) { throw 'Invalid backup length (expected a supported bank header/payload)' }
     [byte[]]$b=[IO.File]::ReadAllBytes($file.FullName)
     $v=[BitConverter]::ToUInt32($b,8)
-    if ($v -notin 1,2,3,4 -or [Text.Encoding]::ASCII.GetString($b,0,8) -cne ('OUROSBK'+$v)) { throw 'Unsupported backup format' }
+    if ($v -notin 1,2,3,4,5 -or [Text.Encoding]::ASCII.GetString($b,0,8) -cne ('OUROSBK'+$v)) { throw 'Unsupported backup format' }
     $geometry=Get-OurOSDataGeometry $v;$slots=$geometry.Files;$cap=$geometry.FileBytes
     $directory=$slots*64;$payload=$directory+$slots*$cap
     if ($b.Length -ne 512+$payload -or [BitConverter]::ToUInt32($b,12) -ne 0 -or
@@ -59,7 +59,7 @@ function Get-OurOSDataBackup {
     return [pscustomobject]@{Version=$v;Generation=[BitConverter]::ToUInt64($b,16);Entries=$entries;SHA256=$digest;Raw=$b}
 }
 function New-OurOSDataBackup {
-    param([ValidateSet(1,2,3,4)][int]$Version=2,[object[]]$Files=@())
+    param([ValidateSet(1,2,3,4,5)][int]$Version=2,[object[]]$Files=@())
     $geometry=Get-OurOSDataGeometry $Version;$slots=$geometry.Files;$cap=$geometry.FileBytes
     if ($Files.Count -gt $slots) { throw 'Too many backup nodes' }
     [byte[]]$b=New-Object byte[] $geometry.BackupBytes

@@ -1,5 +1,79 @@
 # Development log
 
+## 2026-11-22 - Pi hotspot reconnect verified and group key rotation
+
+The Pi rejoined the hotspot at a changed BSSID on the third scan, acquired
+DHCP again and passed all three gateway echoes. The stop command verified
+radio DOWN, key deletion and policy restoration. The next build handles
+authenticated group-key changes during a running session. Native tests
+passed duplicate, replay, link loss and failed-install cases. The real
+Pi rotation test remains open.
+[Pi reconnect capture](../proofs/pi5-hotspot-reconnect-2026-11-22.txt) · [Rotation test](background-networking.md#test-rotation-on-raspberry-pi-5)
+
+## 2026-11-22 - Reconnect after a hotspot restart
+
+The Pi capture showed three reconnect attempts that never reached DHCP.
+Each retry now scans before joining. `netup -R` supports hotspots that
+change BSSID by deriving SAE for the newly observed peer. Native scan and
+target tests and both QEMU worker profiles passed. The updater preview
+against the prior rejoin build selected only `OUROS.IMG`. The live toggle
+test remains open. [Pi test steps](background-networking.md#same-access-point-reconnect)
+
+## 2026-11-22 - Wi-Fi rejoin and group rekey wire validation
+
+The Pi verified link-loss cleanup after a plain `netup` session. The next
+build permits another `netup` after confirmed teardown and gives each join
+its own firmware transaction range. The shell directs an SSID containing an
+apostrophe to the monitor. The offline group rekey validator passed 16
+independent signed and wrapped exchanges with byte-exact replies.
+[Pi cleanup capture](../proofs/pi5-link-loss-cleanup-2026-11-22.txt) · [Pi test steps](background-networking.md#same-access-point-reconnect)
+
+## 2026-11-22 - Live DHCP renewal and reconnect candidate
+
+The Pi passed `networktest el0`, two gateway ping sets and three DHCP
+renewals. `netinfo` now reports an active association as online. The
+next build adds opt-in same-access-point reconnect with fresh SAE and
+DHCP after confirmed cleanup. Native models passed the loss and cleanup
+checks. [Pi renewal capture](../proofs/pi5-dhcp-renewal-2026-11-22.txt) · [Reconnect guide](background-networking.md#same-access-point-reconnect)
+
+## 2026-11-22 - DHCP lease renewal and monitor guidance
+
+The Pi passed the original monitor network worker check. The EL0 shell
+now directs Wi-Fi commands to the monitor, which accepts `networktest e10`
+as an alias for `networktest el0`. Background Wi-Fi renews at T1 and tries
+broadcast rebinding at T2. `netrenew` queues an early request for hardware
+verification. Native tests exercise renewal during a ping and cleanup after
+a lease rejection. [Pi smoke capture](../proofs/pi5-network-worker-smoke-2026-11-22.txt) · [Verification guide](background-networking.md)
+
+## 2026-11-22 - Background Wi-Fi worker
+
+`netup` brings up the existing verified Wi-Fi path and returns to the monitor
+with the connection active. Polling has its own guarded stack and runs at
+cooperative checkpoints, including between EL0 timer dispatches. Native
+tests passed ping, failure and cleanup cases. Both QEMU profiles passed
+the worker and EL0 checkpoint tests. The Pi boot-file update is ready for
+live testing. [Commands and verification](background-networking.md)
+
+## 2026-11-22 - Local application lifecycle
+
+Named apps keep their active and previous releases on `/data`. The monitor
+validates and reads back an upgrade before selecting it. QEMU passed the v4
+and v5 install, blocked publication, rollback, cold reboot and uninstall
+checks. A boot-file preview against the Phase 5 delivery selected only
+`OUROS.IMG`. The Pi boot verified `applist`. App installation, rollback and
+uninstall remain open on hardware.
+[Commands and verification](app-lifecycle.md) · [Pi capture](../proofs/pi5-app-lifecycle-boot-2026-11-22.txt)
+
+## 2026-11-22 - Extent-backed storage prototype
+
+The optional v5 format supports 32 shared nodes and 32 KiB files in the
+existing 1 MiB partition. Updates write changed data and publish a checked
+metadata generation. Native tests passed interrupted writes and recovery.
+Both QEMU profiles passed v4 import, cold reopening, and fallback when the
+newest file was corrupted. The default image still uses v4. The v5 image is
+packaged for spare-drive Pi verification. The Pi booted it and reported the
+expected v5 limits. [Format and verification](data-v5.md) · [Pi boot capture](../proofs/pi5-data-v5-boot-2026-11-22.txt)
+
 ## 2026-11-22 - Two shell jobs and command lists
 
 Process ownership now lets a parent hold two children within the existing

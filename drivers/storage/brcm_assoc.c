@@ -2,10 +2,23 @@
  * cfg80211.c/fwil_types.h and hostap common EAPOL-Key definitions. */
 #include "brcm_assoc.h"
 #include "crypto.h"
+#include "wpa_group_rekey.h"
+/* Broadcom firmware BCME_NOTASSOCIATED (-17). */
+#define BRCM_NOT_ASSOCIATED ((uint32_t)-17)
 static uint16_t be16(const unsigned char *p) { return (uint16_t)((unsigned)p[0]<<8|p[1]); }
 static uint32_t le32(const unsigned char *p) { return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24; }
 static void put32(unsigned char *p,uint32_t v) { for (unsigned i=0;i<4;++i) { p[i]=(unsigned char)(v>>(8*i)); } }
 static bool zero(const unsigned char *p,size_t n) { unsigned any=0;for (size_t i=0;i<n;++i) { any|=p[i]; }return !any; }
+enum { GROUP_KEY_HISTORY=17 };
+struct group_key_history {
+    unsigned count,index;
+    unsigned char fingerprints[GROUP_KEY_HISTORY][32];
+};
+struct brcm_group_state {
+    size_t bytes;
+    unsigned char frame[WPA_GROUP_FRAME_MAX],replay[8];
+    struct group_key_history gtk,igtk;
+};
 /* RSN v1: CCMP-128 group/pairwise, SAE AKM-8 only, MFPC+MFPR, no initial
  * PMKID, BIP-CMAC-128 management cipher. Firmware receives the PMKID later. */
 static const unsigned char rsn[]={0x30,26,1,0,0,15,172,4,1,0,0,15,172,4,1,0,0,15,172,8,0xc0,0,0,0,0,15,172,6};
@@ -62,6 +75,8 @@ void brcm_assoc_event(void *ctx,const void *payload,size_t bytes)
     struct brcm_auth_message m;enum block_result decoded=brcm_auth_event(&s->peer,0,payload,bytes,&m);
     if ((decoded!=BLOCK_OK && decoded!=BLOCK_NOT_READY) || !m.envelope_valid || m.wire_interface || m.wire_bss || !crypto_equal(m.wire_peer,s->peer.peer,6)) { ++s->ignored;return; }
     s->last_event=m.wire_event;s->last_status=m.wire_status;s->last_reason=m.wire_reason;s->last_flags=m.wire_flags;
+    if (s->session.active && (m.wire_event==5 || m.wire_event==6 || m.wire_event==11 ||
+        m.wire_event==12 || (m.wire_event==16 && !(m.wire_flags&1)))) { s->peer_lost=true; }
     switch (m.wire_event) {
     case 0: if (m.wire_status) { event_fail(s,&m); }else { s->ssid_event=true; }break;
     case 3: case 7: case 9:
@@ -82,10 +97,22 @@ void brcm_assoc_data(void *ctx,const void *payload,size_t n)
     size_t offset=4u+(size_t)p[3]*4;if (offset>n || n-offset<14) { ++s->data_bad;return; }
     p+=offset;n-=offset;
     if (s->dhcp_probe && s->m4_written && s->keys.installed && be16(p+12)!=0x888e) {
+        if (s->renewal.exchange.armed && n>=42 && be16(p+12)==0x0800 &&
+            p[14]==0x45 && p[23]==17 && be16(p+34)==67 && be16(p+36)==68) {
+            dhcp_receive(&s->renewal.exchange,p,n);return;
+        }
         if (s->network.armed) { netprobe_receive(&s->network,p,n);return; }
         if (s->dhcp.armed) { dhcp_receive(&s->dhcp,p,n);return; }
     }
     if (!crypto_equal(p,s->peer.local,6) || !crypto_equal(p+6,s->peer.peer,6) || be16(p+12)!=0x888e) { ++s->data_ignored;return; }
+    if (s->private_group && s->keys.installed && n>=22 && p[15]==3 && p[18]==2 && !(p[20]&8)) {
+        struct brcm_group_state *group=s->private_group;
+        size_t bytes=18u+be16(p+16);
+        if (!s->port_verified || group->bytes || bytes<137 || bytes>sizeof(group->frame) || bytes>n) { ++s->group_ignored;return; }
+        for (size_t i=0;i<bytes;++i) { group->frame[i]=p[i]; }
+        group->bytes=bytes;return;
+    }
+    if (s->group_replies) { ++s->data_ignored;return; }
     p+=14;n-=14;
     if (n<4 || p[0]<1 || p[0]>3 || p[1]!=3) { ++s->data_bad;s->event_error=BLOCK_RANGE;return; }
     size_t body=be16(p+2);s->eapol_version=p[0];
@@ -104,7 +131,7 @@ void brcm_assoc_data(void *ctx,const void *payload,size_t n)
     }
     s->m1_seen=true;
 }
-struct adapter { const struct brcm_assoc_io *base;struct brcm_assoc_probe *s;struct wpa_probe exchange; };
+struct adapter { const struct brcm_assoc_io *base;struct brcm_assoc_probe *s;struct wpa_probe exchange;struct brcm_group_state group; };
 static enum block_result iovar(void *ctx,bool set,const char *name,const void *in,size_t n,void *out,size_t cap,size_t *actual,uint32_t *status)
 { struct adapter *a=ctx;return a->base->join.policy.iovar(a->base->join.policy.context,set,name,in,n,out,cap,actual,status); }
 static enum block_result get_ie(struct adapter *a,unsigned char out[256],size_t *bytes)
@@ -179,7 +206,9 @@ static enum block_result radio(void *ctx,bool up,uint32_t *status)
     if (!up && a->s->port_issued && !a->s->port_closed) {
         a->s->port_close_active=true;
         a->s->port_close_result=a->base->port_set(a->base->join.policy.context,a->s->peer.peer,false,&a->s->port_close_status);
-        a->s->port_closed=a->s->port_close_result==BLOCK_OK;a->s->port_close_active=false;
+        a->s->port_closed=a->s->port_close_result==BLOCK_OK ||
+            (a->s->peer_lost && a->s->port_close_result==BLOCK_UNSUPPORTED && a->s->port_close_status==BRCM_NOT_ASSOCIATED);
+        a->s->port_close_active=false;
     }
     r=a->base->join.radio(a->base->join.policy.context,up,status);
     if (!up && a->s->install_probe) { struct brcm_key_io kio=key_io(a);(void)brcm_keys_clear(&kio,&a->s->keys); }
@@ -223,8 +252,12 @@ static enum block_result request_ies(struct adapter *a)
 static enum block_result identity(struct adapter *a)
 {
     struct brcm_assoc_probe *s=a->s;struct brcm_link_identity value;uint32_t status=0;++s->identity_queries;
-    enum block_result r=a->base->identity(a->base->join.policy.context,&value,&status);s->identity_status=status;if (r!=BLOCK_OK) { return r; }
-    if (zero(value.bssid,6)) { return BLOCK_NOT_READY; }
+    enum block_result r=a->base->identity(a->base->join.policy.context,&value,&status);s->identity_status=status;
+    if (r!=BLOCK_OK) {
+        if (s->session.active && r==BLOCK_UNSUPPORTED && status==BRCM_NOT_ASSOCIATED) { s->peer_lost=true; }
+        return r;
+    }
+    if (zero(value.bssid,6)) { s->peer_lost|=s->session.active;return BLOCK_NOT_READY; }
     if (!crypto_equal(value.bssid,s->peer.peer,6) || value.ssid_length!=s->peer.ssid_length || !crypto_equal(value.ssid,s->peer.ssid,value.ssid_length)) { return BLOCK_IO; }
     s->identity_verified=true;static const char *const names[]={"wpa_auth","wsec","mfp"};static const uint32_t expected[]={0x40000,4,2};
     for (unsigned i=0;i<3;++i) {
@@ -277,13 +310,102 @@ static bool network_handshake_ready(void *ctx)
 }
 static bool network_ready(void *ctx)
 { struct adapter *a=ctx;return network_handshake_ready(a) && a->s->port_verified; }
-static enum block_result network_poll(void *ctx)
+static void key_fingerprint(const unsigned char key[16],unsigned char digest[32])
 {
-    struct adapter *a=ctx;enum block_result r=poll(a);if (r!=BLOCK_OK) { return r; }if (a->s->event_error!=BLOCK_OK) { return a->s->event_error; }
-    if (a->exchange.retry_pending || a->exchange.m4_due) { return transmit_m4(a); }return BLOCK_OK;
+    struct sha256 hash;
+    sha256_init(&hash);sha256_update(&hash,key,16);sha256_final(&hash,digest);crypto_wipe(&hash,sizeof(hash));
+}
+static enum block_result check_group_key(struct group_key_history *history,unsigned old_index,const unsigned char old_key[16],
+    unsigned index,const unsigned char key[16],unsigned char digest[32],bool *install)
+{
+    if (!history->count) {
+        key_fingerprint(old_key,history->fingerprints[0]);history->count=1;history->index=old_index;
+    }
+    key_fingerprint(key,digest);
+    for (unsigned i=0;i<history->count;++i) {
+        if (crypto_equal(digest,history->fingerprints[i],32)) {
+            *install=false;
+            return i+1==history->count && index==history->index ? BLOCK_OK : BLOCK_UNSUPPORTED;
+        }
+    }
+    *install=true;
+    return history->count<GROUP_KEY_HISTORY ? BLOCK_OK : BLOCK_RANGE;
+}
+static enum block_result update_group_keys(struct adapter *a,const struct wpa_group_keys *keys)
+{
+    struct brcm_assoc_probe *s=a->s;
+    const struct wpa_group_keys *initial=&a->exchange.group;
+    struct group_key_history *history[]={&a->group.gtk,&a->group.igtk};
+    unsigned char digest[2][32];bool install[2];
+    enum block_result r=check_group_key(history[0],initial->gtk_id,initial->gtk,keys->gtk_id,keys->gtk,digest[0],&install[0]);
+    if (r==BLOCK_OK) { r=check_group_key(history[1],initial->igtk_id,initial->igtk,keys->igtk_id,keys->igtk,digest[1],&install[1]); }
+    struct brcm_key_io io={a,key_set,network_ready};
+    s->group_installing=true;
+    for (unsigned i=0;r==BLOCK_OK && i<2;++i) {
+        if (!install[i]) { continue; }
+        r=brcm_key_rotate(&io,i!=0,keys,&s->keys);
+        if (r==BLOCK_OK) {
+            ++s->group_key_writes;
+            for (unsigned j=0;j<32;++j) { history[i]->fingerprints[history[i]->count][j]=digest[i][j]; }
+            ++history[i]->count;history[i]->index=i ? keys->igtk_id : keys->gtk_id;
+        }
+    }
+    s->group_installing=false;crypto_wipe(digest,sizeof(digest));return r;
+}
+static enum block_result service_group_key(struct adapter *a)
+{
+    struct brcm_assoc_probe *s=a->s;struct wpa_probe *w=&a->exchange;struct brcm_group_state *group=&a->group;
+    if (!group->bytes) { return BLOCK_OK; }
+    if (!network_ready(a)) { return BLOCK_NOT_READY; }
+    struct wpa_group_context context={.version=w->version};
+    const unsigned char *replay=s->group_replies ? group->replay : w->m3+9;
+    for (unsigned i=0;i<6;++i) { context.local[i]=s->peer.local[i];context.peer[i]=s->peer.peer[i]; }
+    for (unsigned i=0;i<16;++i) { context.kck[i]=w->ptk.kck[i];context.kek[i]=w->ptk.kek[i]; }
+    for (unsigned i=0;i<8;++i) { context.last_replay[i]=replay[i]; }
+    struct wpa_group_offer offer;
+    enum wpa_group_result parsed=wpa_group_validate(&context,group->frame,group->bytes,&offer);
+    crypto_wipe(&context,sizeof(context));crypto_wipe(group->frame,sizeof(group->frame));
+    enum block_result r=BLOCK_OK;
+    if (parsed==WPA_GROUP_OK) {
+        unsigned before=s->group_key_writes;
+        r=update_group_keys(a,&offer.keys);
+        if (r==BLOCK_OK && network_ready(a)) {
+            s->group_reply_pending=true;
+            r=a->base->group2_tx(a->base->join.policy.context,offer.reply,sizeof(offer.reply));
+            s->group_reply_pending=false;
+        } else if (r==BLOCK_OK) { r=BLOCK_NOT_READY; }
+        if (r==BLOCK_OK) {
+            for (unsigned i=0;i<8;++i) { group->replay[i]=offer.replay[i]; }
+            ++s->group_replies;
+            if (s->group_key_writes!=before) { ++s->group_rotations; }
+        }
+    } else if (parsed==WPA_GROUP_FORMAT || parsed==WPA_GROUP_REPLAY || parsed==WPA_GROUP_MIC) { ++s->group_ignored; }
+    else { r=BLOCK_UNSUPPORTED; }
+    crypto_wipe(&offer,sizeof(offer));group->bytes=0;
+    s->group_error=r;return r;
 }
 static enum block_result network_tx(void *ctx,const void *frame,size_t n)
 { struct adapter *a=ctx;return a->base->dhcp_tx(a->base->join.policy.context,frame,n); }
+static bool session_random(void *ctx,unsigned char out[32])
+{ struct adapter *a=ctx;return a->base->random(a->base->join.policy.context,out); }
+static enum block_result network_poll(void *ctx)
+{
+    struct adapter *a=ctx;struct brcm_assoc_probe *s=a->s;
+    enum block_result r=poll(a);if (r!=BLOCK_OK) { return r; }if (s->event_error!=BLOCK_OK) { return s->event_error; }
+    if (a->exchange.retry_pending || a->exchange.m4_due) { r=transmit_m4(a); }
+    if (r==BLOCK_OK) { r=service_group_key(a); }
+    if (r==BLOCK_OK && s->session.background && s->session.active && network_ready(a) &&
+        netprobe_can_tx(&s->network,milliseconds(a))) {
+        const struct dhcp_renew_io io={a,network_tx,session_random,milliseconds};
+        unsigned completed=s->renewal.completed;
+        r=dhcp_renew_service(&io,&s->renewal,s->peer.local,&s->network.lease,&s->network.lease_origin);
+        if (s->renewal.completed!=completed) {
+            s->dhcp.lease=s->network.lease;s->dhcp.xid=s->renewal.xid;
+        }
+        s->network.lease_rejected=s->renewal.rejected;
+    }
+    return r;
+}
 static enum block_result peer_info(struct adapter *a,struct brcm_station_info *out,uint32_t *status)
 {
     ++a->s->port_queries;enum block_result r=a->base->peer_info(a->base->join.policy.context,a->s->peer.peer,out,status);
@@ -345,18 +467,26 @@ static void session_write(void *ctx,const char *text)
 { struct adapter *a=ctx;a->base->session_write(a->base->join.policy.context,text); }
 static void session_info(void *ctx)
 { struct adapter *a=ctx;a->base->session_info(a->base->join.policy.context); }
-static bool session_random(void *ctx,unsigned char out[32])
-{ struct adapter *a=ctx;return a->base->random(a->base->join.policy.context,out); }
 static enum block_result session_inspect(void *ctx)
 {
     struct adapter *a=ctx;struct brcm_assoc_probe *s=a->s;s->port_final_result=peer_info(a,&s->port_final,&s->port_final_status);
+    if ((s->port_final_result==BLOCK_UNSUPPORTED && s->port_final_status==BRCM_NOT_ASSOCIATED) ||
+        (s->port_final_result==BLOCK_NOT_READY && s->port_final.valid &&
+         crypto_equal(s->port_final.peer,s->peer.peer,6) && !(s->port_final.flags&16))) {
+        s->peer_lost=true;
+    }
     if (s->port_final_result==BLOCK_OK && !(s->port_final.flags&0x20)) { s->port_final_result=BLOCK_NOT_READY; }
     if (s->port_final_result!=BLOCK_OK) { return s->port_final_result; }return identity(a);
 }
 static enum block_result session_run(struct adapter *a)
 {
     const struct network_session_io io={{a,gateway_tx,network_poll,delay,milliseconds,network_ready},session_getc,session_write,session_random,session_inspect,session_info};
-    enum block_result r=network_session_run(&io,&a->s->network,&a->s->session);if (a->s->network.conflict && !a->s->decline_attempted) { decline_lease(a); }return r;
+    a->s->renewal.xid=a->s->dhcp.xid;
+    enum block_result r=a->base->session_yield ?
+        network_session_background(&io,&a->s->network,&a->s->session,a->base->session_yield) :
+        network_session_run(&io,&a->s->network,&a->s->session);
+    a->s->renewal.exchange.armed=false;a->s->renewal.queued=false;
+    if (a->s->network.conflict && !a->s->decline_attempted) { decline_lease(a); }return r;
 }
 static enum block_result verified(void *ctx,struct sae_session *session,const struct brcm_auth_peer *peer)
 {
@@ -463,15 +593,19 @@ enum block_result brcm_assoc_run(const struct brcm_assoc_io *io,const struct brc
     if (io->install_probe && (!io->key_data_probe || !io->key_set || !io->m4_tx)) { return BLOCK_ARGUMENT; }
     if (io->dhcp_probe && (!io->install_probe || !io->dhcp_tx || !io->peer_info || !io->port_set)) { return BLOCK_ARGUMENT; }
     if (io->gateway_probe && (!io->dhcp_probe || !io->net_tx)) { return BLOCK_ARGUMENT; }
-    if (io->session_mode && (!io->gateway_probe || !io->session_getc || !io->session_write || !io->session_info)) { return BLOCK_ARGUMENT; }
+    if (io->session_mode && (!io->gateway_probe || (!io->session_yield && (!io->session_getc || !io->session_write || !io->session_info)))) { return BLOCK_ARGUMENT; }
+    if (io->group2_tx && !io->session_mode) { return BLOCK_ARGUMENT; }
+    if (io->packet_id>UINT32_MAX-BRCM_SAE_COMMIT_ATTEMPTS) { return BLOCK_ARGUMENT; }
     if (s->attempted) { return s->error; }if (!prerequisites) { return BLOCK_NOT_READY; }
     unsigned char check[70];enum block_result r=brcm_join_encode(peer,check);if (r!=BLOCK_OK) { return r; }
-    *s=(struct brcm_assoc_probe){.attempted=true,.peer=*peer,.error=BLOCK_NOT_READY,.ie_owned=io->fresh_ie_owner,.request_fixed_bytes=io->request_fixed_bytes,.key_probe=io->key_probe,.key_data_probe=io->key_data_probe,.install_probe=io->install_probe,.dhcp_probe=io->dhcp_probe,.gateway_probe=io->gateway_probe,.session_mode=io->session_mode};
+    *s=(struct brcm_assoc_probe){.attempted=true,.peer=*peer,.error=BLOCK_NOT_READY,.ie_owned=io->fresh_ie_owner,.request_fixed_bytes=io->request_fixed_bytes,.key_probe=io->key_probe,.key_data_probe=io->key_data_probe,.install_probe=io->install_probe,.dhcp_probe=io->dhcp_probe,.gateway_probe=io->gateway_probe,.session_mode=io->session_mode,.background_mode=io->session_mode && io->session_yield};
     struct adapter a={.base=io,.s=s};if (s->key_probe) { s->private_exchange=&a.exchange; }
+    if (io->group2_tx) { s->private_group=&a.group; }
     /* SET_SSID, AUTH, DEAUTH/IND, ASSOC/REASSOC, DISASSOC/IND and LINK. */
     uint32_t events=(1u<<0)|(1u<<3)|(1u<<5)|(1u<<6)|(1u<<7)|(1u<<9)|(1u<<11)|(1u<<12)|(1u<<16);
     const struct brcm_join_probe_io wrapped={{&a,iovar},station,radio,poll,delay,milliseconds,poison,live,NULL,io->join.extra_events|events};
-    const struct brcm_sae_handoff handoff={&a,verified};r=brcm_sae_handoff_run(&wrapped,peer,session,1,true,&handoff,&s->sae);
+    const struct brcm_sae_handoff handoff={&a,verified};
+    r=brcm_sae_handoff_run(&wrapped,peer,session,io->packet_id ? io->packet_id : 1,true,&handoff,&s->sae);
     /* A setup/policy failure before UP never reaches the join DOWN callback.
      * Close the already established IE journal on that path too. */
     if (s->ie_owned && s->ie_changed && !s->ie_restored && !s->sae.join.up_attempted) {
@@ -483,5 +617,19 @@ enum block_result brcm_assoc_run(const struct brcm_assoc_io *io,const struct brc
     if (s->keys.issued_mask && !s->keys.cleared) { poison(&a,s->keys.clear_error==BLOCK_OK ? BLOCK_IO : s->keys.clear_error);if (r==BLOCK_OK) { r=BLOCK_IO; } }
     if (s->port_issued && !s->port_closed) { poison(&a,s->port_close_result==BLOCK_OK ? BLOCK_IO : s->port_close_result);if (r==BLOCK_OK) { r=BLOCK_IO; } }
     retry_status(&a);s->armed=false;s->network.live=s->network.active=s->network.armed=s->decline_active=false;if (s->key_probe && a.exchange.seeded) { s->keys_erased=true; }
-    wpa_probe_clear(&a.exchange);s->private_exchange=NULL;s->error=r;return r;
+    wpa_probe_clear(&a.exchange);crypto_wipe(&a.group,sizeof(a.group));s->private_group=NULL;s->private_exchange=NULL;s->error=r;return r;
+}
+bool brcm_assoc_background_restart_allowed(const struct brcm_assoc_probe *s)
+{
+    return s && s->attempted && s->background_mode && !s->armed && !s->private_exchange && !s->session.active &&
+           !s->network.active && !s->renewal.exchange.armed && s->sae.join.down && s->sae.join.policy.restored &&
+           s->ie_restored && s->sae.erased && (!s->port_issued || s->port_closed) &&
+           (!s->keys.issued_mask || (s->keys.cleared && s->keys_erased));
+}
+bool brcm_assoc_reconnect_allowed(const struct brcm_assoc_probe *s,bool retrying)
+{
+    if (!brcm_assoc_background_restart_allowed(s)) { return false; }
+    if (s->session.ended) { return s->session.background && s->peer_lost && s->session.reason==NS_LINK; }
+    return retrying && s->error==BLOCK_TIMEOUT && !s->status_issued &&
+           s->event_error==BLOCK_OK && s->sae.event_error==BLOCK_OK;
 }

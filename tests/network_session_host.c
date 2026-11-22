@@ -78,6 +78,17 @@ static void seed(unsigned mode)
     const struct dhcp_lease lease={.address={192,0,2,10},.mask={255,255,255,0},.router={192,0,2,1},.dns={192,0,2,1},.seconds=mode==5 ? 1 : 3600,.have_mask=true,.have_router=true,.have_dns=mode!=13};
     assert(netprobe_init(&n,mac,&lease,entropy,0)==BLOCK_OK);n.live=n.active=n.was_active=n.gateway_known=true;n.phase=NP_READY;memcpy(n.gateway_mac,np_gateway_fixture+6,6);
 }
+static bool foreground_work(void *ctx)
+{
+    assert(ctx==&m && !m.in_rx && s.active && s.background);
+    if (!m.ms && m.mode!=5) {
+        const unsigned char target[4]={1,1,1,1};
+        assert(network_session_request_ping(&s,&n,target)==BLOCK_OK);
+        assert(network_session_request_ping(&s,&n,target)==BLOCK_NOT_READY);
+    }
+    m.ms+=10;
+    return m.ms<17000;
+}
 int main(void)
 {
     const char *invalid[]={"","1.2.3","1.2.3.256","1.2.3.4x","1..2.3","1.2.3.0000"," 1.2.3.4","0.1.2.3","127.0.0.1","224.0.0.1","www.google.com"};
@@ -114,5 +125,19 @@ int main(void)
     seed(0);unsigned char entropy[32];memset(entropy,0x55,sizeof(entropy));unsigned char target[4]={192,0,2,20};assert(netprobe_ping_start(&n,target,entropy,0)==BLOCK_UNSUPPORTED);
     target[0]=1;target[1]=target[2]=target[3]=1;assert(netprobe_ping_start(&n,target,entropy,0)==BLOCK_OK);unsigned char stale[74];memcpy(stale,np_echo_fixture,74);receive(stale,74);assert(!n.seen_mask);
     netprobe_close(&n);assert(!netprobe_can_tx(&n,0));
+    for (unsigned mode=0;mode<=6;++mode) {
+        seed(mode);
+        enum block_result result=network_session_background(&io,&n,&s,foreground_work);
+        assert(s.ended && !s.active && !s.ping_queued && !n.active && !n.armed && !m.bytes && !m.input);
+        if (mode<3) {
+            assert(result==BLOCK_OK && s.reason==NS_USER && s.pings_started==1 && m.checks==2 && n.arp_replies==1);
+            assert(mode==2 ? s.pings_timeout==1 : s.pings_ok==1 && n.received_mask==7);
+        }
+        if (mode==3) { assert(result==BLOCK_IO && s.reason==NS_LINK); }
+        if (mode==4) { assert(result==BLOCK_IO && s.reason==NS_CONFLICT); }
+        if (mode==5) { assert(result==BLOCK_TIMEOUT && s.reason==NS_LEASE && m.ms==1000); }
+        if (mode==6) { assert(result==BLOCK_IO && s.reason==NS_IO); }
+    }
+    puts("PASS: background pump never reads or writes UART, starts one queued ping, handles ARP, peer checks and timeout, and closes on stop, lease, link, RNG or conflict");
     puts("PASS: foreground numeric/hostname ping and nslookup, fresh DNS/ping randomness, DNS timeout/NXDOMAIN/no route stay open, cancelled/failed writes never start ping, post-DNS RNG failure cleanup, responsive input/ARP/peer checks, stale-reply rejection, long-line/edit and lease/link/conflict/I/O cleanup");return 0;
 }

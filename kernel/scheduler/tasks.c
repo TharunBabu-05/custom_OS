@@ -152,7 +152,9 @@ static void run_test(bool files)
     task_queue_init(&queue);trace_count=0;private_irqs=0;failed=false;initial_irq=flags;io_mode=files;auto_closed=0;
     for (unsigned i=0;i<TASK_LIMIT;++i) {
         contexts[i]=(struct task_context){0};owned[i]=NULL;completed[i]=checks[i]=highwater[i]=0;io_handles[i]=io_shared[i]=0;
-        unsigned char *p=(unsigned char *)bottom(i);for (unsigned j=0;j<TASK_STACK_BYTES;++j) { p[j]=j<64 ? 0x6d : 0xa5; }
+        if (i!=NETWORK_STACK_SLOT) {
+            unsigned char *p=(unsigned char *)bottom(i);for (unsigned j=0;j<TASK_STACK_BYTES;++j) { p[j]=j<64 ? 0x6d : 0xa5; }
+        }
     }
     for (unsigned i=0;i<3;++i) { unsigned id;if (task_add(&queue,&id)!=TASK_OK || id!=i) { broken(); }contexts[i].sp=top(i);contexts[i].x[11]=(uintptr_t)entry; }
     attempted=active=true;++run_count;started=timer_ticks();irq_restore(flags);
@@ -193,7 +195,7 @@ static void run_test(bool files)
     for (unsigned i=0;i<TASK_LIMIT;++i) { if (owned[i]) { if (!kfree(owned[i])) { failed=true; }owned[i]=NULL; } }
     struct page_stats after=pages_stats();struct heap_stats final=heap_get_stats();
     if (!heap_check() || final.objects!=heap.objects || final.pages!=heap.pages || final.capacity_bytes!=heap.capacity_bytes || pages.allocated_pages!=after.allocated_pages || pages.free_pages!=after.free_pages) { failed=true; }
-    for (unsigned i=0;i<TASK_LIMIT;++i) { clean((void *)bottom(i),TASK_STACK_BYTES);contexts[i]=(struct task_context){0}; }
+    for (unsigned i=0;i<NETWORK_STACK_SLOT;++i) { clean((void *)bottom(i),TASK_STACK_BYTES);contexts[i]=(struct task_context){0}; }
     irq_restore(flags);
     console_write(failed ? "FAIL: cooperative task test; inspect taskinfo.\n" : "PASS: three guarded kernel tasks yielded/slept/exited; callee registers/stack/heap data preserved; PMM/heap counts restored.\n");
     if (files) { console_write(failed ? "FAIL: cooperative task file I/O.\n" : "PASS: three tasks kept independent owned file cursors across yields/sleeps; foreign access rejected, six handles auto-closed and memory restored.\n"); }

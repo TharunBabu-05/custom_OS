@@ -180,15 +180,15 @@ static enum block_result query(const struct brcm_control_io *io,struct brcm_cont
 }
 static bool same(const char *a,const char *b)
 { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
-static enum block_result eapol_tx(const struct brcm_control_io *io,struct brcm_control_state *s,const void *ethernet,size_t n,bool (*permitted)(void *),void *ctx,bool fourth)
+static enum block_result eapol_tx(const struct brcm_control_io *io,struct brcm_control_state *s,const void *ethernet,size_t n,bool (*permitted)(void *),void *ctx,unsigned key_info)
 {
     if (!io || !s || !ethernet || !permitted || !io->packet || !io->read32 || !io->write32 || !io->delay_us) { return BLOCK_ARGUMENT; }
     if (!s->ready || !s->f2_ready || s->error!=BLOCK_OK || s->waiting) { return BLOCK_NOT_READY; }
     const unsigned char *p=ethernet;
     if (n<113 || n>370 || (p[0]&1) || (p[6]&1) || p[12]!=0x88 || p[13]!=0x8e || p[14]<1 || p[14]>3 || p[15]!=3 ||
-        ((unsigned)p[16]<<8|p[17])!=n-18 || p[18]!=2 || p[19]!=(fourth ? 3 : 1) || p[20]!=8 || p[21] || p[22] ||
+        ((unsigned)p[16]<<8|p[17])!=n-18 || p[18]!=2 || ((unsigned)p[19]<<8|p[20])!=key_info || p[21] || p[22] ||
         ((unsigned)p[111]<<8|p[112])!=n-113) { return BLOCK_ARGUMENT; }
-    if (fourth && (n!=113 || !brcm_key_iszero(p+31,64))) { return BLOCK_ARGUMENT; }
+    if (key_info!=0x0108 && (n!=113 || !brcm_key_iszero(p+31,64))) { return BLOCK_ARGUMENT; }
     unsigned dest=0,src=0,different=0;for (unsigned i=0;i<6;++i) { dest|=p[i];src|=p[6+i];different|=p[i]^p[6+i]; }
     if (!dest || !src || !different) { return BLOCK_ARGUMENT; }
     /* Stage before pumping RX: callers may be borrowing s->frame. */
@@ -206,7 +206,7 @@ static enum block_result eapol_tx(const struct brcm_control_io *io,struct brcm_c
     if (r!=BLOCK_OK) { s->ready=false;s->error=r; }return r;
 }
 enum block_result brcm_control_eapol_m2(const struct brcm_control_io *io,struct brcm_control_state *s,const void *p,size_t n,bool (*guard)(void *),void *ctx)
-{ return eapol_tx(io,s,p,n,guard,ctx,false); }
+{ return eapol_tx(io,s,p,n,guard,ctx,0x0108); }
 static bool peer_mac(const unsigned char *p)
 { unsigned v=0;if (!p || (p[0]&1)) { return false; }for (unsigned i=0;i<6;++i) { v|=p[i]; }return v!=0; }
 enum block_result brcm_control_port(const struct brcm_control_io *io,struct brcm_control_state *s,const unsigned char peer[6],bool authorize,uint32_t *status,bool (*guard)(void *),void *ctx)
@@ -239,7 +239,9 @@ enum block_result brcm_control_station_info(const struct brcm_control_io *io,str
     return r==BLOCK_OK ? brcm_station_info_decode(reply,n,peer,out) : r;
 }
 enum block_result brcm_control_eapol_m4(const struct brcm_control_io *io,struct brcm_control_state *s,const void *p,size_t n,bool (*guard)(void *),void *ctx)
-{ return eapol_tx(io,s,p,n,guard,ctx,true); }
+{ return eapol_tx(io,s,p,n,guard,ctx,0x0308); }
+enum block_result brcm_control_eapol_group2(const struct brcm_control_io *io,struct brcm_control_state *s,const void *p,size_t n,bool (*guard)(void *),void *ctx)
+{ return eapol_tx(io,s,p,n,guard,ctx,0x0300); }
 enum block_result brcm_control_dhcp(const struct brcm_control_io *io,struct brcm_control_state *s,const void *p,size_t n,bool (*guard)(void *),void *ctx)
 {
     if (!io || !s || !guard || !io->read32 || !io->write32 || !io->packet || !io->delay_us || !dhcp_wire_request_valid(p,n)) { return BLOCK_ARGUMENT; }

@@ -1,4 +1,4 @@
-/* Original foreground networking console; no libc or background task. */
+/* Shared verified network session with foreground and cooperative drivers. */
 #include "network_session.h"
 #include "crypto.h"
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
@@ -35,19 +35,88 @@ static enum block_result ping_begin(const struct network_session_io *io,struct n
     }
     crypto_wipe(entropy,sizeof(entropy));return random ? BLOCK_OK : BLOCK_IO;
 }
+static enum block_result session_start(const struct network_session_io *io,struct netprobe *n,struct network_session *s)
+{
+    if (s->attempted) { return BLOCK_NOT_READY; }
+    uint64_t now=io->link.milliseconds(io->link.context);
+    *s=(struct network_session){.attempted=true,.active=true,.started=now,.last_check=now,.result=BLOCK_NOT_READY};
+    enum block_result result=io->inspect(io->link.context);
+    if (result!=BLOCK_OK) { s->reason=NS_LINK; }
+    else if (!netprobe_can_tx(n,io->link.milliseconds(io->link.context))) { s->reason=NS_LEASE;result=BLOCK_TIMEOUT; }
+    return result;
+}
+static enum block_result session_poll(const struct network_session_io *io,struct netprobe *n,struct network_session *s,uint64_t *now)
+{
+    ++s->polls;
+    enum block_result r=netprobe_service(&io->link,n);
+    *now=io->link.milliseconds(io->link.context);
+    if (r!=BLOCK_OK) {
+        if (n->conflict) { s->reason=NS_CONFLICT; }
+        else if (n->lease_rejected) { s->reason=NS_LEASE_REJECTED; }
+        else if (r==BLOCK_TIMEOUT && *now-n->lease_origin>=(uint64_t)n->lease.seconds*1000) { s->reason=NS_LEASE; }
+        else { s->reason=r==BLOCK_TIMEOUT && *now-n->start>=3600000 ? NS_LIMIT : NS_LINK; }
+        return r;
+    }
+    if (*now-s->last_check>=15000) {
+        r=io->inspect(io->link.context);s->last_check=*now;
+        if (r!=BLOCK_OK) { s->reason=NS_LINK; }
+    }
+    return r;
+}
+static enum block_result session_end(const struct network_session_io *io,struct netprobe *n,struct network_session *s,enum block_result r)
+{
+    if (!s->reason) { s->reason=NS_LIMIT;r=BLOCK_TIMEOUT; }
+    s->active=false;s->ended=true;s->ping_queued=false;
+    s->ended_at=io->link.milliseconds(io->link.context);s->result=r;netprobe_close(n);
+    return r;
+}
+enum block_result network_session_request_ping(struct network_session *s,const struct netprobe *n,const unsigned char target[4])
+{
+    if (!s || !n || !target) { return BLOCK_ARGUMENT; }
+    if (!s->background || !s->active || s->ping_queued || n->phase!=NP_READY) { return BLOCK_NOT_READY; }
+    for (unsigned i=0;i<4;++i) { s->ping_target[i]=target[i]; }
+    s->ping_queued=true;
+    return BLOCK_OK;
+}
+enum block_result network_session_background(const struct network_session_io *io,struct netprobe *n,struct network_session *s,bool (*yield)(void *))
+{
+    if (!io || !n || !s || !yield || !io->random || !io->inspect || !io->link.milliseconds || !n->live || !n->active) { return BLOCK_ARGUMENT; }
+    if (s->attempted) { return BLOCK_NOT_READY; }
+    enum block_result r=session_start(io,n,s);
+    s->background=true;
+    unsigned seen=n->ping_finished;
+    for (unsigned i=0;r==BLOCK_OK && i<360000;++i) {
+        if (!yield(io->link.context)) { s->reason=NS_USER;break; }
+        uint64_t now;
+        r=session_poll(io,n,s,&now);
+        if (r!=BLOCK_OK) { break; }
+        if (n->ping_finished!=seen) {
+            seen=n->ping_finished;
+            if (n->ping_result==BLOCK_OK) { ++s->pings_ok; }else { ++s->pings_timeout; }
+        }
+        if (s->ping_queued) {
+            unsigned char entropy[32]={0};
+            bool fresh=io->random(io->link.context,entropy);
+            if (fresh) {
+                enum block_result started=netprobe_ping_start(n,s->ping_target,entropy,now);
+                n->ping_result=started==BLOCK_OK ? BLOCK_NOT_READY : started;
+                if (started==BLOCK_OK) { ++s->pings_started; }
+            }
+            crypto_wipe(entropy,sizeof(entropy));s->ping_queued=false;
+            if (!fresh) { s->reason=NS_IO;r=BLOCK_IO; }
+        }
+    }
+    return session_end(io,n,s,r);
+}
 enum block_result network_session_run(const struct network_session_io *io,struct netprobe *n,struct network_session *s)
 {
     if (!io || !n || !s || !io->getc || !io->write || !io->random || !io->inspect || !io->info || !io->link.milliseconds || !io->link.delay_us || !n->live || !n->active) { return BLOCK_ARGUMENT; }
-    if (s->attempted) { return BLOCK_NOT_READY; }*s=(struct network_session){.attempted=true,.active=true,.started=io->link.milliseconds(io->link.context),.result=BLOCK_NOT_READY};
-    enum block_result r=io->inspect(io->link.context);uint64_t last_check=s->started;unsigned seen_pings=n->ping_finished,seen_dns=n->dns_finished;char line[272];unsigned length=0;bool overflow=false,stop=false,ping_after_dns=false;
-    if (r!=BLOCK_OK) { s->reason=NS_LINK; }
-    else { write(io,"\nWi-Fi session OPEN. Commands: ping [IPv4 or hostname], nslookup <hostname>, netinfo, help, disconnect.\nLease expiry, unsupported rekey/link failure or session limit closes it. Ctrl+C disconnects.\n");io->info(io->link.context);write(io,"net> "); }
+    if (s->attempted) { return BLOCK_NOT_READY; }
+    enum block_result r=session_start(io,n,s);unsigned seen_pings=n->ping_finished,seen_dns=n->dns_finished;char line[272];unsigned length=0;bool overflow=false,stop=false,ping_after_dns=false;
+    if (r==BLOCK_OK) { write(io,"\nWi-Fi session OPEN. Commands: ping [IPv4 or hostname], nslookup <hostname>, netinfo, help, disconnect.\nLease expiry, link or key rotation failure, or session limit closes it. Ctrl+C disconnects.\n");io->info(io->link.context);write(io,"net> "); }
     for (unsigned i=0;r==BLOCK_OK && !stop && i<360000;++i) {
-        ++s->polls;r=netprobe_service(&io->link,n);uint64_t now=io->link.milliseconds(io->link.context);
-        if (r!=BLOCK_OK) {
-            s->reason=n->conflict ? NS_CONFLICT : r==BLOCK_TIMEOUT ? now-n->lease_origin>=(uint64_t)n->lease.seconds*1000 ? NS_LEASE : NS_LIMIT : NS_LINK;break;
-        }
-        if (now-last_check>=15000) { r=io->inspect(io->link.context);last_check=now;if (r!=BLOCK_OK) { s->reason=NS_LINK;break; } }
+        uint64_t now;r=session_poll(io,n,s,&now);
+        if (r!=BLOCK_OK) { break; }
         if (n->ping_finished!=seen_pings) { seen_pings=n->ping_finished;if (n->ping_result==BLOCK_OK) { ++s->pings_ok; }else { ++s->pings_timeout; }ping_result(io,n);redraw(io,line,length); }
         if (n->dns_finished!=seen_dns) {
             seen_dns=n->dns_finished;write(io,"\nDNS ");write(io,n->dns.name);write(io,": ");write(io,dns_status_text(n->dns.status));
@@ -89,7 +158,6 @@ enum block_result network_session_run(const struct network_session_io *io,struct
         }
         if (r!=BLOCK_OK || stop) { break; }r=io->link.delay_us(io->link.context,10000);if (r!=BLOCK_OK) { s->reason=NS_IO; }
     }
-    if (!s->reason) { s->reason=NS_LIMIT;r=BLOCK_TIMEOUT; }
-    s->active=false;s->ended=true;s->ended_at=io->link.milliseconds(io->link.context);s->result=r;netprobe_close(n);crypto_wipe(line,sizeof(line));
+    r=session_end(io,n,s,r);crypto_wipe(line,sizeof(line));
     write(io,"\nWi-Fi session closing; deauthorization/DOWN/key cleanup follows. Reason=");number(io,s->reason);write(io,"\n");return r;
 }

@@ -7,6 +7,111 @@ static size_t unhex(const char *s,unsigned char *p,size_t cap)
 { size_t n=strlen(s)/2;assert(n<=cap);for (size_t i=0;i<n;++i) { unsigned v;assert(sscanf(s+2*i,"%2x",&v)==1);p[i]=(unsigned char)v; }return n; }
 static size_t option(unsigned char *p,size_t n,unsigned tag)
 { for (size_t at=282;at<n;) { unsigned t=p[at++];if (t==tag) { return at; }if (!t) { continue; }if (t==255) { break; }at+=1+p[at]; }return 0; }
+static struct dhcp_renewal renewal;
+static struct {
+    uint64_t now;
+    unsigned sends,mode,randoms;
+} live;
+static uint64_t live_time(void *context) { assert(context==&live);return live.now; }
+static bool live_random(void *context,unsigned char out[32])
+{
+    assert(context==&live);
+    memset(out,0,32);out[0]=(unsigned char)++live.randoms;return true;
+}
+static void ipv4_checksum(unsigned char *header)
+{
+    header[10]=header[11]=0;
+    unsigned sum=0;
+    for (unsigned i=0;i<20;i+=2) { sum+=((unsigned)header[i]<<8)|header[i+1]; }
+    while (sum>>16) { sum=(sum&65535)+(sum>>16); }
+    header[10]=(unsigned char)(~sum>>8);header[11]=(unsigned char)~sum;
+}
+static enum block_result renew_tx(void *context,const void *frame,size_t n)
+{
+    assert(context==&live && dhcp_wire_request_valid(frame,n));
+    const unsigned char *packet=frame;
+    struct dhcp_client *exchange=&renewal.exchange;
+    assert(packet[284]==3 && !memcmp(packet+26,exchange->offer.address,4) &&
+           !memcmp(packet+54,exchange->offer.address,4) && !packet[52] && !packet[53]);
+    unsigned char expected_broadcast[6]={255,255,255,255,255,255};
+    assert(!memcmp(packet,exchange->rebinding ? expected_broadcast : exchange->offer.server_mac,6));
+    assert(!memcmp(packet+30,exchange->rebinding ? expected_broadcast : exchange->offer.server,4));
+    unsigned char reply[600],wire[DHCP_FRAME_BYTES];
+    memcpy(wire,packet,n);assert(!option(wire,n,50) && !option(wire,n,54));
+    wire[52]=0x80;assert(!dhcp_wire_request_valid(wire,n));
+    ++live.sends;
+    if (live.mode==2 || (live.mode==3 && !exchange->rebinding)) { return BLOCK_OK; }
+    memcpy(reply,ack,an);reply[40]=reply[41]=0;
+    memcpy(reply+46,packet+46,4);
+    if (live.mode==4) { reply[46]^=1; }
+    if (live.mode==5) { reply[61]^=1; }
+    if (live.mode==6) { reply[option(reply,an,53)+1]=6; }
+    if (live.mode==8) { reply[option(reply,an,3)+4]^=1; }
+    if (live.mode==3 || live.mode==9) {
+        /* Move this reply to another direct server, preserving the client
+         * address and all configuration options. */
+        reply[11]^=1;reply[29]^=0x40;
+        reply[option(reply,an,54)+4]=reply[29];
+        ipv4_checksum(reply+14);
+    }
+    size_t at=option(reply,an,255)-1;
+    static const unsigned char times[]={58,4,0,0,0,10,59,4,0,0,0,15,255};
+    assert(at+sizeof(times)<=an);
+    memcpy(reply+at,times,sizeof(times));
+    dhcp_receive(exchange,reply,an);
+    if (live.mode==1) { return BLOCK_NOT_READY; }
+    if (live.mode==7) { return BLOCK_IO; }
+    return BLOCK_OK;
+}
+static void renew_cases(const struct dhcp_lease *initial)
+{
+    const struct dhcp_renew_io io={&live,renew_tx,live_random,live_time};
+    for (unsigned mode=0;mode<=9;++mode) {
+        memset(&live,0,sizeof(live));memset(&renewal,0,sizeof(renewal));live.mode=mode;
+        struct dhcp_lease lease=*initial;
+        lease.seconds=60;lease.t1_seconds=20;lease.t2_seconds=45;
+        uint64_t origin=0;
+        live.now=19999;assert(dhcp_renew_service(&io,&renewal,mac,&lease,&origin)==BLOCK_OK && !live.sends);
+        live.now=20000;
+        enum block_result result=dhcp_renew_service(&io,&renewal,mac,&lease,&origin);
+        assert(live.sends==1 && !origin && !renewal.completed && !renewal.rejected);
+        if (mode==7) { assert(result==BLOCK_IO && !renewal.exchange.ack_seen);continue; }
+        assert(result==BLOCK_OK);
+        if (mode==3) {
+            uint32_t old=renewal.xid;
+            live.now=45000;
+            assert(dhcp_renew_service(&io,&renewal,mac,&lease,&origin)==BLOCK_OK &&
+                   renewal.xid!=old && renewal.rebroadcasts==1 && live.sends==2);
+        }
+        ++live.now;
+        result=dhcp_renew_service(&io,&renewal,mac,&lease,&origin);
+        if (mode==0 || mode==3) {
+            assert(result==BLOCK_OK && renewal.completed==1 && origin==(mode==3 ? 45000 : 20000) &&
+                   lease.seconds==3600 && lease.t1_seconds==10 && lease.t2_seconds==15 && !renewal.exchange.armed);
+            assert(mode==0 ? lease.server[3]==initial->server[3] :
+                   lease.server[3]==(initial->server[3]^0x40) && lease.server_mac[5]==(initial->server_mac[5]^1));
+        } else if (mode==6) {
+            assert(result==BLOCK_IO && renewal.rejected && !origin && !renewal.exchange.armed);
+        } else {
+            assert(result==BLOCK_OK && !origin && !renewal.completed && !renewal.exchange.ack_seen);
+            live.now=60000;
+            assert(dhcp_renew_service(&io,&renewal,mac,&lease,&origin)==BLOCK_OK && live.sends==1 && !renewal.exchange.armed);
+        }
+    }
+    memset(&live,0,sizeof(live));memset(&renewal,0,sizeof(renewal));
+    struct dhcp_lease lease=*initial;lease.seconds=60;
+    uint64_t origin=0;renewal.queued=true;live.now=1000;
+    assert(dhcp_renew_service(&io,&renewal,mac,&lease,&origin)==BLOCK_OK && live.sends==1 && !renewal.queued);
+    live.now=60000;
+    assert(dhcp_renew_service(&io,&renewal,mac,&lease,&origin)==BLOCK_OK && !renewal.completed && !origin);
+    memset(&live,0,sizeof(live));memset(&renewal,0,sizeof(renewal));
+    live.mode=2;live.now=29999;
+    assert(dhcp_renew_service(&io,&renewal,mac,&lease,&origin)==BLOCK_OK && !live.sends);
+    live.now=30000;
+    assert(dhcp_renew_service(&io,&renewal,mac,&lease,&origin)==BLOCK_OK && live.sends==1 && !renewal.rebroadcasts);
+    live.now=52500;
+    assert(dhcp_renew_service(&io,&renewal,mac,&lease,&origin)==BLOCK_OK && live.sends==2 && renewal.rebroadcasts==1);
+}
 static void parser_negatives(void)
 {
     for (unsigned fault=0;fault<9;++fault) {
@@ -18,7 +123,10 @@ static void parser_negatives(void)
         if (fault==3) { at=option(bad,on,1);bad[at+2]=0; }
         if (fault==4) { at=option(bad,on,6);bad[at]=5; }
         if (fault==5) { at=option(bad,on,255)-1;assert(at+4<on);bad[at++]=53;bad[at++]=1;bad[at++]=2;bad[at]=255; }
-        if (fault==6) { at=option(bad,on,255)-1;bad[at++]=52;bad[at++]=1;bad[at++]=1;bad[at]=255; }
+        if (fault==6) {
+            at=option(bad,on,255);assert(at && at+2<on);--at;
+            bad[at++]=52;bad[at++]=1;bad[at++]=1;bad[at]=255;
+        }
         if (fault==7) { bad[42+24]=1; } /* relay not supported */
         if (fault==8) { at=option(bad,on,53);bad[at+1]=5; } /* unsolicited ACK */
         struct dhcp_client neg={0};assert(dhcp_client_init(&neg,mac,entropy)==BLOCK_OK);neg.discover_issued=true;dhcp_receive(&neg,bad,on);assert(!neg.have_offer);
@@ -57,6 +165,7 @@ int main(int argc,char **argv)
         s.discover_written=true;s.phase=DHCP_REQUESTING;assert(dhcp_encode(&s,true,0,out,sizeof(out),&n)==BLOCK_OK && n==rn && !memcmp(out,request,n) && dhcp_wire_request_valid(out,n));
         dhcp_receive(&s,ack,an);assert(!s.ack_seen);s.request_issued=true;dhcp_receive(&s,ack,an);assert(s.ack_seen && !s.request_written && s.lease.seconds==3600 && s.lease.have_dns && s.lease.have_router && s.lease.have_mask);
         assert(s.lease.address[3]==10+count && s.lease.server[3]==1 && s.lease.dns[0]==8);
+        if (!count) { renew_cases(&s.lease); }
         assert(dhcp_encode_decline(&s,out,sizeof(out),&n)==BLOCK_NOT_READY);
         s.phase=DHCP_ACKED;s.request_written=true;unsigned char decline[600];size_t declined=unhex(v[7],decline,sizeof(decline));
         assert(dhcp_encode_decline(&s,out,sizeof(out),&n)==BLOCK_OK && n==declined && !memcmp(out,decline,n) && out[342]==0xa5 && dhcp_wire_request_valid(out,n));
@@ -85,5 +194,6 @@ int main(int argc,char **argv)
         assert(dhcp_client_init(&guard.state,mac,entropy)==BLOCK_OK);guard.state.discover_issued=true;unsigned char bad[1600]={0};memcpy(bad,offer,on);random=random*1664525+1013904223;bad[random%1600]^=(unsigned char)(random>>24);
         dhcp_receive(&guard.state,bad,i%3 ? on : random%1601);for (unsigned j=0;j<8;++j) { assert(guard.before[j]==0xa5 && guard.after[j]==0xa5); }
     }
+    puts("PASS: T1 unicast and T2 broadcast with ciaddr and fresh XID, timer options, early/manual request, stale replies, changed configuration, NAK, failed/deferred writes and expiry");
     puts("PASS: 16 independent exact DHCP client packets and server DORA fixtures, checksum/identity/transaction gates, early reply vs failed write, lost OFFER/ACK, bounded retries/deferrals/stalled clocks, 10000 receive mutations and output guards; no configured IP");return 0;
 }

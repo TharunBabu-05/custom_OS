@@ -1,7 +1,7 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
-      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[string]$ExpectedTreeBackup,
+      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
@@ -57,6 +57,134 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($NetworkWorker) {
+    $pass='PASS: network worker yielded, resumed, preserved its stack and stopped.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="network-worker-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','mmuinit','irqinit','timerstart','networktest','networktest bogus',
+                @{Text='networktest e10';Delay=2400},@{Text='schedtest';Delay=2500},
+                'help','netup -R Example','netping','netrenew','netdown','appshell','networktest el0','netinfo',"netup -r Jack's",
+                'echo shell-responsive','exit','fileinfo','pwd','timerstop','halt'
+            ) @($pass,'EL0 timeout test: infinite user loop.',
+                'Usage: networktest [el0] (e, lowercase L, digit zero)',
+                'netup [-r|-R] <SSID> netping [IPv4] netrenew netinfo netdown',
+                'PASS: three guarded kernel tasks yielded/slept/exited',
+                'background session unavailable. No password requested.',
+                'Type exit, then run this command at the > monitor prompt.',
+                'No background Wi-Fi session.',"echo shell-responsive`r`nshell-responsive",'Open files: 0/16') 2
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,[regex]::Escape($pass)).Count -ne 2) { throw "$name missed an EL0 or monitor worker pass" }
+            if ($log -notmatch "netup -r Jack's\r?\nType exit, then run this command at the > monitor prompt") {
+                throw "$name missed the prompt hint for an SSID containing an apostrophe"
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($AppLifecycle) {
+    if ($layout.Version -notin 4,5) { throw 'AppLifecycle requires a v4 or v5 image' }
+    $cpu,$virt=if ($layout.Version -eq 4) { 'cortex-a53','off' } else { 'cortex-a76','on' }
+    $name="app-lifecycle-v$($layout.Version)"
+    $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+    $prefix=Range-Hash $source 0 (260097L*512)
+    Copy-Item -LiteralPath $source -Destination $disk
+    $boot=@('storageinit','datainit','mmuinit','irqinit','timerstart')
+    $end=@('cat /data/keep.txt','fileinfo','pwd','timerstop','halt')
+    $keep="cat /data/keep.txt`r`nretained-user-file"
+    try {
+        Session $disk "$name-stage" $cpu $virt ($boot+@(
+            'applist',@{Text='write /data/keep.txt retained-user-file';Delay=3200},
+            @{Text='appadd demo v1 /boot/ECHO.ELF';Delay=8500},'applist','appstart demo "first revision"',
+            @{Text='appupgrade demo v2 /boot/HELLO.ELF';Delay=7000},'appstart demo',
+            'appupgrade demo v3 /boot/CONFIG.TXT','appupgrade demo v1 /boot/PWD.ELF',
+            'fopen /data/.apps/demo.app r',@{Text='appupgrade demo v3 /boot/PWD.ELF';Delay=4400},
+            'applist','stat /data/.apps/demo.3.elf','appstart demo')+$end) @(
+            'No managed apps.','demo active=v1 previous=none','first revision','Hello from an OurOS EL0 application.',
+            'app: installation refused:','app: already exists','Opened handle=',
+            "app: root or current directory is busy`r`n> applist`r`ndemo active=v2 previous=v1",
+            'path=/data/.apps/demo.3.elf',$keep,'Open files: 1/16') 3
+        Session $disk "$name-rollback" $cpu $virt ($boot+@(
+            'applist','appstart demo',@{Text='approllback demo';Delay=3400},
+            'appstart demo "restored revision"')+$end) @(
+            "applist`r`ndemo active=v2 previous=v1",'Hello from an OurOS EL0 application.',
+            "approllback demo`r`ndemo active=v1 previous=v2",'restored revision',$keep,'Open files: 0/16') 2
+        Session $disk "$name-uninstall" $cpu $virt ($boot+@(
+            'applist','appstart demo "rollback after reboot"',@{Text='appuninstall demo';Delay=7500},
+            'appstart demo','ls /data/.apps','applist')+$end) @(
+            "applist`r`ndemo active=v1 previous=v2",'rollback after reboot','Uninstalled demo',
+            "appstart demo`r`napp: path not found","ls /data/.apps`r`n> applist`r`nNo managed apps.",$keep,'Open files: 0/16') 1
+        Session $disk "$name-reopen" $cpu $virt (@('storageinit','datainit','applist','appstart demo')+$end) @(
+            'No managed apps.',"appstart demo`r`napp: path not found",$keep,'Open files: 0/16') 0
+        if ((Range-Hash $disk 0 (260097L*512)) -cne $prefix) { throw "$name changed /boot or the data superblock" }
+    } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($Extents) {
+    if ($layout.Version -ne 5) { throw 'Extents requires a v5 image' }
+    $bootLength=260097L*512
+    $prefix=Range-Hash $source 0 $bootLength
+    $patternHash='dc404a613fedaeb54034514bc6505f56b933caa5250299ba7d094377a51caa46'
+    [byte[]]$fixture=New-Object byte[] 32768
+    for ($i=0;$i -lt $fixture.Length;++$i) { $fixture[$i]=[byte](($i*13+5)%256) }
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try { $hash=([BitConverter]::ToString($sha.ComputeHash($fixture))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="extents-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $more=@(1..17 | ForEach-Object { @{Text="touch /data/slot-$_";Delay=180} })
+            Session $disk "$name-create" $case[0] $case[1] (@(
+                'df /data','exit',@{Text='datarestore /boot/DEMO.BAK';Delay=8500},'datarestore /boot/DEMO.BAK',
+                'appshell','sha256 /data/pattern.bin',@{Text='cp /boot/EXTENT.BIN /data/big.bin';Delay=3500},
+                'sha256 /data/big.bin','exit')+$more+@(
+                'write /data/recovery older','write /data/recovery newer','datacheck','fileinfo','pwd','halt')) @(
+                '/data extents v5 max_file_bytes=32768 nodes=0/32 persistent',
+                'Data restore committed and read back','Data restore refused/failed: root or current directory is busy',
+                "$patternHash  /data/pattern.bin","$hash  /data/big.bin",'matches_mounted=yes','Open files: 0/16') 2 'ouros.startup=shell'
+            $normal=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk "$name-reopen" $case[0] $case[1] @('df /data','sha256 /data/big.bin','cat /data/recovery','exit','datacheck','pwd','halt') @(
+                '/data extents v5 max_file_bytes=32768 nodes=21/32 persistent',"$hash  /data/big.bin",
+                "cat /data/recovery`r`nnewer",'matches_mounted=yes') 1 'ouros.startup=shell'
+            if ((Get-FileHash -LiteralPath $disk).Hash -ne $normal) { throw "$name reboot changed the disk" }
+            $created=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
+            $newest=[regex]::Match($created,'Mounted /data bank=(\d+) generation=(\d+)')
+            if (!$newest.Success) { throw 'Cannot locate the committed bank' }
+            $file=[IO.File]::Open($disk,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite)
+            try {
+                $dataBase=260096L*512
+                $index=$dataBase+(2+[int]$newest.Groups[1].Value*$layout.BankSectors)*512
+                [byte[]]$table=New-Object byte[] $layout.PayloadBytes
+                $file.Position=$index
+                if ($file.Read($table,0,$table.Length) -ne $table.Length) { throw 'Short extent metadata' }
+                $extent=0
+                for ($slot=0;$slot -lt $layout.Files;++$slot) {
+                    if ([Text.Encoding]::ASCII.GetString($table,64*$slot,32).TrimEnd([char]0) -ceq 'recovery') {
+                        $extent=[BitConverter]::ToUInt32($table,$layout.DirectoryBytes+64*$slot);break
+                    }
+                }
+                if ($extent -lt $layout.FirstExtent -or $extent -ge 2048) { throw 'Bad extent in fixture' }
+                $file.Position=$dataBase+$extent*512;$first=$file.ReadByte()
+                if ($first -ne [int][char]'n') { throw 'Wrong file selected for corruption' }
+                $file.Position=$dataBase+$extent*512;$file.WriteByte([byte]($first -bxor 1))
+            } finally { $file.Dispose() }
+            $damaged=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk "$name-fallback" $case[0] $case[1] @('sha256 /data/big.bin','cat /data/recovery','exit','datacheck','pwd','halt') @(
+                "$hash  /data/big.bin","cat /data/recovery`r`nolder",'status=invalid payload','matches_mounted=yes') 1 'ouros.startup=shell'
+            if ((Get-FileHash -LiteralPath $disk).Hash -ne $damaged -or (Range-Hash $disk 0 $bootLength) -cne $prefix) {
+                throw "$name changed storage outside the intended commits or corruption"
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($TwoJobs) {
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
@@ -380,7 +508,7 @@ if ($Data4) {
         Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
             @{Text='appterm 300 /boot/V4CHK.ELF';Delay=10000},@{Text='appterm 300 /boot/DATACAP.ELF';Delay=45000},
             'apprun /boot/DF.ELF','mkdir /data/bin','appinstall /boot/BIGAPP.ELF /data/bin/big.elf',
-            'apprun /data/bin/big.elf','appshell',@{Text='cp /boot/LARGE.BIN /data/large.bin';Delay=2000},'sha256 /data/large.bin',
+            'apprun /data/bin/big.elf','appshell',@{Text='cp /boot/LARGE.BIN /data/large.bin';Delay=6000},'sha256 /data/large.bin',
             'sha256 /data/bin/big.elf','sync','exit','pwd','fileinfo','heaptest','pagetest','datainfo','timerstop','halt') @(
             'OurOS snapshot v4; nodes=16 max_file_bytes=16384',
             'PASS: v4 16384-byte copy/hash, 8 KiB boundary write, EOF/overflow preservation, RAM limit, atomic replacement, mount queries/pointer checks and cleanup.',

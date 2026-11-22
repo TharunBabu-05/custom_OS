@@ -23,10 +23,32 @@ static void seed(void)
     unsigned n=fixture();assert(brcm_scan_bss(bss,n,&scan.ap[0])==BLOCK_OK);target=NULL;
 }
 static enum wifi_target_result check(void) { return wifi_target_check(&scan,&caps,"Jack's",6,&target); }
+static void test_reconnect(void)
+{
+    unsigned char original[6];
+    seed();memcpy(original,scan.ap[0].bssid,sizeof(original));
+    scan.ap[0].channel=11;
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,original,WIFI_SAE_HUNT,&target)==WIFI_TARGET_OK);
+    scan.ap[0].bssid[5]=2;
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,original,WIFI_SAE_HUNT,&target)==WIFI_TARGET_NOT_FOUND);
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,NULL,WIFI_SAE_HUNT,&target)==WIFI_TARGET_OK && target==&scan.ap[0]);
+    scan.ap[1]=scan.ap[0];memcpy(scan.ap[1].bssid,original,sizeof(original));scan.count=2;
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,NULL,WIFI_SAE_HUNT,&target)==WIFI_TARGET_AMBIGUOUS);
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,original,WIFI_SAE_HUNT,&target)==WIFI_TARGET_OK && target==&scan.ap[1]);
+    scan.count=1;scan.ap[0].rsnxe_length=1;scan.ap[0].rsnxe[0]=32;
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,NULL,WIFI_SAE_HUNT,&target)==WIFI_TARGET_RECONNECT_PROFILE);
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,NULL,WIFI_SAE_H2E,&target)==WIFI_TARGET_OK);
+    scan.ap[0].channel=36;scan.ap[0].band=5;
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,NULL,WIFI_SAE_H2E,&target)==WIFI_TARGET_RECONNECT_PROFILE);
+    scan.ap[0].pmf_capable=false;
+    assert(wifi_target_reconnect(&scan,&caps,"Jack's",6,NULL,WIFI_SAE_H2E,&target)==WIFI_TARGET_PMF);
+    puts("PASS: reconnect channel refresh, pinned or changed BSSID, ambiguous SSID, SAE method and PMF checks");
+}
 static unsigned parse(unsigned n)
 { put32(bss+4,n);put32(bss+120,n-126);return brcm_scan_bss(bss,n,&scan.ap[0]); }
 int main(void)
 {
+    test_reconnect();
     seed();assert(check()==WIFI_TARGET_OK && target==&scan.ap[0]);
     assert(target->group_cipher==0x000fac04 && target->management_cipher==0x000fac06 && target->pairwise_ccmp && target->akm_sae);
     assert(wifi_target_check(&scan,&caps,"Jack's!",7,&target)==WIFI_TARGET_NOT_FOUND && !target);

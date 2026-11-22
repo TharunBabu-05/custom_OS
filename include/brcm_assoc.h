@@ -27,6 +27,9 @@ struct brcm_assoc_io {
     enum block_result (*port_set)(void *,const unsigned char peer[6],bool authorize,uint32_t *);
     bool gateway_probe;enum block_result (*net_tx)(void *,enum netprobe_packet,unsigned,const void *,size_t);
     bool session_mode;int (*session_getc)(void *);void (*session_write)(void *,const char *);void (*session_info)(void *);
+    bool (*session_yield)(void *);
+    uint32_t packet_id; /* Zero selects the initial cookie range. */
+    enum block_result (*group2_tx)(void *,const void *,size_t);
 };
 struct brcm_assoc_probe {
     struct brcm_sae_probe sae;struct brcm_auth_peer peer;
@@ -45,17 +48,21 @@ struct brcm_assoc_probe {
     unsigned m3_duplicates,m3_retries_queued,m3_retries_verified,m4_writes,m4_deferred;
     bool m3_retry_pending;
     unsigned m3_retry_rejection;
-    bool dhcp_probe;struct dhcp_client dhcp;
+    bool dhcp_probe;struct dhcp_client dhcp;struct dhcp_renewal renewal;
     bool gateway_probe,gateway_attempted,decline_active,decline_attempted,decline_written;
     enum block_result gateway_result,decline_result;uint64_t lease_origin;
     struct netprobe network;
-    bool session_mode;struct network_session session;
+    bool session_mode,background_mode,peer_lost;struct network_session session;
     bool first_m4_before_keys,port_attempted,port_issued,port_ack,port_verified,port_close_active,port_closed;
     unsigned port_phase,port_queries,port_deferrals;
     enum block_result port_result,port_final_result,port_close_result;
     uint32_t port_status,port_final_status,port_close_status;
     struct brcm_station_info port_before,port_after,port_final;
-    struct wpa_probe *private_exchange; /* synchronous only; erased before return */
+    struct wpa_probe *private_exchange; /* owned by the association call; erased before return */
+    struct brcm_group_state *private_group;
+    bool group_installing,group_reply_pending;
+    unsigned group_ignored,group_replies,group_rotations,group_key_writes;
+    enum block_result group_error;
     size_t request_saved,request_error_offset,request_rsn_offset;unsigned request_error,request_tag,request_rsn_bytes;
     struct wpa_rsn_info request_rsn;enum wpa_rsn_result request_rsn_error;
     unsigned char request_ies[512];
@@ -81,4 +88,8 @@ void brcm_assoc_data(void *,const void *,size_t);
  * Initial live M4 precedes enabling TX keys; optional peer-port/DHCP test.
  * Always deauthorizes attempted ports, DOWN/deletes/restores/erases. */
 enum block_result brcm_assoc_run(const struct brcm_assoc_io *,const struct brcm_auth_peer *,struct sae_session *,bool,struct brcm_assoc_probe *);
+/* A fresh join requires confirmed cleanup. Retry a pre-handoff timeout
+ * only when it follows a previously confirmed loss. */
+bool brcm_assoc_reconnect_allowed(const struct brcm_assoc_probe *,bool retrying);
+bool brcm_assoc_background_restart_allowed(const struct brcm_assoc_probe *);
 #endif

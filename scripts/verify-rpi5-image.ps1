@@ -31,19 +31,19 @@ try {
     $start=U32 $mbr 454; $total=U32 $mbr 458
     $hasData=$null -ne $expected.PSObject.Properties['data_format']
     if ($hasData) {
-        Require ($expected.data_format -in @(1,2,3,4) -and $start -eq 2048 -and $total -eq 258048 -and $mbr[466] -eq 0xda -and
+        Require ($expected.data_format -in @(1,2,3,4,5) -and $start -eq 2048 -and $total -eq 258048 -and $mbr[466] -eq 0xda -and
             (U32 $mbr 470) -eq 260096 -and (U32 $mbr 474) -eq 2048 -and $expected.data_lba -eq 260096 -and $expected.data_sectors -eq 2048) 'Data partition extent mismatch'
         $data=ReadAt (260096L*512) (2048*512)
         $version=[int]$expected.data_format
         $geometry=Get-OurOSDataGeometry $version;$files=$geometry.Files;$fileBytes=$geometry.FileBytes
-        $payloadBytes=$files*64+$files*$fileBytes;$bankSectors=1+$payloadBytes/512
+        $payloadBytes=$geometry.PayloadBytes;$bankSectors=$geometry.BankSectors
         $dataHash=[Security.Cryptography.SHA256]::Create()
         try {
             $dataDigest=([BitConverter]::ToString($dataHash.ComputeHash($data))).Replace('-','').ToLowerInvariant()
             Require ($dataDigest -eq $expected.data_sha256) 'Data partition hash mismatch'
             Require ([Text.Encoding]::ASCII.GetString($data,0,8) -ceq 'OUROSDAT' -and (U32 $data 8) -eq $version -and (U32 $data 12) -eq 512 -and
                 (U32 $data 16) -eq 2048 -and (U32 $data 20) -eq $bankSectors -and (U32 $data 24) -eq $files -and (U32 $data 28) -eq $fileBytes -and
-                [Text.Encoding]::ASCII.GetString($data,512,8) -ceq ('OUROSBK'+$version) -and (U32 $data 520) -eq $version -and
+                [Text.Encoding]::ASCII.GetString($data,512,8) -ceq $geometry.Magic -and (U32 $data 520) -eq $version -and
                 (U32 $data 524) -eq 0 -and [BitConverter]::ToUInt64($data,528) -eq 1 -and (U32 $data 536) -eq $payloadBytes) 'Data format fields mismatch'
             Require (Same $dataHash.ComputeHash($data,0,64) $data[64..95]) 'Data superblock checksum mismatch'
             Require (Same $dataHash.ComputeHash($data,512,64) $data[576..607]) 'Data commit checksum mismatch'

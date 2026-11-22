@@ -39,7 +39,7 @@ static void captured(unsigned char *out)
 static const unsigned char ap_rsn[]={48,24,1,0,0,15,172,4,1,0,0,15,172,4,2,0,0,15,172,2,0,15,172,8,128,0};
 static struct {
     uint32_t values[4];unsigned char mask[24];unsigned calls,sets,joins,tx,ups,downs,polls,tx_polls,fail_at,poisons;
-    unsigned commit_txs,confirm_txs;uint32_t last_cookie;uint64_t last_commit_clock;
+    unsigned commit_txs,confirm_txs;uint32_t last_cookie,packet_id;uint64_t last_commit_clock;
     enum mode mode;enum auth_case auth_case;uint64_t clock;bool up,poisoned,requested,fail_delay,auth,confirm_event;
     enum assoc_case assoc_case;bool association,status_sent,in_callback;
     unsigned assoc_polls,status_sets;unsigned char ie[256],original_ie[256];size_t ie_bytes,original_bytes;
@@ -51,6 +51,7 @@ static struct {
     bool dhcp_probe;unsigned dhcp_case,dhcp_txs,dhcp_calls,port_case,port_opens,port_closes,peer_queries;bool authorized;
     bool gateway_probe;unsigned gateway_case,net_calls,net_writes,declines,net_fail_points[8];
     bool session_mode,session_opened;unsigned session_case,session_input,session_stage,session_randoms,session_infos,session_frames;
+    unsigned group_case,group_sets,group_txs,group_replay;
 } m;
 static void le16(unsigned char *p,unsigned v) { p[0]=(unsigned char)v;p[1]=(unsigned char)(v>>8); }
 static void le32(unsigned char *p,uint32_t v) { for (unsigned i=0;i<4;++i) { p[i]=(unsigned char)(v>>(8*i)); } }
@@ -238,7 +239,7 @@ static enum block_result iovar(void *ctx,bool set,const char *name,const void *i
         }
         ++m.tx;
         assert(bytes==136 && !get32(p) && get32(p+4)==4000 && p[8]==104 && !p[9] && p[10]==0xb0 && p[12]==6);
-        assert(!memcmp(p+14,peer.peer,6) && !memcmp(p+20,peer.peer,6) && get32(p+28)==1+m.commit_txs);
+        assert(!memcmp(p+14,peer.peer,6) && !memcmp(p+20,peer.peer,6) && get32(p+28)==(m.packet_id ? m.packet_id : 1)+m.commit_txs);
         if (m.commit_txs) { assert(m.auth && m.clock-m.last_commit_clock>=5000 && client.phase==SAE_COMMITTED); }
         ++m.commit_txs;m.last_commit_clock=m.clock;m.last_cookie=get32(p+28);m.tx_polls=0;
         assert(p[32]==3 && p[34]==1 && p[36]==(peer.hunting ? 0 : 126) && !memcmp(p+38,own,98));
@@ -366,6 +367,20 @@ static void wrap_public(const unsigned char key[16],const unsigned char *plain,s
         memcpy(out,b,8);unsigned t=blocks*j+i;out[6]^=(unsigned char)(t>>8);out[7]^=(unsigned char)t;memcpy(out+8*i,b+8,8);
     } }
 }
+static void group_event(unsigned replay,unsigned gtk_index,unsigned gtk_seed,bool bad_mic)
+{
+    unsigned char f[181]={0x20},plain[56]={221,22,0,15,172,1};
+    const unsigned char igtk[]={221,28,0,15,172,9,5,0};
+    plain[6]=(unsigned char)gtk_index;memcpy(plain+24,igtk,sizeof(igtk));
+    for (unsigned i=0;i<16;++i) { plain[8+i]=(unsigned char)(gtk_seed+i);plain[38+i]=(unsigned char)(80+i); }
+    plain[54]=221;plain[32]=2;
+    unsigned char *p=f+4,*e=p+14;
+    memcpy(p,peer.local,6);memcpy(p+6,peer.peer,6);be16(p+12,0x888e);
+    e[0]=2;e[1]=3;be16(e+2,159);e[4]=2;be16(e+5,0x1380);e[16]=(unsigned char)replay;e[65]=1;be16(e+97,64);
+    wrap_public(m.expected_kek,plain,sizeof(plain),e+99);
+    assert(aes128_cmac(m.expected_kck,e,163,e+81));if (bad_mic) { e[81]^=1; }
+    m.group_replay=replay;m.in_callback=true;brcm_assoc_data(&assoc,f,sizeof(f));m.in_callback=false;
+}
 static enum block_result key_tx(void *ctx,const void *frame,size_t n)
 {
     assert(ctx==&m && !m.in_callback && m.up && assoc.association_verified && assoc.assoc_ie_verified && assoc.status_ack && assoc.m1_seen && !assoc.m2_written && !m.m2_txs++);
@@ -410,6 +425,16 @@ static enum block_result key_install_set(void *ctx,const void *wire,size_t n,uin
         assert(m.downs && assoc.keys.cleanup_active);++m.clear_sets;
         if (m.install_case==6 && kind==1) { *status=0xffffffe9u;return BLOCK_UNSUPPORTED; }return BLOCK_OK;
     }
+    if (assoc.group_installing) {
+        assert(m.group_case && m.key_sets==3 && m.up && m.authorized && !assoc.group_reply_pending && kind!=0);
+        ++m.group_sets;
+        assert((m.group_sets==1 && index==2 && p[8]==40 && p[144]==1) ||
+            (m.group_sets==2 && index==5 && p[8]==80 && p[144]==2) ||
+            (m.group_sets==3 && index==1 && p[8]==110 && p[144]==1));
+        if (m.group_case==2 && m.group_sets==2) { return BLOCK_UNSUPPORTED; }
+        if (m.group_case==5 && m.group_sets==1) { emit(6,1,0); }
+        return BLOCK_OK;
+    }
     assert(m.up && assoc.key_data_verified && assoc.m3_mic_verified && assoc.m3_unwrap_verified && assoc.m4_written && assoc.first_m4_before_keys && m.key_sets==kind);++m.key_sets;
     if (!kind) { assert(!memcmp(p+8,m.expected_tk,16) && !memcmp(p+156,peer.peer,6)); }
     else { for (unsigned i=0;i<16;++i) { assert(p[8+i]==i+(kind==2 ? 16u : 0u)); } }
@@ -434,6 +459,17 @@ static enum block_result m4_tx(void *ctx,const void *frame,size_t n)
     if (m.install_case==14 && m.m4_txs==1) { retry_event(0); }if (m.install_case==22) { m3_event(); }
     return BLOCK_OK;
 }
+static enum block_result group2_tx(void *ctx,const void *frame,size_t n)
+{
+    assert(ctx==&m && !m.in_callback && n==113 && m.authorized && assoc.group_reply_pending && !assoc.group_installing);
+    const unsigned char *p=frame;unsigned char copy[113],mic[16];
+    assert(!memcmp(p,peer.peer,6) && !memcmp(p+6,peer.local,6) && p[19]==3 && !p[20] && p[30]==m.group_replay && !p[112]);
+    assert(m.group_sets>=(m.group_replay==5 ? 3u : 2u));
+    memcpy(copy,p,n);memset(copy+95,0,16);
+    assert(aes128_cmac(m.expected_kck,copy+14,99,mic) && !memcmp(mic,p+95,16));
+    ++m.group_txs;
+    return m.group_case==3 ? BLOCK_IO : BLOCK_OK;
+}
 static enum block_result dhcp_tx(void *ctx,const void *frame,size_t n)
 {
     assert(ctx==&m && !m.in_callback && m.up && m.dhcp_probe && m.authorized && assoc.port_verified && assoc.post_m4_identity && assoc.keys.installed && assoc.m4_written && dhcp_wire_request_valid(frame,n));
@@ -442,6 +478,20 @@ static enum block_result dhcp_tx(void *ctx,const void *frame,size_t n)
     if (m.dhcp_case==6 && m.dhcp_calls==1) { retry_event(0);return BLOCK_NOT_READY; }
     if (m.dhcp_case==7) { emit(6,1,0);return BLOCK_IO; }
     ++m.dhcp_txs;const unsigned char *p=frame;bool request=p[284]==3;
+    if (p[54]) {
+        assert(assoc.session.background && assoc.renewal.exchange.armed &&
+               !memcmp(p+54,assoc.network.lease.address,4));
+        unsigned char bcdc[346]={0x20};memcpy(bcdc+4,dhcp_ack_fixture,342);
+        memcpy(bcdc+50,p+46,4);
+        if (m.session_case==15) {
+            for (unsigned at=286;at<sizeof(bcdc);) {
+                unsigned tag=bcdc[at++];if (!tag) { continue; }if (tag==255) { break; }
+                unsigned bytes=bcdc[at++];if (tag==53) { bcdc[at]=6;break; }at+=bytes;
+            }
+        }
+        m.in_callback=true;brcm_assoc_data(&assoc,bcdc,sizeof(bcdc));m.in_callback=false;
+        return BLOCK_OK;
+    }
     if (m.dhcp_case==1 || (m.dhcp_case==2 && request)) { return BLOCK_OK; }
     unsigned char bcdc[346]={0x20};memcpy(bcdc+4,request ? dhcp_ack_fixture : dhcp_offer_fixture,342);
     if (request && m.gateway_probe && (m.gateway_case==5 || m.gateway_case==13)) {
@@ -467,6 +517,7 @@ static enum block_result peer_info(void *ctx,const unsigned char mac[6],struct b
     assert(ctx==&m && !m.in_callback && m.up && assoc.post_m4_identity && assoc.keys.installed && !memcmp(mac,peer.peer,6));++m.peer_queries;
     enum block_result r=touch(status);if (r!=BLOCK_OK) { return r; }
     *out=(struct brcm_station_info){.version=7,.length=280,.flags=m.authorized ? 0x4038 : 0x4018,.valid=true,.statistics=true,.tx_packets=m.dhcp_txs,.rx_unicast=m.dhcp_txs};memcpy(out->peer,mac,6);
+    if (assoc.session.polls && m.session_case==16) { out->flags&=~16u; }
     if (m.port_case==2) { out->valid=false;return BLOCK_UNSUPPORTED; }
     if (m.port_case==3) { out->peer[5]^=1; }
     if (m.port_case==4 || (m.port_case==8 && m.dhcp_txs)) { out->flags&=~0x20u; }
@@ -480,7 +531,11 @@ static enum block_result port_set(void *ctx,const unsigned char mac[6],bool auth
 {
     assert(ctx==&m && !m.in_callback && m.up && !memcmp(mac,peer.peer,6));enum block_result r=touch(status);if (r!=BLOCK_OK) { return r; }
     if (!authorize) {
-        assert(assoc.port_close_active && assoc.port_issued);++m.port_closes;if (m.port_case==5) { *status=0xffffffe9u;return BLOCK_UNSUPPORTED; }m.authorized=false;return BLOCK_OK;
+        assert(assoc.port_close_active && assoc.port_issued);++m.port_closes;
+        if (m.port_case==5) { *status=0xffffffe9u;return BLOCK_UNSUPPORTED; }
+        m.authorized=false;
+        if (m.session_case==17) { *status=(uint32_t)-17;return BLOCK_UNSUPPORTED; }
+        return BLOCK_OK;
     }
     assert(assoc.keys.installed && assoc.m4_written && assoc.post_m4_identity && !assoc.dhcp.attempted);++m.port_opens;
     if (m.port_case==1) { *status=0xffffffe9u;return BLOCK_UNSUPPORTED; }
@@ -530,8 +585,30 @@ static void session_write(void *ctx,const char *text)
 { assert(ctx==&m && !m.in_callback);if (strstr(text,"Wi-Fi session OPEN")) { m.session_opened=true; } }
 static void session_info(void *ctx)
 { assert(ctx==&m && assoc.session.active && assoc.network.active && m.authorized && assoc.keys.installed);++m.session_infos; }
+static bool background_yield(void *ctx)
+{
+    (void)ctx; /* The adapter owns the link context. */
+    assert(assoc.session.active && assoc.session.background && m.authorized && assoc.private_exchange);
+    if (!m.session_stage++) {
+        assert(network_session_request_ping(&assoc.session,&assoc.network,assoc.network.lease.router)==BLOCK_OK);
+        if (m.session_case>=14) { assoc.renewal.queued=true; }
+    }
+    if (m.group_case) {
+        if (m.session_stage==1) { group_event(3,2,40,false); }
+        if (m.group_case==1) {
+            if (m.session_stage==2) { group_event(3,2,40,false); }
+            if (m.session_stage==3) { group_event(4,2,40,true); }
+            if (m.session_stage==4) { group_event(4,2,40,false); }
+            if (m.session_stage==5) { group_event(5,1,110,false); }
+        }
+        if (m.group_case==4 && m.session_stage==2) { group_event(4,1,0,false); }
+    }
+    m.clock+=10;
+    if ((m.session_case==13 || m.session_case==17) && m.clock-assoc.session.started>=1000) { emit(6,1,0); }
+    return m.clock-assoc.session.started<17000;
+}
 static enum block_result assoc_run(void)
-{ const struct brcm_assoc_io aio={.join=io,.identity=link_identity,.fresh_ie_owner=m.ie_owner,.request_fixed_bytes=m.fixed_request ? 4 : 0,.key_probe=m.key_probe,.data_tx=key_tx,.random=key_random,.key_data_probe=m.key_data_probe,.ap_rsn=ap_rsn,.ap_rsn_bytes=sizeof(ap_rsn),.install_probe=m.install_probe,.key_set=key_install_set,.m4_tx=m4_tx,.dhcp_probe=m.dhcp_probe,.dhcp_tx=dhcp_tx,.peer_info=peer_info,.port_set=port_set,.gateway_probe=m.gateway_probe,.net_tx=net_tx,.session_mode=m.session_mode,.session_getc=session_input,.session_write=session_write,.session_info=session_info};return brcm_assoc_run(&aio,&peer,&client,true,&assoc); }
+{ const struct brcm_assoc_io aio={.join=io,.identity=link_identity,.fresh_ie_owner=m.ie_owner,.request_fixed_bytes=m.fixed_request ? 4 : 0,.key_probe=m.key_probe,.data_tx=key_tx,.random=key_random,.key_data_probe=m.key_data_probe,.ap_rsn=ap_rsn,.ap_rsn_bytes=sizeof(ap_rsn),.install_probe=m.install_probe,.key_set=key_install_set,.m4_tx=m4_tx,.dhcp_probe=m.dhcp_probe,.dhcp_tx=dhcp_tx,.peer_info=peer_info,.port_set=port_set,.gateway_probe=m.gateway_probe,.net_tx=net_tx,.session_mode=m.session_mode,.session_getc=session_input,.session_write=session_write,.session_info=session_info,.session_yield=m.session_case>=12 ? background_yield : NULL,.packet_id=m.packet_id,.group2_tx=m.group_case ? group2_tx : NULL};return brcm_assoc_run(&aio,&peer,&client,true,&assoc); }
 static void leaf_checks(void)
 {
     unsigned char event[76]={0};event[0]=0x20;unsigned char *wire=event+4;
@@ -877,6 +954,72 @@ int main(void)
         restored();erased();
     }
     puts("PASS: full verified Wi-Fi session with DNS -> routed hostname/gateway pings beyond 30 seconds, NXDOMAIN/DNS timeout stay open, DNS failed-write/cancel cleanup, live peer checks, explicit disconnect, lease/link/RNG/conflict/cleanup failures, no key reinstallation and private erasure");
+    for (unsigned mode=12;mode<=17;++mode) {
+        assoc_seed(ASSOC_NORMAL);
+        m.ie_owner=m.fixed_request=m.key_probe=m.key_data_probe=m.install_probe=m.dhcp_probe=m.gateway_probe=m.session_mode=true;
+        m.session_case=mode;
+        enum block_result r=assoc_run();
+        assert(assoc.session.background && assoc.session.ended && assoc.session.polls && !assoc.network.active &&
+               !assoc.private_exchange && assoc.port_closed && assoc.keys.cleared && !m.authorized && m.key_sets==3);
+        assert(!m.session_opened && !m.session_input && !m.session_infos);
+        if (mode==12 || mode==14) { assert(r==BLOCK_OK && assoc.session.reason==NS_USER && assoc.session.pings_ok==1); }
+        bool lost=mode==13 || mode==16 || mode==17;
+        if (lost) { assert(r!=BLOCK_OK && assoc.session.reason==NS_LINK && assoc.peer_lost); }
+        if (mode==14) {
+            assert(assoc.renewal.requests==1 && assoc.renewal.completed==1 &&
+                   assoc.network.lease_origin>=assoc.session.started && assoc.network.lease_origin>assoc.lease_origin);
+        }
+        if (mode==15) {
+            assert(r!=BLOCK_OK && assoc.session.reason==NS_LEASE_REJECTED && assoc.renewal.rejected &&
+                   !assoc.renewal.completed && assoc.renewal.requests==1);
+        }
+        assert(brcm_assoc_reconnect_allowed(&assoc,false)==lost);
+        assert(brcm_assoc_background_restart_allowed(&assoc));
+        if (lost) {
+            struct brcm_assoc_probe unsafe=assoc;
+            unsafe.keys.cleared=false;assert(!brcm_assoc_reconnect_allowed(&unsafe,false));
+            unsafe=assoc;unsafe.sae.join.policy.restored=false;assert(!brcm_assoc_reconnect_allowed(&unsafe,false));
+            assert(!brcm_assoc_background_restart_allowed(&unsafe));
+            unsafe=assoc;unsafe.peer_lost=false;assert(!brcm_assoc_reconnect_allowed(&unsafe,true));
+            assert(brcm_assoc_background_restart_allowed(&unsafe));
+        }
+        restored();erased();
+    }
+    puts("PASS: background association keeps state through foreground turns, extends the live lease during ping, and verifies cleanup on stop, link loss and renewal NAK");
+    for (unsigned mode=1;mode<=5;++mode) {
+        assoc_seed(ASSOC_NORMAL);
+        m.ie_owner=m.fixed_request=m.key_probe=m.key_data_probe=m.install_probe=m.dhcp_probe=m.gateway_probe=m.session_mode=true;
+        m.session_case=12;m.group_case=mode;
+        enum block_result r=assoc_run();
+        assert(assoc.session.ended && !assoc.private_exchange && !assoc.private_group && assoc.keys_erased &&
+               !assoc.group_installing && !assoc.group_reply_pending && assoc.port_closed && assoc.keys.cleared && m.key_sets==3 && m.m4_txs==1);
+        unsigned touched=mode==5 ? 0x04 : 0x24;
+        assert(assoc.keys.rotation_issued==touched && assoc.keys.rotation_cleared==touched && m.clear_sets==(mode==5 ? 4u : 5u));
+        if (mode==1) {
+            assert(r==BLOCK_OK && assoc.session.reason==NS_USER && assoc.session.pings_ok==1 && assoc.group_ignored==2);
+            assert(assoc.group_rotations==2 && assoc.group_replies==3 && assoc.group_key_writes==3 && m.group_txs==3);
+        } else {
+            assert(r!=BLOCK_OK && assoc.group_error!=BLOCK_OK && assoc.group_replies==(mode==4 ? 1u : 0u));
+            assert(m.group_txs==(mode==3 || mode==4 ? 1u : 0u));
+        }
+        restored();erased();
+    }
+    puts("PASS: live group rekey, guarded key writes before reply, replay/MIC rejection, retries without reinstallation, ping continuity and cleanup after partial install, reply failure, old-key reuse and link loss");
+    assoc_seed(ASSOC_NORMAL);m.ie_owner=m.fixed_request=m.key_probe=m.key_data_probe=m.install_probe=true;
+    m.dhcp_probe=m.gateway_probe=m.session_mode=true;m.session_case=12;
+    m.packet_id=9;m.auth_case=AUTH_COMMIT_NO_RX;
+    assert(assoc_run()==BLOCK_TIMEOUT && !brcm_assoc_reconnect_allowed(&assoc,false) &&
+           brcm_assoc_reconnect_allowed(&assoc,true) && state.active_packet_id>=9);
+    restored();erased();
+    assoc_seed(ASSOC_NORMAL);m.ie_owner=m.fixed_request=m.key_probe=m.key_data_probe=m.install_probe=true;
+    m.dhcp_probe=m.gateway_probe=m.session_mode=true;m.session_case=12;m.packet_id=17;
+    unsigned fresh=6;unsigned char pwe[64];memcpy(pwe,client.pwe,sizeof(pwe));
+    sae_session_clear(&client);
+    assert(sae_session_start(&client,pwe,public_random,&fresh)==SAE_OK && sae_session_commit(&client,own)==SAE_OK);
+    assert(assoc_run()==BLOCK_OK && state.active_packet_id==18 && assoc.session.pings_ok==1 &&
+           assoc.dhcp.ack_seen && !brcm_assoc_reconnect_allowed(&assoc,true));
+    restored();erased();
+    puts("PASS: reconnect gates for peer event, periodic loss and confirmed cleanup, bounded pre-handoff timeout, fresh SAE exchange and distinct cookie ranges");
     struct brcm_auth_peer saved_peer=peer;memset(peer.ssid,0,sizeof(peer.ssid));memcpy(peer.ssid,"Jack's",6);peer.ssid_length=6;
     unsigned char dump[122],id[16]={0};captured(dump);struct brcm_assoc_probe diag={0};bool h2e;
     assert(brcm_assoc_request_check(&peer,id,dump,118,&h2e,&diag)==BLOCK_OK && diag.request_rsn_offset==32);

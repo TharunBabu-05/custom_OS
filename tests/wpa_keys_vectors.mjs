@@ -15,7 +15,7 @@ function cmac(key,message) {
 const katKey=Buffer.from('2b7e151628aed2a6abf7158809cf4f3c','hex');
 assert.equal(cmac(katKey,Buffer.alloc(0)).toString('hex'),'bb1d6929e95937287fa37d129b756746');
 assert.equal(cmac(katKey,Buffer.from('6bc1bee22e409f96e93d7e117393172a','hex')).toString('hex'),'070a16b46b4d4144f79bdd9dd04a287c');
-const lines=[],keyData=[];
+const lines=[],keyData=[],groupData=[];
 for(let i=0;i<24;i++){const key=hash('public key '+i,16),plain=hash('public block '+i,16);lines.push(['A',key.toString('hex'),plain.toString('hex'),aes(key,plain).toString('hex')].join(' '));}
 for(const n of [0,1,15,16,17,31,32,40,64,113,141,4096]){const key=hash('public cmac '+n,16),msg=Buffer.from(Array.from({length:n},(_,i)=>i*13&255));lines.push(['C',key.toString('hex'),n?msg.toString('hex'):'-',cmac(key,msg).toString('hex')].join(' '));}
 for(const n of [16,24,32,64,128,512]){const key=hash('public wrap '+n,16),plain=Buffer.from(Array.from({length:n},(_,i)=>i*7&255)),c=createCipheriv('id-aes128-wrap',key,Buffer.alloc(8,0xa6));const wrapped=Buffer.concat([c.update(plain),c.final()]);lines.push(['U',key.toString('hex'),wrapped.toString('hex'),plain.toString('hex')].join(' '));}
@@ -45,9 +45,27 @@ for(let i=0;i<16;i++){
         const retry=Buffer.from(third),answer=Buffer.from(fourth);retry.writeBigUInt64BE(BigInt(i+5),9);retry.fill(0,81,97);cmac(ptk.subarray(0,16),retry).copy(retry,81);
         answer.writeBigUInt64BE(BigInt(i+5),23);answer.fill(0,95,111);cmac(ptk.subarray(0,16),answer.subarray(14)).copy(answer,95);
         keyData.push(['D',pmk,a,b,sn,m1,packet,adv,data,third,fourth,retry,answer].map(x=>Buffer.isBuffer(x)?x.toString('hex'):x).join(' '));
+        const kck=ptk.subarray(0,16),kek=ptk.subarray(16,32);
+        gtk[6]=i%4;
+        const groupPlain=Buffer.concat([...(i%2?[igtk,gtk]:[gtk,igtk]),Buffer.from([0xdd,0])]);
+        const gc=createCipheriv('id-aes128-wrap',kek,Buffer.alloc(8,0xa6));
+        const keyPacket=Buffer.concat([gc.update(groupPlain),gc.final()]);
+        const g1=Buffer.alloc(113+keyPacket.length),g2=Buffer.alloc(113);
+        a.copy(g1);b.copy(g1,6);b.copy(g2);a.copy(g2,6);
+        for(const [frame,flags,bytes] of [[g1,0x1380,keyPacket.length],[g2,0x300,0]]){
+            frame.writeUInt16BE(0x888e,12);frame[14]=1+i%3;frame[15]=3;frame[18]=2;
+            frame.writeUInt16BE(95+bytes,16);frame.writeUInt16BE(flags,19);
+            frame.writeBigUInt64BE(BigInt(256+i),23);frame.writeUInt16BE(bytes,111);
+        }
+        hash('public group nonce '+i).copy(g1,31);
+        g1.set([i+1,2,3,4,5,6],79);
+        keyPacket.copy(g1,113);
+        cmac(kck,g1.subarray(14)).copy(g1,95);cmac(kck,g2.subarray(14)).copy(g2,95);
+        groupData.push([kck,kek,g1,g2,gtk.subarray(8),igtk.subarray(14)].map(x=>x.toString('hex')).join(' '));
     }
 }
 writeFileSync(process.argv[2],lines.filter(x=>!x.startsWith('H ')).join('\n')+'\n');
 writeFileSync(process.argv[2]+'.handshake',lines.filter(x=>x.startsWith('H ')).join('\n')+'\n');
 writeFileSync(process.argv[2]+'.keydata',keyData.join('\n')+'\n');
+writeFileSync(process.argv[2]+'.group',groupData.join('\n')+'\n');
 console.log('PASS: independent OpenSSL AES/CMAC/unwrap plus 16 SHA256 PTK and exact EAPOL M2 fixtures generated');

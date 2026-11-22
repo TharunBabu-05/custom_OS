@@ -14,6 +14,7 @@ bool process_tools_test(void);
 void process_info(void);
 bool process_test(void);
 bool process_command(const char *line);
+bool app_file_command(const char *verb,const char *arguments);
 /* Called only for lower-AArch64 sync/IRQ frames after IRQ acknowledgement. */
 bool process_exception(struct exception_frame *,bool timer_tick,bool irq_ok);
 #endif

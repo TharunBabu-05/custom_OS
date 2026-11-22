@@ -111,10 +111,11 @@ malformed:++s->malformed;s->last_parse_error=bad;
 }
 #define TRY(call) do { r=(call);if (r!=BLOCK_OK) { goto fail; } } while (0)
 #define REQUIRE(test,err) do { if (!(test)) { r=(err);goto fail; } } while (0)
-enum block_result brcm_scan_run(const struct brcm_scan_io *io,const struct brcm_prepare_state *prep,struct brcm_scan_state *s)
+static bool scan_arguments_valid(const struct brcm_scan_io *io,const struct brcm_prepare_state *prep,const struct brcm_scan_state *s)
+{ return io && prep && s && io->iovar && io->radio && io->poll && io->delay_us && io->milliseconds; }
+static enum block_result scan_once(const struct brcm_scan_io *io,const struct brcm_prepare_state *prep,struct brcm_scan_state *s,uint16_t id)
 {
-    if (!io || !prep || !s || !io->iovar || !io->radio || !io->poll || !io->delay_us || !io->milliseconds) { return BLOCK_ARGUMENT; }
-    if (s->attempted) { return s->error; }*s=(struct brcm_scan_state){.phase=1,.sync_id=0x4f53,.error=BLOCK_NOT_READY};
+    *s=(struct brcm_scan_state){.phase=1,.sync_id=id,.error=BLOCK_NOT_READY};
     if (!prep->ready || !prep->clm_complete || !brcm_country_valid(prep->country)) { return s->error; }
     enum block_result r;unsigned char value[80]={0},mask[16];size_t n;
     TRY(io->iovar(io->context,false,"country",NULL,0,value,12,&n,&s->firmware_status));
@@ -145,9 +146,43 @@ enum block_result brcm_scan_run(const struct brcm_scan_io *io,const struct brcm_
         if (io->milliseconds(io->context)-start>=30000) { break; }TRY(io->delay_us(io->context,10000));
     }
     REQUIRE(s->complete,BLOCK_TIMEOUT);REQUIRE(s->event_status==0,BLOCK_IO);
-    s->phase=6;TRY(io->radio(io->context,false,&s->firmware_status));s->interface_down=true;s->interface_may_be_up=false;
-    s->phase=7;TRY(io->iovar(io->context,true,"event_msgs",s->saved_mask,16,NULL,0,&n,&s->firmware_status));
-    TRY(io->iovar(io->context,false,"event_msgs",NULL,0,value,16,&n,&s->firmware_status));REQUIRE(n==16 && equal(value,s->saved_mask,16),BLOCK_IO);s->mask_restored=true;
-    s->armed=false;s->phase=8;s->ready=true;s->error=BLOCK_OK;return BLOCK_OK;
-fail:s->armed=false;s->error=r;return r;
+fail:
+    s->armed=false;
+    enum block_result cleanup=BLOCK_OK;
+    uint32_t status=0;
+    if (s->interface_may_be_up) {
+        if (r==BLOCK_OK) { s->phase=6; }
+        cleanup=io->radio(io->context,false,&status);
+        s->interface_down=cleanup==BLOCK_OK;s->interface_may_be_up=!s->interface_down;
+    }
+    if (s->attempted && cleanup==BLOCK_OK) {
+        if (r==BLOCK_OK) { s->phase=7; }
+        cleanup=io->iovar(io->context,true,"event_msgs",s->saved_mask,16,NULL,0,&n,&status);
+        if (cleanup==BLOCK_OK) {
+            cleanup=io->iovar(io->context,false,"event_msgs",NULL,0,value,16,&n,&status);
+            if (cleanup==BLOCK_OK && (n!=16 || !equal(value,s->saved_mask,16))) { cleanup=BLOCK_IO; }
+        }
+        s->mask_restored=cleanup==BLOCK_OK;
+    }
+    s->cleanup_error=cleanup;
+    if (r==BLOCK_OK) {
+        r=cleanup;
+        if (r!=BLOCK_OK) { s->firmware_status=status; }
+    }
+    if (r==BLOCK_OK) { s->phase=8;s->ready=true; }
+    s->error=r;
+    return r;
+}
+enum block_result brcm_scan_run(const struct brcm_scan_io *io,const struct brcm_prepare_state *prep,struct brcm_scan_state *s)
+{
+    if (!scan_arguments_valid(io,prep,s)) { return BLOCK_ARGUMENT; }
+    return s->attempted ? s->error : scan_once(io,prep,s,0x4f53);
+}
+enum block_result brcm_scan_refresh(const struct brcm_scan_io *io,const struct brcm_prepare_state *prep,struct brcm_scan_state *s)
+{
+    if (!scan_arguments_valid(io,prep,s)) { return BLOCK_ARGUMENT; }
+    if (s->interface_may_be_up || (s->attempted && !s->mask_restored)) { return BLOCK_NOT_READY; }
+    if (s->sync_id==UINT16_MAX) { return BLOCK_RANGE; }
+    uint16_t id=s->sync_id ? s->sync_id+1 : 0x4f53;
+    return scan_once(io,prep,s,id);
 }

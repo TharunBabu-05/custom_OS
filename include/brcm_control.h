@@ -63,6 +63,7 @@ enum block_result brcm_control_poll(const struct brcm_control_io *,struct brcm_c
  * SDIO write completion, not an air ACK. Never call from RX callbacks. */
 enum block_result brcm_control_eapol_m2(const struct brcm_control_io *,struct brcm_control_state *,const void *ethernet,size_t,bool (*permitted)(void *),void *);
 enum block_result brcm_control_eapol_m4(const struct brcm_control_io *,struct brcm_control_state *,const void *,size_t,bool (*permitted)(void *),void *);
+enum block_result brcm_control_eapol_group2(const struct brcm_control_io *,struct brcm_control_state *,const void *,size_t,bool (*permitted)(void *),void *);
 enum block_result brcm_control_netprobe(const struct brcm_control_io *,struct brcm_control_state *,const struct netprobe *,enum netprobe_packet,unsigned,const void *,size_t,bool (*permitted)(void *),void *);
 /* DHCP DISCOVER/REQUEST only, guarded after credit RX; no generic IP TX. */
 enum block_result brcm_control_dhcp(const struct brcm_control_io *,struct brcm_control_state *,const void *,size_t,bool (*permitted)(void *),void *);

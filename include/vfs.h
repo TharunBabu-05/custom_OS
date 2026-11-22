@@ -2,11 +2,11 @@
 #define OS_VFS_H
 #include "fat32.h"
 #include "persist.h"
-enum { VFS_FILE_MAX=16384 };
+enum { VFS_FILE_MAX=DATA_V5_FILE_BYTES };
 enum { VFS_RAM=1,VFS_FAT=2,VFS_SNAPSHOT=3,VFS_READONLY=1,VFS_VOLATILE=2 };
 struct vfs_volume_info { uint64_t max_write_bytes;uint32_t type,version,nodes,used;uint64_t flags; };
 enum fs_result vfs_volume_info(const char *canonical,struct vfs_volume_info *);
-/* Per-mount writable bound: RAMFS/v1 4096, v2/v3 8192, v4 16384. */
+/* The writable file bound comes from the mounted format. */
 size_t vfs_write_limit(const char *canonical);
 /* Mount routes: volatile RAM root, read-only /boot FAT and snapshot /data. */
 enum fs_result vfs_mount_boot(const struct block_device *device);

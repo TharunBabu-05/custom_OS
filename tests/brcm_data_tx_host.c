@@ -44,6 +44,13 @@ int main(void)
     seed();m.cancel=true;assert(brcm_control_eapol_m4(&io,&s,frame,113,permitted,&m)==BLOCK_NOT_READY && !m.writes && s.ready);
     seed();m.inject=m.cancel_on_rx=true;assert(brcm_control_eapol_m4(&io,&s,frame,113,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
     seed();frame[31]=1;assert(brcm_control_eapol_m4(&io,&s,frame,113,permitted,&m)==BLOCK_ARGUMENT && !m.calls);
+    frame[31]=0;frame[20]=0;
+    seed();assert(brcm_control_eapol_group2(&io,&s,frame,113,permitted,&m)==BLOCK_OK && m.writes==1 && m.bytes==132 && m.sent[35]==3 && !m.sent[36]);
+    seed();m.inject=m.cancel_on_rx=true;
+    assert(brcm_control_eapol_group2(&io,&s,frame,113,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
+    seed();assert(brcm_control_eapol_m4(&io,&s,frame,113,permitted,&m)==BLOCK_ARGUMENT && !m.calls);
+    frame[20]=8;
+    seed();assert(brcm_control_eapol_group2(&io,&s,frame,113,permitted,&m)==BLOCK_ARGUMENT && !m.calls);
     seed();fixture(frame);s.waiting=true;assert(send(frame,141)==BLOCK_NOT_READY && !m.calls);
     unsigned char dhcp[DHCP_FRAME_BYTES];const unsigned char mac[6]={2,0,0,0,0,1},entropy[10]={1,2,3,4};struct dhcp_client client={0};size_t n=0;
     assert(dhcp_client_init(&client,mac,entropy)==BLOCK_OK && dhcp_encode(&client,false,0,dhcp,sizeof(dhcp),&n)==BLOCK_OK);
@@ -71,5 +78,17 @@ int main(void)
     seed();np.dns.status=DNS_CANCELLED;assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_ARGUMENT && !m.calls);
     client.phase=DHCP_ACKED;client.ack_seen=client.request_written=true;client.lease=lease;
     assert(dhcp_encode_decline(&client,dhcp,sizeof(dhcp),&n)==BLOCK_OK);seed();assert(brcm_control_dhcp(&io,&s,dhcp,n,permitted,&m)==BLOCK_OK && m.sent[300]==4 && m.bytes==360 && s.request_id==51);
+    assert(dhcp_client_init(&client,mac,entropy)==BLOCK_OK);
+    client.renewal=true;client.phase=DHCP_REQUESTING;client.offer=lease;
+    client.offer.server_mac[0]=2;client.offer.server_mac[5]=3;
+    for (unsigned rebind=0;rebind<2;++rebind) {
+        client.rebinding=rebind!=0;
+        assert(dhcp_encode(&client,true,0,dhcp,sizeof(dhcp),&n)==BLOCK_OK);
+        seed();assert(brcm_control_dhcp(&io,&s,dhcp,n,permitted,&m)==BLOCK_OK &&
+                      m.writes==1 && m.bytes==360 && !memcmp(m.sent+16,dhcp,n));
+        seed();m.inject=m.cancel_on_rx=true;
+        assert(brcm_control_dhcp(&io,&s,dhcp,n,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
+    }
+    puts("PASS: typed DHCP renewal and rebinding writes honor the post-credit transmit guard");
     puts("PASS: guarded SAE M2/M4, typed DHCP/DECLINE and owned ARP/ICMP BCDC/SDPCM frames, padding, credit wait, shared-RX staging, cancellation after RX, no CDC request/reply, failure poisoning and invalid-frame refusal; no generic data interface");return 0;
 }

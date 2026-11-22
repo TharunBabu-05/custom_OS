@@ -1,9 +1,9 @@
 # Deterministic blank OurOS data partition. The guest never formats disks.
 . "$PSScriptRoot/data-geometry.ps1"
 function New-OurOSDataPartition {
-    param([ValidateSet(1,2,3,4)][int]$Version=1)
+    param([ValidateSet(1,2,3,4,5)][int]$Version=1)
     $geometry=Get-OurOSDataGeometry $Version;$files=$geometry.Files;$fileBytes=$geometry.FileBytes
-    $directoryBytes=$files*64;$payloadBytes=$directoryBytes+$files*$fileBytes;$bankSectors=1+$payloadBytes/512
+    $payloadBytes=$geometry.PayloadBytes;$bankSectors=$geometry.BankSectors
     [byte[]]$result=New-Object byte[] (2048*512)
     [byte[]]$header=New-Object byte[] 512
     [Text.Encoding]::ASCII.GetBytes('OUROSDAT').CopyTo($header,0)
@@ -14,7 +14,7 @@ function New-OurOSDataPartition {
     try {
         $digest.ComputeHash($header,0,64).CopyTo($header,64);$header.CopyTo($result,0)
         [Array]::Clear($header,0,512)
-        [Text.Encoding]::ASCII.GetBytes('OUROSBK'+$Version).CopyTo($header,0)
+        [Text.Encoding]::ASCII.GetBytes($geometry.Magic).CopyTo($header,0)
         [BitConverter]::GetBytes([uint32]$Version).CopyTo($header,8)
         [BitConverter]::GetBytes([uint64]1).CopyTo($header,16)
         [BitConverter]::GetBytes([uint32]$payloadBytes).CopyTo($header,24)

@@ -20,5 +20,8 @@ void platform_wifi_assoc(const char *ssid);
 void platform_wifi_dhcp(const char *ssid);
 void platform_wifi_ping(const char *ssid);
 void platform_wifi_connect(const char *ssid);
+void platform_wifi_background(const char *ssid);
+void platform_network_ping(const char *target);
+void platform_network_renew(void);
 void platform_network_info(void);
 #endif

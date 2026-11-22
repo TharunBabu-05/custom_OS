@@ -7,6 +7,7 @@
 #include "dhcp.h"
 #include "netprobe.h"
 #include "sha256.h"
+#include "network_worker.h"
 static struct block_device disk;
 static bool attached;
 static uintptr_t firmware_dtb;
@@ -119,7 +120,7 @@ bool storage_command(const char *line)
         if (!*path) { console_write("Usage: datarestore /boot/DATA.BAK (empty /data, same format only)\n");return true; }
         enum fs_result r=vfs_data_restore(path);
         console_write(r==FS_OK ? "Data restore committed and read back; run datainfo and verify files.\n" : "Data restore refused/failed: ");
-        if (r!=FS_OK) { console_write(ramfs_error(r));console_write("; requires empty healthy /data, matching format and a valid boot backup.\n"); }
+        if (r!=FS_OK) { console_write(ramfs_error(r));console_write("; requires empty healthy /data and a valid compatible boot backup.\n"); }
         if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); }return true;
     }
     if (same(line,"datainit")) { (void)storage_mount_data();return true; }
@@ -129,6 +130,27 @@ bool storage_command(const char *line)
         if (r!=FS_OK) { console_write(ramfs_error(r));console_write("\n");if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); } }return true;
     }
     if (same(line,"nettest")) { console_write(dhcp_selftest() ? "PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.\n" : "FAIL: DHCP packet fixtures.\n");console_write(netprobe_selftest() ? "PASS: ARP/ICMP gateway public packet fixtures; no network I/O.\n" : "FAIL: ARP/ICMP packet fixtures.\n");console_write(dns_selftest() ? "PASS: DNS A query/compressed-answer public fixtures; no network I/O.\n" : "FAIL: DNS packet fixtures.\n");return true; }
+    if (same(line,"networktest") || begins(line,"networktest ")) {
+        bool el0=same(line,"networktest el0") || same(line,"networktest e10") || same(line,"networktest elO");
+        if (!el0 && !same(line,"networktest")) {
+            console_write("Usage: networktest [el0] (e, lowercase L, digit zero)\n");return true;
+        }
+        if (network_worker_active()) { console_write("Disconnect background Wi-Fi before the worker test.\n");return true; }
+        console_write(network_worker_test(el0) ?
+            "PASS: network worker yielded, resumed, preserved its stack and stopped.\n" :
+            "Network worker test did not pass. Check MMU, timer and /boot for the EL0 test.\n");
+        return true;
+    }
+    if (same(line,"netup") || begins(line,"netup ")) { platform_wifi_background(line[5] ? line+6 : "");return true; }
+    if (same(line,"netping") || begins(line,"netping ")) { platform_network_ping(line[7] ? line+8 : "");return true; }
+    if (same(line,"netrenew")) { platform_network_renew();return true; }
+    if (same(line,"netdown")) {
+        if (!network_worker_active()) { console_write("No background Wi-Fi session.\n");return true; }
+        console_write(network_worker_stop() ? "Wi-Fi worker stopped. Use netinfo for cleanup status.\n" : "Wi-Fi worker still running.\n");return true;
+    }
+    if (network_worker_active() && begins(line,"wifi")) {
+        console_write("Background Wi-Fi owns the radio. Use netinfo or netdown.\n");return true;
+    }
     if (same(line,"wifiinit")) { platform_wifi_init(firmware_dtb); return true; }
     if (same(line,"wificores")) { platform_wifi_cores(); return true; }
     if (same(line,"wififiles")) { wifi_files_command(); return true; }
@@ -201,7 +223,7 @@ bool storage_command(const char *line)
         console_write("Requested network security: WPA3-Personal (SAE + protected management frames).\n");
         console_write("Commands: wifiinfo, wifiprobe, wifiinit, wificores, wififiles, wifiload, wifistart, wificontrol.\n");
         console_write("wificaps (read features/MAC) wifiprepare <CC> (CLM + country, no scan)\n");
-        console_write("wifiscan (passive scan after country preparation; one-shot results)\n");
+        console_write("wifiscan (refresh the passive scan after country preparation)\n");
         console_write("wifitarget <SSID> (cached WPA3 cipher/PMF checks; no connection)\n");
         console_write("wifiauthprep <SSID> (verify/restore firmware SAE/PMF/events; no join)\n");
         console_write("wifijoinprobe <SSID> (observe external-SAE request, then DOWN/restore; no password)\n");
@@ -212,7 +234,7 @@ bool storage_command(const char *line)
         console_write("wifiping <SSID> (fresh DHCP, address checks, ARP and gateway ICMP; then DOWN)\n");
         console_write("wificonnect <SSID> (foreground network console: ping, netinfo, disconnect)\n");
         platform_wifi_status();
-        console_write("Next: verify live session and external numeric reachability; DNS, renewal/rekey and background networking remain.\n"); return true;
+        console_write("netup [-r|-R] <SSID> starts background Wi-Fi. -r pins the BSSID. -R allows a changed hotspot BSSID.\n"); return true;
     }
     return false;
 }

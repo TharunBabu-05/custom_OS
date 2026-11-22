@@ -123,3 +123,17 @@ foreach ($version in 1,2,3) {
     if ($LASTEXITCODE -ne 0) { throw 'Native restore rejected converted v4 backup' }
 }
 Write-Output 'PASS: C/PowerShell v1-v4 interchange, explicit migration preserving nested slots/parents/bytes, 16 KiB archives, serial integrity and no-overwrite publication.'
+$migrated5=Join-Path $work ('migrated-v5-'+[guid]::NewGuid().ToString('N')+'.bak')
+& "$PSScriptRoot/migrate-data-backup.ps1" -InputBackup $host4 -Output $migrated5 -TargetVersion 5
+$decoded5=Get-OurOSDataBackup $migrated5
+if ($decoded5.Version -ne 5 -or $decoded5.Entries.Count -ne $decoded4.Entries.Count -or
+    (Get-OurOSDataBackup $host4).SHA256 -cne $decoded4.SHA256) { throw 'v5 migration changed layout or source' }
+foreach ($entry in $decoded4.Entries) {
+    $match=@($decoded5.Entries | Where-Object { $_.Path -ceq $entry.Path -and $_.Slot -eq $entry.Slot -and $_.SHA256 -ceq $entry.SHA256 })
+    if ($match.Count -ne 1) { throw 'v5 migration changed file identity' }
+}
+$log5=Join-Path $work 'serial-v5.log';[IO.File]::WriteAllText($log5,(Serial-Text $decoded5.Raw))
+$converted5=Join-Path $work ('converted-v5-'+[guid]::NewGuid().ToString('N')+'.bak')
+& "$PSScriptRoot/convert-data-backup.ps1" -Log $log5 -Output $converted5
+if ((Get-OurOSDataBackup $converted5).SHA256 -cne $decoded5.SHA256) { throw 'v5 serial conversion changed the archive' }
+Write-Output 'PASS: explicit v4-to-v5 conversion preserves every path, slot and file hash; v5 serial conversion retains exact bytes.'

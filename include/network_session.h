@@ -1,10 +1,13 @@
 #ifndef OS_NETWORK_SESSION_H
 #define OS_NETWORK_SESSION_H
 #include "netprobe.h"
-enum network_session_reason { NS_NONE,NS_USER,NS_LEASE,NS_LINK,NS_LIMIT,NS_IO,NS_CONFLICT };
+enum network_session_reason { NS_NONE,NS_USER,NS_LEASE,NS_LINK,NS_LIMIT,NS_IO,NS_CONFLICT,NS_LEASE_REJECTED };
 struct network_session {
     bool attempted,active,ended;enum network_session_reason reason;enum block_result result;
-    unsigned polls,commands,pings_started,pings_ok,pings_timeout,dns_started,dns_ok,dns_failed;uint64_t started,ended_at;
+    unsigned polls,commands,pings_started,pings_ok,pings_timeout,dns_started,dns_ok,dns_failed;
+    uint64_t started,ended_at,last_check;
+    bool background,ping_queued;
+    unsigned char ping_target[4];
 };
 struct network_session_io {
     struct netprobe_io link;
@@ -16,4 +19,8 @@ bool network_parse_ipv4(const char *,unsigned char address[4]);
 /* Foreground console: services RX/ARP/M3 while reading commands. Caller must
  * deauthorize/DOWN/delete/restore after return, including every failure. */
 enum block_result network_session_run(const struct network_session_io *,struct netprobe *,struct network_session *);
+/* Yield before every bounded pump. False requests normal close. The
+ * association caller retains ownership and runs the same teardown. */
+enum block_result network_session_background(const struct network_session_io *,struct netprobe *,struct network_session *,bool (*yield)(void *));
+enum block_result network_session_request_ping(struct network_session *,const struct netprobe *,const unsigned char target[4]);
 #endif
