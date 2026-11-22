@@ -113,7 +113,11 @@ syscalls against a modeled peer, including cross-process handle rejection,
 invalid user buffers, empty datagrams, timeouts, and link-loss wakeup.
 The Windows echo helper passed a binary loopback test. The boot preview
 against the Phase 7 group-key update selected `OUROS.IMG`, `PS.ELF`, and
-`UDPCHK.ELF`. The on-air Pi datagram exchange remains pending.
+`UDPCHK.ELF`. The Pi then passed the physical Pi-to-Windows echo test.
+Windows echoed the 10-byte `our-os-udp` message, and `UDPCHK.ELF` matched
+the returned bytes and exited with code 0. A separate physical test of
+peer timeout and recovery remains open.
+[Pi and Windows capture](../proofs/pi5-udp-echo-2026-11-22.txt)
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-wifi.ps1

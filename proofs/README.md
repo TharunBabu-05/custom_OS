@@ -1,5 +1,9 @@
 # Real Raspberry Pi 5 proof
 
+The Pi and a Windows PC exchanged a 10-byte UDP datagram over the local
+Wi-Fi network. `UDPCHK.ELF` verified the echoed payload and exited with
+code 0. [Pi and Windows capture](pi5-udp-echo-2026-11-22.txt)
+
 The corrected Pi build passed shell help, two-job control, terminal handoff,
 command lists and `source`. The watchdog reboot remounted USB storage, retained
 generation 14 and the saved file's SHA-256, and passed the timer test.

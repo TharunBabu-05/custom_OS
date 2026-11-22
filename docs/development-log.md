@@ -7,8 +7,9 @@ worker. Applications can send and receive bounded datagrams to a directly
 reachable IPv4 peer. Both QEMU profiles exercised the actual EL0 syscalls,
 including ownership, checked buffers, process exit, timeouts and link loss.
 The Windows echo helper passed loopback, and the updater preview selected
-the kernel, process viewer and new echo app. A real Pi echo remains pending.
-[ABI and Pi commands](udp-sockets.md)
+the kernel, process viewer and new echo app. The Pi passed a 10-byte round
+trip with the Windows echo helper, and the child exited with code 0.
+[ABI and Pi commands](udp-sockets.md) · [Pi and Windows capture](../proofs/pi5-udp-echo-2026-11-22.txt)
 
 ## 2026-11-22 - Pi hotspot reconnect verified and group key rotation
 
