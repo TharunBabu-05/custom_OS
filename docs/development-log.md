@@ -1,5 +1,45 @@
 # Development log
 
+## 2026-11-22 - Pi transcript verified and live TLS over TCP
+
+The Pi passed the offline OpenSSL transcript and rejected a missing pin,
+the wrong DNS name, and two transcript mutations. `TLSECHO.ELF` implements
+a live P-256 TLS 1.3 handshake and encrypted LAN echo. It draws its
+ephemeral keys and hello randomness through the Pi RNG200 driver, uses
+the existing operator-set UTC and pin policy, and verifies the peer
+before sending the test message.
+The physical Pi and Windows both passed the 9-byte encrypted echo.
+The Pi also passed the checked EL0 hardware-random test.
+[Pi transcript capture](../proofs/pi5-tls-transcript-2026-11-22.txt) · [Live TLS test](tls-live.md)
+
+## 2026-11-22 - Pi pinned certificate verified and TLS transcript authentication
+
+The Pi accepted the pinned demo certificate with the operator clock set
+and rejected the missing pin and wrong DNS name. `TLSCHK.ELF` now checks
+the pinned leaf, CertificateVerify and server Finished in a captured TLS
+1.3 handshake from an OpenSSL loopback session. It exercises the same
+boot-local trust and UTC policy as the certificate test.
+[Pi certificate capture](../proofs/pi5-pinned-cert-2026-11-22.txt) · [TLS transcript test](tls-transcript.md)
+
+## 2026-11-22 - Pi UTC verified and pinned certificate checks
+
+The Pi advanced the operator-set UTC sample, returned it to EL0, passed
+the valid trust window, and rejected the expired one. `CERTCHK.ELF`
+now checks an exact pinned self-signed P-256 server certificate's DNS name,
+signature, DER fingerprint and validity. The kernel exposes a read-only
+trust check to EL0. Live TLS authentication is a later increment.
+[Pi UTC capture](../proofs/pi5-trust-time-2026-11-22.txt) · [Certificate checks](pinned-certificates.md)
+
+## 2026-11-22 - Pi TCP verified and Phase 10 time and trust
+
+The Pi and Windows both reported the same SHA-256 after echoing all
+16,384 bytes. The EL0 child exited with code 0 and cleanup was restored.
+The Phase 10 build adds operator-set UTC, a checked EL0 UTC query, and
+boot-local trust fingerprints with validity-window preflight. Native and
+both QEMU profiles passed. The preview changes `OUROS.IMG` and adds
+`UTCCHECK.ELF`. The Pi UTC test remains open.
+[TCP evidence](../proofs/pi5-tcp-echo-2026-11-22.txt) · [UTC and trust guide](trust-time.md)
+
 ## 2026-11-22 - EL0 local TCP clients
 
 Added outbound TCP connections for EL0 apps over background Wi-Fi. Native

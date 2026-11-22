@@ -20,8 +20,10 @@ enum uos_syscall {
     UOS_SYS_PROCESSES=40,UOS_SYS_CHILD_POLL=41,UOS_SYS_CHILD_CANCEL=42,UOS_SYS_STATFS=43,
     UOS_SYS_RESIZE_PAGES=44,UOS_SYS_MEMORY_PRESSURE=45,
     UOS_SYS_UDP_OPEN=46,UOS_SYS_UDP_SEND=47,UOS_SYS_UDP_RECV=48,UOS_SYS_UDP_CLOSE=49,
-    UOS_SYS_TCP_OPEN=50,UOS_SYS_TCP_STATUS=51,UOS_SYS_TCP_WRITE=52,UOS_SYS_TCP_READ=53,UOS_SYS_TCP_CLOSE=54
+    UOS_SYS_TCP_OPEN=50,UOS_SYS_TCP_STATUS=51,UOS_SYS_TCP_WRITE=52,UOS_SYS_TCP_READ=53,UOS_SYS_TCP_CLOSE=54,
+    UOS_SYS_UTC_TIME=55,UOS_SYS_TRUST_CHECK=56,UOS_SYS_RANDOM=57
 };
+enum { UOS_RANDOM_MAX=64 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
  * index is a fresh traversal, not a stable cursor across filesystem edits. */
 struct uos_entry { uint64_t bytes;uint32_t type,reserved;char name[32]; };
@@ -77,6 +79,8 @@ _Static_assert(sizeof(struct uos_udp_peer)==8,"UDP peer ABI size");
 enum { UOS_TCP_MAX_BYTES=512 };
 struct uos_tcp_peer { uint8_t ipv4[4];uint16_t port,reserved; };
 _Static_assert(sizeof(struct uos_tcp_peer)==8,"TCP peer ABI size");
+struct uos_utc_time { uint64_t unix_seconds;uint32_t age_seconds,remaining_seconds; };
+_Static_assert(sizeof(struct uos_utc_time)==16,"UTC time ABI size");
 #define UOS_ERROR (-1LL)
 #define UOS_EFAULT (-2LL)
 #define UOS_EOF (-3LL)
@@ -98,4 +102,7 @@ _Static_assert(sizeof(struct uos_tcp_peer)==8,"TCP peer ABI size");
 #define UOS_EBADF (-19LL)
 #define UOS_EHOSTUNREACH (-20LL)
 #define UOS_ECONNRESET (-21LL)
+#define UOS_ENOTIME (-22LL)
+#define UOS_ECERTTIME (-23LL)
+#define UOS_ENORANDOM (-24LL)
 #endif

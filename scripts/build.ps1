@@ -61,7 +61,7 @@ try {
         New-Item -ItemType Directory -Force -Path $out | Out-Null
         $sources = @($entrySource,'arch/aarch64/interrupts/vectors.S','arch/aarch64/interrupts/test_context.S','arch/aarch64/interrupts/test_irq_context.S','arch/aarch64/interrupts/irq.c','kernel/interrupts/exception.c','kernel/interrupts/tick.c','kernel/interrupts/irq_work.c','drivers/irq/gic.c','drivers/irq/gic_dt.c','drivers/irq/irq_probe.c','arch/aarch64/mmu/control.S','arch/aarch64/mmu/runtime.c','kernel/memory/mmu_tables.c',
             $boardSource,'drivers/uart/pl011.c','drivers/timer/arch_timer.c','arch/aarch64/context/switch.S','arch/aarch64/context/test_switch.S','kernel/scheduler/policy.c','kernel/scheduler/tasks.c',
-            'kernel/core/console.c','kernel/core/terminal.c','kernel/core/console_input.c','kernel/core/main.c','kernel/core/reboot.c','kernel/scheduler/network_worker.c','arch/aarch64/boot/reset.c','drivers/reset/reset_dt.c','lib/memory.c',
+            'kernel/core/console.c','kernel/core/terminal.c','kernel/core/console_input.c','kernel/core/main.c','kernel/core/trust_time_commands.c','kernel/core/reboot.c','kernel/scheduler/network_worker.c','arch/aarch64/boot/reset.c','drivers/reset/reset_dt.c','lib/memory.c',
             'kernel/memory/map.c','kernel/memory/fdt_memory.c','kernel/memory/pages.c',
             'kernel/memory/boot_memory.c','kernel/memory/heap.c','kernel/memory/heap_commands.c','filesystem/ramfs.c','kernel/core/fs_commands.c',
             'drivers/storage/block.c','filesystem/fat32.c','filesystem/persist.c','filesystem/vfs.c','filesystem/kfile.c','kernel/core/file_commands.c','kernel/core/storage_commands.c',
@@ -69,15 +69,15 @@ try {
             'kernel/core/dt_property.c','drivers/usb/xhci_observe.c','drivers/usb/pi5_usb_dt.c',
             'kernel/core/usb_commands.c','drivers/usb/xhci_test.c','drivers/usb/xhci_test_report.c',
             'drivers/usb/xhci_enumerate.c','drivers/usb/usb_descriptors.c','drivers/storage/usb_bot.c',
-            'drivers/storage/brcm_firmware.c','drivers/storage/brcm_start.c','drivers/storage/brcm_control.c','drivers/storage/brcm_prepare.c','drivers/storage/brcm_scan.c','drivers/storage/brcm_auth.c','drivers/storage/brcm_auth_probe.c','drivers/storage/brcm_join_probe.c','drivers/storage/brcm_sae_probe.c','drivers/storage/brcm_assoc.c','drivers/storage/brcm_keys.c','drivers/storage/wifi_target.c','lib/sha256.c','lib/crypto.c','lib/aes.c','lib/aes_selftest.c','lib/wpa_rsn.c','lib/wpa_keys.c','lib/wpa_probe.c','lib/wpa_group_rekey.c','network/dhcp.c','network/netprobe.c','network/udp.c','network/tcp.c','network/dns.c','network/dns_selftest.c','network/session.c','network/netprobe_selftest.c','network/dhcp_selftest.c','lib/wpa_retry_selftest.c','lib/wpa_kde.c','lib/wpa_kde_selftest.c','lib/wpa_keys_selftest.c','lib/p256.c','lib/p256_selftest.c','lib/sae_h2e.c','lib/sae_hunt.c','lib/sae_h2e_selftest.c','lib/sae_session.c','lib/sae_session_selftest.c','drivers/random/rng200.c','drivers/random/pi5_rng200.c','kernel/core/wifi_files.c')
+            'drivers/storage/brcm_firmware.c','drivers/storage/brcm_start.c','drivers/storage/brcm_control.c','drivers/storage/brcm_prepare.c','drivers/storage/brcm_scan.c','drivers/storage/brcm_auth.c','drivers/storage/brcm_auth_probe.c','drivers/storage/brcm_join_probe.c','drivers/storage/brcm_sae_probe.c','drivers/storage/brcm_assoc.c','drivers/storage/brcm_keys.c','drivers/storage/wifi_target.c','lib/sha256.c','lib/crypto.c','lib/trust_time.c','lib/aes.c','lib/aes_selftest.c','lib/wpa_rsn.c','lib/wpa_keys.c','lib/wpa_probe.c','lib/wpa_group_rekey.c','network/dhcp.c','network/netprobe.c','network/udp.c','network/tcp.c','network/dns.c','network/dns_selftest.c','network/session.c','network/netprobe_selftest.c','network/dhcp_selftest.c','lib/wpa_retry_selftest.c','lib/wpa_kde.c','lib/wpa_kde_selftest.c','lib/wpa_keys_selftest.c','lib/p256.c','lib/p256_selftest.c','lib/sae_h2e.c','lib/sae_hunt.c','lib/sae_h2e_selftest.c','lib/sae_session.c','lib/sae_session_selftest.c','drivers/random/rng200.c','drivers/random/pi5_rng200.c','kernel/core/wifi_files.c')
         if ($Target -eq 'rpi5') { $sources+=@('drivers/storage/sdhci.c','drivers/storage/sdio.c','drivers/storage/brcm_sdio.c','drivers/storage/brcm_chip.c','drivers/storage/pi5_sd.c','drivers/storage/pi5_wifi_probe.c','drivers/storage/pi5_wifi_power.c','drivers/usb/pi5_dma.c','drivers/usb/pi5_xhci_test.c') }
         else { $sources+=@('drivers/storage/virtio_blk.c','drivers/usb/qemu_xhci_test.c','tests/udp_worker.c') }
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }
         $objects = @()
         foreach ($source in $sources) {
             $object = "$out/" + ($source -replace '[/\\.]','_') + '.o'
-            # Keep the Pi network code below the firmware DTB boundary.
-            $optimize=if ($source -in @('network/tcp.c','drivers/storage/brcm_control.c','drivers/storage/brcm_assoc.c','drivers/storage/pi5_wifi_probe.c')) { @('-Os') } else { @() }
+            # Keep the Pi kernel below the firmware DTB boundary.
+            $optimize=if ($source -in @('kernel/core/trust_time_commands.c','lib/trust_time.c','network/tcp.c','network/netprobe.c','network/udp.c','drivers/storage/brcm_control.c','drivers/storage/brcm_assoc.c','drivers/storage/pi5_wifi_probe.c')) { @('-Os') } else { @() }
             Invoke-Tool gcc ($common + $optimize + @("-mcpu=$cpu",'-c',$source,'-o',$object))
             $objects += $object
         }

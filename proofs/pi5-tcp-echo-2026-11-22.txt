@@ -1,0 +1,16 @@
+Raspberry Pi 5 and Windows terminal output supplied by the user.
+Local addresses are redacted consistently.
+
+Windows PowerShell
+> powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAddress [PC IPv4] -PeerAddress [Pi IPv4] -Port 4041
+Waiting for [Pi IPv4] on [PC IPv4]:4041
+Echoed 16384 bytes. SHA-256 a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3
+
+Pi serial monitor
+TCP sockets=0 enabled=yes
+> appterm 60 /boot/TCPCHK.ELF [PC IPv4] 4041
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=60
+PASS: TCP echoed 16384 bytes. SHA-256 a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3
+process=0 path=/boot/TCPCHK.ELF state=exited code=0 syscalls=771 dispatches=212 sleeps=145 wakes=145 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+>

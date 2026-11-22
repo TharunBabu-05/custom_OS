@@ -20,6 +20,9 @@
 #include "network_worker.h"
 #include "udp.h"
 #include "tcp.h"
+#include "trust_time.h"
+#include "rng200.h"
+#include "crypto.h"
 static unsigned char copy_bytes[VFS_FILE_MAX];
 static unsigned char profile_bytes[APP_PROFILE_BYTES];
 enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,UDP_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
@@ -657,6 +660,34 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
         user_copy(p,a,buffer,count,true);return (int64_t)count;
     case UOS_SYS_TIME_MS: {
         return (int64_t)ticks_ms(timer_ticks(),timer_frequency());
+    }
+    case UOS_SYS_UTC_TIME: {
+        if (!user_range(p,a,sizeof(struct uos_utc_time),true)) { return UOS_EFAULT; }
+        struct utc_sample now;
+        if (system_utc(&now)!=UTC_OK) { return UOS_ENOTIME; }
+        struct uos_utc_time out={now.seconds,now.age,now.remaining};
+        user_copy(p,a,&out,sizeof(out),true);return 0;
+    }
+    case UOS_SYS_TRUST_CHECK: {
+        unsigned char digest[32];
+        if (!user_range(p,a,sizeof(digest),false)) { return UOS_EFAULT; }
+        user_copy(p,a,digest,sizeof(digest),false);
+        switch (system_trust_check(digest,b,c)) {
+        case TRUST_OK:return 0;
+        case TRUST_NO_TIME:return UOS_ENOTIME;
+        case TRUST_UNKNOWN:return UOS_ENOENT;
+        case TRUST_CERT_TIME:return UOS_ECERTTIME;
+        }
+        return UOS_ERROR;
+    }
+    case UOS_SYS_RANDOM: {
+        unsigned char sample[UOS_RANDOM_MAX];
+        if (!b || b>sizeof(sample)) { return UOS_ERROR; }
+        if (!user_range(p,a,(size_t)b,true)) { return UOS_EFAULT; }
+        bool ok=platform_random_bytes(sample,(size_t)b)==BLOCK_OK;
+        if (ok) { user_copy(p,a,sample,(size_t)b,true); }
+        crypto_wipe(sample,sizeof(sample));
+        return ok ? 0 : UOS_ENORANDOM;
     }
     case UOS_SYS_OPEN:
         if (!b || b>=RAMFS_PATH_MAX || c>15) { return UOS_ERROR; }if (!user_range(p,a,(size_t)b,false)) { return UOS_EFAULT; }

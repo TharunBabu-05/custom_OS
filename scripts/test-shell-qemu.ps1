@@ -1,7 +1,7 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
-      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[string]$ExpectedTreeBackup,
+      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[string]$ExpectedTreeBackup,
       [string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
@@ -57,6 +57,110 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($TlsTranscript) {
+    $header=Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'tests/tls13_demo.h')
+    $pin=[regex]::Match($header,'TLS13_DEMO_PIN "([0-9a-f]{64})"').Groups[1].Value
+    if (!$pin) { throw 'Missing TLS fixture pin' }
+    $demo=@{Text='appterm 45 /boot/TLSCHK.ELF demo';Delay=7000}
+    $pass='PASS: TLS 1.3 pinned leaf, CertificateVerify and server Finished.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="tls-transcript-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','mmuinit','irqinit','timerstart','appterm 5 /boot/TLSECHO.ELF rng-check',"trustadd $pin",$demo,'trustclear',
+                'utc set 2026-11-22T09:24:39Z',$demo,"trustadd $pin",$demo,
+                'appterm 45 /boot/TLSCHK.ELF demo wrong.ouros.test',
+                @{Text='appterm 45 /boot/TLSCHK.ELF transcript';Delay=7000},
+                @{Text='appterm 45 /boot/TLSCHK.ELF finished';Delay=7000},
+                'trustclear','fileinfo','pwd','timerstop','halt'
+            ) @($pass,'TLS certificate trust requires UTC.','TLS certificate fingerprint is not enrolled.',
+                'TLS certificate DNS name mismatch or unsupported name.','TLS CertificateVerify rejected.',
+                'TLS server Finished rejected.','Open files: 0/16',
+                'PASS: random syscall rejected bad arguments and preserved output with RNG unavailable.',
+                'path=/boot/TLSECHO.ELF state=exited code=0 ') 7
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,[regex]::Escape($pass)).Count -ne 1 -or
+                [regex]::Matches($log,'path=/boot/TLSCHK\.ELF state=exited code=0 ').Count -ne 1 -or
+                [regex]::Matches($log,'path=/boot/TLSCHK\.ELF state=exited code=1 ').Count -ne 5 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) {
+                throw "$name unexpected app outcomes or disk mutation"
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($PinnedCert) {
+    . "$PSScriptRoot/data-backup.ps1"
+    . "$PSScriptRoot/data-format.ps1"
+    $pin='7a2c46997c1c27ba1fb3fae02cc88759655c345eb3391e3220b1966a36cca467'
+    $header=Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'tests/cert_demo.h')
+    [byte[]]$cert=[regex]::Matches($header,'0x([0-9a-f]{2})') | ForEach-Object { [Convert]::ToByte($_.Groups[1].Value,16) }
+    [byte[]]$tampered=$cert.Clone()
+    $tampered[$tampered.Length-1]=$tampered[$tampered.Length-1] -bxor 1
+    $partition=New-OurOSDataPartition -Version 4
+    $bank=New-OurOSDataBackup -Version 4 -Files @(@{Name='peer.der';Data=$cert},@{Name='tampered.der';Data=$tampered})
+    $bank.CopyTo($partition,512)
+    $check=@{Text='appterm 15 /boot/CERTCHK.ELF demo demo.ouros.test';Delay=5000}
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="pinned-cert-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $file=[IO.File]::OpenWrite($disk)
+            try { $file.Position=260096L*512;$file.Write($partition,0,$partition.Length) } finally { $file.Dispose() }
+            $fixture=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','datainit','mmuinit','irqinit','timerstart',"trustadd $pin",$check,'trustclear',
+                'utc set 2026-11-22T09:07:40Z',$check,"trustadd $pin",$check,
+                @{Text='appterm 15 /boot/CERTCHK.ELF /data/peer.der demo.ouros.test';Delay=5000},
+                @{Text='appterm 15 /boot/CERTCHK.ELF /data/tampered.der demo.ouros.test';Delay=5000},
+                'appterm 5 /boot/CERTCHK.ELF demo wrong.ouros.test',
+                'utc set 2050-01-01T00:00:00Z',$check,'trustclear','utc clear','fileinfo','pwd','timerstop','halt'
+            ) @("Certificate SHA-256 $pin",'Certificate trust check requires UTC.','Certificate fingerprint is not enrolled.',
+                'PASS: pinned certificate name, self-signature, trust and UTC.','Certificate DNS name mismatch or unsupported name.',
+                'Certificate is outside its UTC validity window.','Certificate signature rejected.','Open files: 0/16') 7
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,'PASS: pinned certificate name, self-signature, trust and UTC\.').Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $fixture) { throw "$name incorrect certificate result or disk mutation" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($TrustTime) {
+    $pin='a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3'
+    $unknown='b'+$pin.Substring(1)
+    $valid='2026-11-22T00:00:00Z 2026-11-24T00:00:00Z'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="trust-time-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'storageinit','mmuinit','irqinit','timerstart','utc','trustlist','appterm 5 /boot/UTCCHECK.ELF',
+                "trustadd $pin","trustcheck $pin $valid",'utc set 2100-02-29T00:00:00Z','utc set 2026-11-22T23:59:59Z',
+                @{Text='appterm 5 /boot/UTCCHECK.ELF';Delay=2200},'utc','utc set 2026-11-22T00:00:00Z',
+                "trustcheck $pin $valid","trustcheck $unknown $valid",
+                "trustcheck $pin 2026-11-21T00:00:00Z 2026-11-22T00:00:00Z",
+                "trustcheck $pin 2026-11-24T00:00:00Z 2026-11-25T00:00:00Z",
+                'trustclear',"trustcheck $pin $valid",'utc clear','appterm 5 /boot/UTCCHECK.ELF','fileinfo','pwd','timerstop','halt'
+            ) @('UTC unset. Use utc set','Trusted SHA-256 anchors=0','PASS: UTC unavailable and output preserved.',
+                'Anchor enrolled for this boot.','Trust check refused. Set UTC first.','Usage: utc set',
+                'PASS: UTC advanced with the counter.','UTC 2026-11-23T00:00:',
+                'UTC would move backward.','Anchor and UTC validity passed.','Anchor is not enrolled.',
+                'UTC falls outside the certificate validity window.','Trust anchors cleared.','UTC cleared.','Open files: 0/16') 3
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            foreach ($line in @('PASS: UTC unavailable and output preserved.','Anchor is not enrolled.','UTC falls outside the certificate validity window.')) {
+                if ([regex]::Matches($log,[regex]::Escape($line)).Count -ne 2) { throw "$name expected exactly two instances of '$line'" }
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($TcpSockets) {
     $digest='a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3'

@@ -21,6 +21,7 @@
 #include "rng200.h"
 #include "wpa_keys.h"
 #include "network_worker.h"
+#include "trust_time.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -122,7 +123,7 @@ static void startup(void)
 static void command(const char *line)
 {
     if (equal(line,"startup")) { startup();return; }
-    if (process_command(line) || task_command(line) || file_command(line)) { return; }
+    if (process_command(line) || task_command(line) || file_command(line) || trust_time_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
     if (mmu_command(line)) { return; }
     if (heap_command(line)) { return; }
@@ -135,6 +136,8 @@ static void command(const char *line)
     if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
         console_write("help info cpuinfo meminfo uptime echo <text> clear reboot halt fault\n");
+        console_write("utc | utc set <YYYY-MM-DDTHH:MM:SSZ> | utc clear\n");
+        console_write("trustlist trustadd <SHA-256> trustcheck <SHA-256> <from UTC> <to UTC> trustclear\n");
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");
         console_write("memmap pagealloc pagefree <slot> pagetest\n");
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");

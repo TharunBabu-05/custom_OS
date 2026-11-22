@@ -1,5 +1,25 @@
 # Real Raspberry Pi 5 proof
 
+The Pi and Windows passed a live 9-byte TLS 1.3 encrypted echo. Windows
+verified client Finished, and the Pi exited with code 0 and restored
+app resources. [Live test result](../docs/tls-live.md#local-verification)
+
+The Pi passed the enrolled OpenSSL TLS 1.3 transcript with code 0.
+Unenrolled, wrong-name, changed ClientHello and changed Finished cases
+returned code 1 with resources restored. [Pi TLS transcript capture](pi5-tls-transcript-2026-11-22.txt)
+
+With UTC set, the Pi rejected the demo certificate before pin enrollment,
+passed it with exit code 0 after enrollment, rejected the wrong DNS name,
+and cleared its trust anchors. [Pi certificate capture](pi5-pinned-cert-2026-11-22.txt)
+
+Operator-set UTC advanced on the Pi, the EL0 clock test exited with code
+0, and trust preflight accepted the valid window and rejected the expired
+one. [Pi UTC and trust capture](pi5-trust-time-2026-11-22.txt)
+
+The Pi and a Windows PC echoed a 16 KiB file over TCP. Both reported
+the same SHA-256 and `TCPCHK.ELF` exited with code 0.
+[Pi and Windows capture](pi5-tcp-echo-2026-11-22.txt)
+
 The Pi and a Windows PC exchanged a 10-byte UDP datagram over the local
 Wi-Fi network. `UDPCHK.ELF` verified the echoed payload and exited with
 code 0. [Pi and Windows capture](pi5-udp-echo-2026-11-22.txt)

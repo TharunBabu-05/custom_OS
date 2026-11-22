@@ -107,7 +107,9 @@ timeouts, reset, and link loss. On both QEMU profiles, the modeled peer
 dropped an initial SYN and the EL0 app retried and verified the 16 KiB
 file's SHA-256. The prior UDP socket tests passed on both profiles. The
 Windows helper passed a 16 KiB loopback transfer and an orderly close.
-The Pi-to-Windows TCP exchange remains open.
+The Pi passed the physical 16 KiB file exchange with Windows. Both ends
+reported the standard fixture's SHA-256, and the Pi reported exit code 0
+with app resources restored. [Pi and Windows capture](../proofs/pi5-tcp-echo-2026-11-22.txt)
 
 | File | SHA-256 |
 | --- | --- |

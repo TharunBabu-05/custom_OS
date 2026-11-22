@@ -1,0 +1,33 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+Excerpt starts in the kernel monitor after exiting the startup shell.
+
+> utc set 2026-11-22T09:24:39Z
+UTC 2026-11-22T09:24:39Z source=operator age_seconds=0 remaining_seconds=86400
+> appterm 15 /boot/CERTCHK.ELF demo demo.ouros.test
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=15
+Certificate SHA-256 7a2c46997c1c27ba1fb3fae02cc88759655c345eb3391e3220b1966a36cca467
+Certificate fingerprint is not enrolled.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=yes budget_seconds=15 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/CERTCHK.ELF state=exited code=1 syscalls=9 dispatches=690 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+> trustadd 7a2c46997c1c27ba1fb3fae02cc88759655c345eb3391e3220b1966a36cca467
+Anchor enrolled for this boot.
+> appterm 15 /boot/CERTCHK.ELF demo demo.ouros.test
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=15
+Certificate SHA-256 7a2c46997c1c27ba1fb3fae02cc88759655c345eb3391e3220b1966a36cca467
+PASS: pinned certificate name, self-signature, trust and UTC.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=3 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=yes budget_seconds=15 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/CERTCHK.ELF state=exited code=0 syscalls=9 dispatches=690 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+> appterm 15 /boot/CERTCHK.ELF demo wrong.ouros.test
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=15
+Certificate DNS name mismatch or unsupported name.
+EL0 processes: limit=3; private pages; timer preempts users only; runs=4 switches=0 preemptions=0 yields=0 idle_waits=0 terminal=yes budget_seconds=15 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/CERTCHK.ELF state=exited code=1 syscalls=6 dispatches=2 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+> trustclear
+Trust anchors cleared.
+>
