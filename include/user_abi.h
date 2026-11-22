@@ -18,7 +18,8 @@ enum uos_syscall {
     UOS_SYS_ENV_GET=32,UOS_SYS_ENV_SET=33,UOS_SYS_ENV_UNSET=34,UOS_SYS_ENV_ENTRY=35,
     UOS_SYS_ENV_PROFILE=36,UOS_SYS_ALLOC_PAGES=37,UOS_SYS_FREE_PAGES=38,UOS_SYS_MEMORY_INFO=39,
     UOS_SYS_PROCESSES=40,UOS_SYS_CHILD_POLL=41,UOS_SYS_CHILD_CANCEL=42,UOS_SYS_STATFS=43,
-    UOS_SYS_RESIZE_PAGES=44,UOS_SYS_MEMORY_PRESSURE=45
+    UOS_SYS_RESIZE_PAGES=44,UOS_SYS_MEMORY_PRESSURE=45,
+    UOS_SYS_UDP_OPEN=46,UOS_SYS_UDP_SEND=47,UOS_SYS_UDP_RECV=48,UOS_SYS_UDP_CLOSE=49
 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
  * index is a fresh traversal, not a stable cursor across filesystem edits. */
@@ -44,7 +45,8 @@ enum { UOS_PROCESS_MAX=3,UOS_PROCESS_VERSION=1,UOS_PROCESS_SELF=1,UOS_PROCESS_CH
 enum uos_process_state {
     UOS_PROCESS_RUNNING=1,UOS_PROCESS_READY,UOS_PROCESS_SLEEPING,UOS_PROCESS_INPUT,
     UOS_PROCESS_WAIT_CHILD,UOS_PROCESS_PIPE_READ,UOS_PROCESS_PIPE_WRITE,
-    UOS_PROCESS_EXITED,UOS_PROCESS_FAULTED,UOS_PROCESS_TIMEOUT,UOS_PROCESS_CANCELLED
+    UOS_PROCESS_EXITED,UOS_PROCESS_FAULTED,UOS_PROCESS_TIMEOUT,UOS_PROCESS_CANCELLED,
+    UOS_PROCESS_UDP_WAIT
 };
 struct uos_process_entry {
     uint64_t pid,parent_pid,syscalls,dispatches,heap_pages;
@@ -66,6 +68,11 @@ _Static_assert(sizeof(struct uos_fs_info)==32,"filesystem info ABI size");
 enum { UOS_READ=1,UOS_WRITE=2,UOS_CREATE=4,UOS_TRUNC=8 };
 enum { UOS_PROFILE_SAVE=1,UOS_PROFILE_LOAD=2 };
 enum { UOS_SEEK_SET=0,UOS_SEEK_CUR=1,UOS_SEEK_END=2 };
+enum { UOS_UDP_MAX_BYTES=256,UOS_UDP_MAX_WAIT_MS=10000 };
+/* Connected IPv4 for a single LAN peer. Port fields use host byte order.
+ * Zero local_port selects an available ephemeral port. */
+struct uos_udp_peer { uint8_t ipv4[4];uint16_t port,local_port; };
+_Static_assert(sizeof(struct uos_udp_peer)==8,"UDP peer ABI size");
 #define UOS_ERROR (-1LL)
 #define UOS_EFAULT (-2LL)
 #define UOS_EOF (-3LL)
@@ -80,4 +87,10 @@ enum { UOS_SEEK_SET=0,UOS_SEEK_CUR=1,UOS_SEEK_END=2 };
 #define UOS_ENOSPC (-12LL)
 #define UOS_ENOMEM (-13LL)
 #define UOS_ECHILD (-14LL)
+#define UOS_EAGAIN (-15LL)
+#define UOS_ENETDOWN (-16LL)
+#define UOS_ETIMEDOUT (-17LL)
+#define UOS_EMSGSIZE (-18LL)
+#define UOS_EBADF (-19LL)
+#define UOS_EHOSTUNREACH (-20LL)
 #endif

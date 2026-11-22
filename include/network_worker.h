@@ -11,4 +11,7 @@ bool network_worker_due(void);
 void network_worker_service(void);
 bool network_worker_stop(void);
 bool network_worker_test(bool with_user);
+#ifndef OUROS_PI5
+bool udp_worker_test(void);
+#endif
 #endif

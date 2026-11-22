@@ -101,7 +101,11 @@ void brcm_assoc_data(void *ctx,const void *payload,size_t n)
             p[14]==0x45 && p[23]==17 && be16(p+34)==67 && be16(p+36)==68) {
             dhcp_receive(&s->renewal.exchange,p,n);return;
         }
-        if (s->network.armed) { netprobe_receive(&s->network,p,n);return; }
+        if (s->network.armed) {
+            netprobe_receive(&s->network,p,n);
+            if (s->udp_live && s->network.active && !s->network.gateway_changed) { udp_receive(p,n,s->udp_now); }
+            return;
+        }
         if (s->dhcp.armed) { dhcp_receive(&s->dhcp,p,n);return; }
     }
     if (!crypto_equal(p,s->peer.local,6) || !crypto_equal(p+6,s->peer.peer,6) || be16(p+12)!=0x888e) { ++s->data_ignored;return; }
@@ -391,6 +395,7 @@ static bool session_random(void *ctx,unsigned char out[32])
 static enum block_result network_poll(void *ctx)
 {
     struct adapter *a=ctx;struct brcm_assoc_probe *s=a->s;
+    if (s->udp_live) { s->udp_now=milliseconds(a); }
     enum block_result r=poll(a);if (r!=BLOCK_OK) { return r; }if (s->event_error!=BLOCK_OK) { return s->event_error; }
     if (a->exchange.retry_pending || a->exchange.m4_due) { r=transmit_m4(a); }
     if (r==BLOCK_OK) { r=service_group_key(a); }
@@ -403,6 +408,11 @@ static enum block_result network_poll(void *ctx)
             s->dhcp.lease=s->network.lease;s->dhcp.xid=s->renewal.xid;
         }
         s->network.lease_rejected=s->renewal.rejected;
+    }
+    if (r==BLOCK_OK && s->udp_live && s->session.active && !s->network.lease_rejected && network_ready(a) &&
+        netprobe_can_tx(&s->network,milliseconds(a))) {
+        s->udp_now=milliseconds(a);
+        r=udp_service(a->base->udp_tx,a->base->join.policy.context,s->udp_now);
     }
     return r;
 }
@@ -482,9 +492,15 @@ static enum block_result session_run(struct adapter *a)
 {
     const struct network_session_io io={{a,gateway_tx,network_poll,delay,milliseconds,network_ready},session_getc,session_write,session_random,session_inspect,session_info};
     a->s->renewal.xid=a->s->dhcp.xid;
+    if (a->base->udp_tx && a->base->session_yield) {
+        const struct netprobe *net=&a->s->network;
+        a->s->udp_live=udp_link_up(net->mac,net->lease.address,net->lease.mask);
+        if (!a->s->udp_live) { return BLOCK_NOT_READY; }
+    }
     enum block_result r=a->base->session_yield ?
         network_session_background(&io,&a->s->network,&a->s->session,a->base->session_yield) :
         network_session_run(&io,&a->s->network,&a->s->session);
+    if (a->s->udp_live) { udp_link_down();a->s->udp_live=false; }
     a->s->renewal.exchange.armed=false;a->s->renewal.queued=false;
     if (a->s->network.conflict && !a->s->decline_attempted) { decline_lease(a); }return r;
 }

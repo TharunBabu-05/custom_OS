@@ -811,6 +811,15 @@ static enum block_result assoc_net_tx(void *ctx,enum netprobe_packet kind,unsign
     (void)ctx;struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
     return brcm_control_netprobe(&io,&control,&association_probe.network,kind,sequence,frame,n,assoc_net_permitted,NULL);
 }
+static bool assoc_udp_permitted(void *ctx)
+{
+    return association_probe.udp_live && association_probe.session.active && assoc_net_permitted(ctx);
+}
+static enum block_result assoc_udp_tx(void *ctx,const struct udp_packet *packet)
+{
+    struct brcm_control_io io={NULL,control_read8,control_write8,core_read,control_write32,control_packet,firmware_delay};
+    return brcm_control_udp(&io,&control,packet,assoc_udp_permitted,ctx);
+}
 static int session_input(void *ctx) { (void)ctx;return console_getc(); }
 static void session_output(void *ctx,const char *text) { (void)ctx;console_write(text); }
 static void session_information(void *ctx) { (void)ctx;platform_network_info(); }
@@ -955,6 +964,7 @@ void platform_network_info(void)
                 console_write(" cleared=");console_hex(s->keys.rotation_cleared);console_write("\n");
             }
             console_write("DNS A/IN over UDP is available in the foreground Wi-Fi console.\n");
+            if (s->background_mode) { console_write("UDP open sockets=");console_u64(udp_open_count());console_write("\n"); }
         }else { console_write("Cached gateway test only; temporary IP removed and Wi-Fi ends DOWN. No DNS, external Internet probe or persistent connection.\n"); }
     }else { console_write("Cached DHCP metadata only; no address installed. Use wifiping on a fresh boot for ARP/gateway testing. Wi-Fi ends DOWN.\n"); }
 }
@@ -968,7 +978,8 @@ static void run_association(const struct brcm_auth_peer *peer,const struct brcm_
         .install_probe=true,.key_set=assoc_key_set,.m4_tx=assoc_m4_tx,.dhcp_probe=mode>=3,.dhcp_tx=assoc_dhcp_tx,
         .peer_info=assoc_peer_info,.port_set=assoc_port_set,.gateway_probe=mode>=4,.net_tx=assoc_net_tx,
         .session_mode=mode>=5,.session_getc=session_input,.session_write=session_output,.session_info=session_information,
-        .session_yield=mode==6 ? background_yield : NULL,.packet_id=next_assoc_cookie,.group2_tx=mode>=5 ? assoc_group2_tx : NULL};
+        .session_yield=mode==6 ? background_yield : NULL,.packet_id=next_assoc_cookie,.group2_tx=mode>=5 ? assoc_group2_tx : NULL,
+        .udp_tx=mode==6 ? assoc_udp_tx : NULL};
     next_assoc_cookie=next_assoc_cookie>UINT32_MAX-8 ? 0 : next_assoc_cookie+8;
     control.rx_limit=control.rx_frames+1024;
     (void)brcm_assoc_run(&aio,peer,session,true,&association_probe);

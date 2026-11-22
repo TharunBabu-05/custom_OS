@@ -1,6 +1,7 @@
 /* Original bounded ARP address checking, gateway resolution and ICMP echo.
  * Wire/timing definitions: RFC 826, RFC 5227, RFC 791 and RFC 792. */
 #include "netprobe.h"
+#include "net_wire.h"
 static unsigned be16(const unsigned char *p) { return (unsigned)p[0]<<8|p[1]; }
 static uint32_t be32(const unsigned char *p) { return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3]; }
 static void put16(unsigned char *p,unsigned v) { p[0]=(unsigned char)(v>>8);p[1]=(unsigned char)v; }
@@ -10,13 +11,7 @@ static bool zero(const unsigned char *p,size_t n) { unsigned x=0;for (size_t i=0
 static bool mac(const unsigned char *p) { return p && !(p[0]&1) && !zero(p,6); }
 static bool ip(const unsigned char *p) { return p[0] && p[0]!=127 && p[0]<224; }
 static unsigned checksum(const unsigned char *p,size_t n)
-{ uint32_t s=0;for (size_t i=0;i<n;i+=2) { s+=(unsigned)p[i]<<8|(i+1<n ? p[i+1] : 0); }while (s>>16) { s=(s&65535)+(s>>16); }return (~s)&65535; }
-static unsigned udp_checksum(const unsigned char *v,const unsigned char *u,size_t n)
-{
-    uint32_t sum=17+(unsigned)n;for (unsigned i=12;i<20;i+=2) { sum+=be16(v+i); }
-    for (size_t i=0;i<n;i+=2) { sum+=(unsigned)u[i]<<8|(i+1<n ? u[i+1] : 0); }
-    while (sum>>16) { sum=(sum&65535)+(sum>>16); }return (~sum)&65535;
-}
+{ return net_checksum(p,n,0); }
 static const unsigned char broadcast[6]={255,255,255,255,255,255};
 static const unsigned char suffix[16]={'O','u','r','O','S',' ','I','C','M','P',' ','p','r','o','b','e'};
 static bool onlink(const struct dhcp_lease *l,const unsigned char p[4])
@@ -43,7 +38,7 @@ enum block_result netprobe_encode(const struct netprobe *s,enum netprobe_packet 
         size_t bytes=0;enum block_result r=dns_encode(&s->dns,p+42,sizeof(p)-42,&bytes);if (r!=BLOCK_OK) { return r; }
         put16(p+12,0x800);unsigned char *v=p+14,*u=v+20;v[0]=0x45;put16(v+2,28+(unsigned)bytes);put16(v+4,s->dns.id);put16(v+6,0x4000);v[8]=64;v[9]=17;
         copy(v+12,s->lease.address,4);copy(v+16,s->lease.dns,4);put16(u,s->dns.port);put16(u+2,53);put16(u+4,8+(unsigned)bytes);
-        unsigned sum=udp_checksum(v,u,8+bytes);put16(u+6,sum ? sum : 65535);put16(v+10,checksum(v,20));*actual=42+bytes;if (*actual<60) { *actual=60; }
+        unsigned sum=net_udp_checksum(v,u,8+bytes);put16(u+6,sum ? sum : 65535);put16(v+10,checksum(v,20));*actual=42+bytes;if (*actual<60) { *actual=60; }
     }else if (kind==NP_ECHO) {
         put16(p+12,0x800);unsigned char *v=p+14,*e=v+20;v[0]=0x45;put16(v+2,60);put16(v+4,sequence);put16(v+6,0x4000);v[8]=64;v[9]=1;copy(v+12,s->lease.address,4);copy(v+16,s->target,4);
         e[0]=8;put16(e+4,s->identifier);put16(e+6,sequence);copy(e+8,s->token,16);copy(e+24,suffix,16);put16(e+2,checksum(e,40));put16(v+10,checksum(v,20));*actual=74;
@@ -85,7 +80,7 @@ void netprobe_receive(struct netprobe *s,const void *buffer,size_t n)
         ++s->ipv4_rx;if (n<54 || n>1514) { goto malformed; }const unsigned char *v=p+14,*u=v+20;unsigned total=be16(v+2);
         if (v[0]!=0x45 || total<40 || total>20+8+DNS_MESSAGE_MAX || total>n-14 || (be16(v+6)&~0x4000) || !v[8] || checksum(v,20)) { goto malformed; }
         if (v[9]!=17 || !eq(v+12,s->lease.dns,4) || !eq(v+16,s->lease.address,4) || be16(u)!=53 || be16(u+2)!=s->dns.port) { ++s->ignored;return; }
-        if (be16(u+4)!=total-20 || (be16(u+6) && udp_checksum(v,u,total-20))) { goto malformed; }
+        if (be16(u+4)!=total-20 || (be16(u+6) && net_udp_checksum(v,u,total-20))) { goto malformed; }
         dns_receive(&s->dns,u+8,total-28);return;
     }
     ++s->ipv4_rx;if (n<74 || n>1514) { goto malformed; }const unsigned char *v=p+14,*e=v+20;

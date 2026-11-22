@@ -106,6 +106,14 @@ static inline int64_t uos_child_cancel(uint64_t pid)
 { return uos_call2(UOS_SYS_CHILD_CANCEL,pid,0); }
 static inline int64_t uos_statfs(const char *path,struct uos_fs_info *out)
 { return uos_call4(UOS_SYS_STATFS,(uintptr_t)path,uos_length(path),(uintptr_t)out,0); }
+static inline int64_t uos_udp_open(const struct uos_udp_peer *peer)
+{ return uos_call2(UOS_SYS_UDP_OPEN,(uintptr_t)peer,0); }
+static inline int64_t uos_udp_send(uint64_t handle,const void *data,size_t bytes)
+{ return uos_call4(UOS_SYS_UDP_SEND,handle,(uintptr_t)data,bytes,0); }
+static inline int64_t uos_udp_recv(uint64_t handle,void *data,size_t capacity,unsigned wait_ms)
+{ return uos_call4(UOS_SYS_UDP_RECV,handle,(uintptr_t)data,capacity,wait_ms); }
+static inline int64_t uos_udp_close(uint64_t handle)
+{ return uos_call2(UOS_SYS_UDP_CLOSE,handle,0); }
 static inline int64_t uos_spawn_io(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
 { return uos_call4(UOS_SYS_SPAWN_IO,(uintptr_t)args,seconds,(uintptr_t)io,0); }
 /* Binary file stdin only; terminal input uses readline. Up to 512 bytes/call. */

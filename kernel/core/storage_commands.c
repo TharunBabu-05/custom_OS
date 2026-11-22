@@ -130,6 +130,12 @@ bool storage_command(const char *line)
         if (r!=FS_OK) { console_write(ramfs_error(r));console_write("\n");if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); } }return true;
     }
     if (same(line,"nettest")) { console_write(dhcp_selftest() ? "PASS: Ethernet/IPv4/UDP/DHCP public packet fixtures; no network I/O.\n" : "FAIL: DHCP packet fixtures.\n");console_write(netprobe_selftest() ? "PASS: ARP/ICMP gateway public packet fixtures; no network I/O.\n" : "FAIL: ARP/ICMP packet fixtures.\n");console_write(dns_selftest() ? "PASS: DNS A query/compressed-answer public fixtures; no network I/O.\n" : "FAIL: DNS packet fixtures.\n");return true; }
+#ifndef OUROS_PI5
+    if (same(line,"udpmodeltest")) {
+        console_write(udp_worker_test() ? "PASS: UDP worker and EL0 socket integration.\n" : "FAIL: UDP worker integration.\n");
+        return true;
+    }
+#endif
     if (same(line,"networktest") || begins(line,"networktest ")) {
         bool el0=same(line,"networktest el0") || same(line,"networktest e10") || same(line,"networktest elO");
         if (!el0 && !same(line,"networktest")) {

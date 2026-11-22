@@ -1,6 +1,7 @@
 /* Original polling SDPCM/BCDC control bring-up. Register/packet definitions:
  * brcmfmac sdio.c, bcmsdh.c, bcdc.c and fwil.h (see docs/wifi-control.md). */
 #include "brcm_control.h"
+#include "udp.h"
 #include "brcm_keys.h"
 #include "dhcp.h"
 static void scrub(void *buffer,size_t n) { volatile unsigned char *p=buffer;while (n--) { *p++=0; } }
@@ -254,17 +255,29 @@ enum block_result brcm_control_dhcp(const struct brcm_control_io *io,struct brcm
     }
     if (r!=BLOCK_OK) { s->ready=false;s->error=r; }return r;
 }
-enum block_result brcm_control_netprobe(const struct brcm_control_io *io,struct brcm_control_state *s,const struct netprobe *owner,enum netprobe_packet kind,unsigned sequence,const void *p,size_t n,bool (*guard)(void *),void *ctx)
+static enum block_result data_write(const struct brcm_control_io *io,struct brcm_control_state *s,unsigned char *frame,size_t n,bool (*guard)(void *),void *ctx)
 {
-    if (!io || !s || !guard || !io->read32 || !io->write32 || !io->packet || !io->delay_us || !netprobe_packet_valid(owner,kind,sequence,p,n)) { return BLOCK_ARGUMENT; }
+    if (!io || !s || !guard || !io->read32 || !io->write32 || !io->packet || !io->delay_us) { return BLOCK_ARGUMENT; }
     if (!s->ready || !s->f2_ready || s->waiting || s->error!=BLOCK_OK) { return BLOCK_NOT_READY; }
-    unsigned char frame[(16+NETPROBE_FRAME_BYTES+3)&~3u]={0};for (size_t i=0;i<n;++i) { frame[16+i]=((const unsigned char *)p)[i]; }
     enum block_result r=wait_for(io,s,false);if (r==BLOCK_OK) {
         if (!guard(ctx)) { return BLOCK_NOT_READY; }
         unsigned length=16+(unsigned)n;put32(frame,((uint32_t)(uint16_t)~length<<16)|length);frame[4]=s->tx_seq;frame[5]=2;frame[7]=12;frame[12]=0x20;
         r=packet(io,s,true,frame,(length+3u)&~3u);if (r==BLOCK_OK) { ++s->tx_seq;++s->tx_frames; }
     }
     if (r!=BLOCK_OK) { s->ready=false;s->error=r; }return r;
+}
+enum block_result brcm_control_netprobe(const struct brcm_control_io *io,struct brcm_control_state *s,const struct netprobe *owner,enum netprobe_packet kind,unsigned sequence,const void *p,size_t n,bool (*guard)(void *),void *ctx)
+{
+    if (!netprobe_packet_valid(owner,kind,sequence,p,n)) { return BLOCK_ARGUMENT; }
+    unsigned char frame[(16+NETPROBE_FRAME_BYTES+3)&~3u]={0};
+    for (size_t i=0;i<n;++i) { frame[16+i]=((const unsigned char *)p)[i]; }
+    return data_write(io,s,frame,n,guard,ctx);
+}
+enum block_result brcm_control_udp(const struct brcm_control_io *io,struct brcm_control_state *s,const struct udp_packet *request,bool (*guard)(void *),void *ctx)
+{
+    unsigned char frame[(16+UDP_FRAME_MAX+3)&~3u]={0};size_t bytes;
+    if (!udp_encode(request,frame+16,UDP_FRAME_MAX,&bytes)) { return BLOCK_ARGUMENT; }
+    return data_write(io,s,frame,bytes,guard,ctx);
 }
 enum block_result brcm_control_key(const struct brcm_control_io *io,struct brcm_control_state *s,const void *wire,size_t n,uint32_t *status,bool (*guard)(void *),void *ctx)
 {

@@ -1,5 +1,15 @@
 # Development log
 
+## 2026-11-22 - EL0 local UDP sockets
+
+Added process-owned UDP sockets that transmit through the background Wi-Fi
+worker. Applications can send and receive bounded datagrams to a directly
+reachable IPv4 peer. Both QEMU profiles exercised the actual EL0 syscalls,
+including ownership, checked buffers, process exit, timeouts and link loss.
+The Windows echo helper passed loopback, and the updater preview selected
+the kernel, process viewer and new echo app. A real Pi echo remains pending.
+[ABI and Pi commands](udp-sockets.md)
+
 ## 2026-11-22 - Pi hotspot reconnect verified and group key rotation
 
 The Pi rejoined the hotspot at a changed BSSID on the third scan, acquired

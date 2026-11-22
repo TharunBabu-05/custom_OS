@@ -18,9 +18,10 @@
 #include "app_profile.h"
 #include "user_heap.h"
 #include "network_worker.h"
+#include "udp.h"
 static unsigned char copy_bytes[VFS_FILE_MAX];
 static unsigned char profile_bytes[APP_PROFILE_BYTES];
-enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
+enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,UDP_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
 struct process {
     struct user_tables tables;
     struct user_mapping maps[USER_MAPPING_LIMIT];unsigned map_count;
@@ -37,6 +38,7 @@ struct process {
     unsigned parent,wait_child;uint64_t deadline;
     uint64_t stdin_handle,stdout_handle;bool io_failed;
     uint64_t pipe_address;size_t pipe_bytes;unsigned char pipe_buffer[512];
+    uint64_t udp_handle,udp_address;size_t udp_capacity;
 };
 static struct process tasks[PROCESS_LIMIT];
 /* Inactive candidate: prepare tables for the current slot's physical root.
@@ -98,7 +100,7 @@ static bool release_memory(struct process *p)
     zero(p->pipe_buffer,sizeof(p->pipe_buffer));p->pipe_bytes=p->pipe_address=0;return good;
 }
 static bool release(struct process *p)
-{ (void)kfile_close_owner(p->owner);return release_memory(p); }
+{ udp_close_owner(p->owner);(void)kfile_close_owner(p->owner);return release_memory(p); }
 static bool load_at(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env,uint64_t owner,uint64_t table_root)
 {
     /* Keep process owners clear of the reserved kernel file-owner IDs. */
@@ -140,7 +142,7 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
 }
 static bool load(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env)
 { return load_at(p,path,cwd,args,env,0,0); }
-static bool live(const struct process *p) { return p->status==READY || p->status==SLEEPING || p->status==INPUT_WAIT || p->status==CHILD_WAIT || p->status==PIPE_READ_WAIT || p->status==PIPE_WRITE_WAIT; }
+static bool live(const struct process *p) { return p->status>=READY && p->status<=UDP_WAIT; }
 _Static_assert((unsigned)PROCESS_LIMIT==(unsigned)UOS_PROCESS_MAX,"process snapshot capacity");
 static uint64_t process_pid(const struct process *p) { return p->owner ? (p->owner&~(1ULL<<63))+1 : 0; }
 static unsigned public_state(const struct process *p)
@@ -149,7 +151,7 @@ static unsigned public_state(const struct process *p)
     case READY:return p==&tasks[current] ? UOS_PROCESS_RUNNING : UOS_PROCESS_READY;
     case SLEEPING:return UOS_PROCESS_SLEEPING;case INPUT_WAIT:return UOS_PROCESS_INPUT;
     case CHILD_WAIT:return UOS_PROCESS_WAIT_CHILD;case PIPE_READ_WAIT:return UOS_PROCESS_PIPE_READ;
-    case PIPE_WRITE_WAIT:return UOS_PROCESS_PIPE_WRITE;case EXITED:return UOS_PROCESS_EXITED;
+    case PIPE_WRITE_WAIT:return UOS_PROCESS_PIPE_WRITE;case UDP_WAIT:return UOS_PROCESS_UDP_WAIT;case EXITED:return UOS_PROCESS_EXITED;
     case FAULTED:return UOS_PROCESS_FAULTED;case TIMED_OUT:return UOS_PROCESS_TIMEOUT;
     case CANCELLED:return UOS_PROCESS_CANCELLED;default:return 0;
     }
@@ -192,7 +194,7 @@ static int64_t process_control(struct process *p,struct exception_frame *f)
     if (f->x[8]==UOS_SYS_CHILD_CANCEL) {
         /* Preserve completed outcomes. Reaping remains explicit: retaining the
          * slot keeps poll idempotent and old PIDs cannot name a reused slot. */
-        if (live(child)) { child->status=CANCELLED;child->code=130; }return 0;
+        if (live(child)) { child->status=CANCELLED;child->code=130;udp_close_owner(child->owner); }return 0;
     }
     if (!user_range(p,f->x[1],sizeof(struct uos_child_info),true)) { return UOS_EFAULT; }
     struct uos_child_info result={0};result.pid=process_pid(child);result.state=public_state(child);result.finished=!live(child);
@@ -340,6 +342,24 @@ static void terminal_poll(void)
         }
     }
 }
+static int64_t udp_read_to_user(const struct process *p,uint64_t handle,uint64_t address,size_t capacity)
+{
+    if (!user_range(p,address,capacity,true)) { return UOS_EFAULT; }
+    unsigned char buffer[UOS_UDP_MAX_BYTES];
+    int64_t result=udp_recv(p->owner,handle,buffer,capacity);
+    if (result>0) { user_copy(p,address,buffer,(size_t)result,true);zero(buffer,(size_t)result); }
+    return result;
+}
+static void udp_wait_ready(struct process *p,uint64_t now)
+{
+    int64_t result=udp_read_to_user(p,p->udp_handle,p->udp_address,p->udp_capacity);
+    if (result==UOS_EAGAIN) {
+        if ((int64_t)(now-p->wake)<0) { return; }
+        result=UOS_ETIMEDOUT;
+    }
+    p->udp_handle=p->udp_address=p->udp_capacity=0;
+    p->context.x[0]=(uint64_t)result;p->status=READY;
+}
 static void refresh(void)
 {
     uint64_t now=timer_ticks();bool expired=budget_seconds && now-started>=timer_frequency()*budget_seconds;
@@ -348,10 +368,14 @@ static void refresh(void)
         if (!irq_timer_running()) { p->status=FAULTED;p->code=126; }
         else if (expired || (p->deadline && (int64_t)(now-p->deadline)>=0)) { p->status=TIMED_OUT;p->code=124; }
         else if (p->status==SLEEPING && (int64_t)(now-p->wake)>=0) { p->status=READY;++p->wakes; }
+        else if (p->status==UDP_WAIT) { udp_wait_ready(p,now); }
     }
     terminal_poll();
     pipeline_refresh();
     children_refresh();
+    for (unsigned i=0;i<total;++i) {
+        if (tasks[i].status!=UNUSED && !live(&tasks[i])) { udp_close_owner(tasks[i].owner); }
+    }
 }
 static bool network_checkpoint;
 static bool schedule(struct exception_frame *frame,bool timer)
@@ -514,6 +538,33 @@ done:
     case FS_CROSS_DEVICE:return UOS_EXDEV;case FS_IS_DIR:return UOS_EISDIR;default:return UOS_ERROR;
     }
 }
+static uint64_t ticks_ms(uint64_t ticks,uint64_t hz)
+{ return hz ? (ticks/hz)*1000+(ticks%hz)*1000/hz : 0; }
+static int64_t udp_call(struct process *p,struct exception_frame *f)
+{
+    uint64_t a=f->x[0],b=f->x[1],c=f->x[2],timeout=f->x[3];
+    if (f->x[8]==UOS_SYS_UDP_OPEN) {
+        struct uos_udp_peer endpoint;
+        if (!user_range(p,a,sizeof(endpoint),false)) { return UOS_EFAULT; }
+        user_copy(p,a,&endpoint,sizeof(endpoint),false);return udp_open(p->owner,&endpoint);
+    }
+    if (f->x[8]==UOS_SYS_UDP_CLOSE) { return udp_close(p->owner,a); }
+    if (c>UOS_UDP_MAX_BYTES) { return UOS_EMSGSIZE; }
+    uint64_t hz=timer_frequency(),now=timer_ticks();
+    if (f->x[8]==UOS_SYS_UDP_SEND) {
+        if (!user_range(p,b,(size_t)c,false)) { return UOS_EFAULT; }
+        unsigned char buffer[UOS_UDP_MAX_BYTES];
+        user_copy(p,b,buffer,(size_t)c,false);
+        int64_t result=udp_send(p->owner,a,buffer,(size_t)c,ticks_ms(now,hz));
+        zero(buffer,(size_t)c);return result;
+    }
+    if (timeout>UOS_UDP_MAX_WAIT_MS || (timeout && (!hz || hz>(UINT64_MAX-999)/UOS_UDP_MAX_WAIT_MS))) { return UOS_ERROR; }
+    int64_t result=udp_read_to_user(p,a,b,(size_t)c);
+    if (result==UOS_EAGAIN && timeout) {
+        p->udp_handle=a;p->udp_address=b;p->udp_capacity=(size_t)c;p->wake=now+(hz*timeout+999)/1000;p->status=UDP_WAIT;
+    }
+    return result;
+}
 static int64_t syscall(struct process *p,struct exception_frame *f)
 {
     uint64_t a=f->x[0],b=f->x[1],c=f->x[2];unsigned char buffer[512];size_t count=0;enum fs_result r;
@@ -583,7 +634,7 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
         if (r!=FS_OK) { p->io_failed=true;return UOS_ERROR; }
         user_copy(p,a,buffer,count,true);return (int64_t)count;
     case UOS_SYS_TIME_MS: {
-        uint64_t ticks=timer_ticks(),hz=timer_frequency();return hz ? (int64_t)((ticks/hz)*1000+(ticks%hz)*1000/hz) : 0;
+        return (int64_t)ticks_ms(timer_ticks(),timer_frequency());
     }
     case UOS_SYS_OPEN:
         if (!b || b>=RAMFS_PATH_MAX || c>15) { return UOS_ERROR; }if (!user_range(p,a,(size_t)b,false)) { return UOS_EFAULT; }
@@ -693,6 +744,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
         child_cleanup_failed=true;p->status=FAULTED;p->code=126;
         (void)release_memory(&exec_stage);zero(&exec_stage,sizeof(exec_stage));return UOS_ERROR;
     }
+    udp_close_owner(p->owner);
     copy(p,&exec_stage,sizeof(*p));zero(&exec_stage,sizeof(exec_stage));
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     __asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*f=p->context;return 0;
@@ -773,6 +825,9 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             int64_t result=replace_image(p,f->x[0],f);
             if (!live(p)) { return schedule(f,false); }
             if (result) { f->x[0]=(uint64_t)result; }return true;
+        }
+        if (f->x[8]>=UOS_SYS_UDP_OPEN && f->x[8]<=UOS_SYS_UDP_CLOSE) {
+            f->x[0]=(uint64_t)udp_call(p,f);return p->status!=UDP_WAIT || schedule(f,false);
         }
         if (f->x[8]==UOS_SYS_PIPE_RUN) {
             int64_t result=pipeline_start(p,f);f->x[0]=(uint64_t)result;return result ? true : schedule(f,false);

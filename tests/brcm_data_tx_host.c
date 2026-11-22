@@ -3,6 +3,7 @@
 #include "host_assert.h"
 #include "brcm_control.h"
 #include "dhcp.h"
+#include "udp.h"
 static struct brcm_control_state s;
 static struct { unsigned calls,fail_at,writes,reads,delays;bool inject,fail_write,cancel,cancel_on_rx;unsigned char sent[388];size_t bytes; } m;
 static enum block_result touch(void) { return ++m.calls==m.fail_at ? BLOCK_IO : BLOCK_OK; }
@@ -76,6 +77,16 @@ int main(void)
     seed();m.inject=m.cancel_on_rx=true;assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
     seed();dns[36]^=1;assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_ARGUMENT && !m.calls);dns[36]^=1;
     seed();np.dns.status=DNS_CANCELLED;assert(brcm_control_netprobe(&io,&s,&np,NP_DNS_QUERY,0,dns,n,permitted,&m)==BLOCK_ARGUMENT && !m.calls);
+    unsigned char data[UOS_UDP_MAX_BYTES]={1,2,3},ether[UDP_FRAME_MAX];size_t actual=0;
+    struct udp_packet udp={mac,lease.address,np.gateway_mac,lease.router,55001,4040,data,sizeof(data)};
+    assert(udp_encode(&udp,ether,sizeof(ether),&actual) && actual==UDP_FRAME_MAX);
+    seed();assert(brcm_control_udp(&io,&s,&udp,permitted,&m)==BLOCK_OK && m.writes==1 && m.bytes==316 &&
+        !memcmp(m.sent+16,ether,actual) && !m.sent[314] && !m.sent[315]);
+    seed();m.inject=m.cancel_on_rx=true;
+    assert(brcm_control_udp(&io,&s,&udp,permitted,&m)==BLOCK_NOT_READY && !m.writes && m.reads==1 && s.ready);
+    seed();++udp.bytes;assert(brcm_control_udp(&io,&s,&udp,permitted,&m)==BLOCK_ARGUMENT && !m.calls);--udp.bytes;
+    udp.peer_mac=NULL;seed();
+    assert(brcm_control_udp(&io,&s,&udp,permitted,&m)==BLOCK_OK && m.bytes==76 && m.sent[28]==8 && m.sent[29]==6);
     client.phase=DHCP_ACKED;client.ack_seen=client.request_written=true;client.lease=lease;
     assert(dhcp_encode_decline(&client,dhcp,sizeof(dhcp),&n)==BLOCK_OK);seed();assert(brcm_control_dhcp(&io,&s,dhcp,n,permitted,&m)==BLOCK_OK && m.sent[300]==4 && m.bytes==360 && s.request_id==51);
     assert(dhcp_client_init(&client,mac,entropy)==BLOCK_OK);
