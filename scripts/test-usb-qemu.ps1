@@ -103,7 +103,7 @@ try {
         [uint64]$hash=2166136261
         foreach ($b in $bytes) { $hash=(($hash -bxor [uint64]$b)*[uint64]16777619) -band [uint64]4294967295 }
         $expected='PASS: read-only storage sectors=512 fnv1a32=0x'+$hash.ToString('x16')
-        foreach ($fragment in @('USB BOT: ready, read-only','device=usb-bot sector_size=512 access=read-only','kernel=OUROS.IMG',$expected)) {
+        foreach ($fragment in @('USB BOT: ready; boot read-only, data opt-in','device=usb-bot sector_size=512 boot=read-only data=opt-in','kernel=OUROS.IMG',$expected)) {
             if (!$text.Contains($fragment)) { throw "$name missing '$fragment'; see $out/$name.log" }
         }
         if ($text -notmatch 'ring_wraps_in=[1-9][0-9]* out=[1-9][0-9]* events=[1-9][0-9]*') { throw 'USB rings did not all wrap' }

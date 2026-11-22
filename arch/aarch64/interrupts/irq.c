@@ -6,6 +6,10 @@
 #include "mmu.h"
 #include "console.h"
 #include "cpu.h"
+#include "resources.h"
+#ifdef OUROS_PI5
+#include "rp1_probe.h"
+#endif
 static struct gic_state controller;
 static struct tick_state tick;
 static const char *board;
@@ -48,6 +52,14 @@ static bool initialize(void)
     if (cpu_el()!=1 || !mmu_dma_compatible()) { console_write("IRQ init refused: requires EL1 and caches-off known memory profile.\n");return false; }
     struct gic_description description;
     if (!gic_discover(board,(const void *)dtb,0x200000,&description)) { console_write("IRQ init refused: unsupported DT GICv2/timer profile.\n");return false; }
+    const struct resource_range claims[]={
+        {RESOURCE_MMIO,0,description.distributor,description.distributor_span},
+        {RESOURCE_MMIO,0,description.cpu,description.cpu_span},
+        {RESOURCE_IRQ,description.distributor,description.timer_irq,1}
+    };
+    if (!resource_acquire("gic-timer",claims,3)) {
+        console_write("IRQ init refused: resource claim unavailable.\n");return false;
+    }
     timer_control(0);controller.description=description;
     const struct gic_io io={NULL,read32,write32};enum gic_result r=gic_initialize(&controller,&description,&io);
     console_write("GICv2 initialization: ");console_write(gic_error(r));console_write(" timer_INTID=");console_u64(description.timer_irq);console_write(". CPU IRQ stays masked until timerstart.\n");return r==GIC_OK;
@@ -117,34 +129,66 @@ static void probe_done(void *context)
     (void)context;
     ++probe_events;
 }
-static void peripheral_test(void)
+static bool ack_edge(void *context)
+{ (void)context; return true; } /* IAR consumes the synthetic edge. */
+
+static unsigned rp1_test_intid(void)
 {
-    if (!irq_probe_discover(board,(const void *)dtb,0x200000,&probe)) {
-        console_write("Peripheral IRQ test unavailable for this device tree.\n");return;
+#ifdef OUROS_PI5
+    struct rp1_topology topology;
+    struct rp1_mip mip;
+    if (!rp1_topology_read((const void *)dtb,0x200000,&topology) ||
+        !rp1_mip_describe((const void *)dtb,0x200000,topology.msi_parent,&mip) ||
+        mip.vectors!=64 || mip.data_offset) { return 0; }
+    return mip.first_intid+63; /* The endpoint has sources 0..60. */
+#else
+    return 223; /* Same unused test INTID on the supported QEMU virt profile. */
+#endif
+}
+
+static void peripheral_test(bool edge)
+{
+    if (edge) {
+        probe.intid=rp1_test_intid();
+    } else if (!irq_probe_discover(board,(const void *)dtb,0x200000,&probe)) {
+        probe.intid=0;
     }
+    if (!probe.intid) { console_write("Peripheral IRQ test unavailable for this device tree.\n");return; }
     uint64_t flags=irq_save();
     if (!running || failed || (flags&0x80)) {
         irq_restore(flags);console_write("Peripheral IRQ test requires a running timer.\n");return;
     }
-    if (!irq_probe_available(&probe)) {
+    if (!edge && !irq_probe_available(&probe)) {
         irq_restore(flags);console_write("Peripheral IRQ test refused: source busy.\n");return;
     }
+    const struct resource_range claims[]={
+        {RESOURCE_IRQ,controller.description.distributor,probe.intid,1},
+        {RESOURCE_MMIO,0,probe.base,0x1000}
+    };
+    unsigned ticket=resource_acquire("irq-test",claims,edge ? 1 : 2);
+    if (!ticket) {
+        irq_restore(flags);console_write("Peripheral IRQ test refused: resource claim unavailable.\n");return;
+    }
     struct gic_spi_route route;
-    enum gic_result status=gic_spi_claim(&controller,probe.intid,&route);
+    enum gic_result status=edge ? gic_spi_claim_edge(&controller,probe.intid,&route) :
+                                 gic_spi_claim(&controller,probe.intid,&route);
     if (status!=GIC_OK) {
         if (!controller.ready) { irq_fatal_stop();failed=true; }
-        else { irq_restore(flags); }
+        else { (void)resource_release(ticket);irq_restore(flags); }
         console_write("Peripheral SPI claim refused: ");console_write(gic_error(status));console_write("\n");return;
     }
-    if (!irq_work_bind(&peripheral,probe.intid,irq_probe_ack,probe_done,&probe)) {
+    if (!irq_work_bind(&peripheral,probe.intid,edge ? ack_edge : irq_probe_ack,probe_done,&probe)) {
         if (gic_spi_release(&controller,&route)!=GIC_OK) { irq_fatal_stop();failed=true; }
-        else { irq_restore(flags); }
+        else { (void)resource_release(ticket);irq_restore(flags); }
         console_write("Peripheral IRQ test refused: registry unavailable.\n");return;
     }
     uint64_t before=tick.delivered,received=peripheral.received;
     probe_events=0;
     status=gic_spi_enable(&controller,&route);
-    if (status==GIC_OK) { irq_probe_arm(&probe); }
+    if (status==GIC_OK) {
+        if (edge) { status=gic_spi_test_pending(&controller,&route); }
+        else { irq_probe_arm(&probe); }
+    }
     irq_restore(flags);
     if (status==GIC_OK) {
         uint64_t start=timer_ticks(),limit=timer_frequency()*4;
@@ -154,7 +198,7 @@ static void peripheral_test(void)
         }
     }
     (void)irq_save();
-    if (status==GIC_OK) { irq_probe_restore(&probe); }
+    if (!edge && status==GIC_OK) { irq_probe_restore(&probe); }
     bool clean=gic_spi_release(&controller,&route)==GIC_OK;
     if (!clean) { irq_fatal_stop();failed=true; }
     if (!failed) { irq_restore(flags); }
@@ -163,10 +207,11 @@ static void peripheral_test(void)
     if (!irq_work_unbind(&peripheral,probe.intid)) { clean=false; }
     uint64_t ticks=tick.delivered-before,handled=peripheral.received-received;
     clean=clean && !failed;
+    if (clean) { clean=resource_release(ticket); }
     if (!failed) { irq_restore(flags); }
 
     console_write("Peripheral IRQ source=");
-    console_write(probe.kind==IRQ_PROBE_BCM_TIMER ? "BCM system timer compare 3" : "PL031 alarm");
+    console_write(edge ? "GIC software edge" : probe.kind==IRQ_PROBE_BCM_TIMER ? "BCM system timer compare 3" : "PL031 alarm");
     console_write(" intid=");console_u64(probe.intid);console_write(" received=");console_u64(handled);
     console_write(" deferred=");console_u64(probe_events);console_write(" timer_delta=");console_u64(ticks);console_write("\n");
     console_write(status==GIC_OK && clean && handled==1 && probe_events==1 && ticks ?
@@ -202,6 +247,7 @@ bool irq_command(const char *line)
     if (same(line,"timerstart")) { (void)start();return true; }
     if (same(line,"timerstop")) { stop();console_write("Periodic timer stopped; CPU IRQ masked.\n");return true; }
     if (same(line,"irqinfo") || same(line,"timerinfo")) { info();return true; }
-    if (same(line,"irqtest")) { peripheral_test();return true; }
+    if (same(line,"irqtest")) { peripheral_test(false);return true; }
+    if (same(line,"rp1irqtest")) { peripheral_test(true);return true; }
     if (same(line,"timertest")) { test();return true; }return false;
 }

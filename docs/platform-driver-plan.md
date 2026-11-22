@@ -144,7 +144,7 @@ with their provider paths. It handles common simple-bus and PCI memory
 ranges. A missing, malformed or ambiguous translation is reported as
 `dt_cpu=unresolved` or as raw `reg` cells for a different address layout.
 Firmware and board policy still determine which devices can be driven.
-General resource claims and conflict tracking follow this inventory.
+The resource registry below tracks claims by migrated drivers.
 [Devicetree specification](https://devicetree-specification.readthedocs.io/en/stable/devicetree-basics.html)
 
 `dt_cpu` comes from the DTB's `ranges`. On the pinned Pi tree, RP1
@@ -191,4 +191,456 @@ Check that the RTC emits two Unix timestamps, that the console shows
 its live address, and that the USB and Ethernet nodes show their RP1
 interrupt parent. The missing path should report an error and return
 to the prompt. Compare UTC and both data checks, then look for
-`phase13-ok`.
+`phase13-ok`. The Pi confirmed the SoC listing, header UART and RP1
+USB/Ethernet paths. RTC seconds advanced from 25 to 33 and the
+mounted data generation remained 9.
+[Pi device inventory capture](../proofs/pi5-device-inventory-2026-11-22.txt)
+
+## Phase 13 resource ownership
+
+`resinfo` shows current kernel driver claims. Drivers request groups
+atomically from a 16-entry foreground registry. MMIO and DMA-backed
+RAM share the physical address domain. IRQ numbers and DMA channel
+numbers use separate provider domains. Overlap, invalid spans and a
+full registry leave all existing claims intact. Claim and release calls
+are internal kernel APIs.
+
+The serial console reserves its operational register range. The GIC
+claims the distributor, CPU interface and architectural timer PPI.
+The xHCI driver claims the selected live controller window and its
+DMA backing before takeover. QEMU also claims the PCI function's
+configuration window. A Pi preflight failure releases the group before
+takeover. A QEMU preflight failure restores its original PCI settings
+and releases after readback verifies the restore. Once xHCI takeover
+has started, the claims remain until reboot. This includes a controller
+that fails to halt. The IRQ probe returns its MMIO and IRQ claims after
+the route and deferred handler are restored. A failed restore keeps
+the claims reserved.
+
+The runtime integration covers the single-core console, GIC/PPI,
+xHCI and IRQ probe paths. Later drivers must register their own
+resources. RP1 interrupt routing and DMA channel programming are
+Phase 14 work.
+
+The native test covers overlap, domain isolation, capacity and stale
+tickets. Both QEMU handoff profiles mounted the USB disk and returned
+identical resource reports after two peripheral IRQ probes. The test
+verified the v5 image hash before and after the run.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-resources.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-shell-qemu.ps1 -PlatformHealth -Image $image
+```
+
+Apply the new boot-file update from the project on Windows, using
+the current `OUROSBOOT` letter. The scratch update changed only
+`OUROS.IMG`.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase13-resources-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After booting the Pi, run the following over UART.
+
+```text
+exit
+datacheck
+resinfo
+irqtest
+resinfo
+irqtest
+resinfo
+datacheck
+appshell
+echo resources-ok
+```
+
+The existing Pi USB boot path should show six claims, including
+`serial-console`, `gic-timer` and `usb1-xhci`. The xHCI live base
+should be `0x1c00300000`. Both IRQ tests should pass and all three
+reports should contain the same claims. Check the mounted data
+generation and look for `resources-ok`. The Pi passed three IRQ
+probes, reported the same six claims each time and kept generation 9.
+[Pi capture](../proofs/pi5-resource-ownership-2026-11-22.txt)
+
+## Phase 14 RP1 interrupts and DMA
+
+`rp1info` resolves the RP1 interrupt parent and PCIe MSI provider from
+the boot device tree. After verifying the live PCIe link and outbound
+window, it reads the RP1 raw interrupt status and MSI-X configuration
+for UART0, USB0, USB1, Ethernet and the DMA engine. It reports the
+local enable and acknowledge settings. The bridge's live inbound DMA
+window and the xHCI DMA claim's translated address are reported separately.
+Raw interrupt bits can change between reads.
+[RP1 register guide](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008370-DS-1-rp1-peripherals.pdf)
+· [RP1 Linux MSI-X driver](https://raw.githubusercontent.com/torvalds/linux/master/drivers/misc/rp1/rp1_pci.c)
+· [BCM2712 PCIe bridge driver](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/pci/controller/pcie-brcmstb.c)
+
+The Pi and QEMU xHCI mappers now require every DMA range to fit in a
+single live claim owned by that driver. They also check the MMU DMA
+policy, and Pi checks the live PCIe DMA window. Native tests cover
+route decoding, invalid DTs, link and window refusal, and DMA bounds.
+
+The observation command reads only interrupt and window registers.
+USB storage polls for its completions.
+
+Use the update ZIP on the existing boot partition.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase14-rp1-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After booting on the Pi, run these in the serial terminal.
+
+```text
+exit
+datacheck
+rp1info
+irqtest
+storagetest
+rp1info
+resinfo
+datacheck
+appshell
+echo rp1-ok
+```
+
+On the pinned DTB, USB1 is RP1 line 36, Ethernet is line 6 and the
+eight-channel DMA engine is line 40. Capture the live settings, the
+read-only storage test and the final shell output. Compare the six
+claims and the mounted generation with the prior physical capture.
+`irqtest` exercises the existing BCM system timer path. The Pi
+confirmed both observation runs, all five reported routes, the
+64 GiB inbound identity aperture and the 512-sector storage read.
+[Pi observation capture](../proofs/pi5-rp1-observation-2026-11-22.txt)
+
+## Phase 14 RP1 DMA engine
+
+`rp1dmatest` copies 64 bytes between two dedicated kernel buffers with
+channel 2 of the RP1 DesignWare DMA engine. It checks the firmware DMA
+clock, live PCIe windows, address bounds and resource claims before
+programming the channel. The driver polls for completion and verifies
+the destination, source and guard bytes. It restores the saved
+registers and releases its claims after verified cleanup. A timeout
+attempts to stop the channel. Unverified cleanup keeps the claims and
+buffers reserved for the boot. MSI-X delivery and cache-enabled DMA
+are subsequent increments.
+[RP1 peripheral datasheet](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008370-DS-1-rp1-peripherals.pdf)
+· [DesignWare DMA reference driver](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/dma/dw-axi-dmac/dw-axi-dmac-platform.c)
+· [RP1 clock reference](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/clk/clk-rp1.c)
+
+The native test exercises descriptor encoding, busy refusal,
+completion, errors, timeout and failed cleanup. QEMU checks that the
+Pi-only command returns to the monitor and the shell and USB disk remain
+usable. Build the native model with
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-rp1.ps1`.
+The Pi image still has 4 KiB below the firmware DTB. The build compiles
+the VFS, FAT32 reader and kernel file layer for size.
+
+Apply the boot-file update on Windows using the current `OUROSBOOT`
+letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase14-dma-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After booting on the Pi, run these in PuTTY.
+
+```text
+exit
+datacheck
+resinfo
+rp1dmatest
+resinfo
+rp1dmatest
+resinfo
+irqtest
+storagetest
+datacheck
+appshell
+echo rp1-dma-ok
+```
+
+Record two copy passes, identical resource reports and the unchanged
+data generation. Capture any preflight refusal or timeout. If the
+monitor reports that cleanup is unverified, the reserved claims should
+remain visible in `resinfo`, and the next `rp1dmatest` should refuse.
+
+## Phase 14 DMA retest and MSI receiver
+
+The first DMA copy failed setup/readback twice on the Pi. All six
+existing claims were unchanged after each attempt. The IRQ and storage
+smoke tests passed and data stayed at generation 9.
+[Pi DMA setup capture](../proofs/pi5-rp1-dma-setup-2026-11-22.txt)
+
+The revised DMA test enables the idle engine before programming the
+channel, checks required fields separately from optional register
+bits, and prints the first failing register offset with its expected
+and observed values. Native models cover an engine that gates channel
+writes until enabled and a fixed bit in a channel configuration
+register. The Pi setup failure did not include a register offset, so
+the exact rejected access still requires a hardware retest.
+[DesignWare initialization and channel setup](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/dma/dw-axi-dmac/dw-axi-dmac-platform.c)
+
+`rp1info` now shows the BCM2712 MSI receiver's doorbell address and
+GIC vector range, plus the live host and VPU masks, edge configuration
+and pending host bits. The pinned tree describes 64 vectors starting
+at GIC INTID 160. This is the receiver observation step. End-to-end
+MSI-X delivery and acknowledgments remain a separate test.
+[BCM2712 MSI receiver driver](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/irqchip/irq-bcm2712-mip.c)
+
+Use the updated boot-file package.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase14-mip-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot the Pi and enter these commands in PuTTY.
+
+```text
+exit
+datacheck
+rp1info
+resinfo
+rp1dmatest
+resinfo
+rp1dmatest
+resinfo
+irqtest
+storagetest
+datacheck
+appshell
+echo phase14-retest-ok
+```
+
+Capture the two `RP1 MIP` lines and both DMA results. The final
+`echo` verifies shell responsiveness. A DMA pass is reported by
+`PASS: RP1 DMA copied 64 bytes`.
+
+## Phase 14 DMA signal fix and GIC edge test
+
+The MIP readback passed on the Pi. The receiver reports doorbell
+`0xfffffff000` and 64 GIC vectors starting at INTID 160. DMA stopped
+at channel 2's signal-enable register, offset `0x390`. Its
+`0x07c08004` readback matches the complement of the documented
+interrupt bits. The updated test checks and restores only the
+documented interrupt fields. The native fixture reproduces the Pi
+readback and also checks that a real enable bit that stays set
+still blocks the transfer.
+[Pi diagnostic capture](../proofs/pi5-rp1-mip-dma-signal-2026-11-22.txt)
+· [DesignWare interrupt definitions](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/dma/dw-axi-dmac/dw-axi-dmac.h)
+
+`rp1irqtest` temporarily claims INTID 223. On the known Pi DT layout,
+that is MIP vector 63, beyond the RP1 source range. The test configures
+the SPI for edge triggering, injects one pending event at the GIC,
+and checks that one deferred callback ran while the timer kept ticking.
+It restores trigger mode, priority and CPU target and releases its
+claim. This verifies the host interrupt path. Endpoint MSI-X delivery
+and the RP1 acknowledge path remain separate tests.
+[Arm GIC set-pending register](https://support.arm.com/documentation/ddi0601/2022-06/External-Registers/GICD-ISPENDR-n---Interrupt-Set-Pending-Registers)
+
+Apply the package to the existing boot volume, using its current drive letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase14-edge-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After booting on the Pi, run these in PuTTY.
+
+```text
+exit
+datacheck
+resinfo
+rp1dmatest
+rp1dmatest
+rp1irqtest
+rp1irqtest
+irqinfo
+resinfo
+irqtest
+storagetest
+datacheck
+appshell
+echo phase14-edge-ok
+```
+
+Check for two DMA passes and two `GIC software edge intid=223` lines
+with `received=1 deferred=1` and nonzero timer deltas. Compare the
+resource reports and the mounted data generation. Capture any
+failure line in full. The final shell echo verifies responsiveness.
+
+The Pi passed these checks. It returned two DMA copy passes, two
+software-generated edges with one deferred callback each and
+`fault=no`. USB storage, six resource claims and v5 generation 9
+were preserved. [Pi capture](../proofs/pi5-rp1-dma-edge-2026-11-22.txt)
+
+## Phase 14 RP1 endpoint MSI-X preflight
+
+`rp1msiinfo` examines the RP1 endpoint one function below the on-board
+BCM2712 PCIe root port. It checks link and bus numbering, walks the
+conventional PCI capabilities, and reports the MSI-X table size,
+function enable and mask, and table and pending-bit array addresses.
+It translates the BAR addresses through the bridge's live outbound
+windows and cross-checks the peripheral BAR against the running UART
+address. The command also checks the live inbound windows for the
+known 4 KiB MSI doorbell mapping.
+[BCM2712 PCIe bridge driver](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/pci/controller/pcie-brcmstb.c)
+· [PCI capability register definitions](https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/pci_regs.h)
+· [RP1 C0 MSI-X configuration capture](https://zenn.dev/smallkirby/articles/6bfe4091e92064?locale=en)
+
+The command temporarily selects the endpoint in the bridge's indirect
+configuration window and verifies that the previous selector is
+restored. Endpoint configuration, MSI-X table contents, and bridge
+address windows are read-only in this test. A missing table translation
+or doorbell window is an inventory result. Endpoint MSI-X delivery and
+acknowledgment remain a later test.
+
+Apply on the existing `OUROSBOOT` partition, using its current letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase14-msix-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After booting on the Pi, run these from PuTTY.
+
+```text
+exit
+datacheck
+resinfo
+rp1msiinfo
+storagetest
+rp1msiinfo
+resinfo
+datacheck
+appshell
+echo phase14-msix-ok
+```
+
+Capture the doorbell and capability lines from both runs, including
+any preflight refusal. Check that both resource reports show six
+claims and both mounted generations match.
+
+Both Pi runs reported `inbound=unmapped` and stopped at bridge validation.
+USB readback, six active resource claims and `/data` generation 9 were
+preserved. The follow-up prints the raw PCIe link status, header type and
+primary, secondary and subordinate bus numbers. An active link with a
+type-1 bridge header qualifies even when the controller mode bit is
+clear. Endpoint access still requires usable firmware bus numbering.
+[Pi MSI-X capture](../proofs/pi5-rp1-msix-2026-11-22.txt)
+
+## Phase 15 RP1 header GPIO readback
+
+`gpioinfo <0..27>` is a serial monitor command that uses BCM GPIO
+numbers. It reads the pin function, pad pulls, input and output-disable
+bits, output-enable override, and the RIO input, output latch and
+output enable. RIO state describes the GPIO controller. The function
+and pad fields describe how that state reaches the pin. The command
+checks the live GPIO device and PCIe window before reading registers.
+GPIO 0 and 1 are reserved for HAT identification, and GPIO 14 and 15
+are reserved for the header serial console on this boot profile.
+[RP1 pin control driver](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/pinctrl/pinctrl-rp1.c)
+· [Raspberry Pi header documentation](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html)
+
+Use the existing `OUROSBOOT` partition. Update the boot directory from
+PowerShell using its current drive letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase15-gpio-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject, boot the Pi and run these commands in PuTTY.
+
+```text
+exit
+datacheck
+resinfo
+gpioinfo 0
+gpioinfo 14
+gpioinfo 15
+gpioinfo 17
+gpioinfo 27
+gpioinfo 28
+rp1msiinfo
+storagetest
+resinfo
+datacheck
+appshell
+echo phase15-gpio-ok
+```
+
+Expect a GPIO report for each valid pin, the two reservation labels,
+and usage text for GPIO 28. Capture the PCIe root status and bus numbers
+in the same run. Check that the 512-sector read passes, resource counts
+remain at six, and the data generation matches both times. This test
+uses the existing serial wiring. Pin ownership and a reversible GPIO
+loopback are the next GPIO increment.
+
+The Pi reported GPIO 0, 14, 15 and 17 correctly. GPIO 27 returned the
+usage line and needs a retest. The RP1 PCIe link was active with a type-1
+header and firmware bus numbers `0/0/0`. The endpoint and MSI-X
+delivery remain pending until a PCIe initialization phase can assign
+bus numbers and verify the bridge mappings. [Pi GPIO capture](../proofs/pi5-rp1-gpio-2026-11-22.txt)
+
+## Phase 15 pin ownership and isolated RIO test
+
+The Pi header boot profile reserves GPIO 0–1 for `hat-id` and GPIO
+14–15 for `serial-console` in the resource table. `resinfo` prints
+both GPIO claims and `gpioinfo` gets its reservation labels from that
+table. The monitor accepts trailing spaces after the pin number.
+
+`gpiotest` claims one pin, requires disconnected pinmux, a disabled pad
+output and a clear RIO output enable, then tests the RIO latch and
+enable bits. The pad remains isolated throughout. Restore clears RIO
+output enable first, restores the prior latch value, and verifies
+both along with the pad and the function before releasing the claim.
+GPIO 17 met the isolation prerequisites in the Pi capture. This test
+uses the existing serial connection.
+[RP1 pad and RIO register reference](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008370-DS-1-rp1-peripherals.pdf)
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase15-gpio-claims-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive, boot the Pi and run these commands in PuTTY.
+
+```text
+exit
+datacheck
+resinfo
+gpioinfo 27
+gpioinfo 28
+gpiotest 0
+gpiotest 14
+gpioinfo 17
+gpiotest 17
+gpiotest 17
+gpioinfo 17
+storagetest
+resinfo
+datacheck
+appshell
+echo gpio-claims-ok
+```
+
+Expect a snapshot for GPIO 27, usage for 28, and pin-claim refusals for
+GPIO 0 and 14. GPIO 17 should pass twice and report the same pad,
+function and latch state. Both resource reports should show eight
+claims, including `hat-id` and `serial-console` GPIO, and both data
+checks should report the same generation. Physical loopback requires
+a separate test with an external connection between two owned pins.

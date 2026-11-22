@@ -2,11 +2,15 @@
 
 **Current platform milestone on 2026-11-22.** The Pi booted from USB,
 mounted extents v5 and passed the binary shell tools. Phase 11 stays
-deferred until an HDMI cable is available. The Pi confirmed Phase 12
-thermal and power diagnostics. The RTC reply fix ships with the first
-Phase 13 device inventory and is ready for a UART retest. The audit
-below records the earlier baseline.
-[Driver roadmap](platform-driver-plan.md) · [Pi readbacks](../proofs/pi5-platform-health-2026-11-22.txt)
+deferred until an HDMI cable is available. The Pi verified the corrected
+RTC read, device inventory, Phase 13 resource ownership and Phase 14
+RP1 interrupt and DMA observation. The Pi verified the MSI receiver,
+the guarded DMA copy and the GIC software edge. The endpoint MSI-X
+preflight stopped at bridge validation and reported an unmapped
+doorbell. Phase 15 verified GPIO header readback over serial on pins
+0, 14, 15 and 17, and now adds pin ownership and an isolated RIO test.
+The audit below records the earlier baseline.
+[Driver roadmap](platform-driver-plan.md) · [Pi RP1 observation](../proofs/pi5-rp1-observation-2026-11-22.txt)
 
 **Baseline on 2026-11-21.** OurOS is a serial-first AArch64 OS for the tested
 Raspberry Pi 5 header UART, with a separate QEMU `virt` target. Its kernel
@@ -92,8 +96,10 @@ device is unavailable and the following phase has no dependency on it.
 | 9. TCP | Bounded EL0 TCP client connections support reads, writes, retransmission and orderly close over background Wi-Fi. [ABI and test commands](tcp-sockets.md) | Native tests passed loss, reordering, duplicate data and reset. Both QEMU profiles and the physical Pi-to-Windows transfer passed the 16 KiB file echo with a matching SHA-256. [Pi and Windows capture](../proofs/pi5-tcp-echo-2026-11-22.txt) |
 | 10. Time, TLS and package retrieval | Operator-set UTC, boot-local SHA-256 pins, pinned live TLS 1.3, and downloads checked against the expected SHA-256 and ELF loader rules. [UTC and trust guide](trust-time.md) · [Live TLS test](tls-live.md) · [Package download test](package-download.md) | The Pi passed live TLS, downloaded a verified ELF from Windows, refused a duplicate download and ran the installed app with exit code 0. [Pi package capture](../proofs/pi5-package-download-2026-11-22.txt) |
 | 11. Local display and input, HDMI deferred | The text console can opt in to firmware HDMI scanout and mirror UART output. USB keyboard input can proceed over UART in the platform roadmap. [HDMI test](hdmi-framebuffer.md) | Verify the test pattern and text mirror when the cable is available. |
-| 12. Platform expansion | Pi 5 device-tree resource checks and read-only thermal, power status and RTC commands. The RTC accepts the firmware's four-byte result count in the eight-byte buffer. [Driver roadmap](platform-driver-plan.md) | The Pi passed thermal and power status and kept the same data generation and UTC. RTC hardware retest is pending. [Pi readbacks](../proofs/pi5-platform-health-2026-11-22.txt) |
-| 13. Device inventory | Inspect live DT paths, aliases, availability, translated register ranges and dependency providers. Track the kernel size budget and report the live UART mapping separately. [Commands](platform-driver-plan.md#phase-13-device-inventory) | Compare BCM2712 and RP1 outputs on Pi over UART. Validate malformed trees and preserve the existing shell and v5 storage behavior. General runtime resource claims follow the inventory. |
+| 12. Platform expansion | Pi 5 device-tree resource checks and read-only thermal, power status and RTC commands. The RTC accepts the firmware's four-byte result count in the eight-byte buffer. [Driver roadmap](platform-driver-plan.md) | The Pi passed thermal and power status. The corrected RTC seconds advanced from 25 to 33. UTC and data generation stayed unchanged. [Pi readbacks](../proofs/pi5-device-inventory-2026-11-22.txt) |
+| 13. Device inventory and ownership | Inspect device-tree resources and track active MMIO, DMA memory and IRQ claims. Register the console, GIC and xHCI and claim the IRQ probe's resources during each run. [Commands](platform-driver-plan.md#phase-13-resource-ownership) | Pi inventory and resource ownership passed. Three IRQ probes returned the same six claims, with data generation 9 and the shell available. [Pi capture](../proofs/pi5-resource-ownership-2026-11-22.txt) |
+| 14. RP1 interrupts and DMA | Report RP1 routes, PCIe DMA windows and BCM2712 MSI receiver state. Require owned DMA mappings, test a guarded 64-byte copy, verify GIC edge dispatch and observe the PCIe endpoint MSI-X capability. [Commands](platform-driver-plan.md#phase-14-rp1-endpoint-msi-x-preflight) | The Pi passed DMA copies and GIC software edges. The MSI-X preflight preserved USB storage and resource state. Endpoint readback and delivery remain pending. [Pi DMA and IRQ capture](../proofs/pi5-rp1-dma-edge-2026-11-22.txt) · [Pi MSI-X capture](../proofs/pi5-rp1-msix-2026-11-22.txt) |
+| 15. RP1 GPIO and peripheral buses | Add GPIO readback, boot-time pin claims and a reversible RIO register test. Controlled pinmux and physical loopback follow the isolated test. [Commands](platform-driver-plan.md#phase-15-pin-ownership-and-isolated-rio-test) | GPIO 0, 14, 15 and 17 read back correctly. Retest GPIO 27 and verify reserved-pin refusal, repeatable RIO test cleanup, USB storage and mounted data. [Pi GPIO capture](../proofs/pi5-rp1-gpio-2026-11-22.txt) |
 
 ### First Pi verification run
 

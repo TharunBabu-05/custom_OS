@@ -21,10 +21,11 @@ static bool write32(void *ctx,bool cpu,unsigned at,uint32_t value)
         if (at==16) { model.eoi=value;return true; }
         if (at==4 && model.bad_pmr) { return true; }model.c[at/4]=value;return true;
     }
-    assert(at==0 || (at>=0x100 && at<0x200) || (at>=0x280 && at<0x300) ||
-        at==0x41c || at==0x428 || at==0x828 || at==0xc04);
+    assert(at==0 || (at>=0x100 && at<0x300) ||
+        at==0x41c || at==0x428 || at==0x828 || at==0xc04 || at==0xc08);
     if (at>=0x100 && at<0x180) { if (!model.inaccessible) { model.d[at/4]|=value; }return true; }
     if (at>=0x180 && at<0x200) { if (!model.disable_ignored) { model.d[(at-0x80)/4]&=~value; }return true; }
+    if (at>=0x200 && at<0x280) { model.d[at/4]|=value;return true; }
     if (at>=0x280 && at<0x300) { model.d[(at-0x80)/4]&=~value;return true; }
     if (at==0x41c && model.inaccessible) { return true; }model.d[at/4]=value;return true;
 }
@@ -123,6 +124,20 @@ static void spi_routes(void)
     assert(gic_spi_claim(&state,40,&route)==GIC_OK && model.writes==before+1 && !model.d[0x828/4]);
     assert(gic_spi_enable(&state,&route)==GIC_OK && gic_spi_release(&state,&route)==GIC_OK);
     assert(model.d[0x428/4]==0x72463250 && !model.d[0x828/4] && model.d[0x104/4]==0x200);
+    model.d[0xc08/4]=0x80000000u;
+    assert(gic_spi_claim_edge(&state,40,&route)==GIC_OK && route.restore_trigger && !route.edge);
+    assert(model.d[0xc08/4]==0x80020000u);
+    assert(gic_spi_enable(&state,&route)==GIC_OK && gic_spi_test_pending(&state,&route)==GIC_OK);
+    assert(model.d[0x204/4]==0x100 && model.d[0x104/4]==0x300);
+    assert(gic_spi_release(&state,&route)==GIC_OK && model.d[0xc08/4]==0x80000000u &&
+           model.d[0x204/4]==0 && model.d[0x104/4]==0x200);
+    model.d[0xc08/4]|=0x20000u;
+    assert(gic_spi_claim_edge(&state,40,&route)==GIC_OK && route.edge);
+    assert(gic_spi_release(&state,&route)==GIC_OK && model.d[0xc08/4]==0x80020000u);
+    model.d[0x204/4]=0x100;
+    before=model.writes;
+    assert(gic_spi_claim_edge(&state,40,&route)==GIC_STATE && model.writes==before);
+    puts("PASS: edge SPI software pending, neighboring trigger modes, and restoring level and edge routes.");
     puts("PASS: SPI ownership, programmable and fixed routing, adjacent fields, rollback, quarantine and raw EOI on mask failure.");
 }
 struct event_probe { unsigned acks,calls;bool stuck; };

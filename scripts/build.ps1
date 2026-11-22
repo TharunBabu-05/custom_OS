@@ -76,6 +76,9 @@ try {
         $sources+=@('drivers/display/simple_framebuffer.c','drivers/display/framebuffer_terminal.c','kernel/core/framebuffer_commands.c')
         $sources+=@('drivers/platform/pi5_health.c','drivers/platform/pi5_mailbox.c','kernel/core/platform_health_commands.c')
         $sources+=@('kernel/core/dt_resources.c','kernel/core/device_inventory.c')
+        $sources+=@('kernel/core/resources.c','kernel/core/resource_report.c')
+        $sources+=@('kernel/core/rp1_commands.c','kernel/core/rp1_dma_command.c')
+        if ($Target -eq 'rpi5') { $sources+=@('drivers/platform/rp1_probe.c','drivers/platform/rp1_dma_test.c','drivers/platform/rp1_msix.c') }
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }
         $objects = @()
         foreach ($source in $sources) {
@@ -85,6 +88,13 @@ try {
                 'drivers/display/simple_framebuffer.c','drivers/display/framebuffer_terminal.c','kernel/core/framebuffer_commands.c','kernel/core/dt_property.c','kernel/core/main.c',
                 'drivers/platform/pi5_health.c','drivers/platform/pi5_mailbox.c','kernel/core/platform_health_commands.c',
                 'kernel/core/dt_resources.c','kernel/core/device_inventory.c',
+                'kernel/core/resources.c','kernel/core/resource_report.c','kernel/core/app_files.c','kernel/core/storage_commands.c',
+                'kernel/core/rp1_commands.c','drivers/platform/rp1_probe.c','kernel/core/rp1_dma_command.c','drivers/platform/rp1_dma_test.c',
+                'filesystem/vfs.c','filesystem/fat32.c','filesystem/kfile.c',
+                'arch/aarch64/interrupts/irq.c','drivers/irq/gic.c','drivers/irq/gic_dt.c',
+                'drivers/platform/rp1_msix.c','drivers/usb/pi5_usb_dt.c','kernel/core/usb_commands.c',
+                'drivers/usb/xhci_observe.c','drivers/usb/xhci_test_report.c',
+                'kernel/core/fs_commands.c','kernel/core/file_commands.c',
                 'filesystem/persist.c','kernel/process/process.c','drivers/usb/xhci_enumerate.c','drivers/usb/xhci_test.c')) { @('-Os') } else { @() }
             Invoke-Tool gcc ($common + $optimize + @("-mcpu=$cpu",'-c',$source,'-o',$object))
             $objects += $object

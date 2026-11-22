@@ -1,0 +1,47 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The Phase 13 inventory build booted from USB into the serial shell.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> utc
+UTC unset. Use utc set <YYYY-MM-DDTHH:MM:SSZ>.
+> rtcinfo
+RTC unix_seconds=25 1970-01-01T00:00:25Z
+> rtcinfo
+RTC unix_seconds=33 1970-01-01T00:00:33Z
+> devlist /soc@107c000000
+DT children of /soc@107c000000
+[46 children in the supplied log]
+Children: 46
+> devinfo serial0
+/axi/pcie@1000120000/rp1/serial@30000 status=disabled compatible=arm,pl011-axi
+reg bus=0x000000c040030000 size=0x0000000000000100 dt_cpu=0x0000001f00030000
+owner=serial-console live_mmio=0x0000001c00030000
+interrupt-parent: /axi/pcie@1000120000/rp1
+[The supplied log also lists the clock and pinctrl providers.]
+> devinfo usb1
+/axi/pcie@1000120000/rp1/usb@300000 status=enabled compatible=snps,dwc3
+reg bus=0x000000c040300000 size=0x0000000000100000 dt_cpu=0x0000001f00300000
+interrupt-parent: /axi/pcie@1000120000/rp1
+interrupts: 0x0000000000000024 0x0000000000000001
+> devinfo ethernet0
+/axi/pcie@1000120000/rp1/ethernet@100000 status=enabled compatible=raspberrypi,rp1-gem,cdns,macb
+reg bus=0x000000c040100000 size=0x0000000000004000 dt_cpu=0x0000001f00100000
+interrupt-parent: /axi/pcie@1000120000/rp1
+[The supplied log also lists the interrupt specifier and clock providers.]
+> devinfo /does-not-exist
+Device-tree node or alias not found.
+> utc
+UTC unset. Use utc set <YYYY-MM-DDTHH:MM:SSZ>.
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo phase13-ok
+phase13-ok
+
+The RTC advances from the Unix epoch. This verifies readback and ticking.
+Calendar accuracy and battery retention are pending.

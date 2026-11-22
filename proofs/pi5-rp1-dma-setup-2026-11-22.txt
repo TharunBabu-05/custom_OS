@@ -1,0 +1,32 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The Phase 14 DMA build booted from USB and mounted /data extents v5.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> resinfo
+Resource claims: 6/16
+> rp1dmatest
+RP1 DMA test: register setup or readback failed; status=0x0000000000000000
+> resinfo
+Resource claims: 6/16
+> rp1dmatest
+RP1 DMA test: register setup or readback failed; status=0x0000000000000000
+> resinfo
+Resource claims: 6/16
+> irqtest
+Peripheral IRQ source=BCM system timer compare 3 intid=99 received=1 deferred=1 timer_delta=5
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo rp1-dma-ok
+rp1-dma-ok
+
+The 64-byte copy did not pass. The log confirms repeatable command
+return, unchanged resource reports, and continued IRQ and USB service.

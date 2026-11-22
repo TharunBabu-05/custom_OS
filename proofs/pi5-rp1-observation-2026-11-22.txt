@@ -1,0 +1,33 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The Pi booted from USB and mounted /data extents v5.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> rp1info
+RP1 MSI parent (DT): /axi/msi-controller@1000130000
+RP1 DMA engine channels (DT): 8
+RP1 PCIe link up, raw IRQ bits=0x0000000000000000
+RP1 source=uart0 line=25 high-level enabled=no iack_enabled=no raw=0
+RP1 source=usb0 line=31 rising-edge enabled=no iack_enabled=no raw=0
+RP1 source=usb1 line=36 rising-edge enabled=no iack_enabled=no raw=0
+RP1 source=ethernet line=6 high-level enabled=no iack_enabled=no raw=0
+RP1 source=dma line=40 high-level enabled=no iack_enabled=no raw=0
+RP1 DMA inbound cpu=0x0000000000000000 pci=0x0000000000000000 bytes=68719476736
+RP1 DMA claim owner=usb1-xhci bytes=106496 bus=0x00000000001d3000
+> irqtest
+Peripheral IRQ source=BCM system timer compare 3 intid=99 received=1 deferred=1 timer_delta=5
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+
+The second rp1info had the same output. resinfo reported six claims.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo rp1-ok
+rp1-ok

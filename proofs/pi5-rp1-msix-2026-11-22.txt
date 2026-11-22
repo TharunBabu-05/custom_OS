@@ -1,0 +1,30 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The first MSI-X preflight build booted from USB and mounted /data generation 9.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> resinfo
+Resource claims: 6/16
+> rp1msiinfo
+RP1 PCIe doorbell=0x000000fffffff000 inbound=unmapped
+RP1 MSI-X preflight: unsupported link or bus numbering
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> rp1msiinfo
+RP1 PCIe doorbell=0x000000fffffff000 inbound=unmapped
+RP1 MSI-X preflight: unsupported link or bus numbering
+> resinfo
+Resource claims: 6/16
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo phase14-msix-ok
+phase14-msix-ok
+
+Both resource inventories matched. The bridge guard stopped both probes
+before endpoint configuration was read. The shell echo confirmed the
+return to EL0 after the monitor checks.

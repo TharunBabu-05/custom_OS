@@ -1,0 +1,39 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The Phase 14 edge build booted from USB and mounted /data generation 9.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> resinfo
+Resource claims: 6/16
+> rp1dmatest
+PASS: RP1 DMA copied 64 bytes, guards intact, channel and claims restored.
+> rp1irqtest
+Peripheral IRQ source=GIC software edge intid=223 received=1 deferred=1 timer_delta=1
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+> rp1dmatest
+PASS: RP1 DMA copied 64 bytes, guards intact, channel and claims restored.
+> rp1irqtest
+Peripheral IRQ source=GIC software edge intid=223 received=1 deferred=1 timer_delta=1
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+> irqinfo
+IRQ controller: GICv2 ready fault=no
+peripheral_received=2 deferred=2 overflow=0 stuck=0
+> resinfo
+Resource claims: 6/16
+> irqtest
+Peripheral IRQ source=BCM system timer compare 3 intid=99 received=1 deferred=1 timer_delta=5
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo phase14-edge-ok
+phase14-edge-ok
+
+The two resource reports listed the same owners, types, addresses and lengths.
+The INTID 223 edges were generated in software at the GIC.

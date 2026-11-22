@@ -2,6 +2,9 @@
 #include "console.h"
 #include "dt_property.h"
 #include "dt_resources.h"
+#include "resources.h"
+#include "rp1_probe.h"
+#include "rp1_dma_test.h"
 #include "cpu.h"
 #include "memory.h"
 #include "heap.h"
@@ -125,6 +128,10 @@ static void startup(void)
 }
 static void command(const char *line)
 {
+    if (equal(line,"resinfo")) { resource_report(); return; }
+    if (rp1_command(line,firmware_dtb,board.uart_base)) { return; }
+    if (rp1_gpio_command(line,firmware_dtb,board.uart_base)) { return; }
+    if (rp1_dma_test_command(line,firmware_dtb,board.uart_base)) { return; }
     if (equal(line,"startup")) { startup();return; }
     if (process_command(line) || task_command(line) || file_command(line) || trust_time_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
@@ -145,6 +152,12 @@ static void command(const char *line)
         console_write("help info cpuinfo meminfo uptime echo <text> clear reboot halt fault\n");
         console_write("platforminfo therminfo powerinfo rtcinfo (Pi 5 diagnostics)\n");
         console_write("devlist [DT path|alias] | devinfo <DT path|alias> (device tree)\n");
+        console_write("resinfo (active hardware resource claims)\n");
+        console_write("rp1info (Pi 5 interrupt routes and DMA window)\n");
+        console_write("rp1msiinfo (Pi 5 PCIe MSI-X capability and doorbell)\n");
+        console_write("rp1dmatest (Pi 5 DMA scratch copy)\n");
+        console_write("rp1irqtest (GIC edge dispatch on test INTID)\n");
+        console_write("gpioinfo <0..27> | gpiotest <0..27> (Pi 5 header GPIO)\n");
         console_write("utc | utc set <YYYY-MM-DDTHH:MM:SSZ> | utc clear\n");
         console_write("trustlist trustadd <SHA-256> trustcheck <SHA-256> <from UTC> <to UTC> trustclear\n");
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");
@@ -266,6 +279,13 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
     entry_el=boot_el;
     firmware_dtb=dtb;
     if (!board_init(&board,dtb)) { cpu_halt(); }
+    bool header=equal(board.name,"rpi5-header");
+    const struct resource_range uart[]={
+        {RESOURCE_MMIO,0,board.uart_base,0x100}, {RESOURCE_GPIO,RP1_GPIO_BASE,14,2}
+    };
+    const struct resource_range hat={RESOURCE_GPIO,RP1_GPIO_BASE,0,2};
+    if (!resource_acquire("serial-console",uart,header ? 2 : 1) ||
+        (header && !resource_acquire("hat-id",&hat,1))) { cpu_halt(); }
     console_ready=true;
     boot_ticks=timer_ticks();
     console_write("\nOurOS: AArch64 kernel booted\n");

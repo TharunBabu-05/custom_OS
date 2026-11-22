@@ -65,18 +65,37 @@ if ($PlatformHealth) {
         Copy-Item -LiteralPath $source -Destination $disk
         try {
             Session $disk $name $case[0] $case[1] @('exit','datacheck','utc','platforminfo','therminfo','powerinfo','rtcinfo',
-                'devlist','devinfo /pl011@9000000','devinfo /does-not-exist',
+                'devlist','devinfo /pl011@9000000','devinfo /does-not-exist','rp1info','rp1msiinfo','rp1dmatest',
+                'gpioinfo 14','gpioinfo 27','gpioinfo 27 ','gpioinfo 28','gpiotest 17','gpiotest 28',
+                'resinfo',@{Text='irqtest';Delay=4500},'resinfo',
+                @{Text='rp1irqtest';Delay=4500},'resinfo',@{Text='rp1irqtest';Delay=4500},'resinfo',
                 'utc','datacheck','appshell','echo platform-shell-ok','exit','pwd','halt') @(
                 'Starting serial shell from /boot/SHELL.ELF','status=valid',
                 'DT children of /','/pl011@9000000 status=enabled','dt_cpu=0x0000000009000000',
                 'owner=serial-console live_mmio=0x0000000009000000','Device-tree node or alias not found.',
+                'RP1 observation requires a Raspberry Pi 5.','RP1 DMA test requires a Raspberry Pi 5.',
+                'RP1 MSI-X preflight requires a Raspberry Pi 5.',
+                'GPIO readback requires a Raspberry Pi 5.','Usage: gpioinfo <BCM GPIO 0..27>',
+                'GPIO test requires a Raspberry Pi 5.','Usage: gpiotest <BCM GPIO 0..27>',
+                'owner=serial-console kind=mmio start=0x0000000009000000 length=256',
+                'owner=qemu-xhci kind=dma-memory','owner=gic-timer kind=irq domain=0x0000000008000000 start=30 length=1',
                 'UTC unset. Use utc set','Platform health: requires Raspberry Pi 5.','platform-shell-ok') 2 'ouros.startup=shell'
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,'(?m)^> gpioinfo 27 ?\r?\nGPIO readback requires a Raspberry Pi 5\.\r?$').Count -ne 2 -or
+                $log -notmatch '(?m)^> gpioinfo 28\r?\nUsage: gpioinfo <BCM GPIO 0\.\.27>\r?$') {
+                throw "$name rejected valid GPIO 27 or accepted GPIO 28"
+            }
             foreach ($command in @('platforminfo','therminfo','powerinfo','rtcinfo')) {
                 if (!$log.Contains("> $command`r`nPlatform health: requires Raspberry Pi 5.")) { throw "Missing $command refusal" }
             }
             if ([regex]::Matches($log,'UTC unset\. Use utc set').Count -ne 2 -or
                 (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name changed UTC or disk state" }
+            $claims=[regex]::Matches($log,'(?m)^> resinfo\r?\n((?:owner=[^\r\n]+\r?\n)+)Resource claims: 7/16\r?$')
+            if ($claims.Count -ne 4 -or ($claims.Value | Sort-Object -Unique -CaseSensitive).Count -ne 1 -or
+                [regex]::Matches($log,'PASS: peripheral IRQ acknowledged').Count -ne 3 -or
+                [regex]::Matches($log,'GIC software edge intid=223 received=1 deferred=1 timer_delta=[1-9]\d*').Count -ne 2) {
+                throw "$name did not repeat and restore the level and edge IRQ routes"
+            }
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     return
@@ -526,8 +545,8 @@ if ($Extents) {
             $more=@(1..17 | ForEach-Object { @{Text="touch /data/slot-$_";Delay=180} })
             Session $disk "$name-create" $case[0] $case[1] (@(
                 'df /data','exit',@{Text='datarestore /boot/DEMO.BAK';Delay=8500},'datarestore /boot/DEMO.BAK',
-                'appshell','sha256 /data/pattern.bin',@{Text='cp /boot/EXTENT.BIN /data/big.bin';Delay=3500},
-                'sha256 /data/big.bin','exit')+$more+@(
+                'appshell','sha256 /data/pattern.bin',@{Text='cp /boot/EXTENT.BIN /data/big.bin';Delay=10000},
+                @{Text='sha256 /data/big.bin';Delay=2500},'exit')+$more+@(
                 'write /data/recovery older','write /data/recovery newer','datacheck','fileinfo','pwd','halt')) @(
                 '/data extents v5 max_file_bytes=32768 nodes=0/32 persistent',
                 'Data restore committed and read back','Data restore refused/failed: root or current directory is busy',

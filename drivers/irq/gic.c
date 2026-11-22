@@ -99,6 +99,15 @@ static uint8_t local_target(const struct gic_state *s)
     uint32_t bytes=s->cpu_targets;
     return (uint8_t)(bytes|(bytes>>8)|(bytes>>16)|(bytes>>24));
 }
+static bool set_edge(struct gic_state *s,unsigned id,bool edge)
+{
+    unsigned reg=D_CONFIG+4*(id/16);
+    uint32_t bit=2u<<((id&15)*2),value;
+    if (!read(s,false,reg,&value)) { return false; }
+    if (!!(value&bit)==edge) { return true; }
+    return write(s,false,reg,edge ? value|bit : value&~bit) &&
+           read(s,false,reg,&value) && !!(value&bit)==edge;
+}
 enum gic_result gic_spi_release(struct gic_state *s,const struct gic_spi_route *route)
 {
     if (!s || !s->attempted || !route || route->intid<32 || !implemented(s,route->intid)) { return GIC_ARGUMENT; }
@@ -112,9 +121,14 @@ enum gic_result gic_spi_release(struct gic_state *s,const struct gic_spi_route *
         (!write_byte(s,D_TARGET,id,route->target) || !read(s,false,D_TARGET+field,&target)))) { return fail(s,GIC_IO); }
     if ((uint8_t)(priority>>shift)!=route->priority ||
         (programmable && (uint8_t)(target>>shift)!=route->target)) { return fail(s,GIC_STATE); }
+    if (route->restore_trigger) {
+        uint32_t pending,active;
+        if (!read(s,false,D_PENDING+bank,&pending) || !read(s,false,D_ACTIVE+bank,&active)) { return fail(s,GIC_IO); }
+        if ((pending|active)&bit || !set_edge(s,id,route->edge)) { return fail(s,GIC_STATE); }
+    }
     return GIC_OK;
 }
-enum gic_result gic_spi_claim(struct gic_state *s,unsigned id,struct gic_spi_route *route)
+static enum gic_result claim_spi(struct gic_state *s,unsigned id,struct gic_spi_route *route,bool edge)
 {
     if (!s || !s->ready || !route || id<32 || !implemented(s,id)) { return GIC_ARGUMENT; }
     unsigned bank=4*(id/32),field=4*(id/4),shift=(id&3)*8;
@@ -123,12 +137,14 @@ enum gic_result gic_spi_claim(struct gic_state *s,unsigned id,struct gic_spi_rou
     if (!read(s,false,D_ENABLE+bank,&enabled) || !read(s,false,D_ACTIVE+bank,&active) ||
         !read(s,false,D_PENDING+bank,&pending) || !read(s,false,D_CONFIG+4*(id/16),&config) ||
         !read(s,false,D_PRIORITY+field,&priority) || (local && !read(s,false,D_TARGET+field,&target))) { return GIC_IO; }
-    if (((enabled|active|pending)&bit) || (config&(2u<<((id&15)*2)))) { return GIC_STATE; }
-    struct gic_spi_route saved={id,(uint8_t)(priority>>shift),(uint8_t)(target>>shift)};
+    bool was_edge=!!(config&(2u<<((id&15)*2)));
+    if (((enabled|active|pending)&bit) || (!edge && was_edge)) { return GIC_STATE; }
+    struct gic_spi_route saved={id,(uint8_t)(priority>>shift),(uint8_t)(target>>shift),was_edge,edge};
     /* A zero target field is valid only for a single-CPU controller with
      * fixed routing. Its target registers read as zero and ignore writes. */
     enum gic_result result=GIC_IO;
-    if (write_byte(s,D_PRIORITY,id,0xa0) && read(s,false,D_PRIORITY+field,&priority) &&
+    if ((!edge || set_edge(s,id,true)) &&
+        write_byte(s,D_PRIORITY,id,0xa0) && read(s,false,D_PRIORITY+field,&priority) &&
         (!local || (write_byte(s,D_TARGET,id,local) && read(s,false,D_TARGET+field,&target)))) {
         if (((priority>>shift)&0xf0)==0xa0 && (!local || (uint8_t)(target>>shift)==local)) {
             *route=saved;return GIC_OK;
@@ -136,6 +152,19 @@ enum gic_result gic_spi_claim(struct gic_state *s,unsigned id,struct gic_spi_rou
         result=GIC_STATE;
     }
     return gic_spi_release(s,&saved)==GIC_OK ? result : s->result;
+}
+enum gic_result gic_spi_claim(struct gic_state *s,unsigned id,struct gic_spi_route *route)
+{ return claim_spi(s,id,route,false); }
+enum gic_result gic_spi_claim_edge(struct gic_state *s,unsigned id,struct gic_spi_route *route)
+{ return claim_spi(s,id,route,true); }
+enum gic_result gic_spi_test_pending(struct gic_state *s,const struct gic_spi_route *route)
+{
+    if (!s || !s->ready || !route || !route->restore_trigger || route->intid<32 ||
+        !implemented(s,route->intid)) { return GIC_ARGUMENT; }
+    unsigned id=route->intid,bank=4*(id/32);
+    uint32_t bit=1u<<(id&31),pending;
+    if (!write(s,false,D_PENDING+bank,bit) || !read(s,false,D_PENDING+bank,&pending)) { return GIC_IO; }
+    return pending&bit ? GIC_OK : GIC_STATE;
 }
 enum gic_result gic_spi_enable(struct gic_state *s,const struct gic_spi_route *route)
 {

@@ -1,8 +1,46 @@
 # Real Raspberry Pi 5 proof
 
+The Pi read GPIO 0, 14, 15 and 17. GPIO 27 was unexpectedly rejected.
+The PCIe link was active, the root port reported bus numbers `0/0/0`,
+and the doorbell reported unmapped. USB readback and generation 9 passed.
+[GPIO readback capture](pi5-rp1-gpio-2026-11-22.txt)
+
+Both endpoint MSI-X preflights reported an unmapped MIP doorbell and
+stopped at bridge validation. The 512-sector USB read passed, both
+resource reports showed six claims and `/data` stayed at generation 9.
+[MSI-X preflight capture](pi5-rp1-msix-2026-11-22.txt)
+
+The Pi passed two RP1 DMA copies with guard and cleanup checks, and
+two synthetic GIC edges with one deferred callback each. USB storage,
+six resource claims and data generation 9 were preserved.
+[DMA and edge IRQ capture](pi5-rp1-dma-edge-2026-11-22.txt)
+
+The Pi verified the MIP doorbell and 64-vector range. The DMA setup
+failed on register `0x390`, which returned `0x07c08004` after
+a zero write. IRQ, USB storage and data generation 9 were preserved.
+[MIP and DMA diagnostic capture](pi5-rp1-mip-dma-signal-2026-11-22.txt)
+
+The first RP1 DMA copy build reported a setup/readback error twice.
+It released its claims on both runs. The following IRQ and USB storage
+checks passed, and data generation stayed at 9.
+[RP1 DMA setup capture](pi5-rp1-dma-setup-2026-11-22.txt)
+
+The Pi reported the live RP1 IRQ settings and DMA window before and
+after a passing 512-sector storage read. The mounted data generation
+and six resource claims were preserved. [RP1 capture](pi5-rp1-observation-2026-11-22.txt)
+
+The Pi handled three peripheral IRQ probes and returned the same six
+hardware claims each time. Data generation 9 and the serial shell
+remained available. [Resource ownership capture](pi5-resource-ownership-2026-11-22.txt)
+
+The corrected RTC read advanced from 25 to 33 seconds. The Pi listed
+46 SoC children, resolved USB and Ethernet device paths, and printed
+the live header-console address. UTC and data generation 9 were unchanged.
+[Device inventory capture](pi5-device-inventory-2026-11-22.txt)
+
 The Pi returned 41.9 °C and zero firmware throttling flags. UTC and
 the mounted data generation were unchanged. The original RTC read
-failed validation and needs a hardware rerun with the corrected driver.
+failed validation. The corrected driver passed in the capture above.
 [Platform health capture](pi5-platform-health-2026-11-22.txt)
 
 The Pi verified `cmp` for matching files and a mismatch at byte 4, and

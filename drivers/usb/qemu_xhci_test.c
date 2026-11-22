@@ -4,8 +4,10 @@
 #include "cpu.h"
 #include "dt_property.h"
 #include "mmu.h"
+#include "resources.h"
 static struct xhci_test_memory memory;
 static struct xhci_test_state state;
+static unsigned ticket;
 static uint64_t be64(const unsigned char *p)
 { uint64_t value=0; for (unsigned i=0;i<8;++i) { value=value<<8|p[i]; } return value; }
 static bool rd(void *context,uint32_t offset,uint32_t *value)
@@ -19,7 +21,14 @@ static bool wr(void *context,uint32_t offset,uint32_t value)
     __asm__ volatile("dsb sy" ::: "memory"); return true;
 }
 static bool dma(void *context,const void *address,size_t length,uint64_t *bus)
-{ (void)context; if (!bus || !mmu_dma_buffer((uintptr_t)address,length)) { return false; } *bus=(uintptr_t)address; return true; }
+{
+    (void)context;
+    uintptr_t physical=(uintptr_t)address;
+    if (!bus || !resource_contains(ticket,RESOURCE_DMA_MEMORY,0,physical,length) ||
+        !mmu_dma_buffer(physical,length)) { return false; }
+    *bus=physical;
+    return true;
+}
 static void barrier(void *context) { (void)context; __asm__ volatile("dsb sy" ::: "memory"); }
 static uint64_t ticks(void *context) { (void)context; return timer_ticks(); }
 static bool run(uintptr_t dtb,uintptr_t uart_base,bool enumerate,struct block_device *storage)
@@ -38,8 +47,17 @@ static bool run(uintptr_t dtb,uintptr_t uart_base,bool enumerate,struct block_de
         if (id==0x000d1b36 && (class>>8)==0x0c0330) { pci=candidate; break; }
     }
     if (!pci) { console_write("No qemu-xhci attached; use scripts/test-usb-qemu.ps1.\n"); return false; }
-    uint32_t bar,command; rd((void *)pci,0x10,&bar); rd((void *)pci,4,&command);
+    uint32_t bar,high,command;
+    rd((void *)pci,0x10,&bar); rd((void *)pci,0x14,&high); rd((void *)pci,4,&command);
     if ((bar&15)!=4) { console_write("QEMU xHCI BAR is not supported 64-bit memory.\n"); return false; }
+    const struct resource_range claims[]={
+        {RESOURCE_MMIO,0,pci,0x1000},{RESOURCE_MMIO,0,0x10000000,0x4000},
+        {RESOURCE_DMA_MEMORY,0,(uintptr_t)&memory,sizeof(memory)}
+    };
+    ticket=resource_acquire("qemu-xhci",claims,3);
+    if (!ticket) {
+        console_write("QEMU xHCI test refused: resource claim unavailable.\n");return false;
+    }
     /* Only this known emulator device is configured. No bridge reset. */
     wr((void *)pci,4,command&0xffffu&~6u);
     wr((void *)pci,0x10,0x10000004); wr((void *)pci,0x14,0);
@@ -48,6 +66,17 @@ static bool run(uintptr_t dtb,uintptr_t uart_base,bool enumerate,struct block_de
     struct xhci_test_io io={{rd,(void *)0x10000000,0x4000},wr,dma,barrier,ticks,timer_frequency()};
     struct usb_device_info info;
     enum xhci_test_result r=storage ? xhci_storage_start(&io,&memory,&state,&info,storage) : enumerate ? xhci_device_test(&io,&memory,&state,&info) : xhci_ring_test(&io,&memory,&state);
+    if (!state.attempted) {
+        wr((void *)pci,4,command&0xffffu&~6u);
+        wr((void *)pci,0x10,bar); wr((void *)pci,0x14,high);
+        wr((void *)pci,4,command&0xffffu);
+        uint32_t low_now,high_now,command_now;
+        rd((void *)pci,0x10,&low_now); rd((void *)pci,0x14,&high_now); rd((void *)pci,4,&command_now);
+        if (low_now==bar && high_now==high && ((command_now^command)&0xffffu)==0) {
+            (void)resource_release(ticket);
+            ticket=0;
+        }
+    }
     if (!storage || r!=XHCI_TEST_OK) { xhci_test_report(r,&state); }
     if (enumerate && r==XHCI_TEST_OK) { usb_device_report(&info); }
     if (storage) { xhci_storage_info(); }

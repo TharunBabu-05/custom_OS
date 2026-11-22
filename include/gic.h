@@ -16,7 +16,7 @@ struct gic_state {
     uint32_t typer,pidr2,distributor_ctlr,cpu_ctlr,priority_mask,cpu_targets;
     unsigned acknowledgements,completions,masked_unexpected,last_id;uint32_t last_token;
 };
-struct gic_spi_route { unsigned intid;uint8_t priority,target; };
+struct gic_spi_route { unsigned intid;uint8_t priority,target;bool edge,restore_trigger; };
 /* Only the explicitly supported Pi5/QEMU DT profiles, no MMIO. */
 bool gic_discover(const char *board,const void *dtb,size_t bytes,struct gic_description *out);
 /* Caller masks CPU IRQs and disables the architectural timer first. Single CPU.
@@ -30,6 +30,9 @@ enum gic_result gic_mask_unexpected(struct gic_state *,unsigned id);
 /* Claim an initially disabled, inactive, level-triggered SPI. The owner
  * quiesces its device before enable and before release. CPU IRQs stay masked. */
 enum gic_result gic_spi_claim(struct gic_state *,unsigned id,struct gic_spi_route *);
+/* Edge-mode claim for an unused SPI. The previous trigger mode is restored. */
+enum gic_result gic_spi_claim_edge(struct gic_state *,unsigned id,struct gic_spi_route *);
+enum gic_result gic_spi_test_pending(struct gic_state *,const struct gic_spi_route *);
 enum gic_result gic_spi_enable(struct gic_state *,const struct gic_spi_route *);
 enum gic_result gic_spi_release(struct gic_state *,const struct gic_spi_route *);
 enum gic_result gic_mask_line(struct gic_state *,unsigned id);

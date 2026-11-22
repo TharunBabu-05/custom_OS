@@ -1,0 +1,33 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The first GPIO readback build booted from USB and mounted /data generation 9.
+
+> gpioinfo 0
+GPIO 0 reserved=hat-id funcsel=5 pull=up pad_input=1 pad_output_disable=0 oe_override=0 rio_in=1 rio_out=0 rio_oe=0
+> gpioinfo 14
+GPIO 14 reserved=serial-console funcsel=4 pull=down pad_input=1 pad_output_disable=0 oe_override=0 rio_in=1 rio_out=0 rio_oe=0
+> gpioinfo 15
+GPIO 15 reserved=serial-console funcsel=4 pull=down pad_input=1 pad_output_disable=0 oe_override=0 rio_in=1 rio_out=0 rio_oe=0
+> gpioinfo 17
+GPIO 17 funcsel=31 pull=down pad_input=0 pad_output_disable=1 oe_override=0 rio_in=0 rio_out=0 rio_oe=0
+> gpioinfo 27
+Usage: gpioinfo <BCM GPIO 0..27>
+> gpioinfo 28
+Usage: gpioinfo <BCM GPIO 0..27>
+> rp1msiinfo
+RP1 PCIe doorbell=0x000000fffffff000 inbound=unmapped
+RP1 PCIe root link=0x000000000003e0b0 header=0x0000000000000001 primary=0 secondary=0 subordinate=0
+RP1 MSI-X preflight: firmware secondary bus unverified
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> resinfo
+Resource claims: 6/16
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo phase15-gpio-ok
+phase15-gpio-ok
+
+Both full resource inventories and data checks matched. GPIO 27 was
+unexpectedly rejected, so the upper valid pin needs a Pi retest.

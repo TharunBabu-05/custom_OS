@@ -1,0 +1,30 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The Pi booted from USB, mounted /data generation 9, and ran the monitor.
+
+> rp1info
+RP1 MSI parent (DT): /axi/msi-controller@1000130000
+RP1 MIP doorbell=0x000000fffffff000 first_gic_intid=160 vectors=64 data_offset=0
+RP1 MIP edge=0x0000000000000000 host_mask=0x0000000000000000 vpu_mask=0x0000000000000000 host_pending=0x0000000000000000
+> rp1dmatest
+RP1 DMA test: register setup or readback failed; status=0x0000000000000000 reg=0x0000000000000390 expected=0x0000000000000000 observed=0x0000000007c08004
+> resinfo
+Resource claims: 6/16
+> rp1dmatest
+RP1 DMA test: register setup or readback failed; status=0x0000000000000000 reg=0x0000000000000390 expected=0x0000000000000000 observed=0x0000000007c08004
+> resinfo
+Resource claims: 6/16
+> irqtest
+Peripheral IRQ source=BCM system timer compare 3 intid=99 received=1 deferred=1 timer_delta=5
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo phase14-retest-ok
+phase14-retest-ok
+
+The MIP receiver readback succeeded. Both DMA attempts stopped at the
+channel signal-enable check before starting the transfer.

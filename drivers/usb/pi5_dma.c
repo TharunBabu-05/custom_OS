@@ -45,6 +45,8 @@ bool pi5_dma_address(const struct pi5_dma_window *w,uint64_t physical,size_t len
 {
     if (!w || !bus || !length || physical<w->cpu || physical-w->cpu>=w->size ||
         length>w->size-(physical-w->cpu) || physical-w->cpu>UINT64_MAX-w->bus) { return false; }
-    *bus=w->bus+(physical-w->cpu);
-    return length-1<=UINT64_MAX-*bus;
+    uint64_t mapped=w->bus+(physical-w->cpu);
+    if (length-1>UINT64_MAX-mapped) { return false; }
+    *bus=mapped;
+    return true;
 }

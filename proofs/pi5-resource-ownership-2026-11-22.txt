@@ -1,0 +1,29 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+The resource-ownership build booted from USB and mounted extents v5.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x00000000001d3000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 6/16
+> irqtest
+Peripheral IRQ source=BCM system timer compare 3 intid=99 received=1 deferred=1 timer_delta=5
+PASS: peripheral IRQ acknowledged, deferred outside IRQ, timer still running.
+
+The operator ran irqtest three times. Each run produced the same PASS
+and all four resinfo reports listed the same six claims.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo resources-ok
+resources-ok

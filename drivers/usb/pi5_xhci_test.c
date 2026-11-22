@@ -2,9 +2,11 @@
 #include "console.h"
 #include "cpu.h"
 #include "mmu.h"
+#include "resources.h"
 static struct xhci_test_memory memory;
 static struct xhci_test_state state;
 static struct pi5_dma_window window;
+static unsigned ticket;
 static bool enabled(const char *s)
 { return s[0]=='o' && s[1]=='k' && (!s[2] || (s[2]=='a' && s[3]=='y' && !s[4])); }
 static bool rd(void *context,uint32_t offset,uint32_t *value)
@@ -20,7 +22,12 @@ static bool wr(void *context,uint32_t offset,uint32_t value)
 static void barrier(void *context) { (void)context; __asm__ volatile("dsb sy" ::: "memory"); }
 static uint64_t ticks(void *context) { (void)context; return timer_ticks(); }
 static bool dma(void *context,const void *address,size_t length,uint64_t *bus)
-{ (void)context; return mmu_dma_buffer((uintptr_t)address,length) && pi5_dma_address(&window,(uintptr_t)address,length,bus); }
+{
+    (void)context;
+    uintptr_t physical=(uintptr_t)address;
+    return resource_contains(ticket,RESOURCE_DMA_MEMORY,0,physical,length) &&
+           mmu_dma_buffer(physical,length) && pi5_dma_address(&window,physical,length,bus);
+}
 static bool run(uintptr_t dtb,uintptr_t uart_base,bool enumerate,struct block_device *storage)
 {
     if (state.attempted) { xhci_test_report(XHCI_TEST_USED,&state); return false; }
@@ -49,13 +56,23 @@ static bool run(uintptr_t dtb,uintptr_t uart_base,bool enumerate,struct block_de
     if (!pi5_usb_describe((const void *)dtb,0x200000,chosen,&d) || !enabled(d.status)) {
         console_write("USB test refused: selected host is not enabled in DT.\n"); return false;
     }
+    uintptr_t base=0x1c00200000ULL+(uintptr_t)chosen*0x100000;
+    const struct resource_range claims[]={
+        {RESOURCE_MMIO,0,base,d.span},
+        {RESOURCE_DMA_MEMORY,0,(uintptr_t)&memory,sizeof(memory)}
+    };
+    ticket=resource_acquire(chosen ? "usb1-xhci" : "usb0-xhci",claims,2);
+    if (!ticket) {
+        console_write("USB test refused: resource claim unavailable.\n");return false;
+    }
     console_write(storage ? "storageinit selected usb" : enumerate ? "usbenum selected usb" : "usbtest selected usb"); console_u64(chosen);
     console_write("; only this controller is reset. Firmware USB device state will be lost.\n");
     console_write(storage ? "Testing DMA, USB2 configuration and read-only SCSI; controller stays running on success.\n" : enumerate ? "Testing DMA, then reading USB2 descriptors; RAMFS and UART remain available.\n" :
         "Testing command/event DMA with four No-ops; RAMFS and UART remain available.\n");
-    struct xhci_test_io io={{rd,(void *)(0x1c00200000ULL+(uintptr_t)chosen*0x100000),d.span},wr,dma,barrier,ticks,timer_frequency()};
+    struct xhci_test_io io={{rd,(void *)base,d.span},wr,dma,barrier,ticks,timer_frequency()};
     struct usb_device_info info;
     enum xhci_test_result r=storage ? xhci_storage_start(&io,&memory,&state,&info,storage) : enumerate ? xhci_device_test(&io,&memory,&state,&info) : xhci_ring_test(&io,&memory,&state);
+    if (!state.attempted) { (void)resource_release(ticket); ticket=0; }
     if (!storage || r!=XHCI_TEST_OK) { xhci_test_report(r,&state); }
     if (enumerate && r==XHCI_TEST_OK) { usb_device_report(&info); }
     if (storage) { xhci_storage_info(); }
