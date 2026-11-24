@@ -45,7 +45,8 @@ static bool wr(void *context,uint32_t offset,uint32_t value)
             assert(word(memory.input+132)==((3u<<1)|(4u<<3)|((m->mode==9 ? 64u : 8u)<<16)));
             assert(word(memory.input+136)==(offsetof(struct xhci_test_memory,ep0)|1));
             for (unsigned i=0;i<128;++i) { memory.output[i]=memory.input[64+i]; }
-        } else { assert(type==13 && word(memory.input+4)==2 && (word(memory.input+132)>>16)==64); }
+        } else if (type==13) { assert(word(memory.input+4)==2 && (word(memory.input+132)>>16)==64); }
+        else { assert(m->mode>=11 && type==10 && (memory.command[at].control>>24)==1); }
         enum_event(m,0x1000000000ULL+at*16,33); return true;
     }
     if (offset==0x1004) {
@@ -59,8 +60,10 @@ static bool wr(void *context,uint32_t offset,uint32_t value)
         assert(status->control==((4u<<10)|(1u<<5)|1));
         const unsigned char device[]={18,1,0,2,0,0,0,64,0x34,0x12,0x78,0x56,0,1,0,0,0,1};
         const unsigned char config[]={9,2,32,0,1,1,0,0x80,50,9,4,0,0,2,8,6,0x50,0,7,5,2,2,0,2,0,7,5,0x81,2,0,2,0};
-        assert(descriptor==1 ? (n==8 || n==18) : (descriptor==2 && (n==9 || n==32)));
-        memcpy(memory.data,descriptor==1 ? device : config,n);
+        const unsigned char hid[]={9,2,25,0,1,1,0,0x80,50,9,4,0,0,1,3,1,1,0,7,5,0x81,3,8,0,10};
+        unsigned length=m->mode==12 ? sizeof(hid) : sizeof(config);
+        assert(descriptor==1 ? (n==8 || n==18) : (descriptor==2 && (n==9 || n==length)));
+        memcpy(memory.data,descriptor==1 ? device : m->mode==12 ? hid : config,n);
         enum_event(m,0x1000000000ULL+offsetof(struct xhci_test_memory,ep0)+(at+2)*16,32); return true;
     }
     if (offset==0x40) {
@@ -158,4 +161,21 @@ void ring_tests(void)
         assert(m.next_command==(mode==9 ? 6u : 7u) && m.next_ep==12);
     }
     puts("PASS: 64-byte context ABI, slot/address/control TRBs, full-speed packet-size evaluation and descriptor completion matching");
+    seed(&m); m.mode=11; state=(struct xhci_test_state){0};
+    m.reg[4]|=0x100u<<16; m.reg[0x400/4]=0x02000002; m.reg[0x404/4]=0x20425355; m.reg[0x408/4]=0x0301;
+    m.reg[0x440/4]=1|512|(1u<<10);
+    const struct xhci_accessory empty={2,false},probe={1,false};
+    assert(xhci_accessory_test(&io,&memory,&state,&empty)==XHCI_TEST_UNSUPPORTED && !m.writes);
+    assert(xhci_accessory_test(&io,&memory,&state,&probe)==XHCI_TEST_OK && state.halted && !memory.dcbaa[1]);
+    assert(m.next_command==8 && m.next_ep==12);
+    puts("PASS: standalone accessory preflight, selected-port enumeration and verified slot/controller cleanup");
+    seed(&m); m.mode=12; state=(struct xhci_test_state){0};
+    m.reg[4]|=0x100u<<16; m.reg[0x400/4]=0x02000002; m.reg[0x404/4]=0x20425355; m.reg[0x408/4]=0x0301;
+    m.reg[0x440/4]=0xa03;
+    struct usb_device_info info; struct block_device disk={0};
+    assert(xhci_storage_start(&io,&memory,&state,&info,&disk)==XHCI_TEST_NO_BOT && !state.attempted && !m.writes);
+    m.reg[0x440/4]=0x603; /* Pi capture: a connected full-speed accessory on the first controller. */
+    assert(xhci_storage_start(&io,&memory,&state,&info,&disk)==XHCI_TEST_NO_BOT && state.halted);
+    assert(info.identified && !info.mass_storage && !disk.read && !memory.dcbaa[1] && m.next_command==8);
+    puts("PASS: storage skips low-speed devices without register writes and releases enumerated HID-only hosts");
 }

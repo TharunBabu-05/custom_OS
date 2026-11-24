@@ -87,6 +87,12 @@ int main(void)
     assert(resource_acquire("interrupt",&gpio_irq,1));
     unsigned gpio=resource_acquire("gpio-test",&pin17,1);
     assert(gpio && resource_release(gpio) && !resource_acquire("gpio-test",&pin15,1));
+    const struct resource_range conflict[]={pin17,pin15};
+    assert(!resource_acquire("gpio-loop",conflict,2) && count_claims()==3);
+    const struct resource_range pair[]={pin17,{RESOURCE_GPIO,0xd0000,27,1}};
+    unsigned loop=resource_acquire("gpio-loop",pair,2);
+    assert(loop && count_claims()==5);
+    assert(!resource_acquire("other loop",pair+1,1) && resource_release(loop) && count_claims()==3);
     puts("PASS: atomic resource claims, disjoint domains, span validation, grouped release and stale tickets.");
     return 0;
 }

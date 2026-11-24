@@ -1,0 +1,36 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+This capture records the signal-mismatch and restoration path.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> resinfo
+Resource claims: 8/16
+> gpioinfo 17
+GPIO 17 funcsel=31 pull=down pad_input=0 pad_output_disable=1 oe_override=0 rio_in=0 rio_out=0 rio_oe=0
+> gpioinfo 27
+GPIO 27 funcsel=31 pull=down pad_input=0 pad_output_disable=1 oe_override=0 rio_in=0 rio_out=0 rio_oe=0
+> gpioloop
+GPIO loopback failed: input did not follow output, both pins and claims restored.
+> gpioloop
+GPIO loopback failed: input did not follow output, both pins and claims restored.
+> gpioinfo 17
+GPIO 17 funcsel=31 pull=down pad_input=0 pad_output_disable=1 oe_override=0 rio_in=0 rio_out=0 rio_oe=0
+> gpioinfo 27
+GPIO 27 funcsel=31 pull=down pad_input=0 pad_output_disable=1 oe_override=0 rio_in=0 rio_out=0 rio_oe=0
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> resinfo
+Resource claims: 8/16
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo gpio-loop-ok
+gpio-loop-ok
+
+The pin snapshots and full resource inventories matched before and
+after. The final line is the shell echo. Physical signal verification
+remains pending. The capture supplies no wiring state or failing level.

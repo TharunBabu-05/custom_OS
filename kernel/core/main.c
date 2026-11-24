@@ -129,6 +129,12 @@ static void startup(void)
 static void command(const char *line)
 {
     if (equal(line,"resinfo")) { resource_report(); return; }
+    if (equal(line,"ethprobe") || equal(line,"ethprobe reset")) {
+        rp1_ethernet_command(firmware_dtb,board.uart_base,line[8]==' ' ? ETH_PULSE : ETH_PROBE); return;
+    }
+    if (equal(line,"ethup") || equal(line,"ethdown")) {
+        rp1_ethernet_command(firmware_dtb,board.uart_base,line[3]=='u' ? ETH_UP : ETH_DOWN); return;
+    }
     if (rp1_command(line,firmware_dtb,board.uart_base)) { return; }
     if (rp1_gpio_command(line,firmware_dtb,board.uart_base)) { return; }
     if (rp1_dma_test_command(line,firmware_dtb,board.uart_base)) { return; }
@@ -153,11 +159,11 @@ static void command(const char *line)
         console_write("platforminfo therminfo powerinfo rtcinfo (Pi 5 diagnostics)\n");
         console_write("devlist [DT path|alias] | devinfo <DT path|alias> (device tree)\n");
         console_write("resinfo (active hardware resource claims)\n");
-        console_write("rp1info (Pi 5 interrupt routes and DMA window)\n");
+        console_write("rp1info ethprobe [reset] ethup ethdown\n");
         console_write("rp1msiinfo (Pi 5 PCIe MSI-X capability and doorbell)\n");
         console_write("rp1dmatest (Pi 5 DMA scratch copy)\n");
         console_write("rp1irqtest (GIC edge dispatch on test INTID)\n");
-        console_write("gpioinfo <0..27> | gpiotest <0..27> (Pi 5 header GPIO)\n");
+        console_write("gpioinfo <0..27> | gpiotest <0..27> | gpiopull <0..27> | gpioloop\n");
         console_write("utc | utc set <YYYY-MM-DDTHH:MM:SSZ> | utc clear\n");
         console_write("trustlist trustadd <SHA-256> trustcheck <SHA-256> <from UTC> <to UTC> trustclear\n");
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");
@@ -191,7 +197,7 @@ static void command(const char *line)
         console_write("Math tests cache PASS/FAIL until reboot; append ' force' to rerun.\n");
         console_write("pwd ls [path] cd [path] cat <path> mkdir <path> touch <path>\n");
         console_write("write <path> <text> rm <path> rmdir <path> fsinfo\n");
-        console_write("storageinit storageinfo storagetest wifi wifiinfo wifiprobe wifiinit wificores\n");
+        console_write("storageinit storageinfo storagetest sdinfo sdprobe sdtest sdscan [tail] wifi wifiinfo wifiprobe wifiinit wificores\n");
         console_write("wififiles (verify /boot assets) wifiload (upload/readback; radio CPU stays halted)\n");
         console_write("wifistart (release verified firmware; check shared memory; no connection yet)\n");
         console_write("wificontrol (F2/SDPCM and read-only firmware version queries)\n");
@@ -204,6 +210,8 @@ static void command(const char *line)
         console_write("wifisaeauth <SSID> (hidden password, live SAE confirms, then DOWN/restore; no IP)\n");
         console_write("wifiassoc <SSID> (hidden password, verified SAE/M3, key-install/live-M4 test; then DOWN/delete)\n");
         console_write("usbinfo usbprobe (discovery diagnostics)\n");
+        console_write("usbdevices (cached descriptors) usbports (live USB ports)\n");
+        console_write("usbidentify | usbkeytest [usb0|usb1] <USB2 port>\n");
         console_write("usbcheck (after storageinit; read-only ring reuse and disk check)\n");
         console_write("mv <source-file> <new-path> (same filesystem; no overwrite) | stat <path>\n");
         console_write("replace <source-file> <target> (atomic publication; consumes source)\n");

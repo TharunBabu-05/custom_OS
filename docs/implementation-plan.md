@@ -1,14 +1,25 @@
 # OurOS implementation and verification plan
 
-**Current platform milestone on 2026-11-22.** The Pi booted from USB,
+**Current platform milestone on 2026-11-24.** The Pi booted from USB,
 mounted extents v5 and passed the binary shell tools. Phase 11 stays
 deferred until an HDMI cable is available. The Pi verified the corrected
 RTC read, device inventory, Phase 13 resource ownership and Phase 14
 RP1 interrupt and DMA observation. The Pi verified the MSI receiver,
 the guarded DMA copy and the GIC software edge. The endpoint MSI-X
 preflight stopped at bridge validation and reported an unmapped
-doorbell. Phase 15 verified GPIO header readback over serial on pins
-0, 14, 15 and 17, and now adds pin ownership and an isolated RIO test.
+doorbell. Phase 15 verified GPIO header readback, pin ownership, the
+isolated RIO test and input pulls on GPIO 17 and 27. The wired loopback
+retry is deferred until the series resistor is available. Phase 16
+verified USB device, interface and endpoint inventory on the Pi.
+Phase 16 adds live root-port snapshots and a one-key USB boot keyboard
+test on a spare root port of the storage controller.
+The November 24 Pi capture confirms USB boot alongside a keyboard on the
+other RP1 controller and two successful key reads. Phase 17 adds `sdinfo`
+and `sdprobe` to inspect the onboard microSD host, card detect and power
+signals. The Pi verified GPIO card detection, read the first and last
+eight sectors, and restored the SD host after each scan. Phase 18 verified
+the RP1 Ethernet PHY responds after a reset pulse. The latest candidate
+holds the PHY out of reset for link negotiation and restores it on `ethdown`.
 The audit below records the earlier baseline.
 [Driver roadmap](platform-driver-plan.md) · [Pi RP1 observation](../proofs/pi5-rp1-observation-2026-11-22.txt)
 
@@ -99,7 +110,8 @@ device is unavailable and the following phase has no dependency on it.
 | 12. Platform expansion | Pi 5 device-tree resource checks and read-only thermal, power status and RTC commands. The RTC accepts the firmware's four-byte result count in the eight-byte buffer. [Driver roadmap](platform-driver-plan.md) | The Pi passed thermal and power status. The corrected RTC seconds advanced from 25 to 33. UTC and data generation stayed unchanged. [Pi readbacks](../proofs/pi5-device-inventory-2026-11-22.txt) |
 | 13. Device inventory and ownership | Inspect device-tree resources and track active MMIO, DMA memory and IRQ claims. Register the console, GIC and xHCI and claim the IRQ probe's resources during each run. [Commands](platform-driver-plan.md#phase-13-resource-ownership) | Pi inventory and resource ownership passed. Three IRQ probes returned the same six claims, with data generation 9 and the shell available. [Pi capture](../proofs/pi5-resource-ownership-2026-11-22.txt) |
 | 14. RP1 interrupts and DMA | Report RP1 routes, PCIe DMA windows and BCM2712 MSI receiver state. Require owned DMA mappings, test a guarded 64-byte copy, verify GIC edge dispatch and observe the PCIe endpoint MSI-X capability. [Commands](platform-driver-plan.md#phase-14-rp1-endpoint-msi-x-preflight) | The Pi passed DMA copies and GIC software edges. The MSI-X preflight preserved USB storage and resource state. Endpoint readback and delivery remain pending. [Pi DMA and IRQ capture](../proofs/pi5-rp1-dma-edge-2026-11-22.txt) · [Pi MSI-X capture](../proofs/pi5-rp1-msix-2026-11-22.txt) |
-| 15. RP1 GPIO and peripheral buses | Add GPIO readback, boot-time pin claims and a reversible RIO register test. Controlled pinmux and physical loopback follow the isolated test. [Commands](platform-driver-plan.md#phase-15-pin-ownership-and-isolated-rio-test) | GPIO 0, 14, 15 and 17 read back correctly. Retest GPIO 27 and verify reserved-pin refusal, repeatable RIO test cleanup, USB storage and mounted data. [Pi GPIO capture](../proofs/pi5-rp1-gpio-2026-11-22.txt) |
+| 15. RP1 GPIO and peripheral buses | GPIO readback, boot-time pin claims, the isolated RIO test, input-pull tests and GPIO 17 to 27 loopback with pad and RIO diagnostics. [Commands](platform-driver-plan.md#phase-15-gpio-pad-and-input-diagnostics) | The Pi passed isolated RIO and both `010` pull tests. The wired retry is deferred. [Pi pad capture](../proofs/pi5-rp1-gpio-pads-2026-11-22.txt) |
+| 16. RP1 USB device inventory and class binding | Report USB2 configuration, interfaces and endpoints. Observe live root ports and read a USB HID boot keyboard report from a temporary slot alongside storage. [Commands](platform-driver-plan.md#phase-16-usb-boot-keyboard-input) | Three Pi inventories matched across two storage reads. Verify the live port, key report, slot reuse, and intact storage on the Pi. [Pi inventory capture](../proofs/pi5-usb-inventory-2026-11-22.txt) |
 
 ### First Pi verification run
 

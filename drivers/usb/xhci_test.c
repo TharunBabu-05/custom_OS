@@ -28,7 +28,7 @@ static bool map(const struct xhci_test_io *io,const void *p,size_t n,uint64_t al
     return !((uintptr_t)p&(alignment-1)) && io->map_dma(io->observer.context,p,n,dma) &&
         !(*dma&(alignment-1)) && n && n-1<=UINT64_MAX-*dma;
 }
-static enum xhci_test_result run(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,struct usb_device_info *info,struct block_device *storage)
+static enum xhci_test_result run(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,struct usb_device_info *info,struct block_device *storage,const struct xhci_accessory *accessory)
 {
     if (!io || !m || !s || !io->observer.read32 || !io->write32 || !io->map_dma ||
         !io->barrier || !io->ticks || !io->hz || io->hz>UINT64_MAX/2 || ((uintptr_t)m&4095)) { return XHCI_TEST_ARGUMENT; }
@@ -37,6 +37,15 @@ static enum xhci_test_result run(const struct xhci_test_io *io,struct xhci_test_
     struct xhci_snapshot snapshot;
     if (xhci_observe(&io->observer,&snapshot)!=USB_PROBE_OK || !snapshot.address64 ||
         !(snapshot.page_sizes&1) || (snapshot.command&2)) { return XHCI_TEST_LAYOUT; }
+    if (accessory && (!accessory->port || accessory->port>snapshot.ports ||
+        snapshot.port[accessory->port-1].protocol_major!=2 || !(snapshot.port[accessory->port-1].status&1))) {
+        return XHCI_TEST_UNSUPPORTED;
+    }
+    if (storage) {
+        unsigned i=0;
+        while (i<snapshot.ports && !xhci_storage_candidate(&snapshot.port[i])) { ++i; }
+        if (i==snapshot.ports) { return XHCI_TEST_NO_BOT; }
+    }
     unsigned op=snapshot.cap_length; uint32_t hcs2,hcc,db,rt;
     if (!rd(io,8,&hcs2) || !rd(io,16,&hcc) || !rd(io,20,&db) || !rd(io,24,&rt)) { return XHCI_TEST_IO; }
     db&=~3u; rt&=~31u;
@@ -112,10 +121,10 @@ static enum xhci_test_result run(const struct xhci_test_io *io,struct xhci_test_
         if (io->ticks(io->observer.context)-start>=io->hz*2) { break; }
     }
     r=s->completed==4 ? XHCI_TEST_OK : XHCI_TEST_TIMEOUT;
-    if (r==XHCI_TEST_OK && info) { r=xhci_enumerate(io,m,s,&snapshot,&consumed,info,storage); }
+    if (r==XHCI_TEST_OK && info) { r=xhci_enumerate(io,m,s,&snapshot,&consumed,info,storage,accessory); }
     if (r==XHCI_TEST_OK && storage) { s->phase=XHCI_STORAGE_READY; return r; }
 stop:
-    /* Never release or reuse memory, even if a failed controller will not halt. */
+    /* The caller must retain DMA memory if halt cannot be verified. */
     if (r==XHCI_TEST_OK) { s->phase=XHCI_STOP; }
     uint32_t command;
     if (rd(io,op,&command) && !(command&2) && wr(io,op,command&~13u)) {
@@ -128,15 +137,22 @@ stop:
     return r;
 }
 enum xhci_test_result xhci_ring_test(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s)
-{ return run(io,m,s,NULL,NULL); }
+{ return run(io,m,s,NULL,NULL,NULL); }
 enum xhci_test_result xhci_device_test(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,struct usb_device_info *info)
 {
-    if (!info) { return XHCI_TEST_ARGUMENT; } *info=(struct usb_device_info){0}; return run(io,m,s,info,NULL);
+    if (!info) { return XHCI_TEST_ARGUMENT; } *info=(struct usb_device_info){0}; return run(io,m,s,info,NULL,NULL);
+}
+enum xhci_test_result xhci_accessory_test(const struct xhci_test_io *io,struct xhci_test_memory *m,
+                                        struct xhci_test_state *s,const struct xhci_accessory *accessory)
+{
+    struct usb_device_info info={0};
+    if (!accessory || !io || io->hz>UINT64_MAX/8) { return XHCI_TEST_ARGUMENT; }
+    return run(io,m,s,&info,NULL,accessory);
 }
 enum xhci_test_result xhci_storage_start(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,struct usb_device_info *info,struct block_device *storage)
 {
     if (!info || !storage) { return XHCI_TEST_ARGUMENT; }
-    *info=(struct usb_device_info){0}; return run(io,m,s,info,storage);
+    *info=(struct usb_device_info){0}; return run(io,m,s,info,storage,NULL);
 }
 const char *xhci_test_error(enum xhci_test_result r)
 {
@@ -151,6 +167,7 @@ const char *xhci_test_error(enum xhci_test_result r)
     case XHCI_TEST_USED: return "test already attempted; reboot before another attempt";
     case XHCI_TEST_UNSUPPORTED: return "unsupported USB device, speed, descriptor or topology";
     case XHCI_TEST_STALL: return "USB endpoint stalled";
+    case XHCI_TEST_NO_BOT: return "no supported direct USB2 BOT storage";
     default: return "BIOS ownership present; no takeover attempted";
     }
 }

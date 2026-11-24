@@ -74,7 +74,8 @@ static void fat_tests(void)
     assert(fat32_lookup(&v,"/OUROS.IMG/..",&e)==FS_NOT_DIR);
     assert(fat32_lookup(&v,"/..",&e)==FS_INVALID_PATH);
     uint32_t root_cluster=v.root;unsigned char *root=NULL;unsigned slot=0;
-    for (unsigned hop=0;hop<4;++hop) {
+    assert(v.spc==1);
+    for (uint32_t hop=0;hop<v.clusters;++hop) {
         root=image+(v.data_lba+(uint64_t)(root_cluster-2)*v.spc)*512;
         slot=0;while (slot<16 && root[slot*32]) { ++slot; }if (slot<16) { break; }
         root_cluster=get32(image+v.fat_lba*512ULL+root_cluster*4)&0x0fffffff;assert(root_cluster>=2 && root_cluster<v.clusters+2);
@@ -153,6 +154,7 @@ static void mock_write(void *context,unsigned offset,uint32_t value)
         else if (m->mode==2) { m->regs[0x30/4]=1u<<21; }
         else if (m->mode==3) { m->regs[0x30/4]=0; }
         else if (m->mode==4) { m->regs[0x30/4]=1; }
+        else if (m->mode==5) { m->regs[0x30/4]=1|32|(1u<<7); }
         else { m->regs[0x30/4]=1|32; }
     }
 }
@@ -166,10 +168,26 @@ static void sdhci_tests(void)
 {
     struct mock m; mock_init(&m); struct sdhci_host host; struct block_device dev;
     struct sdhci_io io={mock_read,mock_write,mock_time,&m,100};
+    m.regs[36/4]|=1u<<17;
+    struct sdhci_card_state card=sdhci_card_status(&io);
+    assert(card.present && card.stable && card.powered && card.clocked && !card.busy && !card.cqe && !m.writes);
     assert(sdhci_attach(&host,&io,&dev)); assert(host.ready && !dev.capacity_known && dev.sectors==(1ULL<<32));
     assert(m.commands==1 && m.regs[40/4]==((1u<<8)|2) && (m.regs[44/4]&0xffff)==0x0107);
     unsigned char data[512]; assert(block_read(&dev,2048,data)==BLOCK_OK && m.regs[8/4]==2048);
     assert(data[510]==0x55 && data[511]==0xaa);
+    m.regs[36/4]=0;
+    unsigned writes=m.writes;
+    assert(block_read(&dev,0,data)==BLOCK_NOT_READY && !host.ready && m.writes==writes);
+    m.regs[36/4]=1u<<16;
+    assert(block_read(&dev,0,data)==BLOCK_NOT_READY && m.writes==writes);
+    mock_init(&m); assert(sdhci_attach(&host,&io,&dev));
+    assert(m.regs[52/4]&(1u<<7));
+    m.mode=5;
+    assert(block_read(&dev,0,data)==BLOCK_NOT_READY && !host.ready && m.position==0);
+    mock_init(&m); assert(sdhci_attach(&host,&io,&dev));
+    m.regs[48/4]|=1u<<7; writes=m.writes;
+    assert(block_read(&dev,0,data)==BLOCK_NOT_READY && !host.ready && m.writes==writes);
+    puts("PASS: read-only microSD status, removal before and during reads, and no stale session reuse after reinsertion");
     for (unsigned mode=1;mode<=4;++mode) {
         mock_init(&m); assert(sdhci_attach(&host,&io,&dev)); m.mode=mode;
         assert(block_read(&dev,0,data)==(mode==2 ? BLOCK_IO : BLOCK_TIMEOUT)); assert(!host.ready);
@@ -185,6 +203,180 @@ static void sdhci_tests(void)
     mock_init(&m); m.regs[44/4]=0; assert(sdio_query(&io,&response)==BLOCK_NOT_READY && !m.writes);
     puts("PASS: exact SDHCI PIO engine, CMD17-only commands, preserved bus/clock, timeout/CRC/R1 errors and unsupported CQE");
     puts("PASS: SDIO CMD5 zero-argument query and unclocked-host rejection");
+}
+struct cold_mock {
+    struct mock common;
+    bool present,tail;
+    unsigned failure,busy_reads;
+};
+static bool cold_present(void *context) { return ((struct cold_mock *)context)->present; }
+static const unsigned cold_commands[]={0,8,55,41,55,41,2,3,9,7};
+static void cold_write8(void *context,unsigned offset,uint8_t value)
+{
+    struct cold_mock *cold=context;
+    struct mock *m=&cold->common;
+    unsigned reg=40/4;
+    ++m->writes;
+    if (offset==40) {
+        assert(value==0 || value==0x26);
+        if (cold->failure!=8 || value!=0x26) { m->regs[reg]=(m->regs[reg]&~0xffu)|value; }
+        return;
+    }
+    assert(offset==41 && (value==0 || value==0x0f));
+    if (!value && cold->failure==7) { return; }
+    if (!value && !cold->failure) {
+        value=0x0e; /* An inactive voltage selector can retain 3.3 V. */
+        m->regs[reg]^=1u<<16;
+    }
+    m->regs[reg]=(m->regs[reg]&~0xff00u)|((uint32_t)value<<8);
+}
+static uint32_t cold_read(void *context,unsigned offset)
+{
+    struct cold_mock *cold=context;
+    struct mock *m=&cold->common;
+    if (offset==36 && cold->busy_reads) {
+        --cold->busy_reads;
+        return m->regs[offset/4]|2;
+    }
+    if (!cold->failure && offset==32 && m->position==127) { cold->busy_reads=4; }
+    return mock_read(m,offset);
+}
+static void cold_write(void *context,unsigned offset,uint32_t value)
+{
+    struct cold_mock *cold=context;
+    struct mock *m=&cold->common;
+    if (offset==44) { assert(!(m->regs[44/4]&4) || (value&0xffc0)==(m->regs[44/4]&0xffc0)); }
+    if (offset==44 && cold->failure==5 && !(value&1)) { return; }
+    if (offset==44 && !cold->failure && !(value&1)) { value|=2; } /* Read-only stable bit survives clock disable. */
+    if (offset==44 && value&1) {
+        assert((value&0xffc0)==250u<<8);
+        if (cold->failure!=1) { value|=2; }
+        if (value&(3u<<25)) { m->regs[36/4]&=~3u; value&=~(3u<<25); }
+    }
+    if (offset!=12) { mock_write(m,offset,value); return; }
+    const uint32_t args[]={0,0x1aa,0,0x40300000,0,0x40300000,0,0,0x12340000,0x12340000};
+    const uint32_t modes[]={0,0x1a,0x1a,2,0x1a,2,9,0x1a,9,0x1b};
+    unsigned i=m->commands;
+    const unsigned first_read=sizeof(cold_commands)/sizeof(*cold_commands);
+    assert(i<first_read+SDHCI_TEST_MAX_SECTORS);
+    assert((m->regs[40/4]&0x1f26)==0xf00 && (m->regs[44/4]&7)==7);
+    if (i>=first_read) {
+        uint32_t lba=(cold->tail ? UINT32_MAX-(SDHCI_TEST_MAX_SECTORS-1) : 0)+(i-first_read);
+        assert(m->regs[8/4]==lba);
+        assert(value==0x113a0010u);
+        if (cold->failure==3 || (cold->failure==6 && lba==1)) { cold->present=false; }
+        m->data[0]=lba;
+        mock_write(m,offset,value);
+        return;
+    }
+    assert(m->regs[8/4]==args[i]);
+    assert(value==((cold_commands[i]<<24)|(modes[i]<<16)));
+    ++m->commands;
+    m->regs[48/4]=1;
+    switch (cold_commands[i]) {
+    case 8:
+        m->regs[16/4]=0x1aa;
+        if (cold->failure==4) { m->regs[48/4]=1u<<16; m->regs[36/4]|=1; }
+        break;
+    case 55: m->regs[16/4]=32; break;
+    case 41: m->regs[16/4]=i==3 ? 0x00ff8000 : cold->failure==2 ? 0x80ff8000 : 0xc0ff8000; break;
+    case 3: m->regs[16/4]=0x12340100; break;
+    case 9: m->regs[28/4]=1u<<22; m->regs[20/4]=(cold->tail ? 0x3fffff : 31u)<<8; break;
+    case 7: m->regs[16/4]=0x700; m->regs[48/4]|=2; break;
+    default: break;
+    }
+}
+static void cold_tests(void)
+{
+    struct cold_mock m;
+    const struct sdhci_io io={cold_read,cold_write,mock_time,&m,1000};
+    const enum block_result expected[]={BLOCK_OK,BLOCK_TIMEOUT,BLOCK_UNSUPPORTED,BLOCK_NOT_READY,
+        BLOCK_TIMEOUT,BLOCK_IO,BLOCK_NOT_READY,BLOCK_IO,BLOCK_IO,BLOCK_OK};
+    for (unsigned i=0;i<sizeof(expected)/sizeof(*expected);++i) {
+        bool tail=i==9;
+        m=(struct cold_mock){.present=true,.tail=tail,.failure=i};
+        mock_init(&m.common);
+        m.common.regs[36/4]=0x30000; /* The board's GPIO, not this bit, supplies live presence. */
+        m.common.regs[40/4]=0x00400026u; m.common.regs[44/4]=0;
+        m.common.regs[52/4]=0x40; m.common.regs[56/4]=0x80;
+        m.common.regs[64/4]=0x0168c800; m.common.regs[0xfc/4]=0x20000;
+        struct sdhci_cold_result out;
+        unsigned count=i==0 || i==6 || tail ? SDHCI_TEST_MAX_SECTORS : 1;
+        assert(sdhci_cold_test(&io,cold_write8,cold_present,count,tail,&out)==expected[i]);
+        assert(out.restore_errors==(i==5 ? SD_RESTORE_CLOCK : i==7 || i==8 ? SD_RESTORE_CONTROL : 0));
+        assert(((m.common.regs[44/4]&~2u)==0)==(i!=5));
+        assert(out.control_before==0x00400026u && out.control_after==m.common.regs[40/4]);
+        assert((out.control_after&0x11ff)==(i==7 ? 0x0126u : i==8 ? 0 : 0x26u));
+        assert(out.control_after==(i==0 ? 0x00410e26u : i==7 ? 0x00400f26u : i==8 ? 0x00400000u : 0x00400026u));
+        assert(m.common.regs[52/4]==0x40 && m.common.regs[56/4]==0x80 && !(m.common.regs[36/4]&3));
+        if (!i || tail) {
+            uint32_t hash=2166136261u;
+            uint64_t sectors=tail ? 1ULL<<32 : 32768, first=tail ? sectors-count : 0;
+            for (unsigned j=0;j<count;++j) {
+                for (unsigned n=0;n<512;++n) {
+                    uint32_t word=n<4 ? (uint32_t)(first+j) : m.common.data[n/4];
+                    hash=(hash^((word>>(8*(n%4)))&255))*16777619u;
+                }
+            }
+            assert(out.command==17 && out.sectors==sectors && out.first_lba==first && out.hash==hash && m.common.position==128);
+            assert(m.common.commands==sizeof(cold_commands)/sizeof(*cold_commands)+count);
+            assert(out.completed==count && m.common.regs[44/4]==(tail ? 0 : 2) && !m.busy_reads);
+        }
+        if (i==3) { assert(out.command==17 && m.common.position==0); }
+        if (i>=5 && i<=8) { assert(out.command==17 && out.completed==1); }
+    }
+    m=(struct cold_mock){0};
+    struct sdhci_cold_result out;
+    assert(sdhci_cold_test(&io,cold_write8,cold_present,0,false,&out)==BLOCK_ARGUMENT && !m.common.writes);
+    assert(sdhci_cold_test(&io,cold_write8,cold_present,SDHCI_TEST_MAX_SECTORS+1,false,&out)==BLOCK_ARGUMENT && !m.common.writes);
+    assert(sdhci_cold_test(&io,cold_write8,cold_present,1,false,&out)==BLOCK_NOT_READY && !m.common.writes);
+    m.present=true;
+    assert(sdhci_cold_test(&io,cold_write8,cold_present,1,false,&out)==BLOCK_UNSUPPORTED && !m.common.writes);
+    puts("PASS: SD head and SDXC tail hashes, removal and separate control-byte restores, sticky voltage readback and failed power-off detection");
+}
+struct sd_probe_mock { unsigned reads,fail_at; };
+static bool sd_probe_read(void *context,uint64_t address,uint32_t *value)
+{
+    static const uint64_t addresses[]={0x107d517c04,0x107d517c08,0x1000fff024,0x1000fff028,
+        0x1000fff02c,0x1000fff03c,0x1000fff040,0x1000fff0fc,0x1000fff208,0x1000fff444};
+    static const uint32_t values[]={16,32,0x30000,0,0,0,0x100c800,0x20000,0,2};
+    struct sd_probe_mock *m=context;
+    unsigned i=m->reads++;
+    assert(i<sizeof(values)/sizeof(*values) && address==addresses[i]);
+    if (m->fail_at==m->reads) { return false; }
+    *value=values[i];
+    return true;
+}
+static void sd_probe_tests(unsigned char *dtb,size_t bytes)
+{
+    struct sd_probe_mock m={0};
+    struct pi5_sd_snapshot out;
+    assert(pi5_sd_snapshot(dtb,bytes,sd_probe_read,&m,&out)==BLOCK_OK && m.reads==10);
+    assert(out.gpio_levels==16 && out.gpio_inputs==32 && out.present==0x30000 && !out.control &&
+        !out.clock && !out.host_control2 && out.capabilities==0x100c800 && out.version==0x20000 && !out.cqe && out.pin_select==2);
+    memset(&out,0xa5,sizeof(out));
+    struct pi5_sd_snapshot before=out;
+    for (unsigned i=1;i<=10;++i) {
+        m=(struct sd_probe_mock){.fail_at=i};
+        assert(pi5_sd_snapshot(dtb,bytes,sd_probe_read,&m,&out)==BLOCK_IO && m.reads==i);
+        assert(!memcmp(&out,&before,sizeof(out)));
+    }
+    m=(struct sd_probe_mock){0};
+    assert(pi5_sd_snapshot(dtb,bytes-1,sd_probe_read,&m,&out)==BLOCK_UNSUPPORTED && !m.reads);
+    const unsigned char *p; uint32_t n;
+    static const char *const fields[][2]={
+        {"/aliases","mmc0"},{"/soc@107c000000","ranges"},{"/soc@107c000000/mmc@fff000","cd-gpios"},
+        {"/soc@107c000000/mmc@fff000","vmmc-supply"},{"/sd-vcc-reg","gpios"},{"/sd-io-1v8-reg","states"}
+    };
+    for (unsigned i=0;i<sizeof(fields)/sizeof(*fields);++i) {
+        assert(dt_property(dtb,bytes,fields[i][0],fields[i][1],&p,&n) && n);
+        size_t at=(size_t)(p-dtb)+(i==1 ? 7 : n-1); /* Change the SoC CPU base, not the window length. */
+        dtb[at]^=1;
+        assert(pi5_sd_snapshot(dtb,bytes,sd_probe_read,&m,&out)==BLOCK_UNSUPPORTED && !m.reads);
+        dtb[at]^=1;
+    }
+    assert(!memcmp(&out,&before,sizeof(out)));
+    puts("PASS: Pi 5 microSD DT topology, exact read-only MMIO addresses, altered wiring rejected and incomplete snapshots discarded");
 }
 static void property_tests(void)
 {
@@ -205,7 +397,9 @@ static void property_tests(void)
         unsigned char saved=data[at]; data[at]^=(unsigned char)(1u<<(i%8));
         (void)dt_property(data,(size_t)n,"/aliases","wifi0",&value,&length); data[at]=saved;
     }
-    free(data); puts("PASS: actual Pi DT Wi-Fi alias/binding lookup, truncation and 2000 DT mutations");
+    puts("PASS: actual Pi DT Wi-Fi alias/binding lookup, truncation and 2000 DT mutations");
+    sd_probe_tests(data,(size_t)n);
+    free(data);
 }
 int main(int argc,char **argv)
 {
@@ -213,5 +407,5 @@ int main(int argc,char **argv)
     long n=ftell(f); assert(n==134217728); rewind(f); image_size=(size_t)n;
     image=malloc(image_size); assert(image && fread(image,1,image_size,f)==image_size); fclose(f);
     disk=(struct block_device){.name="host-image",.sectors=image_size/512,.capacity_known=true,.read=disk_read};
-    fat_tests(); sdhci_tests(); property_tests(); free(image); return 0;
+    fat_tests(); sdhci_tests(); cold_tests(); property_tests(); free(image); return 0;
 }

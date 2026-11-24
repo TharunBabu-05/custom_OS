@@ -644,3 +644,565 @@ function and latch state. Both resource reports should show eight
 claims, including `hat-id` and `serial-console` GPIO, and both data
 checks should report the same generation. Physical loopback requires
 a separate test with an external connection between two owned pins.
+
+The Pi passed GPIO 27 readback and refused GPIO 28. Both GPIO 17 runs
+passed, GPIO 0 and 14 refused the claim, and both inventories showed
+eight claims. USB storage passed and `/data` stayed at generation 9.
+[Pi ownership capture](../proofs/pi5-rp1-gpio-claims-2026-11-22.txt)
+
+## Phase 15 physical GPIO loopback
+
+`gpioloop` claims GPIO 17 and 27 together. It verifies that both pins
+start isolated in the 3.3 V bank, prepares GPIO 27 as an input with a
+pull-down, then drives `01010` from GPIO 17. Each level requires four
+consecutive matching reads within a bounded sample count. The test
+disconnects the output before restoring both pin configurations and
+RIO state. It releases both claims after verified restoration and
+retains both if the restore readback fails.
+[RP1 register reference](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008370-DS-1-rp1-peripherals.pdf)
+
+Update `OUROSBOOT` with this package from PowerShell. Use the current
+drive letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase15-gpio-loop-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive. With the Pi powered off, connect physical
+header pin **11** (GPIO 17) to physical pin **13** (GPIO 27) through a
+**1 kΩ series resistor**. Use only those two header pins for the test
+connection. Keep the existing UART wiring and boot the Pi.
+[Raspberry Pi 40-pin header pinout](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio)
+
+Run these commands from the automatic shell in PuTTY.
+
+```text
+exit
+datacheck
+resinfo
+gpioinfo 17
+gpioinfo 27
+gpioloop
+gpioloop
+gpioinfo 17
+gpioinfo 27
+storagetest
+resinfo
+datacheck
+appshell
+echo gpio-loop-ok
+```
+
+Expect `PASS: GPIO 17 to 27 loopback levels 01010, both pins and claims restored.`
+twice. Compare the GPIO settings and RIO outputs before and after, and
+check eight claims, a passing USB read and the same `/data` generation.
+In a separate run with the connection removed, `gpioloop` should
+report the input mismatch and restore both pins and claims. Power off
+the Pi before changing the connection.
+
+The Pi reported a mismatch twice and restored GPIO 17, GPIO 27 and
+all eight resource claims. USB readback passed and `/data` stayed at
+generation 9. The shell echo confirmed the return to EL0. The first
+capture lacks the failing step and the live signal at each pad.
+[Pi loopback capture](../proofs/pi5-rp1-gpio-loop-2026-11-22.txt)
+
+## Phase 15 GPIO pad and input diagnostics
+
+`gpiopull <pin>` claims an isolated pin, enables its input buffer and
+uses its internal pulls to verify `010` in both the raw pad status and
+the RIO input register. The output remains disabled. The test restores
+the pin function and pull before releasing its claim. The revised
+`gpioloop` checks GPIO 17's actual pad input and output-enable status
+before checking GPIO 27 for each level. A mismatch reports the step,
+pin, expected level, pad level, RIO level and raw I/O status.
+[RP1 register reference](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008370-DS-1-rp1-peripherals.pdf)
+
+Apply the update to the current `OUROSBOOT` drive from PowerShell.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase15-gpio-pads-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the pendrive. Power off the Pi before removing any test
+connection from GPIO 17 and 27. Boot with those two pins free and use
+the existing UART wiring. Run these commands in PuTTY.
+
+```text
+exit
+datacheck
+resinfo
+gpioinfo 17
+gpioinfo 27
+gpiopull 17
+gpiopull 27
+gpioinfo 17
+gpioinfo 27
+storagetest
+resinfo
+datacheck
+appshell
+echo gpio-pads-ok
+```
+
+Expect two `010` passes, matching GPIO snapshots, eight claims, a
+passing USB read and the same data generation. For wired verification,
+power off the Pi, connect physical header pins 11 (GPIO 17) and 13
+(GPIO 27) through the 1 kΩ series resistor, and boot the same build.
+From `user:/$`, run `exit`, then `gpioloop` and `resinfo`. A mismatch on
+GPIO 17 identifies a source readback failure. A mismatch on GPIO 27
+means the source readback passed that step. Compare `pad` and `rio`
+in the mismatch line to distinguish an input-level mismatch from an
+internal readback mismatch. [Pi header pinout](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio)
+
+GPIO 17 and 27 passed `010`, USB readback passed, and the eight claims
+and generation 9 returned unchanged. The operator deferred the wired
+retry until a series resistor is available. [Pi pad capture](../proofs/pi5-rp1-gpio-pads-2026-11-22.txt)
+
+## Phase 16 USB device inventory
+
+`usbdevices` reports the cached device and its validated configuration
+after `storageinit` or `usbenum`. It lists the controller, root port,
+slot, vendor and product IDs, interface classes and alternate settings,
+and endpoint addresses, direction, transfer type, packet size and
+`bInterval`. `storage-ready` reflects the last known driver state.
+The command reads the cache and can be repeated while `/boot` and
+`/data` use the pendrive. The configuration copy survives later reuse
+of the xHCI transfer buffer. [USB configuration descriptors](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-configuration-descriptors)
+
+The current enumerator captures a single direct USB2 device. The QEMU
+keyboard check uses `scripts/test-usb-qemu.ps1 -Handoff -Keyboard`
+to verify the HID boot-keyboard interface and its interrupt-IN endpoint.
+Keyboard reports, hub traversal and hotplug are later increments.
+[USB interface class codes](https://www.usb.org/defined-class-codes)
+
+Apply the following boot-file update from PowerShell using the current
+`OUROSBOOT` drive letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase16-usb-inventory-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive, boot the Pi from the usual pendrive, and start
+at `user:/$` in PuTTY.
+
+```text
+exit
+datacheck
+resinfo
+usbdevices
+storagetest
+usbdevices
+resinfo
+datacheck
+appshell
+echo usb-inventory-ok
+```
+
+Expect matching inventories with `state=storage-ready`, a `driver=usb-bot`
+interface, and one bulk endpoint in each direction. The tested SanDisk
+reports VID `0781`, PID `5567`, bulk IN `0x81` and bulk OUT `0x02`.
+Confirm a passing storage test, eight claims and matching data generation
+before and after.
+
+The Pi reported the same SanDisk configuration and endpoints in three
+inventories across two passing storage reads. The eight claims and
+`/data` generation 9 were preserved.
+[Pi inventory capture](../proofs/pi5-usb-inventory-2026-11-22.txt)
+
+## Phase 16 live USB root ports
+
+`usbports` reads the live xHCI root ports of the controller serving the
+mounted USB drive. It reports device presence, port enable, protocol,
+connection-change flag, raw `PORTSC` and which port belongs to `usb-bot`.
+The command uses read-only register access and leaves change flags for
+the controller's normal event path. Check `present` for current presence.
+`usbdevices` continues to show cached descriptors. Class binding and
+keyboard input on newly attached ports are later increments.
+[xHCI port status register reference](https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/extensible-host-controler-interface-usb-xhci.pdf)
+
+In PowerShell, use the current `OUROSBOOT` drive letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase16-usb-ports-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the pendrive, boot the Pi, and run these in PuTTY from `user:/$`.
+
+```text
+exit
+datacheck
+resinfo
+usbports
+storagetest
+usbports
+usbdevices
+resinfo
+datacheck
+appshell
+echo usb-ports-ok
+```
+
+Expect the pendrive's root port to show `present=yes enabled=yes` and
+`owner=usb-bot` both times. The storage read should pass, and the claims
+and mounted generation should match. QEMU acceptance additionally plugs
+and unplugs a keyboard on the second root port and verifies reads while
+it is attached and after removal.
+
+## Phase 16 USB boot keyboard input
+
+`usbkeytest <port>` selects a connected spare USB2 root port on the
+active storage controller. It refuses the storage port before issuing
+any device requests. On the spare port, it enumerates a temporary slot,
+finds an alternate-zero HID boot keyboard interface, sets boot protocol,
+and listens on its interrupt-IN endpoint for one key report. The keyboard
+has separate endpoint rings and a separate output context. The command
+disables its slot before returning to the monitor, including after a
+timeout. This test prints a HID usage and modifier byte over UART. Normal
+keyboard typing in the shell, use of the other controller, and hub
+traversal are later work.
+[USB HID boot protocol](https://www.usb.org/sites/default/files/hid1_11.pdf) ·
+[xHCI endpoint and device-slot reference](https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/extensible-host-controler-interface-usb-xhci.pdf)
+
+Use the boot-file updater from PowerShell with the current `OUROSBOOT`
+drive letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase16-usb-keyboard-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive, boot the Pi with the pendrive connected and use
+PuTTY to reach the monitor. Run these from `user:/$`.
+
+```text
+exit
+datacheck
+resinfo
+usbports
+```
+
+Plug a wired USB boot keyboard directly into an unused USB socket,
+leaving the boot pendrive plugged in. Run `usbports` again. Find a row
+with `protocol=2 present=yes owner=none` (other fields may appear between
+those labels). If no row changes to `present=yes`, try the keyboard in
+another unused socket. Use the newly present root-port number in the
+following commands. The example assumes it is port 2.
+
+```text
+usbkeytest 2
+```
+
+When the monitor shows `USB keyboard ready`, press **A** on the USB
+keyboard. Expect usage `0x04`, modifiers `0`, and `keyboard slot released`.
+Repeat `usbkeytest 2` without pressing a key to check timeout, then run
+it once more and press **B** to check usage `0x05` and slot reuse.
+
+```text
+storagetest
+usbdevices
+resinfo
+datacheck
+appshell
+echo usb-keyboard-ok
+```
+
+The boot drive should pass its sector read, its inventory and resource
+claims should match, and both data checks should show the same generation.
+
+## Phase 16 USB detection on both Pi hosts
+
+The recovery image booted and the storage drive passed. The original
+`usbports` reported only usb1, which showed a connection-change flag on
+port 2 with `present=no`. This flag records a change since the last clear.
+Current presence is reported separately.
+[Pi capture](../proofs/pi5-usb-keyboard-port-2026-11-24.txt) ·
+[Intel xHCI port status definitions](https://www.intel.com/content/dam/www/public/us/en/documents/technical-specifications/extensible-host-controler-interface-usb-xhci.pdf)
+
+`usbports` on Pi now shows `usb0` and `usb1`. Plug one accessory in at a
+time after boot. Use the named `protocol=2 present=yes owner=none` row.
+`usbidentify usb0 2` reads its device and interface descriptors, including
+boot mouse or boot keyboard when declared. `usbkeytest usb0 2` reads a
+key report. Substitute the row's host and port. The `usbkeytest 2` form
+still targets port 2 on the mounted drive's controller. USB mouse pointer
+input is outside this test.
+
+The storage host uses a temporary device slot for the accessory. The
+other host uses separately claimed registers and DMA pages, and releases
+them after it halts. For initial testing connect the device directly and
+leave the boot drive in place.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase16-usb-hosts-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+From the automatic shell use `exit`, then `usbports`. Run `usbports` again
+while the keyboard or mouse remains plugged in. If usb0 port 2 is the
+newly connected row, run `usbidentify usb0 2`. With the keyboard attached
+run `usbkeytest usb0 2`, then press A on the USB keyboard at the prompt.
+Finish with `storagetest`, `resinfo` and `datacheck`. The baseline on the
+recovery image is eight claims and v5 generation 1.
+
+## Phase 17 microSD detection and USB boot with accessories
+
+The Pi reported a full-speed device on usb0 port 2 and the pendrive on
+usb1 port 1. Boot stopped when the old storage probe chose usb0 first.
+Storage initialization now searches the direct USB2 ports on both RP1
+hosts for a BOT interface. It skips low-speed ports and releases the slot
+of a device without BOT before continuing. When a scanned controller has
+no candidate, the next controller can reuse the DMA memory after a verified
+halt. A test with multiple USB mass-storage drives is outside this step.
+[Pi capture](../proofs/pi5-usb-accessories-boot-selection-2026-11-24.txt)
+
+`sdinfo` reports the onboard microSD host's presence, stability, power,
+clock, busy and command queue status from read-only register accesses.
+The existing firmware-handoff CMD17 path also invalidates its read session
+if the card disappears or the controller reports removal. Reinsertion
+requires a fresh firmware handoff. Full card initialization and write/flush
+remain later steps. [SD host references](storage.md#primary-references)
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase17-card-status-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot with the pendrive and keyboard attached and the microSD slot empty.
+At `user:/$` enter `exit`, then run the monitor commands below. If the
+keyboard's row is under usb0 and says port 2, use `usbidentify usb0 2`
+and `usbkeytest usb0 2`. Press A on the USB keyboard when prompted.
+
+```text
+usbports
+storagetest
+datacheck
+sdinfo
+```
+
+With a spare microSD card, insert it after USB boot and run `sdinfo`
+again. Remove it and repeat `sdinfo`, `storagetest` and `datacheck`.
+Check for `present=no`, `present=yes`, `present=no` and an unchanged
+USB sector hash and `/data` generation.
+
+## Phase 17 microSD board preflight
+
+The Pi verified USB boot with the keyboard attached and read HID usages
+`0x04` and `0x0c` on usb0 port 2. `sdinfo` reported a stable card while
+the controller's power and clock were off.
+[Pi capture](../proofs/pi5-usb-keyboard-live-sd-host-2026-11-24.txt)
+
+`sdprobe` checks the Pi 5 device tree for the onboard SDHCI controller,
+the associated GPIO controller and the card's VCC, I/O-voltage selector
+and detect wiring. It reads host and GPIO registers once. The VCC enable
+and voltage select fields describe GPIO state. They do not measure rail
+voltage. The `present` and `stable` fields come from SDHCI, while
+`cd_gpio_level` shows the raw active-low detect GPIO level.
+[Pi 5 board device tree](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/arch/arm64/boot/dts/broadcom/bcm2712-rpi-5-b.dts) · [GPIO registers](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/gpio/gpio-brcmstb.c)
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase17-sd-probe-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot from USB with the microSD slot empty. At the EL0 shell, enter `exit`.
+At the monitor run `sdprobe`, then insert a spare microSD and run
+`sdprobe` again. Run `storagetest` and `datacheck` to compare the USB
+sector hash and extents generation with the original run. Save both SD
+snapshots for the cold-start power and clock sequence.
+
+## Phase 17 read a spare microSD after USB boot
+
+On the Pi, insertion changed the detect GPIO from 1 to 0 while the SDHCI
+presence bit stayed set. `sdprobe` now reports GPIO-based `present` and
+the separate `host_present` value.
+[Pi capture](../proofs/pi5-microsd-card-detect-2026-11-24.txt)
+
+`sdtest` claims the onboard controller after USB boot, checks card detect
+and the firmware's 3.3 V signals, then selects the SD pins and enables the
+host at 400 kHz. It negotiates SDHC/SDXC, reads capacity and fingerprints
+sector zero with CMD17. It restores host power, clock, interrupt controls
+and pin selection. The test issues no media writes and leaves the card
+unmounted. A restore failure retains the controller claim until reboot.
+[SD specifications](https://www.sdcard.org/downloads/pls/) · [BCM2712 pin select](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/mmc/host/sdhci-brcmstb.c)
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase17-sd-read-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot from USB with the microSD slot empty. Enter `exit` from `user:/$`
+and run `sdtest` at `>`. It should report no card. Insert the spare card,
+then run `sdprobe`, `sdtest`, `sdtest`, `sdprobe`, `storagetest`, and
+`datacheck`. Compare the two sector hashes and check the card clock is
+back off. A failed test reports the last command, IRQ and response.
+
+### Phase 17 repeated microSD reads and host restoration
+
+The Pi reached CMD17 transfer complete (`irq=0x2`, `response=0x900`).
+The subsequent host restore check failed and the SD controller claim
+stayed active. The following `sdprobe` showed power and clock off and
+the original pin selection. The capture did not identify the register
+behind the failed restore comparison.
+[Pi CMD17 capture](../proofs/pi5-microsd-cmd17-restore-2026-11-24.txt)
+
+The current driver waits for the command and data lines to go idle and
+gates the SD clock before restoring the divider. Clock readback compares
+the configuration fields and reset state. The read-only internal-clock
+stable bit can change as the clock stops. Failures report the completed
+read count and a restore bitmask. Bits `0x01`, `0x02`, `0x04`, `0x08`,
+`0x10`, and `0x20` cover clock, host control, status enables, signal
+enables, idle state, and pin selection, respectively.
+[SDHCI clock register definitions](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/mmc/host/sdhci.h)
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase17-sd-scan-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot from USB. At `user:/$`, enter `exit` to reach the monitor. With
+the spare card inserted, run `sdtest`, `sdscan`, `sdscan`, `sdprobe`,
+`storagetest`, and `datacheck`. `sdtest` reads one sector. Each `sdscan`
+checks the first eight sectors with CMD17 and reports their combined
+hash. Match the two scan hashes, check the clock is off, and compare
+the USB sector hash and `/data` generation with the previous capture.
+
+### Phase 17 restore SD power and verify the card capacity boundary
+
+The Pi returned `read=1 restore_mask=0x02`. The SDHCI word at `0x28`
+contains separate host control, power, block gap, and wake controls. The
+new driver writes the host mode and power as individual bytes. It checks
+the restored host mode and both power-enable bits after shutdown. The
+voltage-select value is inactive with the bus off. A remaining control
+mismatch prints `control0_before` and `after` to identify the bits.
+[Pi capture](../proofs/pi5-microsd-control0-restore-2026-11-24.txt) · [SDHCI register definitions](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/mmc/host/sdhci.h)
+
+`sdscan tail` reads the final eight sectors using the capacity from the
+card's CSD. A native model verifies the last legal 32-bit sector address
+on a card with 2³² sectors, separate byte restoration, and rejection if
+power stays enabled. The test issues read commands and leaves the card
+unmounted.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase17-sd-tail-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After USB boot enter `exit` from `user:/$`, insert the spare microSD,
+and run the commands below at `>`. Match the two tail hashes and check
+the reported LBA is eight below the capacity. Verify `sdprobe` shows
+the host power and clock off and compare USB storage and `/data` with
+the previous capture.
+
+```text
+sdtest
+sdscan
+sdscan tail
+sdscan tail
+sdprobe
+storagetest
+datacheck
+```
+
+## Phase 18 RP1 Ethernet PHY discovery
+
+The Pi passed `sdtest`, `sdscan`, and two tail scans. A capacity of
+125,173,760 sectors put the last eight at LBA 125,173,752. Both runs
+returned `0x76efddc5`. The probe showed SD host power and clock off.
+USB storage still returned `0xe4d803dc` and `/data` stayed at generation 1.
+[Pi microSD capture](../proofs/pi5-microsd-tail-2026-11-24.txt)
+
+`ethprobe` checks the known RP1 GEM and onboard PHY bindings and the live
+PCIe window. It temporarily claims the GEM registers and reads PHY ID,
+control and status over Clause 22 MDIO at PHY address 1. The second
+status read reports current link after clearing the latched indication.
+The probe restores the original MAC configuration after its reads and
+leaves the PHY, transmit and receive engines, interrupts and DMA queues
+in their existing state. Later steps cover PHY bring-up where firmware
+left it inactive, then Ethernet frames and DHCP.
+[RP1 clock and peripheral documentation](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008370-DS-1-rp1-peripherals.pdf) · [Pi PHY binding](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/arch/arm64/boot/dts/broadcom/bcm2712-rpi-5-b.dts) · [GEM MDIO implementation](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/net/ethernet/cadence/macb_main.c)
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-probe-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Enter `exit` from `user:/$` and run `ethprobe` at `>` with Ethernet
+unplugged. A responding PHY should report an ID and `link=down`. If an
+Ethernet cable and switch or router are available, connect them, wait
+for link negotiation and repeat `ethprobe`. Then run `resinfo`,
+`storagetest`, and `datacheck`. The probe's claim should disappear
+after a verified MAC restore.
+
+### Phase 18 onboard PHY reset diagnostic
+
+The Pi identified the GEM as `0x00070109`, but its PHY gave no MDIO
+response. Windows identified the hub as `Ethernet 3`, a Realtek USB
+Ethernet adapter, and reported no live link at the time of the check.
+[Pi and Windows capture](../proofs/pi5-ethernet-mdio-no-reply-2026-11-24.txt)
+
+`ethprobe reset` runs the normal probe first. If the PHY gives no reply,
+it temporarily claims the device-tree-defined active-low PHY reset line
+on RP1 GPIO32. It verifies a 5 ms low pulse, then a high release, waits
+100 ms, repeats MDIO, and restores the pin state. The Ethernet link
+reading during that retry is an early sample. For the link check, wait a
+few seconds with the cable attached and run `ethprobe` again. A failed
+restore keeps the claims until reboot.
+[Pi 5 reset binding](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/arch/arm64/boot/dts/broadcom/bcm2712-rpi-5-b.dts) · [RP1 GPIO bank map](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/pinctrl/pinctrl-rp1.c)
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-reset-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+With the Ethernet cable connected directly from the Pi to the laptop's
+adapter, enter `exit` from `user:/$`, then run `ethprobe reset` at `>`.
+Wait a few seconds and run `ethprobe`, `resinfo`, `storagetest`, and
+`datacheck`. `rp1-ethernet` is the resource owner name shown by `resinfo`.
+
+### Phase 18 hold the PHY out of reset for link negotiation
+
+On the Pi, `ethprobe reset` read PHY ID `0x600d84a2` with negotiation
+pending. The next probe read `0xffffffff` after GPIO32 was restored.
+The Windows adapter still showed no link. USB reads passed and `/data`
+remained at generation 1. [Pi reset capture](../proofs/pi5-ethernet-phy-reset-2026-11-24.txt)
+
+`ethup` verifies idle GEM access, pulses the board's PHY reset, and
+holds GPIO32 high after the PHY replies. `ethprobe` reports fresh link
+and negotiation status without pulsing reset while the pin is held.
+`ethdown` restores the saved GPIO configuration. `resinfo` shows two
+`rp1-ethernet` claims during `held=yes` and releases them after `ethdown`
+verifies restoration. The MAC transmit and receive engines stay idle.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-link-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Connect the Pi directly to the laptop's USB Ethernet adapter. Enter
+`exit` from `user:/$`, then run `ethup` at `>`. Wait a few seconds for
+negotiation, run `ethprobe` and `resinfo`, and check link from Windows
+before issuing `ethdown`.
+
+```powershell
+Get-NetAdapter -Name 'Ethernet 3' | Select-Object Name,Status,LinkSpeed
+```
+
+Run `ethdown`, `resinfo`, `storagetest`, and `datacheck` in PuTTY to
+verify cleanup and compare storage with the previous capture.

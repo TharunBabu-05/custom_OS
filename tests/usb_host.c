@@ -125,6 +125,10 @@ static void dt_tests(void)
     /* Command routing must refuse Pi MMIO on QEMU and unconfirmed mappings. */
     usb_setup("qemu_virt",1,0x9000000); clear_output();
     assert(usb_command("usbprobe") && strstr(output,"no MMIO attempted"));
+    clear_output();assert(usb_command("usbdevices") && strstr(output,"USB inventory empty"));
+    clear_output();assert(usb_command("usbports") && strstr(output,"USB ports unavailable"));
+    clear_output();assert(usb_command("usbkeytest 2") && strstr(output,"USB keyboard test unavailable"));
+    clear_output();assert(usb_command("usbkeytest 33") && strstr(output,"Usage: usbkeytest"));
     clear_output();assert(usb_command("usbcheck") && strstr(output,"USB check unavailable"));
     assert(!usb_command("unrecognized"));
     usb_setup("rpi5",(uintptr_t)data,0x107d001000ULL); clear_output();
@@ -167,6 +171,14 @@ static void descriptor_tests(void)
     config[4]=2; assert(!usb_parse_configuration(config,32,&info)); config[4]=1;
     const unsigned char extra[]={9,4,1,0,0,0xff,0,0,0,0,0}; memcpy(config+32,extra,sizeof(extra));
     config[2]=43; config[4]=2; assert(!usb_parse_configuration(config,43,&info)); config[2]=32; config[4]=1;
+    const unsigned char keyboard[]={9,2,34,0,1,1,0,0x80,50,9,4,0,0,1,3,1,1,0,
+        9,0x21,0x11,1,0,1,0x22,63,0,7,5,0x81,3,8,0,10};
+    assert(usb_parse_configuration(keyboard,sizeof(keyboard),&info) && !info.mass_storage);
+    struct usb_boot_keyboard key={0};
+    assert(usb_find_boot_keyboard(keyboard,sizeof(keyboard),&key));
+    assert(key.interface==0 && key.endpoint==0x81 && key.packet==8 && key.interval==10);
+    assert(!usb_find_boot_keyboard(keyboard,sizeof(keyboard)-1,&key) && key.endpoint==0x81);
+    assert(!usb_find_boot_keyboard(config,32,&key));
     uint32_t random=0x51913;
     for (unsigned i=0;i<2000;++i) {
         random=random*1664525u+1013904223u; unsigned at=random%32; unsigned char old=config[at];

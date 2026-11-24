@@ -3,10 +3,17 @@
 #include "xhci_test.h"
 #include "usb_bot.h"
 #include "console.h"
+_Static_assert(offsetof(struct xhci_test_memory,bulk_in)-offsetof(struct xhci_test_memory,data)==4096,
+               "Keyboard transfers must fit in the xHCI DMA allocation's alignment gap");
 struct session {
     const struct xhci_test_io *io; struct xhci_test_memory *m; struct xhci_test_state *s;
     const struct xhci_snapshot *snapshot; unsigned op,rt,db,command,ep,*event;
     unsigned command_cycle,ep_cycle,command_wraps,ep_wraps;
+    volatile unsigned char *output_context;
+    struct xhci_trb *control_ring;
+    unsigned control_trbs;
+    uint64_t transfer_wait;
+    bool discarding_slot;
     uint64_t input,output,ep0,data; uint8_t slot;
 };
 static bool rd(struct session *t,unsigned offset,uint32_t *value)
@@ -21,6 +28,7 @@ static bool map(struct session *t,const void *p,size_t n,uint64_t *dma)
 static enum xhci_test_result event_for(struct session *t,unsigned type,uint64_t pointer,unsigned endpoint,bool short_ok,uint32_t *result,uint32_t *transfer_status)
 {
     uint64_t start=t->io->ticks(t->io->observer.context);
+    uint64_t wait=t->transfer_wait ? t->transfer_wait : t->io->hz*2;
     for (unsigned spin=0;spin<20000000;++spin) {
         unsigned index=*t->event%XHCI_RING_TRBS,cycle=1^((*t->event/XHCI_RING_TRBS)&1);
         volatile struct xhci_trb *e=&t->m->event[index]; uint32_t control=e->control;
@@ -39,11 +47,12 @@ static enum xhci_test_result event_for(struct session *t,unsigned type,uint64_t 
                 if (code!=1 && !(short_ok && code==13)) { return XHCI_TEST_EVENT; }
                 if (result) { *result=control; } return XHCI_TEST_OK;
             }
+            if (t->discarding_slot && kind==32 && (control>>24)==t->slot) { continue; }
             if (kind!=34 || !(address>>24&255) || (address>>24&255)>t->snapshot->ports) { return XHCI_TEST_EVENT; }
         }
         if (!rd(t,t->op+4,&t->s->last_status)) { return XHCI_TEST_IO; }
         if (t->s->last_status&((1u<<2)|(1u<<12))) { return XHCI_TEST_IO; }
-        if (t->io->ticks(t->io->observer.context)-start>=t->io->hz*2) { break; }
+        if (t->io->ticks(t->io->observer.context)-start>=wait) { break; }
     }
     return XHCI_TEST_TIMEOUT;
 }
@@ -57,20 +66,20 @@ static void publish(struct session *t,struct xhci_trb *p,struct xhci_trb value)
     sync(t);((volatile struct xhci_trb *)p)->control=value.control;
 }
 static void reserve_ring(struct session *t,struct xhci_trb *ring,uint64_t dma,
-                         unsigned *index,unsigned *cycle,unsigned *wraps,unsigned needed)
+                         unsigned *index,unsigned *cycle,unsigned *wraps,unsigned needed,unsigned count)
 {
-    if (*index+needed<=XHCI_RING_TRBS-1) { return; }
+    if (*index+needed<=count-1) { return; }
     /* Keep a control TD contiguous. Unused tail entries are Transfer No-ops;
      * the single Link TRB stays at the end of the segment (xHCI 6.4.4.1). */
-    while (*index<XHCI_RING_TRBS-1) {
+    while (*index<count-1) {
         publish(t,&ring[(*index)++],(struct xhci_trb){0,0,0,(8u<<10)|*cycle});
     }
-    publish(t,&ring[XHCI_RING_TRBS-1],(struct xhci_trb){(uint32_t)dma,(uint32_t)(dma>>32),0,(6u<<10)|2|*cycle});
+    publish(t,&ring[count-1],(struct xhci_trb){(uint32_t)dma,(uint32_t)(dma>>32),0,(6u<<10)|2|*cycle});
     *index=0;*cycle^=1;++*wraps;
 }
 static enum xhci_test_result command(struct session *t,unsigned type,uint64_t pointer,uint32_t extra,uint32_t *result)
 {
-    reserve_ring(t,t->m->command,t->s->command_dma,&t->command,&t->command_cycle,&t->command_wraps,1);
+    reserve_ring(t,t->m->command,t->s->command_dma,&t->command,&t->command_cycle,&t->command_wraps,1,XHCI_RING_TRBS);
     unsigned at=t->command++;
     publish(t,&t->m->command[at],(struct xhci_trb){(uint32_t)pointer,(uint32_t)(pointer>>32),0,(type<<10)|extra|t->command_cycle});
     sync(t); if (!wr(t,t->db,0)) { return XHCI_TEST_IO; }
@@ -80,13 +89,14 @@ static enum xhci_test_result request_index(struct session *t,unsigned request_ty
 {
     unsigned stages=n ? 3 : 2;
     if (n>sizeof(t->m->data) || (n && request_type!=0x80)) { return XHCI_TEST_ARGUMENT; }
-    reserve_ring(t,t->m->ep0,t->ep0,&t->ep,&t->ep_cycle,&t->ep_wraps,stages);
+    struct xhci_trb *ring=t->control_ring;
+    reserve_ring(t,ring,t->ep0,&t->ep,&t->ep_cycle,&t->ep_wraps,stages,t->control_trbs);
     for (unsigned i=0;i<sizeof(t->m->data);++i) { t->m->data[i]=0; }
     unsigned at=t->ep; t->ep+=stages; t->s->usb_requests=true;
     /* Queue the tail before publishing Setup, which makes the whole TD live. */
-    publish(t,&t->m->ep0[at+stages-1],(struct xhci_trb){0,0,0,(4u<<10)|(1u<<5)|(n ? 0 : 1u<<16)|t->ep_cycle});
-    if (n) { publish(t,&t->m->ep0[at+1],(struct xhci_trb){(uint32_t)t->data,(uint32_t)(t->data>>32),n,(3u<<10)|(1u<<16)|t->ep_cycle}); }
-    publish(t,&t->m->ep0[at],(struct xhci_trb){request_type|(request_number<<8)|(value<<16),(n<<16)|index,8,(2u<<10)|(1u<<6)|(n ? 3u<<16 : 0)|t->ep_cycle});
+    publish(t,&ring[at+stages-1],(struct xhci_trb){0,0,0,(4u<<10)|(1u<<5)|(n ? 0 : 1u<<16)|t->ep_cycle});
+    if (n) { publish(t,&ring[at+1],(struct xhci_trb){(uint32_t)t->data,(uint32_t)(t->data>>32),n,(3u<<10)|(1u<<16)|t->ep_cycle}); }
+    publish(t,&ring[at],(struct xhci_trb){request_type|(request_number<<8)|(value<<16),(n<<16)|index,8,(2u<<10)|(1u<<6)|(n ? 3u<<16 : 0)|t->ep_cycle});
     sync(t); if (!wr(t,t->db+t->slot*4,1)) { return XHCI_TEST_IO; }
     return event(t,32,t->ep0+(at+stages-1)*16,NULL);
 }
@@ -106,8 +116,87 @@ static struct {
     struct session t; struct xhci_test_io io; struct xhci_snapshot snapshot;
     struct usb_device_info info; struct usb_bot bot;
     struct pipe in,out; uint64_t cbw,csw;
-    unsigned events,clears; bool online;
+    unsigned events,clears; bool online,keyboard_blocked;
 } disk={.bot={.error=BLOCK_NOT_READY}};
+
+static struct {
+    struct usb_device_info device;
+    uintptr_t controller;
+    unsigned length;
+    unsigned char descriptor[USB_CONFIGURATION_MAX];
+} inventory;
+
+void xhci_storage_ports(void)
+{
+    if (!disk.online || !disk.bot.ready) {
+        console_write("USB ports unavailable. Start USB storage first.\n"); return;
+    }
+    struct xhci_snapshot snapshot;
+    enum usb_probe_result result=xhci_observe(&disk.io.observer,&snapshot);
+    if (result!=USB_PROBE_OK || snapshot.ports!=disk.snapshot.ports || snapshot.cap_length!=disk.t.op) {
+        console_write("USB port snapshot unavailable.\n"); return;
+    }
+    xhci_report_ports(&disk.io.observer,&snapshot);
+}
+
+unsigned xhci_storage_port(uintptr_t controller)
+{
+    return disk.t.s && (uintptr_t)disk.io.observer.context==controller ? disk.info.port : 0;
+}
+
+void xhci_report_ports(const struct xhci_observer *io,const struct xhci_snapshot *snapshot)
+{
+    unsigned storage=xhci_storage_port((uintptr_t)io->context);
+    console_write("USB root ports controller="); console_hex((uintptr_t)io->context); console_write("\n");
+    for (unsigned i=0;i<snapshot->ports;++i) {
+        const struct usb_port_snapshot *port=&snapshot->port[i];
+        uint32_t status=port->status;
+        console_write("USB root port="); console_u64(i+1);
+        console_write(" protocol="); console_u64(port->protocol_major);
+        console_write(status&1 ? " present=yes" : " present=no");
+        console_write(status&2 ? " enabled=yes" : " enabled=no");
+        console_write(status&(1u<<17) ? " connect_change=yes" : " connect_change=no");
+        console_write(" PORTSC="); console_hex(status);
+        console_write(i+1==storage ? " owner=usb-bot\n" : " owner=none\n");
+    }
+}
+
+static void report_configuration(const unsigned char *config,unsigned length,const struct usb_device_info *device)
+{
+    console_write("USB configuration="); console_u64(config[5]); console_write(" interfaces="); console_u64(config[4]);
+    console_write(" descriptor_bytes="); console_u64(length); console_write("\n");
+    for (unsigned at=9;at<length;at+=config[at]) {
+        const unsigned char *d=config+at;
+        if (d[1]==4) {
+            console_write("USB interface="); console_u64(d[2]); console_write(" alt="); console_u64(d[3]);
+            console_write(" class="); console_hex(d[5]); console_write(" subclass="); console_hex(d[6]);
+            console_write(" protocol="); console_hex(d[7]); console_write(" endpoints="); console_u64(d[4]);
+            if (device->configured && !d[3] && d[2]==device->interface_number) { console_write(" driver=usb-bot"); }
+            if (d[5]==3 && d[6]==1 && d[7]==1) { console_write(" kind=hid-boot-keyboard"); }
+            if (d[5]==3 && d[6]==1 && d[7]==2) { console_write(" kind=hid-boot-mouse"); }
+            if (d[5]==9) { console_write(" kind=hub"); }
+            console_write("\n");
+        } else if (d[1]==5) {
+            static const char *const transfer[]={"control","isochronous","bulk","interrupt"};
+            console_write("  endpoint="); console_hex(d[2]); console_write(d[2]&0x80 ? " direction=in" : " direction=out");
+            console_write(" type="); console_write(transfer[d[3]&3]);
+            console_write(" max_packet="); console_u64(d[4]|(unsigned)(d[5]&7)<<8);
+            console_write(" bInterval="); console_u64(d[6]); console_write("\n");
+        }
+    }
+}
+
+void xhci_device_inventory(void)
+{
+    if (!inventory.length) { console_write("USB inventory empty. Initialize storage or enumerate a device first.\n"); return; }
+    const struct usb_device_info *device=&inventory.device;
+    const char *state=device->configured ? (disk.online && disk.bot.ready ? "storage-ready" : "storage-offline") : "descriptors-only";
+    console_write("USB cached device controller="); console_hex(inventory.controller);
+    console_write(" port="); console_u64(device->port); console_write(" slot="); console_u64(device->slot);
+    console_write(" VID="); console_hex(device->vendor); console_write(" PID="); console_hex(device->product);
+    console_write(" speed_id="); console_u64(device->speed); console_write(" state="); console_write(state); console_write("\n");
+    report_configuration(inventory.descriptor,inventory.length,device);
+}
 static void next_pipe(struct session *t,struct pipe *p)
 {
     if (p->index==XHCI_RING_TRBS-1) {
@@ -270,69 +359,252 @@ void xhci_storage_info(void)
         console_write(" halted=");console_write(disk.t.s->halted ? "yes" : "no");console_write("\n");
     }
 }
-enum xhci_test_result xhci_enumerate(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,
-                                  const struct xhci_snapshot *snapshot,unsigned *event_cursor,struct usb_device_info *info,struct block_device *storage)
+static enum xhci_test_result enumerate_port(struct session *t,unsigned port,unsigned protected_slot,
+                                             struct usb_device_info *info,unsigned *length_out)
 {
-    struct session t={.io=io,.m=m,.s=s,.snapshot=snapshot,.op=snapshot->cap_length,.command=4,.event=event_cursor,.command_cycle=1,.ep_cycle=1};
+    const struct xhci_test_io *io=t->io;
+    const struct xhci_snapshot *snapshot=t->snapshot;
+    struct xhci_test_memory *m=t->m;
+    struct xhci_test_state *s=t->s;
+    s->phase=XHCI_PORT;
+    info->port=(uint8_t)port; unsigned port_reg=t->op+0x400+(port-1)*16; uint32_t status;
+    if (!rd(t,port_reg,&status) || !wr(t,port_reg,(status&((1u<<9)|(7u<<25)))|(1u<<4))) { return XHCI_TEST_IO; }
+    uint64_t start=io->ticks(io->observer.context); bool reset=false;
+    for (unsigned spin=0;spin<20000000;++spin) {
+        if (!rd(t,port_reg,&status)) { return XHCI_TEST_IO; }
+        if (!(status&1)) { return XHCI_TEST_IO; }
+        if (!(status&(1u<<4)) && (status&2)) { reset=true; break; }
+        if (io->ticks(io->observer.context)-start>=io->hz*2) { break; }
+    }
+    if (!reset) { return XHCI_TEST_TIMEOUT; }
+    if (!wr(t,port_reg,(status&((1u<<9)|(7u<<25)))|(status&0xfe0000))) { return XHCI_TEST_IO; }
+    unsigned speed=(status>>10)&15;
+    if (speed<1 || speed>3) { return XHCI_TEST_UNSUPPORTED; } info->speed=(uint8_t)speed;
+    unsigned packet=speed==3 ? 64 : 8,cs=snapshot->context64 ? 64 : 32;
+    s->phase=XHCI_SLOT; uint32_t result;
+    enum xhci_test_result r=command(t,9,0,0,&result); if (r!=XHCI_TEST_OK) { return r; }
+    unsigned slot=result>>24;
+    if (!slot || slot>64 || slot>snapshot->slots || slot==protected_slot) { return XHCI_TEST_EVENT; }
+    t->slot=info->slot=(uint8_t)slot;
+    m->dcbaa[t->slot]=t->output; clear_input(t); put32(m->input+4,3);
+    put32(m->input+cs,(speed<<20)|(1u<<27)); put32(m->input+cs+4,port<<16);
+    put32(m->input+2*cs+4,(3u<<1)|(4u<<3)|(packet<<16));
+    put32(m->input+2*cs+8,(uint32_t)t->ep0|1); put32(m->input+2*cs+12,(uint32_t)(t->ep0>>32));
+    put32(m->input+2*cs+16,8);
+    t->control_ring[t->control_trbs-1]=(struct xhci_trb){(uint32_t)t->ep0,(uint32_t)(t->ep0>>32),0,(6u<<10)|3};
+    s->phase=XHCI_ADDRESS;
+    s->usb_requests=true; /* Address Device sends SET_ADDRESS on the USB wire. */
+    r=command(t,11,t->input,(uint32_t)t->slot<<24,NULL); if (r!=XHCI_TEST_OK) { return r; }
+    s->phase=XHCI_DESCRIPTOR;
+    r=control(t,1,8); if (r!=XHCI_TEST_OK) { return r; }
+    unsigned mps=m->data[7];
+    if (m->data[0]!=18 || m->data[1]!=1 || (mps!=8 && mps!=16 && mps!=32 && mps!=64) ||
+        (speed==3 && mps!=64) || (speed==2 && mps!=8)) { return XHCI_TEST_UNSUPPORTED; }
+    if (mps!=packet) {
+        clear_input(t); put32(m->input+4,2);
+        for (unsigned i=0;i<cs;++i) { m->input[2*cs+i]=t->output_context[cs+i]; }
+        put32(m->input+2*cs+4,(3u<<1)|(4u<<3)|(mps<<16));
+        r=command(t,13,t->input,(uint32_t)t->slot<<24,NULL); if (r!=XHCI_TEST_OK) { return r; }
+    }
+    info->max_packet=(uint16_t)mps;
+    r=control(t,1,18); if (r!=XHCI_TEST_OK) { return r; }
+    if (m->data[7]!=mps || !usb_parse_device(m->data,18,info)) { return XHCI_TEST_UNSUPPORTED; }
+    s->phase=XHCI_CONFIG; r=control(t,2,9); if (r!=XHCI_TEST_OK) { return r; }
+    if (m->data[0]!=9 || m->data[1]!=2) { return XHCI_TEST_UNSUPPORTED; }
+    unsigned length=m->data[2]|(unsigned)m->data[3]<<8;
+    if (length<9 || length>USB_CONFIGURATION_MAX) { return XHCI_TEST_UNSUPPORTED; }
+    r=control(t,2,length); if (r!=XHCI_TEST_OK) { return r; }
+    if (!usb_parse_configuration(m->data,length,info)) { return XHCI_TEST_UNSUPPORTED; }
+    *length_out=length;
+    return XHCI_TEST_OK;
+}
+
+static enum xhci_test_result accessory_request(struct session *,const struct xhci_accessory *,unsigned,unsigned *,unsigned *);
+static void report_accessory(const struct xhci_accessory *,unsigned,unsigned);
+static bool release_slot(struct session *t)
+{
+    if (!t->slot) { return t->s->phase!=XHCI_SLOT; }
+    t->discarding_slot=true;
+    if (command(t,10,0,(uint32_t)t->slot<<24,NULL)!=XHCI_TEST_OK) { return false; }
+    t->m->dcbaa[t->slot]=0;
+    return true;
+}
+
+enum xhci_test_result xhci_enumerate(const struct xhci_test_io *io,struct xhci_test_memory *m,struct xhci_test_state *s,
+                                  const struct xhci_snapshot *snapshot,unsigned *event_cursor,struct usb_device_info *info,struct block_device *storage,const struct xhci_accessory *accessory)
+{
+    struct session t={.io=io,.m=m,.s=s,.snapshot=snapshot,.op=snapshot->cap_length,.command=4,.event=event_cursor,.command_cycle=1,.ep_cycle=1,
+                      .output_context=m->output,.control_ring=m->ep0,.control_trbs=XHCI_RING_TRBS};
     if (!rd(&t,20,&t.db) || !rd(&t,24,&t.rt)) { return XHCI_TEST_IO; } t.db&=~3u; t.rt&=~31u;
     unsigned limit=io->observer.span<0xc000 ? io->observer.span : 0xc000;
     unsigned slots=snapshot->slots<64 ? snapshot->slots : 64;
     if (t.db>limit-(slots+1)*4) { return XHCI_TEST_LAYOUT; }
     if (!map(&t,m->input,sizeof(m->input),&t.input) || !map(&t,(const void *)m->output,sizeof(m->output),&t.output) ||
         !map(&t,m->ep0,sizeof(m->ep0),&t.ep0) || !map(&t,m->data,sizeof(m->data),&t.data)) { return XHCI_TEST_DMA; }
-    s->phase=XHCI_PORT; unsigned port=0;
+    if (accessory) {
+        unsigned usage=0,modifiers=0;
+        enum xhci_test_result result=accessory_request(&t,accessory,0,&usage,&modifiers);
+        if (!release_slot(&t) && result==XHCI_TEST_OK) { result=XHCI_TEST_EVENT; }
+        if (result==XHCI_TEST_OK) { report_accessory(accessory,usage,modifiers); }
+        return result;
+    }
+    s->phase=XHCI_PORT;
     for (unsigned i=0;i<snapshot->ports;++i) {
+        struct usb_port_snapshot port=snapshot->port[i];
+        if (!rd(&t,t.op+0x400+i*16,&port.status)) { return XHCI_TEST_IO; }
+        if (!(storage ? xhci_storage_candidate(&port) : port.protocol_major==2 && (port.status&1))) { continue; }
+        unsigned length;
+        *info=(struct usb_device_info){0};
+        enum xhci_test_result r=enumerate_port(&t,i+1,0,info,&length);
+        if (r!=XHCI_TEST_OK && r!=XHCI_TEST_UNSUPPORTED) { return r; }
+        if (storage && (r!=XHCI_TEST_OK || !info->mass_storage || info->speed==2)) {
+            if (!release_slot(&t)) { return XHCI_TEST_EVENT; }
+            t.slot=0;
+            t.discarding_slot=false;
+            t.ep=t.ep_wraps=0;
+            t.ep_cycle=1;
+            for (unsigned j=0;j<t.control_trbs;++j) { t.control_ring[j]=(struct xhci_trb){0}; }
+            for (unsigned j=0;j<2048;++j) { t.output_context[j]=0; }
+            continue;
+        }
+        if (r!=XHCI_TEST_OK) { return r; }
+        /* BOT can reuse the descriptor DMA buffer during the attach. */
+        inventory.length=0;
+        for (unsigned j=0;j<length;++j) { inventory.descriptor[j]=m->data[j]; }
+        if (storage) {
+            r=start_storage(&t,info,storage);
+            if (r!=XHCI_TEST_OK) { return r; }
+        }
+        inventory.device=*info;
+        inventory.controller=(uintptr_t)io->observer.context;
+        inventory.length=length;
+        return XHCI_TEST_OK;
+    }
+    return storage ? XHCI_TEST_NO_BOT : XHCI_TEST_UNSUPPORTED;
+}
+
+static enum xhci_test_result keyboard_input(struct session *t,const struct usb_device_info *info,
+                                            const struct usb_boot_keyboard *key,unsigned *usage,unsigned *modifiers)
+{
+    unsigned ep=(key->endpoint&15)*2+1,cs=t->snapshot->context64 ? 64 : 32;
+    unsigned interval=key->interval-1;
+    if (info->speed!=3) {
+        interval=0;
+        for (unsigned uf=(unsigned)key->interval*8;uf>1;uf>>=1) { ++interval; }
+        if (info->speed==2 && key->packet!=8) { return XHCI_TEST_UNSUPPORTED; }
+    } else if (interval>15) { return XHCI_TEST_UNSUPPORTED; }
+    struct xhci_trb *ring=t->m->key_interrupt;
+    unsigned char *buffer=t->m->key_report;
+    uint64_t ring_dma,buffer_dma;
+    if (!map(t,ring,sizeof(t->m->key_interrupt),&ring_dma) || !map(t,buffer,sizeof(t->m->key_report),&buffer_dma)) {
+        return XHCI_TEST_DMA;
+    }
+    clear_input(t);
+    put32(t->m->input+4,1u|(1u<<ep));
+    unsigned char *slot=t->m->input+cs;
+    for (unsigned i=0;i<cs;++i) { slot[i]=t->output_context[i]; }
+    slot[3]=(slot[3]&7)|(unsigned char)(ep<<3);
+    unsigned char *context=t->m->input+(ep+1)*cs;
+    endpoint_context(context,7,key->packet,ring_dma);
+    put32(context,interval<<16);
+    put32(context+16,8u|((unsigned)key->packet<<16));
+    enum xhci_test_result r=command(t,12,t->input,(uint32_t)t->slot<<24,NULL);
+    if (r==XHCI_TEST_OK) { r=request(t,0,9,info->configuration,0); }
+    if (r==XHCI_TEST_OK) { r=request_index(t,0x21,11,0,key->interface,0); }
+    if (r!=XHCI_TEST_OK) { return r; }
+
+    console_write("USB keyboard ready. Press a key within 8 seconds.\n");
+    uint64_t start=t->io->ticks(t->io->observer.context),budget=t->io->hz*8;
+    /* One completed report at a time. The temporary ring is discarded with its slot. */
+    for (unsigned at=0;at<XHCI_KEY_TRBS-1;++at) {
+        uint64_t elapsed=t->io->ticks(t->io->observer.context)-start;
+        if (elapsed>=budget) { break; }
+        publish(t,&ring[at],(struct xhci_trb){(uint32_t)buffer_dma,(uint32_t)(buffer_dma>>32),8,(1u<<10)|(1u<<5)|(1u<<2)|1});
+        sync(t);
+        if (!wr(t,t->db+t->slot*4,ep)) { return XHCI_TEST_IO; }
         uint32_t status;
-        if (!rd(&t,t.op+0x400+i*16,&status)) { return XHCI_TEST_IO; }
-        if ((status&1) && snapshot->port[i].protocol_major==2) { port=i+1; break; }
+        t->transfer_wait=budget-elapsed;
+        r=event_for(t,32,ring_dma+at*16,ep,true,NULL,&status);
+        t->transfer_wait=0;
+        if (r!=XHCI_TEST_OK) { return r; }
+        if ((status&0xffffff) || buffer[1]) { continue; }
+        unsigned code=0;
+        for (unsigned i=2;i<8;++i) {
+            unsigned keycode=buffer[i];
+            if (keycode && keycode<4) { code=0; break; }
+            if (keycode && !code) { code=keycode; }
+        }
+        if (code) { *usage=code; *modifiers=buffer[0]; return XHCI_TEST_OK; }
     }
-    if (!port) { return XHCI_TEST_UNSUPPORTED; }
-    info->port=(uint8_t)port; unsigned port_reg=t.op+0x400+(port-1)*16; uint32_t status;
-    if (!rd(&t,port_reg,&status) || !wr(&t,port_reg,(status&((1u<<9)|(7u<<25)))|(1u<<4))) { return XHCI_TEST_IO; }
-    uint64_t start=io->ticks(io->observer.context); bool reset=false;
-    for (unsigned spin=0;spin<20000000;++spin) {
-        if (!rd(&t,port_reg,&status)) { return XHCI_TEST_IO; }
-        if (!(status&1)) { return XHCI_TEST_IO; }
-        if (!(status&(1u<<4)) && (status&2)) { reset=true; break; }
-        if (io->ticks(io->observer.context)-start>=io->hz*2) { break; }
+    return XHCI_TEST_TIMEOUT;
+}
+
+static enum xhci_test_result accessory_request(struct session *t,const struct xhci_accessory *accessory,
+                                               unsigned protected,unsigned *usage,unsigned *modifiers)
+{
+    struct usb_device_info info={0};
+    unsigned length;
+    enum xhci_test_result result=enumerate_port(t,accessory->port,protected,&info,&length);
+    if (result!=XHCI_TEST_OK) { return result; }
+    if (accessory->keyboard) {
+        struct usb_boot_keyboard key;
+        return usb_find_boot_keyboard(t->m->data,length,&key) ? keyboard_input(t,&info,&key,usage,modifiers) : XHCI_TEST_UNSUPPORTED;
     }
-    if (!reset) { return XHCI_TEST_TIMEOUT; }
-    if (!wr(&t,port_reg,(status&((1u<<9)|(7u<<25)))|(status&0xfe0000))) { return XHCI_TEST_IO; }
-    unsigned speed=(status>>10)&15;
-    if (speed<1 || speed>3) { return XHCI_TEST_UNSUPPORTED; } info->speed=(uint8_t)speed;
-    unsigned packet=speed==3 ? 64 : 8,cs=snapshot->context64 ? 64 : 32;
-    s->phase=XHCI_SLOT; uint32_t result;
-    enum xhci_test_result r=command(&t,9,0,0,&result); if (r!=XHCI_TEST_OK) { return r; }
-    t.slot=(uint8_t)(result>>24); info->slot=t.slot;
-    if (!t.slot || t.slot>64) { return XHCI_TEST_EVENT; }
-    m->dcbaa[t.slot]=t.output; clear_input(&t); put32(m->input+4,3);
-    put32(m->input+cs,(speed<<20)|(1u<<27)); put32(m->input+cs+4,port<<16);
-    put32(m->input+2*cs+4,(3u<<1)|(4u<<3)|(packet<<16));
-    put32(m->input+2*cs+8,(uint32_t)t.ep0|1); put32(m->input+2*cs+12,(uint32_t)(t.ep0>>32));
-    put32(m->input+2*cs+16,8);
-    m->ep0[XHCI_RING_TRBS-1]=(struct xhci_trb){(uint32_t)t.ep0,(uint32_t)(t.ep0>>32),0,(6u<<10)|3};
-    s->phase=XHCI_ADDRESS;
-    s->usb_requests=true; /* Address Device sends SET_ADDRESS on the USB wire. */
-    r=command(&t,11,t.input,(uint32_t)t.slot<<24,NULL); if (r!=XHCI_TEST_OK) { return r; }
-    s->phase=XHCI_DESCRIPTOR;
-    r=control(&t,1,8); if (r!=XHCI_TEST_OK) { return r; }
-    unsigned mps=m->data[7];
-    if (m->data[0]!=18 || m->data[1]!=1 || (mps!=8 && mps!=16 && mps!=32 && mps!=64) ||
-        (speed==3 && mps!=64) || (speed==2 && mps!=8)) { return XHCI_TEST_UNSUPPORTED; }
-    if (mps!=packet) {
-        clear_input(&t); put32(m->input+4,2);
-        for (unsigned i=0;i<cs;++i) { m->input[2*cs+i]=m->output[cs+i]; }
-        put32(m->input+2*cs+4,(3u<<1)|(4u<<3)|(mps<<16));
-        r=command(&t,13,t.input,(uint32_t)t.slot<<24,NULL); if (r!=XHCI_TEST_OK) { return r; }
+    console_write("USB accessory port="); console_u64(info.port);
+    console_write(" VID="); console_hex(info.vendor); console_write(" PID="); console_hex(info.product); console_write("\n");
+    report_configuration(t->m->data,length,&info);
+    return XHCI_TEST_OK;
+}
+
+static void report_accessory(const struct xhci_accessory *accessory,unsigned usage,unsigned modifiers)
+{
+    if (!accessory->keyboard) { console_write("PASS: USB accessory descriptors read.\n"); return; }
+    console_write("PASS: USB keyboard usage="); console_hex(usage);
+    console_write(" modifiers="); console_hex(modifiers); console_write("; keyboard slot released.\n");
+}
+
+void xhci_accessory_active(const struct xhci_accessory *accessory)
+{
+    unsigned port=accessory->port;
+    if (!disk.online || !disk.bot.ready || disk.keyboard_blocked || disk.io.hz>UINT64_MAX/8) {
+        console_write("USB keyboard test unavailable in this storage session.\n"); return;
     }
-    info->max_packet=(uint16_t)mps;
-    r=control(&t,1,18); if (r!=XHCI_TEST_OK) { return r; }
-    if (m->data[7]!=mps || !usb_parse_device(m->data,18,info)) { return XHCI_TEST_UNSUPPORTED; }
-    s->phase=XHCI_CONFIG; r=control(&t,2,9); if (r!=XHCI_TEST_OK) { return r; }
-    if (m->data[0]!=9 || m->data[1]!=2) { return XHCI_TEST_UNSUPPORTED; }
-    unsigned length=m->data[2]|(unsigned)m->data[3]<<8;
-    if (length<9 || length>256) { return XHCI_TEST_UNSUPPORTED; }
-    r=control(&t,2,length); if (r!=XHCI_TEST_OK) { return r; }
-    if (!usb_parse_configuration(m->data,length,info)) { return XHCI_TEST_UNSUPPORTED; }
-    return storage ? start_storage(&t,info,storage) : XHCI_TEST_OK;
+    struct session t=disk.t;
+    uint32_t status;
+    if (!port || port>t.snapshot->ports || port==disk.info.port || t.snapshot->port[port-1].protocol_major!=2 ||
+        !rd(&t,t.op+0x400+(port-1)*16,&status) || !(status&1)) {
+        console_write("USB keyboard test requires a connected spare USB2 port. See usbports.\n"); return;
+    }
+    t.slot=0;
+    t.ep=t.ep_wraps=0;
+    t.ep_cycle=1;
+    t.control_ring=t.m->key_control;
+    t.control_trbs=XHCI_KEY_TRBS;
+    /* An output context occupies 32 entries of at most 64 bytes. */
+    t.output_context=t.m->output+2048;
+    if (!map(&t,(const void *)t.output_context,2048,&t.output) ||
+        !map(&t,t.control_ring,sizeof(t.m->key_control),&t.ep0)) {
+        console_write("USB keyboard DMA mapping failed.\n"); return;
+    }
+    for (unsigned i=0;i<2048;++i) { t.output_context[i]=0; }
+    for (unsigned i=0;i<XHCI_KEY_TRBS;++i) {
+        t.control_ring[i]=(struct xhci_trb){0};
+        t.m->key_interrupt[i]=(struct xhci_trb){0};
+    }
+
+    enum xhci_test_phase storage_phase=t.s->phase;
+    unsigned usage=0,modifiers=0;
+    enum xhci_test_result result=accessory_request(&t,accessory,disk.t.slot,&usage,&modifiers);
+    enum xhci_test_phase failed_phase=t.s->phase;
+    if (!release_slot(&t)) { disk.keyboard_blocked=true; }
+    disk.t.command=t.command;
+    disk.t.command_cycle=t.command_cycle;
+    disk.t.command_wraps=t.command_wraps;
+    t.s->phase=storage_phase;
+    if (disk.keyboard_blocked) { console_write("USB keyboard slot cleanup unverified. Reboot before another test.\n"); return; }
+    if (result!=XHCI_TEST_OK) {
+        console_write("USB keyboard test ended: "); console_write(xhci_test_error(result));
+        console_write(" phase="); console_u64(failed_phase); console_write("\n"); return;
+    }
+    report_accessory(accessory,usage,modifiers);
 }

@@ -2,7 +2,10 @@
 #include "rp1_probe.h"
 #include "rp1_msix.h"
 
+enum gpio_command { GPIO_READ, GPIO_TEST, GPIO_LOOP, GPIO_PULL };
+
 #ifdef OUROS_PI5
+#include "cpu.h"
 #include "mmu.h"
 #include "resources.h"
 #include "xhci_test.h"
@@ -21,23 +24,52 @@ static bool write_register(void *context,uint32_t offset,uint32_t value)
     return true;
 }
 
-static void test_gpio(const struct xhci_observer *gpio,unsigned pin)
+static uint64_t ethernet_ticks(void *context) { (void)context; return timer_ticks(); }
+
+static void test_gpio(const struct xhci_observer *gpio,unsigned pin,enum gpio_command command)
 {
-    const struct resource_range claim={RESOURCE_GPIO,RP1_GPIO_BASE,pin,1};
-    unsigned ticket=resource_acquire("gpio-test",&claim,1);
+    bool loop=command==GPIO_LOOP;
+    const struct resource_range claims[]={
+        {RESOURCE_GPIO,RP1_GPIO_BASE,pin,1}, {RESOURCE_GPIO,RP1_GPIO_BASE,RP1_LOOP_RX,1}
+    };
+    unsigned ticket=resource_acquire(loop ? "gpio-loop" : command==GPIO_PULL ? "gpio-pull" : "gpio-test",
+                                     claims,loop ? 2 : 1);
     if (!ticket) { console_write("GPIO test refused: pin claim unavailable.\n"); return; }
-    enum rp1_gpio_result result=rp1_gpio_test(gpio,write_register,pin);
+    struct rp1_gpio_sample sample;
+    enum rp1_gpio_result result;
+    if (loop) { result=rp1_gpio_loop(gpio,write_register,&sample); }
+    else if (command==GPIO_PULL) { result=rp1_gpio_pull(gpio,write_register,pin,&sample); }
+    else { result=rp1_gpio_test(gpio,write_register,pin); }
     if (result!=RP1_GPIO_RESTORE) { (void)resource_release(ticket); }
+    if (loop && result==RP1_GPIO_OK) {
+        console_write("PASS: GPIO 17 to 27 loopback levels 01010, both pins and claims restored.\n"); return;
+    }
+    if (command==GPIO_PULL && result==RP1_GPIO_OK) {
+        console_write("PASS: GPIO "); console_u64(pin);
+        console_write(" input pull levels 010, pad and claim restored.\n"); return;
+    }
+    if (loop && result==RP1_GPIO_BUSY) {
+        console_write("GPIO loopback requires isolated pins and the 3.3 V GPIO bank.\n"); return;
+    }
+    if (result==RP1_GPIO_SIGNAL) {
+        console_write("GPIO mismatch step="); console_u64(sample.step+1);
+        console_write(" pin="); console_u64(sample.pin);
+        console_write(" expected="); console_u64(sample.expected);
+        console_write(" pad="); console_u64(sample.pad);
+        console_write(" rio="); console_u64(sample.rio);
+        console_write(" status="); console_hex(sample.status); console_write("\n");
+    }
     static const char *const report[]={
         [RP1_GPIO_OK]="PASS: GPIO RIO latch and enable verified, pad isolated, state and claim restored.\n",
         [RP1_GPIO_BUSY]="GPIO test refused: pin is not isolated.\n",
         [RP1_GPIO_IO]="GPIO test failed: register readback could not be verified.\n",
-        [RP1_GPIO_RESTORE]="GPIO test failed: restore unverified, pin claim retained until reboot.\n"
+        [RP1_GPIO_RESTORE]="GPIO test failed: restore unverified, claims retained until reboot.\n",
+        [RP1_GPIO_SIGNAL]="GPIO signal test failed. Pin state and claims restored.\n"
     };
     console_write(report[result]);
 }
 
-static void report_gpio(const void *dtb,uintptr_t uart,unsigned pin,bool test)
+static void report_gpio(const void *dtb,uintptr_t uart,unsigned pin,enum gpio_command command)
 {
     const struct xhci_observer bridge={read_register,(void *)RP1_PCIE_BASE,0x9310};
     const struct xhci_observer gpio={read_register,(void *)RP1_GPIO_BASE,RP1_GPIO_SPAN};
@@ -46,7 +78,7 @@ static void report_gpio(const void *dtb,uintptr_t uart,unsigned pin,bool test)
         rp1_reachable(&bridge,RP1_GPIO_OFFSET+RP1_GPIO_SPAN-1)!=RP1_SNAPSHOT_OK) {
         console_write("GPIO unavailable on this Pi 5 header profile.\n"); return;
     }
-    if (test) { test_gpio(&gpio,pin); return; }
+    if (command!=GPIO_READ) { test_gpio(&gpio,pin,command); return; }
     struct rp1_gpio_snapshot snapshot;
     if (!rp1_gpio_read(&gpio,pin,&snapshot)) { console_write("GPIO readback failed.\n"); return; }
     static const char *const pulls[]={"off","down","up","both"};
@@ -218,13 +250,74 @@ static void report_rp1(uintptr_t dtb,uintptr_t uart)
 }
 #endif
 
+void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action action)
+{
+#ifdef OUROS_PI5
+    static unsigned ticket;
+    static bool restore_failed;
+    static struct rp1_eth_link link;
+    if (action==ETH_DOWN && !ticket) { console_write("PHY hold released.\n"); return; }
+    const struct xhci_observer bridge={read_register,(void *)RP1_PCIE_BASE,0x9310};
+    if (restore_failed || uart!=RP1_LIVE_BASE+0x30000 || !rp1_pci_description((const void *)dtb,0x200000) ||
+        !rp1_eth_description((const void *)dtb,0x200000) ||
+        rp1_reachable(&bridge,RP1_ETH_OFFSET+RP1_ETH_SPAN-1)!=RP1_SNAPSHOT_OK) {
+        console_write("Ethernet probe unavailable.\n"); return;
+    }
+    bool needs_gpio=action==ETH_DOWN || (action!=ETH_PROBE && !link.held);
+    if (needs_gpio && (!rp1_eth_reset_description((const void *)dtb,0x200000) ||
+        rp1_reachable(&bridge,RP1_GPIO_OFFSET+RP1_ETH_RESET_BANK+RP1_ETH_RESET_SPAN-1)!=RP1_SNAPSHOT_OK)) {
+        console_write("Ethernet probe unavailable.\n"); return;
+    }
+    const struct resource_range claims[]={
+        {RESOURCE_MMIO,0,RP1_LIVE_BASE+RP1_ETH_OFFSET,RP1_ETH_SPAN},
+        {RESOURCE_GPIO,RP1_GPIO_BASE,RP1_ETH_RESET_GPIO,1}
+    };
+    if (!ticket) { ticket=resource_acquire("rp1-ethernet",claims,needs_gpio ? 2 : 1); }
+    if (!ticket) { console_write("Ethernet probe unavailable.\n"); return; }
+    const struct rp1_eth_io io={
+        {read_register,(void *)(uintptr_t)claims[0].start,RP1_ETH_SPAN},
+        {read_register,(void *)(RP1_GPIO_BASE+RP1_ETH_RESET_BANK),RP1_ETH_RESET_SPAN},
+        write_register,ethernet_ticks,timer_frequency()
+    };
+    struct rp1_phy_snapshot snapshot={0};
+    enum rp1_phy_result result=rp1_eth_link_control(&io,action,&link,&snapshot);
+    if (result==RP1_PHY_RESTORE) { restore_failed=true; }
+    else if (!link.held) { (void)resource_release(ticket); ticket=0; }
+    if (action==ETH_DOWN && result==RP1_PHY_OK) { console_write("PHY hold released.\n"); return; }
+    if (snapshot.pulsed) { console_write("PHY reset pulsed.\n"); }
+    if (action!=ETH_DOWN) {
+        console_write("GEM id="); console_hex(snapshot.mac_id);
+        console_write(" phy=1 id="); console_hex(snapshot.phy_id);
+    }
+    if (result!=RP1_PHY_OK) {
+        static const char *const errors[]={"", "invalid MAC", "MAC busy", "MDIO I/O", "no PHY reply", "restore unverified", "reset failed"};
+        console_write(" ethprobe: "); console_write(errors[result]); console_write("\n"); return;
+    }
+    console_write(snapshot.status&4 ? " link=up" : " link=down");
+    console_write(" autoneg=");
+    console_write(!(snapshot.control&0x1000) ? "disabled" : snapshot.status&0x20 ? "complete" : "pending");
+    console_write(link.held ? " held=yes" : " held=no");
+    console_write("\n");
+#else
+    (void)dtb; (void)uart; (void)action;
+    console_write("Ethernet probe requires a Raspberry Pi 5.\n");
+#endif
+}
+
 bool rp1_gpio_command(const char *line,uintptr_t dtb,uintptr_t uart)
 {
     const char *name="gpio";
     while (*name && *line==*name) { ++line; ++name; }
     if (*name) { return false; }
-    bool test=*line=='t';
-    name=test ? "test" : "info";
+    enum gpio_command command;
+    switch (*line) {
+    case 'i': command=GPIO_READ; name="info"; break;
+    case 't': command=GPIO_TEST; name="test"; break;
+    case 'l': command=GPIO_LOOP; name="loop"; break;
+    case 'p': command=GPIO_PULL; name="pull"; break;
+    default: return false;
+    }
+    const char *suffix=name;
     while (*name && *line==*name) { ++line; ++name; }
     if (*name || (*line && *line!=' ')) { return false; }
     while (*line==' ') { ++line; }
@@ -234,15 +327,16 @@ bool rp1_gpio_command(const char *line,uintptr_t dtb,uintptr_t uart)
         pin=pin*10+(unsigned)(*line++-'0');
     }
     while (*line==' ') { ++line; }
-    if (!valid || *line || pin>=RP1_HEADER_GPIOS) {
-        console_write(test ? "Usage: gpiotest <BCM GPIO 0..27>\n" : "Usage: gpioinfo <BCM GPIO 0..27>\n");
+    if (*line || (command==GPIO_LOOP ? valid : !valid || pin>=RP1_HEADER_GPIOS)) {
+        console_write("Usage: gpio"); console_write(suffix);
+        console_write(command==GPIO_LOOP ? "\n" : " <BCM GPIO 0..27>\n");
         return true;
     }
 #ifdef OUROS_PI5
-    report_gpio((const void *)dtb,uart,pin,test);
+    report_gpio((const void *)dtb,uart,command==GPIO_LOOP ? RP1_LOOP_TX : pin,command);
 #else
     (void)dtb; (void)uart;
-    console_write(test ? "GPIO test requires a Raspberry Pi 5.\n" : "GPIO readback requires a Raspberry Pi 5.\n");
+    console_write(command==GPIO_READ ? "GPIO readback requires a Raspberry Pi 5.\n" : "GPIO test requires a Raspberry Pi 5.\n");
 #endif
     return true;
 }

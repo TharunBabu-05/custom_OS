@@ -1,0 +1,40 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> resinfo
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+Resource claims: 8/16
+> gpioinfo 27
+GPIO 27 funcsel=31 pull=down pad_input=0 pad_output_disable=1 oe_override=0 rio_in=0 rio_out=0 rio_oe=0
+> gpioinfo 28
+Usage: gpioinfo <BCM GPIO 0..27>
+> gpiotest 0
+GPIO test refused: pin claim unavailable.
+> gpiotest 14
+GPIO test refused: pin claim unavailable.
+> gpioinfo 17
+GPIO 17 funcsel=31 pull=down pad_input=0 pad_output_disable=1 oe_override=0 rio_in=0 rio_out=0 rio_oe=0
+> gpiotest 17
+PASS: GPIO RIO latch and enable verified, pad isolated, state and claim restored.
+> gpiotest 17
+PASS: GPIO RIO latch and enable verified, pad isolated, state and claim restored.
+> gpioinfo 17
+GPIO 17 funcsel=31 pull=down pad_input=0 pad_output_disable=1 oe_override=0 rio_in=0 rio_out=0 rio_oe=0
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> resinfo
+Resource claims: 8/16
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> appshell
+user:/$ echo gpio-claims-ok
+gpio-claims-ok
+
+The two full resource inventories matched. The GPIO 17 snapshot and
+/data generation matched before and after the two tests.

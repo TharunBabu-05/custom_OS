@@ -1,5 +1,64 @@
 # Real Raspberry Pi 5 proof
 
+PHY reset released the onboard Ethernet PHY long enough to read its ID
+`0x600d84a2`. The next probe got no reply after the diagnostic restored
+GPIO32. USB storage and `/data` passed. [Ethernet reset capture](pi5-ethernet-phy-reset-2026-11-24.txt)
+
+The Pi read GEM ID `0x00070109` but received no PHY reply on three
+attempts. The temporary GEM claim was released and USB and `/data`
+checks passed. [Ethernet probe capture](pi5-ethernet-mdio-no-reply-2026-11-24.txt)
+
+The Pi passed the microSD single read, eight-sector head scan, and two
+tail scans at capacity minus eight sectors. Both tail hashes matched.
+Host power, clock, and pin selection returned to baseline. The USB
+read and `/data` generation 1 checks passed. [microSD tail capture](pi5-microsd-tail-2026-11-24.txt)
+
+The Pi completed one microSD sector read. `restore_mask=0x02` isolated
+the failure to the host-control and power register word. The subsequent
+probe showed the host power and clock off. USB reads and `/data`
+generation 1 passed. [Host-control capture](pi5-microsd-control0-restore-2026-11-24.txt)
+
+The spare card returned CMD17 transfer completion. The diagnostic kept
+the SD controller claimed because it could not verify the restore. The
+USB storage read passed and `/data` stayed at generation 1.
+[CMD17 and host restore capture](pi5-microsd-cmd17-restore-2026-11-24.txt)
+
+Inserting a spare microSD changed the active-low card-detect GPIO from
+1 to 0 while SDHCI's presence bit stayed set and its power and card clock
+were off. USB storage still passed and `/data` stayed at generation 1.
+[microSD card-detect capture](pi5-microsd-card-detect-2026-11-24.txt)
+
+With a keyboard attached, the Pi mounted `/boot` from usb1 and `/data`
+at generation 1. It identified the keyboard on usb0 port 2 and read HID
+usages `0x04` and `0x0c` on successive tests. The storage read passed and
+the SDHCI controller reported a stable inserted card with its power and
+clock controls off. [Keyboard and SD host capture](pi5-usb-keyboard-live-sd-host-2026-11-24.txt)
+
+Both RP1 USB controllers reported connected devices. Boot storage had
+selected the accessory on usb0, left `/boot` unmounted and retained the
+usb0 claim. [USB boot selection capture](pi5-usb-accessories-boot-selection-2026-11-24.txt)
+
+The recovery image booted and retained the USB drive and v5 generation 1.
+The storage controller's spare USB2 port had a connection change but showed
+no device when sampled. [USB port capture](pi5-usb-keyboard-port-2026-11-24.txt)
+
+Three USB inventories matched across two 512-sector reads. The Pi
+reported the SanDisk BOT endpoints and retained eight hardware claims
+and `/data` generation 9. [USB inventory capture](pi5-usb-inventory-2026-11-22.txt)
+
+GPIO 17 and 27 each passed the `010` input-pull test and restored their
+pad and claim. USB storage, eight claims and generation 9 passed.
+[GPIO pad capture](pi5-rp1-gpio-pads-2026-11-22.txt)
+
+Both physical GPIO loopback attempts reported a signal mismatch and
+restored both pins and claims. USB reads passed and data generation 9
+was preserved. [GPIO loopback capture](pi5-rp1-gpio-loop-2026-11-22.txt)
+
+GPIO 27 read back, GPIO 28 returned usage, and reserved GPIO 0 and 14
+refused the test. GPIO 17 passed twice and returned to its original
+configuration. Eight claims, USB reads and `/data` generation 9 passed.
+[GPIO ownership capture](pi5-rp1-gpio-claims-2026-11-22.txt)
+
 The Pi read GPIO 0, 14, 15 and 17. GPIO 27 was unexpectedly rejected.
 The PCIe link was active, the root port reported bus numbers `0/0/0`,
 and the doorbell reported unmapped. USB readback and generation 9 passed.

@@ -16,14 +16,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'USB BOT stall test compilation failed' }
     & ./build/usb-tests/test-usb-bot-stall.exe
     if ($LASTEXITCODE -ne 0) { throw 'USB BOT stall tests failed' }
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Wmissing-prototypes -Iinclude tests/xhci_stall_host.c drivers/usb/usb_descriptors.c drivers/storage/usb_bot.c drivers/storage/block.c -o build/usb-tests/test-xhci-stall.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Wmissing-prototypes -Iinclude tests/xhci_stall_host.c drivers/usb/usb_descriptors.c drivers/usb/xhci_observe.c drivers/usb/xhci_test.c drivers/storage/usb_bot.c drivers/storage/block.c -o build/usb-tests/test-xhci-stall.exe
     if ($LASTEXITCODE -ne 0) { throw 'xHCI stall test compilation failed' }
     & ./build/usb-tests/test-xhci-stall.exe
     if ($LASTEXITCODE -ne 0) { throw 'xHCI stall tests failed' }
     . "$PSScriptRoot/data-format.ps1"
     $fixture=Join-Path $ProjectRoot 'build/usb-tests/blank-v2.bin'
     [IO.File]::WriteAllBytes($fixture,(New-OurOSDataPartition -Version 2))
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Wmissing-prototypes -Iinclude tests/usb_persist_host.c drivers/usb/usb_descriptors.c drivers/storage/usb_bot.c drivers/storage/block.c filesystem/persist.c lib/sha256.c -o build/usb-tests/test-usb-persist.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Wmissing-prototypes -Iinclude tests/usb_persist_host.c drivers/usb/usb_descriptors.c drivers/usb/xhci_observe.c drivers/usb/xhci_test.c drivers/storage/usb_bot.c drivers/storage/block.c filesystem/persist.c lib/sha256.c -o build/usb-tests/test-usb-persist.exe
     if ($LASTEXITCODE -ne 0) { throw 'USB persistence integration compilation failed' }
     & ./build/usb-tests/test-usb-persist.exe $fixture
     if ($LASTEXITCODE -ne 0) { throw 'USB persistence integration failed' }

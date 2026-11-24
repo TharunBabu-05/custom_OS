@@ -1,0 +1,19 @@
+Raspberry Pi 5 header UART and Windows adapter status, 2026-11-24.
+Ethernet connected directly to the laptop's USB Ethernet adapter.
+
+> ethprobe reset
+PHY reset pulsed.
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=down autoneg=pending
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000ffffffff ethprobe: no PHY reply
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+PS> Get-NetAdapter -Name 'Ethernet 3' | Select-Object Name,Status,LinkSpeed
+Ethernet 3 Disconnected 0 bps

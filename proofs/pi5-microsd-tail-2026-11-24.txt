@@ -1,0 +1,21 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-24.
+USB mass-storage boot, /data extents v5 generation 1.
+
+> sdtest
+PASS: read-only microSD sectors=125173760 lba=0 read=1 fnv1a32=0x000000008cb6a174
+> sdscan
+PASS: read-only microSD sectors=125173760 lba=0 read=8 fnv1a32=0x000000005a670174
+> sdscan tail
+PASS: read-only microSD sectors=125173760 lba=125173752 read=8 fnv1a32=0x0000000076efddc5
+> sdscan tail
+PASS: read-only microSD sectors=125173760 lba=125173752 read=8 fnv1a32=0x0000000076efddc5
+> sdprobe
+microSD present=yes host_present=yes stable=yes cd_gpio_level=0 host_power=off card_clock=off
+VCC enable=high IO voltage select=3300 mV
+SDHCI spec_code=2 base_clock_MHz=200 supports_3v3=yes signaling_1v8=no cqe=no pin_select=0
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty

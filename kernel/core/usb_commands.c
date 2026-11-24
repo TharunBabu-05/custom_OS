@@ -12,12 +12,31 @@ bool usb_storage_attach(struct block_device *device)
 { return platform_usb_storage_attach(firmware_dtb,console_base,device); }
 void usb_storage_info(void) { xhci_storage_info(); }
 #ifdef OUROS_PI5
+#include "rp1_probe.h"
 static bool mmio_read(void *context,uint32_t offset,uint32_t *value)
 {
     uintptr_t base=(uintptr_t)context;
     __asm__ volatile("dmb sy" ::: "memory");
     *value=*(volatile uint32_t *)(base+offset);
     __asm__ volatile("dmb sy" ::: "memory"); return true;
+}
+static void pi5_report_ports(void)
+{
+    if (console_base!=RP1_LIVE_BASE+0x30000) { console_write("USB port snapshot requires the Pi 5 header mapping.\n"); return; }
+    const struct xhci_observer bridge={mmio_read,(void *)RP1_PCIE_BASE,0x9310};
+    for (unsigned host=0;host<2;++host) {
+        struct pi5_usb_description d;
+        struct xhci_snapshot snapshot;
+        unsigned offset=0x200000+host*0x100000;
+        console_write("USB host=usb"); console_u64(host); console_write("\n");
+        if (pi5_usb_describe((const void *)firmware_dtb,0x200000,host,&d) &&
+            (same(d.status,"okay") || same(d.status,"ok")) &&
+            rp1_reachable(&bridge,offset+d.span-1)==RP1_SNAPSHOT_OK) {
+            const struct xhci_observer io={mmio_read,(void *)(RP1_LIVE_BASE+offset),d.span};
+            if (xhci_observe(&io,&snapshot)==USB_PROBE_OK) { xhci_report_ports(&io,&snapshot); continue; }
+        }
+        console_write("USB port snapshot unavailable.\n");
+    }
 }
 static void print_snapshot(const struct xhci_snapshot *s)
 {
@@ -49,6 +68,42 @@ static void print_snapshot(const struct xhci_snapshot *s)
 #endif
 bool usb_command(const char *line)
 {
+    if (same(line,"usbdevices")) { xhci_device_inventory(); return true; }
+    if (same(line,"usbports")) {
+#ifdef OUROS_PI5
+        pi5_report_ports();
+#else
+        xhci_storage_ports();
+#endif
+        return true;
+    }
+    bool keyboard=line[0]=='u' && line[1]=='s' && line[2]=='b' && line[3]=='k';
+    const char *key=keyboard ? "usbkeytest" : "usbidentify",*arg=line;
+    while (*key && *arg==*key) { ++arg; ++key; }
+    if (!*key && (!*arg || *arg==' ')) {
+        while (*arg==' ') { ++arg; }
+        unsigned host=2;
+        if (arg[0]=='u' && arg[1]=='s' && arg[2]=='b' && (arg[3]=='0' || arg[3]=='1') && arg[4]==' ') {
+            host=(unsigned)(arg[3]-'0');
+            arg+=5;
+            while (*arg==' ') { ++arg; }
+        }
+        unsigned port=0;
+        while (*arg>='0' && *arg<='9' && port<=USB_MAX_PORTS) { port=port*10+(unsigned)(*arg++-'0'); }
+        while (*arg==' ') { ++arg; }
+        if (*arg || !port || port>USB_MAX_PORTS) {
+            console_write(keyboard ? "Usage: usbkeytest [usb0|usb1] <USB2 root port>\n" : "Usage: usbidentify [usb0|usb1] <USB2 root port>\n");
+            return true;
+        }
+        const struct xhci_accessory accessory={port,keyboard};
+        if (host==2) { xhci_accessory_active(&accessory); }
+#ifdef OUROS_PI5
+        else { pi5_usb_accessory(firmware_dtb,console_base,host,&accessory); }
+#else
+        else { console_write("Named RP1 USB controllers require a Raspberry Pi 5.\n"); }
+#endif
+        return true;
+    }
     if (same(line,"usbcheck")) { (void)xhci_storage_check();return true; }
     if (same(line,"usbtest")) { platform_usb_test(firmware_dtb,console_base); return true; }
     if (same(line,"usbenum")) { platform_usb_enumerate(firmware_dtb,console_base); return true; }

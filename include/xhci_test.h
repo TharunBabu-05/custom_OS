@@ -4,6 +4,8 @@
 #include "block.h"
 #define XHCI_RING_TRBS 256
 #define XHCI_SCRATCHPADS 16
+#define USB_CONFIGURATION_MAX 256
+#define XHCI_KEY_TRBS 64
 struct xhci_trb { uint32_t parameter_lo,parameter_hi,status,control; };
 struct xhci_test_memory {
     _Alignas(4096) struct xhci_trb command[XHCI_RING_TRBS];
@@ -16,6 +18,9 @@ struct xhci_test_memory {
     _Alignas(4096) volatile unsigned char output[4096];
     _Alignas(4096) struct xhci_trb ep0[XHCI_RING_TRBS];
     _Alignas(4096) unsigned char data[512];
+    /* Fit the temporary keyboard rings in the alignment gap before bulk_in. */
+    _Alignas(64) struct xhci_trb key_control[XHCI_KEY_TRBS],key_interrupt[XHCI_KEY_TRBS];
+    _Alignas(64) unsigned char key_report[64];
     _Alignas(4096) struct xhci_trb bulk_in[XHCI_RING_TRBS],bulk_out[XHCI_RING_TRBS];
     _Alignas(64) unsigned char cbw[64],csw[64];
 };
@@ -28,7 +33,7 @@ struct xhci_test_io {
     uint64_t hz;
 };
 enum xhci_test_result { XHCI_TEST_OK,XHCI_TEST_ARGUMENT,XHCI_TEST_LAYOUT,XHCI_TEST_DMA,
-    XHCI_TEST_TIMEOUT,XHCI_TEST_IO,XHCI_TEST_EVENT,XHCI_TEST_USED,XHCI_TEST_LEGACY,XHCI_TEST_UNSUPPORTED,XHCI_TEST_STALL };
+    XHCI_TEST_TIMEOUT,XHCI_TEST_IO,XHCI_TEST_EVENT,XHCI_TEST_USED,XHCI_TEST_LEGACY,XHCI_TEST_UNSUPPORTED,XHCI_TEST_STALL,XHCI_TEST_NO_BOT };
 enum xhci_test_phase { XHCI_PREFLIGHT,XHCI_HALT,XHCI_RESET,XHCI_SETUP,XHCI_START,XHCI_NOOP,XHCI_STOP,XHCI_DONE,
     XHCI_PORT,XHCI_SLOT,XHCI_ADDRESS,XHCI_DESCRIPTOR,XHCI_CONFIG,XHCI_STORAGE_CONFIG,XHCI_STORAGE_READY };
 struct xhci_test_state {
@@ -44,12 +49,29 @@ struct usb_device_info {
     uint16_t bulk_in_packet,bulk_out_packet;
     bool identified,mass_storage,configured;
 };
+struct xhci_accessory { unsigned port; bool keyboard; };
+static inline bool xhci_storage_candidate(const struct usb_port_snapshot *port)
+{
+    /* A low-speed device cannot have bulk endpoints. Speed can be zero before reset. */
+    return port->protocol_major==2 && (port->status&1) && ((port->status>>10)&15)!=2;
+}
 /* One shot. Caller reserves memory for the entire boot, including failures. */
 enum xhci_test_result xhci_ring_test(const struct xhci_test_io *io,struct xhci_test_memory *memory,struct xhci_test_state *state);
 enum xhci_test_result xhci_device_test(const struct xhci_test_io *io,struct xhci_test_memory *memory,struct xhci_test_state *state,struct usb_device_info *info);
-enum xhci_test_result xhci_enumerate(const struct xhci_test_io *io,struct xhci_test_memory *memory,struct xhci_test_state *state,const struct xhci_snapshot *snapshot,unsigned *event_cursor,struct usb_device_info *info,struct block_device *storage);
+enum xhci_test_result xhci_enumerate(const struct xhci_test_io *io,struct xhci_test_memory *memory,struct xhci_test_state *state,const struct xhci_snapshot *snapshot,unsigned *event_cursor,struct usb_device_info *info,struct block_device *storage,const struct xhci_accessory *accessory);
+enum xhci_test_result xhci_accessory_test(const struct xhci_test_io *,struct xhci_test_memory *,struct xhci_test_state *,const struct xhci_accessory *);
 enum xhci_test_result xhci_storage_start(const struct xhci_test_io *io,struct xhci_test_memory *memory,struct xhci_test_state *state,struct usb_device_info *info,struct block_device *storage);
 void xhci_storage_info(void);
+void xhci_device_inventory(void);
+void xhci_storage_ports(void);
+unsigned xhci_storage_port(uintptr_t controller);
+void xhci_report_ports(const struct xhci_observer *,const struct xhci_snapshot *);
+void xhci_accessory_active(const struct xhci_accessory *);
+#ifdef OUROS_PI5
+void pi5_usb_accessory(uintptr_t dtb,uintptr_t uart,unsigned host,const struct xhci_accessory *);
+#endif
+struct usb_boot_keyboard { uint8_t interface,endpoint,interval; uint16_t packet; };
+bool usb_find_boot_keyboard(const unsigned char *,size_t,struct usb_boot_keyboard *);
 bool xhci_storage_check(void);
 enum block_result xhci_storage_quiesce(void);
 bool usb_parse_device(const unsigned char *data,size_t length,struct usb_device_info *info);

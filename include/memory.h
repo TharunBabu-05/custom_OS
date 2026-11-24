@@ -34,6 +34,7 @@ bool memory_claim_bitmap(struct memory_map *,uint64_t *physical);
 /* Single-core physical pages; no MMU, synchronization or per-caller ownership. */
 bool pages_init(const struct memory_map *map,void *bitmap,size_t bytes);
 bool page_alloc(uint64_t *physical);
+bool page_alloc_run(unsigned count,uint64_t *physical);
 bool page_free(uint64_t physical);
 struct page_stats pages_stats(void);
 void memory_boot_init(uintptr_t dtb);

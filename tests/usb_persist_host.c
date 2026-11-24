@@ -127,6 +127,7 @@ int main(int argc,char **argv)
     disk.info.bulk_in=0x81;disk.info.bulk_out=2;state.command_dma=address(memory.command);state.event_dma=address((const void *)memory.event);
     disk.info.vendor=0x781;disk.info.product=0x5567;disk.info.usb_version=0x200;disk.info.max_packet=64;
     disk.t=(struct session){.io=&disk.io,.m=&memory,.s=&state,.snapshot=&disk.snapshot,.event=&disk.events,
+        .control_ring=memory.ep0,.control_trbs=XHCI_RING_TRBS,
         .op=0x40,.rt=0x2000,.db=0x1000,.slot=1,.ep0=address(memory.ep0),.data=address(memory.data),.command_cycle=1,.ep_cycle=1};
     disk.in=(struct pipe){.ring=memory.bulk_in,.dma=address(memory.bulk_in),.endpoint=3,.cycle=1};
     disk.out=(struct pipe){.ring=memory.bulk_out,.dma=address(memory.bulk_out),.endpoint=4,.cycle=1};

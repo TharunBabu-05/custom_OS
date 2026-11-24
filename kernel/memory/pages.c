@@ -77,6 +77,27 @@ bool page_alloc(uint64_t *physical)
     } while (word != next_word);
     return false;
 }
+bool page_alloc_run(unsigned count,uint64_t *physical)
+{
+    if (!count || !physical || !stats.ready || count>stats.free_pages) { return false; }
+    for (unsigned i=0;i<usable_count;++i) {
+        uint64_t start=usable[i].base/PAGE_SIZE,end=start+usable[i].size/PAGE_SIZE;
+        unsigned free=0;
+        for (uint64_t page=start;page<end;++page) {
+            if (used[page/64]&(1ULL<<(page%64))) { free=0; continue; }
+            if (++free<count) { continue; }
+            uint64_t first=page+1-count;
+            for (uint64_t p=first;p<=page;++p) { used[p/64]|=1ULL<<(p%64); }
+            stats.free_pages-=count;
+            stats.allocated_pages+=count;
+            if (stats.allocated_pages>stats.peak_allocated_pages) { stats.peak_allocated_pages=stats.allocated_pages; }
+            *physical=first*PAGE_SIZE;
+            return true;
+        }
+    }
+    ++stats.exhausted_allocations;
+    return false;
+}
 bool page_free(uint64_t physical)
 {
     if (!stats.ready || (physical & (PAGE_SIZE-1)) || physical >= PMM_ADDRESS_LIMIT) { return false; }

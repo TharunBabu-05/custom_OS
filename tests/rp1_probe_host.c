@@ -197,6 +197,353 @@ static void test_gpio_rio(void)
     assert(gpio.out==original.out && gpio.oe==(original.oe|GPIO_MASK));
 }
 
+enum { LOOP_TX_MASK=1u<<RP1_LOOP_TX, LOOP_RX_MASK=1u<<RP1_LOOP_RX };
+struct gpio_loop {
+    uint32_t out,oe,tx_control,rx_control,tx_pad,rx_pad,voltage;
+    unsigned writes,drop_write,samples,pattern;
+    bool connected,tx_pad_stuck,rx_rio_stuck;
+};
+
+static bool driving(const struct gpio_loop *loop)
+{
+    return (loop->tx_control&31)==5 && !(loop->tx_pad&0x80) && (loop->oe&LOOP_TX_MASK);
+}
+
+static bool read_loop(void *context,uint32_t offset,uint32_t *value)
+{
+    struct gpio_loop *loop=context;
+    bool active=driving(loop),level=(loop->out&LOOP_TX_MASK)!=0;
+    bool tx=(loop->tx_pad&0x40) && !loop->tx_pad_stuck && (active ? level : (loop->tx_pad&8)!=0);
+    bool rx=(loop->rx_pad&0x40) && (active && loop->connected ? level : (loop->rx_pad&8)!=0);
+    switch (offset) {
+    case 8*RP1_LOOP_TX: *value=(tx ? 1u<<17 : 0)|(active ? 1u<<13 : 0)|(level ? 1u<<9 : 0); break;
+    case 8*RP1_LOOP_RX: *value=rx ? 1u<<17 : 0; break;
+    case 4+8*RP1_LOOP_TX: *value=loop->tx_control; break;
+    case 4+8*RP1_LOOP_RX: *value=loop->rx_control; break;
+    case 0x20004+4*RP1_LOOP_TX: *value=loop->tx_pad; break;
+    case 0x20004+4*RP1_LOOP_RX: *value=loop->rx_pad; break;
+    case 0x20000: *value=loop->voltage; break;
+    case 0x10000: *value=loop->out; break;
+    case 0x10004: *value=loop->oe; break;
+    case 0x10008: *value=(tx ? LOOP_TX_MASK : 0)|(rx && !loop->rx_rio_stuck ? LOOP_RX_MASK : 0); break;
+    default: assert(false);
+    }
+    return true;
+}
+
+static bool write_loop(void *context,uint32_t offset,uint32_t value)
+{
+    struct gpio_loop *loop=context;
+    if (++loop->writes==loop->drop_write) { return true; }
+    switch (offset) {
+    case 4+8*RP1_LOOP_TX: loop->tx_control=value; break;
+    case 4+8*RP1_LOOP_RX: loop->rx_control=value; break;
+    case 0x20004+4*RP1_LOOP_TX: loop->tx_pad=value; break;
+    case 0x20004+4*RP1_LOOP_RX: loop->rx_pad=value; break;
+    case 0x12000: case 0x13000:
+        assert(value==LOOP_TX_MASK);
+        if (offset==0x12000) { loop->out|=value; }
+        else { loop->out&=~value; }
+        if (driving(loop)) {
+            loop->pattern=2*loop->pattern+(offset==0x12000);
+            ++loop->samples;
+        }
+        break;
+    case 0x12004: assert(value==LOOP_TX_MASK); loop->oe|=value; break;
+    case 0x13004: assert(value==LOOP_TX_MASK); loop->oe&=~value; break;
+    default: assert(false);
+    }
+    if (driving(loop)) {
+        assert((loop->rx_pad&0xcc)==0xc4 && !(loop->oe&LOOP_RX_MASK));
+        assert((loop->rx_control&31)==5 && !(loop->tx_pad&0x30));
+    }
+    return true;
+}
+
+static void test_gpio_loop(void)
+{
+    const struct gpio_loop original={.out=LOOP_TX_MASK|OTHER_PIN,.oe=OTHER_PIN,
+        .tx_control=31,.rx_control=31,.tx_pad=0x94,.rx_pad=0x84,.connected=true};
+    struct gpio_loop loop=original;
+    const struct xhci_observer io={read_loop,&loop,RP1_GPIO_SPAN};
+    struct rp1_gpio_sample sample;
+    assert(rp1_gpio_loop(&io,write_loop,&sample)==RP1_GPIO_OK && loop.samples==5 && loop.pattern==10);
+    assert(loop.writes==18 && loop.out==original.out && loop.oe==original.oe);
+    assert(loop.tx_control==31 && loop.rx_control==31 && loop.tx_pad==0x94 && loop.rx_pad==0x84);
+    loop=original;
+    loop.connected=false;
+    assert(rp1_gpio_loop(&io,write_loop,&sample)==RP1_GPIO_SIGNAL && loop.samples==2);
+    assert(sample.step==1 && sample.pin==RP1_LOOP_RX && sample.expected && !sample.pad && !sample.rio);
+    assert(loop.out==original.out && loop.oe==original.oe);
+    assert(loop.tx_control==31 && loop.rx_control==31 && loop.tx_pad==0x94 && loop.rx_pad==0x84);
+    loop=original;
+    loop.tx_pad_stuck=true;
+    assert(rp1_gpio_loop(&io,write_loop,&sample)==RP1_GPIO_SIGNAL);
+    assert(sample.step==1 && sample.pin==RP1_LOOP_TX && sample.expected && !sample.pad && !sample.rio);
+    assert(sample.status==((1u<<13)|(1u<<9)) && !driving(&loop));
+    loop=original;
+    loop.rx_rio_stuck=true;
+    assert(rp1_gpio_loop(&io,write_loop,&sample)==RP1_GPIO_SIGNAL);
+    assert(sample.step==1 && sample.pin==RP1_LOOP_RX && sample.expected && sample.pad && !sample.rio);
+    loop=original;
+    loop.voltage=1;
+    assert(rp1_gpio_loop(&io,write_loop,&sample)==RP1_GPIO_BUSY && !loop.writes);
+    loop=original;
+    loop.rx_pad=4;
+    assert(rp1_gpio_loop(&io,write_loop,&sample)==RP1_GPIO_BUSY && !loop.writes);
+    loop=original;
+    loop.drop_write=2;
+    assert(rp1_gpio_loop(&io,write_loop,&sample)==RP1_GPIO_IO && !loop.samples);
+    assert(loop.out==original.out && loop.oe==original.oe && loop.rx_pad==0x84);
+    loop=original;
+    loop.drop_write=17;
+    assert(rp1_gpio_loop(&io,write_loop,&sample)==RP1_GPIO_RESTORE && loop.writes==18);
+    assert(!driving(&loop) && loop.tx_pad==0x94 && loop.rx_pad==0x84);
+
+    loop=original;
+    assert(rp1_gpio_pull(&io,write_loop,RP1_LOOP_RX,&sample)==RP1_GPIO_OK && loop.writes==6);
+    assert(loop.rx_control==31 && loop.rx_pad==0x84 && loop.oe==original.oe && loop.out==original.out);
+    loop=original;
+    loop.rx_rio_stuck=true;
+    assert(rp1_gpio_pull(&io,write_loop,RP1_LOOP_RX,&sample)==RP1_GPIO_SIGNAL);
+    assert(sample.pin==RP1_LOOP_RX && sample.step==1 && sample.pad && !sample.rio && loop.rx_control==31);
+    loop=original;
+    loop.rx_control|=1u<<23;
+    assert(rp1_gpio_pull(&io,write_loop,RP1_LOOP_RX,&sample)==RP1_GPIO_BUSY && !loop.writes);
+    loop=original;
+    loop.drop_write=6;
+    assert(rp1_gpio_pull(&io,write_loop,RP1_LOOP_RX,&sample)==RP1_GPIO_RESTORE);
+    assert((loop.rx_pad&0x80) && loop.oe==original.oe && loop.out==original.out);
+}
+
+struct phy_model {
+    uint32_t control,config,request,mac_id;
+    unsigned writes,reads,delay;
+    uint64_t time;
+    bool no_reply,stuck,drop_restore,link;
+};
+
+static bool phy_read_reg(void *context,uint32_t offset,uint32_t *out)
+{
+    struct phy_model *m=context;
+    switch (offset) {
+    case 0: *out=m->control; return true;
+    case 4: *out=m->config; return true;
+    case 8:
+        *out=m->delay ? 0 : 4;
+        if (m->delay && !m->stuck) { --m->delay; }
+        return true;
+    case 0x34: *out=m->request; return true;
+    case 0xfc: *out=m->mac_id; return true;
+    default: assert(!"unexpected GEM register read"); return false;
+    }
+}
+
+static bool phy_write_reg(void *context,uint32_t offset,uint32_t value)
+{
+    static const uint8_t regs[]={2,3,0,1,1};
+    static const uint16_t replies[]={0x600d,0x84a2,0x1140,0x7949,0x796d};
+    struct phy_model *m=context;
+    ++m->writes;
+    if (offset==0) {
+        assert(value==0 || value==0x10);
+        m->control=value;
+    } else if (offset==4) {
+        assert(!m->control && (value==0x1200 || value==(0x1200|7u<<18)));
+        if (!m->drop_restore || value!=0x1200) { m->config=value; }
+    } else {
+        assert(offset==0x34 && m->control==0x10 && m->reads<sizeof(regs) && !m->delay);
+        assert(value==(0x60820000u|(uint32_t)regs[m->reads]<<18));
+        uint16_t reply=replies[m->reads++];
+        if (!m->link) { reply&=m->reads==5 ? (uint16_t)~4u : UINT16_MAX; }
+        m->request=value|(m->no_reply ? UINT16_MAX : reply);
+        m->delay=2;
+    }
+    return true;
+}
+
+static uint64_t phy_time(void *context) { return ++((struct phy_model *)context)->time; }
+
+enum { RESET_PIN=1u<<4, NEIGHBOR=1u<<3 };
+struct reset_model {
+    uint32_t control,pad,out,oe;
+    uint64_t time,asserted_at,released_at;
+    unsigned writes,fail_write;
+};
+
+static bool reset_read(void *context,uint32_t offset,uint32_t *out)
+{
+    struct reset_model *m=context;
+    bool driven=m->control==5 && !(m->pad&0x80) && (m->oe&RESET_PIN);
+    bool high=driven && (m->out&RESET_PIN);
+    switch (offset) {
+    case 0x20: *out=(driven ? 1u<<13 : 0)|(high ? (1u<<17)|(1u<<9) : 0); return true;
+    case 0x24: *out=m->control; return true;
+    case 0x20014: *out=m->pad; return true;
+    case 0x10000: *out=m->out; return true;
+    case 0x10004: *out=m->oe; return true;
+    case 0x10008: *out=high ? RESET_PIN : 0; return true;
+    default: assert(!"unexpected PHY reset register read"); return false;
+    }
+}
+
+static bool reset_write(void *context,uint32_t offset,uint32_t value)
+{
+    struct reset_model *m=context;
+    if (++m->writes==m->fail_write) { return false; }
+    if (offset==0x24) { assert(m->pad&0x80); m->control=value; return true; }
+    if (offset==0x20014) {
+        m->pad=value;
+        if (!(value&0x80) && !(m->out&RESET_PIN)) { m->asserted_at=m->time; }
+        return true;
+    }
+    assert(value==RESET_PIN);
+    switch (offset) {
+    case 0x12000: m->out|=value; m->released_at=m->time; return true;
+    case 0x13000: m->out&=~value; return true;
+    case 0x12004: assert(m->pad&0x80); m->oe|=value; return true;
+    case 0x13004: assert(m->pad&0x80); m->oe&=~value; return true;
+    default: assert(!"unexpected PHY reset register write"); return false;
+    }
+}
+
+static uint64_t reset_time(void *context) { return ++((struct reset_model *)context)->time; }
+
+static void test_ethernet_reset(unsigned char *dtb,size_t bytes)
+{
+    assert(rp1_eth_reset_description(dtb,bytes) && !rp1_eth_reset_description(dtb,bytes-1));
+    const unsigned char *p; uint32_t n;
+    assert(dt_property(dtb,bytes,"/axi/pcie@1000120000/rp1/ethernet@100000","phy-reset-gpios",&p,&n) && n==12);
+    dtb[p-dtb+11]^=1;
+    assert(!rp1_eth_reset_description(dtb,bytes));
+    dtb[p-dtb+11]^=1;
+
+    const struct reset_model original={.control=31,.pad=0x84,.out=NEIGHBOR,.oe=NEIGHBOR};
+    struct reset_model m=original;
+    const struct xhci_observer io={reset_read,&m,RP1_ETH_RESET_SPAN};
+    struct rp1_gpio_snapshot saved;
+    assert(rp1_eth_reset(&io,reset_write,reset_time,1000,&saved)==RP1_GPIO_OK);
+    assert(m.writes==7 && m.released_at-m.asserted_at>=5 && m.time-m.released_at>=100);
+    assert(m.out==(RESET_PIN|NEIGHBOR) && m.oe==(RESET_PIN|NEIGHBOR) && m.control==5 && m.pad==0x44);
+    assert(rp1_eth_reset_restore(&io,reset_write,&saved));
+    for (unsigned fail=0;fail<=7;++fail) {
+        if (fail) {
+            m=original; m.fail_write=fail;
+            assert(rp1_eth_reset(&io,reset_write,reset_time,1000,&saved)==RP1_GPIO_IO);
+        }
+        assert(m.control==original.control && m.pad==original.pad && m.out==original.out && m.oe==original.oe);
+    }
+    m=original; m.control=1;
+    assert(rp1_eth_reset(&io,reset_write,reset_time,1000,&saved)==RP1_GPIO_BUSY && !m.writes);
+    m=original;
+    assert(rp1_eth_reset(&io,reset_write,reset_time,1000,&saved)==RP1_GPIO_OK);
+    m.fail_write=m.writes+3;
+    assert(!rp1_eth_reset_restore(&io,reset_write,&saved) && m.out==(NEIGHBOR|RESET_PIN));
+    puts("PASS: Pi PHY reset DT polarity, timed low/high pin readback, neighbor isolation, setup failures and restore failure detection.");
+}
+
+struct eth_model { struct phy_model gem; struct reset_model gpio; bool phy_missing; };
+struct eth_port { struct eth_model *model; bool gpio; };
+
+static bool link_read(void *context,uint32_t offset,uint32_t *value)
+{
+    struct eth_port *port=context;
+    return port->gpio ? reset_read(&port->model->gpio,offset,value) : phy_read_reg(&port->model->gem,offset,value);
+}
+
+static bool link_write(void *context,uint32_t offset,uint32_t value)
+{
+    struct eth_port *port=context;
+    struct eth_model *m=port->model;
+    if (port->gpio) { return reset_write(&m->gpio,offset,value); }
+    if (offset==0 && value==0x10) {
+        m->gem.reads=0;
+        m->gem.no_reply=m->phy_missing || m->gpio.control!=5 || (m->gpio.pad&0x80) ||
+            !(m->gpio.oe&RESET_PIN) || !(m->gpio.out&RESET_PIN);
+    }
+    return phy_write_reg(&m->gem,offset,value);
+}
+
+static uint64_t link_time(void *context)
+{
+    struct eth_port *port=context;
+    return port->gpio ? reset_time(&port->model->gpio) : phy_time(&port->model->gem);
+}
+
+static void test_ethernet_link(void)
+{
+    const struct eth_model initial={
+        .gem={.config=0x1200,.mac_id=0x00070109},.gpio={.control=31,.pad=0x84,.out=NEIGHBOR,.oe=NEIGHBOR}
+    };
+    struct eth_model model=initial;
+    struct eth_port gem={&model,false},gpio={&model,true};
+    const struct rp1_eth_io io={
+        .gem={link_read,&gem,RP1_ETH_SPAN},.gpio={link_read,&gpio,RP1_ETH_RESET_SPAN},
+        .write=link_write,.ticks=link_time,.hz=1000
+    };
+    struct rp1_eth_link link={0};
+    struct rp1_phy_snapshot snapshot;
+    assert(rp1_eth_link_control(&io,ETH_PROBE,&link,&snapshot)==RP1_PHY_NO_REPLY && !model.gpio.writes);
+    assert(rp1_eth_link_control(&io,ETH_PULSE,&link,&snapshot)==RP1_PHY_OK && snapshot.pulsed && !link.held);
+    assert(rp1_eth_link_control(&io,ETH_PROBE,&link,&snapshot)==RP1_PHY_NO_REPLY);
+    assert(rp1_eth_link_control(&io,ETH_UP,&link,&snapshot)==RP1_PHY_OK && snapshot.pulsed && link.held);
+    assert(!(snapshot.status&4) && snapshot.phy_id==0x600d84a2);
+    unsigned writes=model.gpio.writes;
+    model.gem.link=true;
+    assert(rp1_eth_link_control(&io,ETH_PROBE,&link,&snapshot)==RP1_PHY_OK && (snapshot.status&4) && !snapshot.pulsed);
+    assert(rp1_eth_link_control(&io,ETH_UP,&link,&snapshot)==RP1_PHY_OK && link.held && model.gpio.writes==writes);
+    assert(rp1_eth_link_control(&io,ETH_DOWN,&link,&snapshot)==RP1_PHY_OK && !link.held);
+    assert(model.gpio.control==initial.gpio.control && model.gpio.pad==initial.gpio.pad &&
+           model.gpio.out==initial.gpio.out && model.gpio.oe==initial.gpio.oe);
+    writes=model.gpio.writes;
+    assert(rp1_eth_link_control(&io,ETH_DOWN,&link,&snapshot)==RP1_PHY_OK && model.gpio.writes==writes);
+
+    model=initial; model.phy_missing=true;
+    assert(rp1_eth_link_control(&io,ETH_UP,&link,&snapshot)==RP1_PHY_NO_REPLY && snapshot.pulsed && !link.held);
+    assert(model.gpio.control==initial.gpio.control && model.gpio.pad==initial.gpio.pad && model.gpio.oe==initial.gpio.oe);
+    model=initial;
+    assert(rp1_eth_link_control(&io,ETH_UP,&link,&snapshot)==RP1_PHY_OK && link.held);
+    model.gpio.fail_write=model.gpio.writes+3;
+    assert(rp1_eth_link_control(&io,ETH_DOWN,&link,&snapshot)==RP1_PHY_RESTORE && link.held);
+    puts("PASS: pulse-only vs sustained PHY, link change while held, repeat-up idempotence, cleanup on no reply and failed release detection.");
+}
+
+static void test_ethernet(unsigned char *dtb,size_t bytes)
+{
+    assert(rp1_eth_description(dtb,bytes) && !rp1_eth_description(dtb,bytes-1));
+    const char *node="/axi/pcie@1000120000/rp1/ethernet@100000";
+    const char *const properties[]={"reg","compatible","phy-mode","phy-handle","clocks","status"};
+    for (unsigned i=0;i<sizeof(properties)/sizeof(*properties);++i) {
+        const unsigned char *p; uint32_t n;
+        assert(dt_property(dtb,bytes,node,properties[i],&p,&n) && n);
+        unsigned index=i==4 ? 7 : n-1;
+        dtb[p-dtb+index]^=1;
+        assert(!rp1_eth_description(dtb,bytes));
+        dtb[p-dtb+index]^=1;
+    }
+
+    const struct phy_model initial={.config=0x1200,.mac_id=0x00070132,.link=true};
+    struct phy_model model=initial;
+    const struct xhci_observer io={phy_read_reg,&model,RP1_ETH_SPAN};
+    struct rp1_phy_snapshot snapshot;
+    assert(rp1_phy_read(&io,phy_write_reg,phy_time,1000,&snapshot)==RP1_PHY_OK);
+    assert(snapshot.mac_id==initial.mac_id && snapshot.phy_id==0x600d84a2 && snapshot.status==0x796d && snapshot.control==0x1140);
+    assert(model.writes==9 && model.reads==5 && model.config==initial.config && !model.control);
+    model=initial; model.link=false;
+    assert(rp1_phy_read(&io,phy_write_reg,phy_time,1000,&snapshot)==RP1_PHY_OK && !(snapshot.status&4));
+    model=initial; model.no_reply=true;
+    assert(rp1_phy_read(&io,phy_write_reg,phy_time,1000,&snapshot)==RP1_PHY_NO_REPLY && model.config==initial.config && !model.control);
+    model=initial; model.control=8;
+    assert(rp1_phy_read(&io,phy_write_reg,phy_time,1000,&snapshot)==RP1_PHY_BUSY && !model.writes);
+    model=initial; model.mac_id=UINT32_MAX;
+    assert(rp1_phy_read(&io,phy_write_reg,phy_time,1000,&snapshot)==RP1_PHY_MAC && !model.writes);
+    model=initial; model.stuck=true;
+    assert(rp1_phy_read(&io,phy_write_reg,phy_time,1000,&snapshot)==RP1_PHY_RESTORE && model.reads==1 && !model.control);
+    model=initial; model.drop_restore=true;
+    assert(rp1_phy_read(&io,phy_write_reg,phy_time,1000,&snapshot)==RP1_PHY_RESTORE && model.reads==5);
+    puts("PASS: Pi Ethernet binding, exact Clause 22 reads, latched link status, PHY absence, timeout, busy refusal and verified MAC restore.");
+}
+
 int main(int argc,char **argv)
 {
     assert(argc==2);
@@ -210,6 +557,10 @@ int main(int argc,char **argv)
     struct rp1_topology topology;
     test_gpio(dtb,bytes);
     test_gpio_rio();
+    test_gpio_loop();
+    test_ethernet(dtb,bytes);
+    test_ethernet_reset(dtb,bytes);
+    test_ethernet_link();
     assert(rp1_pci_description(dtb,bytes) && !rp1_pci_description(dtb,bytes-1));
     assert(rp1_topology_read(dtb,bytes,&topology));
     assert(rp1_dma_description(dtb,bytes) && !rp1_dma_description(dtb,bytes-1));
@@ -234,6 +585,6 @@ int main(int argc,char **argv)
     struct pi5_dma_window wrapping={.bus=UINT64_MAX-1,.size=4};
     uint64_t address=42;
     assert(!pi5_dma_address(&wrapping,0,4,&address) && address==42);
-    puts("PASS: RP1 routes, MIP readback, GPIO bounds, isolated RIO test and restoration, DMA overflow refusal.");
+    puts("PASS: RP1 routes, MIP, GPIO bounds, RIO, pad and loopback diagnostics and restoration, DMA overflow refusal.");
     return 0;
 }

@@ -1,0 +1,25 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+> resinfo
+Resource claims: 8/16
+> gpiopull 17
+PASS: GPIO 17 input pull levels 010, pad and claim restored.
+> gpiopull 27
+PASS: GPIO 27 input pull levels 010, pad and claim restored.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> resinfo
+Resource claims: 8/16
+> datacheck
+Unknown command. Type help.
+> datacheck
+Mounted /data bank=0 generation=9
+bank=0 status=valid generation=9 matches_mounted=yes
+bank=1 status=valid generation=8
+
+Both full resource inventories matched. The operator deferred the wired
+loopback retry until a 1 kΩ series resistor is available.

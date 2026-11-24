@@ -5,7 +5,7 @@ Push-Location $ProjectRoot
 try {
     $out=(New-Item -ItemType Directory -Force build/platform-tests).FullName
     $fixture=Join-Path $out 'rp1-probe-host.exe'
-    & $HostCompiler -std=c11 -Os -Wall -Wextra -Werror -Iinclude tests/rp1_probe_host.c drivers/platform/rp1_probe.c drivers/platform/rp1_msix.c drivers/usb/pi5_dma.c drivers/usb/pi5_usb_dt.c kernel/core/dt_property.c kernel/core/dt_resources.c -o $fixture
+    & $HostCompiler -std=c11 -Os -Wall -Wextra -Werror -Iinclude tests/rp1_probe_host.c drivers/platform/rp1_probe.c drivers/platform/rp1_msix.c drivers/platform/rp1_eth.c drivers/usb/pi5_dma.c drivers/usb/pi5_usb_dt.c kernel/core/dt_property.c kernel/core/dt_resources.c -o $fixture
     if ($LASTEXITCODE) { throw 'RP1 probe native test build failed' }
     & $fixture .dist/rpi5-firmware/bcm2712-rpi-5-b.dtb
     if ($LASTEXITCODE) { throw 'RP1 probe native tests failed' }

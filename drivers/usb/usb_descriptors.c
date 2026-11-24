@@ -16,7 +16,7 @@ bool usb_parse_device(const unsigned char *p,size_t n,struct usb_device_info *ou
 }
 bool usb_parse_configuration(const unsigned char *p,size_t n,struct usb_device_info *out)
 {
-    if (!p || !out || n<9 || n>256 || p[0]!=9 || p[1]!=2 || le16(p+2)!=n || !p[4] || !p[5]) { return false; }
+    if (!p || !out || n<9 || n>USB_CONFIGURATION_MAX || p[0]!=9 || p[1]!=2 || le16(p+2)!=n || !p[4] || !p[5]) { return false; }
     struct usb_device_info parsed=*out; parsed.configuration=p[5]; parsed.mass_storage=false;
     uint8_t in=0,epout=0,interface=0; uint16_t in_packet=0,out_packet=0;
     bool candidate=false,have_interface=false; unsigned endpoint_count=0,expected=0;
@@ -49,4 +49,26 @@ bool usb_parse_configuration(const unsigned char *p,size_t n,struct usb_device_i
     if (!have_interface || endpoint_count!=expected || interface_count!=p[4]) { return false; }
     if (candidate) { save_interface(&parsed,interface,in,epout,in_packet,out_packet); }
     *out=parsed; return true;
+}
+
+bool usb_find_boot_keyboard(const unsigned char *p,size_t n,struct usb_boot_keyboard *out)
+{
+    struct usb_device_info validated={0};
+    if (!out || !usb_parse_configuration(p,n,&validated)) { return false; }
+    bool boot=false;
+    unsigned interface=0;
+    for (size_t i=9;i<n;i+=p[i]) {
+        const unsigned char *d=p+i;
+        if (d[1]==4) {
+            boot=!d[3] && d[5]==3 && d[6]==1 && d[7]==1;
+            interface=d[2];
+        } else if (boot && d[1]==5 && (d[2]&0x80) && (d[3]&3)==3 && d[6]) {
+            uint16_t packet=le16(d+4);
+            if (packet>=8 && packet<=64) {
+                *out=(struct usb_boot_keyboard){interface,d[2],d[6],packet};
+                return true;
+            }
+        }
+    }
+    return false;
 }

@@ -1,0 +1,20 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-24.
+The operator connected the Pi Ethernet port to the laptop through a USB hub with Ethernet.
+
+> ethprobe
+GEM id=0x0000000000070109 ethprobe: no PHY reply
+> ethprobe
+GEM id=0x0000000000070109 ethprobe: no PHY reply
+> ethprobe
+GEM id=0x0000000000070109 ethprobe: no PHY reply
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+Windows Get-NetAdapter reported Ethernet 3 (Realtek USB FE Family Controller #2),
+Disconnected at 0 bps during the workspace check after this capture.

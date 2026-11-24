@@ -1,0 +1,90 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Starting serial shell from /boot/SHELL.ELF
+Firmware boot source: USB mass storage.
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit checking usb0
+storageinit checking usb1
+storageinit selected usb1 port=1 (USB2 BOT).
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+Recovery rings: clears=0 command_wraps=0 control_wraps=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=395 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=11 dispatches=5 sleeps=0 wakes=0 input_lines=1 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> usbports
+USB host=usb0
+USB root ports controller=0x0000001c00200000
+USB root port=1 protocol=2 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+USB root port=2 protocol=2 present=yes enabled=yes connect_change=no PORTSC=0x0000000000000603 owner=none
+USB root port=3 protocol=3 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+USB host=usb1
+USB root ports controller=0x0000001c00300000
+USB root port=1 protocol=2 present=yes enabled=yes connect_change=no PORTSC=0x0000000000000e03 owner=usb-bot
+USB root port=2 protocol=2 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+USB root port=3 protocol=3 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+> sdinfo
+microSD present=yes stable=yes powered=no clocked=no busy=no cqe=no
+> usbports
+USB host=usb0
+USB root ports controller=0x0000001c00200000
+USB root port=1 protocol=2 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+USB root port=2 protocol=2 present=yes enabled=yes connect_change=no PORTSC=0x0000000000000603 owner=none
+USB root port=3 protocol=3 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+USB host=usb1
+USB root ports controller=0x0000001c00300000
+USB root port=1 protocol=2 present=yes enabled=yes connect_change=no PORTSC=0x0000000000000e03 owner=usb-bot
+USB root port=2 protocol=2 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+USB root port=3 protocol=3 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+> usbidnetify usb0 2
+Unknown command. Type help.
+> usbidentify usb0 2
+USB accessory port=2 VID=0x000000000000320f PID=0x0000000000005055
+USB configuration=1 interfaces=2 descriptor_bytes=66
+USB interface=0 alt=0 class=0x0000000000000003 subclass=0x0000000000000001 protocol=0x0000000000000001 endpoints=1 kind=hid-boot-keyboard
+  endpoint=0x0000000000000081 direction=in type=interrupt max_packet=8 bInterval=1
+USB interface=1 alt=0 class=0x0000000000000003 subclass=0x0000000000000001 protocol=0x0000000000000001 endpoints=2 kind=hid-boot-keyboard
+  endpoint=0x0000000000000082 direction=in type=interrupt max_packet=64 bInterval=1
+  endpoint=0x0000000000000005 direction=out type=interrupt max_packet=64 bInterval=1
+PASS: USB accessory descriptors read.
+> usbkeytest usb0 2
+USB keyboard ready. Press a key within 8 seconds.
+PASS: USB keyboard usage=0x0000000000000004 modifiers=0x0000000000000000; keyboard slot released.
+> usbkeytest usb0 2
+USB keyboard ready. Press a key within 8 seconds.
+PASS: USB keyboard usage=0x000000000000000c modifiers=0x0000000000000000; keyboard slot released.
+>

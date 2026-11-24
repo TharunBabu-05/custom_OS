@@ -1,0 +1,21 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-24.
+The recovery image booted from the SanDisk on usb1 root port 1.
+
+> usbports
+USB root ports controller=0x0000001c00300000
+USB root port=1 protocol=2 present=yes enabled=yes connect_change=no PORTSC=0x0000000000000e03 owner=usb-bot
+USB root port=2 protocol=2 present=no enabled=no connect_change=yes PORTSC=0x00000000000202a0 owner=none
+USB root port=3 protocol=3 present=no enabled=no connect_change=no PORTSC=0x00000000000002a0 owner=none
+> usbkeytest 2
+USB keyboard test requires a connected spare USB2 port. See usbports.
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> resinfo
+Resource claims: 8/16
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+Earlier snapshots showed the same disconnected port with the change flag
+clear. The capture lacks a snapshot of usb0 or any live HID descriptors.

@@ -1,4 +1,5 @@
 #include "block.h"
+#include "sdhci.h"
 #include "vfs.h"
 #include "console.h"
 #include "dt_property.h"
@@ -203,6 +204,30 @@ bool storage_command(const char *line)
         }
         console_write("PASS: read-only storage sectors="); console_u64(count);
         console_write(" fnv1a32="); console_hex(hash); console_write("\n"); return true;
+    }
+    if (same(line,"sdtest") || same(line,"sdscan") || same(line,"sdscan tail")) {
+#ifdef OUROS_PI5
+        pi5_sd_test((const void *)firmware_dtb,line[2]=='t' ? 1 : SDHCI_TEST_MAX_SECTORS,line[6]==' ');
+#else
+        console_write("microSD read test requires a Raspberry Pi 5.\n");
+#endif
+        return true;
+    }
+    if (same(line,"sdprobe")) {
+#ifdef OUROS_PI5
+        pi5_sd_probe((const void *)firmware_dtb);
+#else
+        console_write("microSD host probe requires a Raspberry Pi 5.\n");
+#endif
+        return true;
+    }
+    if (same(line,"sdinfo")) {
+#ifdef OUROS_PI5
+        pi5_sd_info();
+#else
+        console_write("microSD host status requires a Raspberry Pi 5.\n");
+#endif
+        return true;
     }
     if (same(line,"storageinfo")) {
         platform_storage_info();

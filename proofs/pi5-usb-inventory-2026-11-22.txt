@@ -1,0 +1,15 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-22.
+
+> usbdevices
+USB cached device controller=0x0000001c00300000 port=1 slot=1 VID=0x0000000000000781 PID=0x0000000000005567 speed_id=3 state=storage-ready
+USB configuration=1 interfaces=1 descriptor_bytes=32
+USB interface=0 alt=0 class=0x0000000000000008 subclass=0x0000000000000006 protocol=0x0000000000000050 endpoints=2 driver=usb-bot
+  endpoint=0x0000000000000081 direction=in type=bulk max_packet=512 bInterval=0
+  endpoint=0x0000000000000002 direction=out type=bulk max_packet=512 bInterval=1
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+
+The capture contains three identical usbdevices reports and two passing
+storage reads. Both resource inventories held the same eight claims.
+Both datacheck runs showed mounted generation 9 and previous generation 8.
+The operator returned to the shell and echoed usb-inventory-ok.

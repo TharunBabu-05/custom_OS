@@ -1,0 +1,22 @@
+Raspberry Pi 5 header UART, operator capture, 2026-11-24.
+Boot source: USB mass storage. /data mounted generation 1.
+The operator inserted the spare microSD before the second sdprobe.
+
+> sdprobe
+microSD present=yes stable=yes cd_gpio_level=1 host_power=off card_clock=off
+VCC enable=high IO voltage select=3300 mV
+SDHCI spec_code=2 base_clock_MHz=200 supports_3v3=yes signaling_1v8=no cqe=no
+> sdprobe
+microSD present=yes stable=yes cd_gpio_level=0 host_power=off card_clock=off
+VCC enable=high IO voltage select=3300 mV
+SDHCI spec_code=2 base_clock_MHz=200 supports_3v3=yes signaling_1v8=no cqe=no
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+> sdprobe
+microSD present=yes stable=yes cd_gpio_level=0 host_power=off card_clock=off
+VCC enable=high IO voltage select=3300 mV
+SDHCI spec_code=2 base_clock_MHz=200 supports_3v3=yes signaling_1v8=no cqe=no

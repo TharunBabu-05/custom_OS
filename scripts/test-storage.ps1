@@ -5,7 +5,7 @@ param([string]$Image='build/rpi5-header/OurOS-Pi5-header-experimental-sd.img',
 Push-Location $ProjectRoot
 try {
     New-Item -ItemType Directory -Force build/storage-tests | Out-Null
-    $sources=@('tests/storage_host.c','drivers/storage/block.c','drivers/storage/sdhci.c',
+    $sources=@('tests/storage_host.c','drivers/storage/block.c','drivers/storage/sdhci.c','drivers/storage/pi5_sd_probe.c','kernel/core/dt_resources.c',
         'filesystem/fat32.c','filesystem/persist.c','lib/sha256.c','filesystem/ramfs.c','kernel/memory/heap.c','filesystem/vfs.c','filesystem/kfile.c','kernel/core/dt_property.c')
     & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude @sources -o build/storage-tests/test-storage.exe
     if ($LASTEXITCODE -ne 0) { throw 'Storage host test compilation failed' }
