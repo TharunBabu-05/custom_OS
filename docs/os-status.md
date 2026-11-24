@@ -120,11 +120,11 @@ different evidence; no individual self-test proves the entire OS.
 | USB keyboard/mouse (HID) | Needed for local interactive use; not implemented |
 | HDMI/display/framebuffer | Firmware framebuffer discovery, color bars and UART text mirroring implemented. Physical HDMI verification is pending. [HDMI test](hdmi-framebuffer.md) |
 | Graphics/GPU acceleration | Optional later desktop capability; not implemented |
-| Ethernet | Optional alternative network transport on Pi 5; MAC/PHY driver and integration not implemented |
+| Ethernet | Pi 5 PHY, GEM DMA, UDP, TCP, configurable IPv4 and inbound ARP and ICMP replies verified on a direct cable. [Platform driver plan](platform-driver-plan.md#phase-18-configurable-ethernet-ipv4-and-inbound-reachability) |
 | Bluetooth | Optional; not implemented |
-| Audio | Optional; controller/codec/audio service not implemented |
+| Audio | Phase 22 adds firmware-described media inventory, PCM WAV metadata and sample statistics, and tone-file generation. Playback and capture are later work. [Phase 22 plan](platform-driver-plan.md#phase-22-media-inventory-and-wav-tools) |
 | I2C/SPI/PWM/general GPIO | Add for attached peripherals as needed; not general-purpose drivers yet |
-| RTC/watchdog/power/reboot | Monitor `reboot` flushes and quiesces storage. Pi watchdog reboot and USB remount are verified. QEMU PSCI paths passed. RTC and power-off remain future work. [Safe reboot](safe-reboot.md) |
+| RTC/watchdog/power/reboot | Pi RTC write/readback, UTC sync, throttle flags, and storage remount after a firmware halt request were observed. The alarm reply compatibility update awaits a Pi retry. [Phase 20 plan](platform-driver-plan.md#phase-20-rtc-and-power) |
 | Thermal/fan management | Firmware may manage hardware during boot; no OurOS management policy/driver |
 | Camera, touch, other sensors | Optional board/device-specific work after core services |
 | NVMe/SATA/other storage | Optional extra transports, not covered by the USB BOT or SD handoff driver |

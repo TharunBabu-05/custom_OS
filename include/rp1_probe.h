@@ -73,6 +73,7 @@ enum rp1_snapshot_result rp1_irq_read(const struct xhci_observer *,const struct 
                                       const struct rp1_topology *, struct rp1_irq_snapshot *);
 bool rp1_command(const char *,uintptr_t dtb,uintptr_t uart);
 void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action);
+bool rp1_ethernet_address_command(const char *);
 bool rp1_ethernet_active(void);
 bool rp1_gpio_command(const char *,uintptr_t dtb,uintptr_t uart);
 #endif

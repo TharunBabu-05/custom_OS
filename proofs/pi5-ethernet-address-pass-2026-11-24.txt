@@ -1,0 +1,44 @@
+Selected Pi UART and Windows output from the direct-cable test.
+The Pi booted from USB and used the test address 192.0.2.6/30.
+
+> ethaddr
+Ethernet IPv4 192.0.2.2/30
+> ethaddr 192.0.2.6/30
+Ethernet IPv4 192.0.2.6/30
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethtcpup
+Ethernet link Mbps=100
+Ethernet TCP and UDP active at 192.0.2.6/30. Use ethdown to stop.
+
+Windows: Ethernet 3, 192.0.2.5/30, Preferred.
+Get-NetNeighbor ran before the first ping and returned no matching entry.
+
+ping.exe -n 3 -l 512 192.0.2.6
+Reply from 192.0.2.6: bytes=512 time=14ms TTL=64
+Reply from 192.0.2.6: bytes=512 time=11ms TTL=64
+Reply from 192.0.2.6: bytes=512 time=8ms TTL=64
+Packets: Sent = 3, Received = 3, Lost = 0 (0% loss)
+
+ping.exe -n 3 -l 512 192.0.2.6
+Reply from 192.0.2.6: bytes=512 time=3ms TTL=64
+Reply from 192.0.2.6: bytes=512 time=1ms TTL=64
+Reply from 192.0.2.6: bytes=512 time=4ms TTL=64
+Packets: Sent = 3, Received = 3, Lost = 0 (0% loss)
+
+IPAddress LinkLayerAddress      State
+--------- ----------------      -----
+192.0.2.6 02-00-00-00-18-02 Reachable
+
+> ethdown
+PHY hold released.
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+> ethaddr 192.0.2.2/30
+Ethernet IPv4 192.0.2.2/30

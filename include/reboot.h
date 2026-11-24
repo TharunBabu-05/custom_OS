@@ -9,6 +9,6 @@ struct reset_target { enum reset_method method; uintptr_t registers; };
 
 bool reset_discover(const char *board,const void *dtb,size_t bytes,struct reset_target *out);
 /* Issued after storage is quiescent and CPU IRQs are masked. */
-void reset_request(const struct reset_target *target);
-void system_reboot(const char *board,uintptr_t dtb);
+void reset_request(const struct reset_target *target,bool poweroff);
+void system_power_transition(const char *board,uintptr_t dtb,bool poweroff);
 #endif

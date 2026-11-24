@@ -1498,3 +1498,371 @@ rule in the administrator PowerShell.
 ```powershell
 Remove-NetFirewallRule -Name 'OurOS-Ethernet-TCP-Test'
 ```
+
+The Windows echo server and `TCPCHK.ELF` both reported 16,384 bytes and
+the same SHA-256 on port 4041. Two attempts on port 4 timed out.
+[Wired TCP capture](../proofs/pi5-ethernet-tcp-pass-2026-11-24.txt)
+
+### Phase 18 Configurable Ethernet IPv4 and inbound reachability
+
+- `ethaddr` displays the wired address. `ethaddr IPv4/prefix` sets a
+  unicast host address on a directly connected subnet with prefix 1–30.
+  It defaults to `192.0.2.2/30` at boot. Stop an active session with
+  `ethdown` before changing the address.
+- `ethudpup` and `ethtcpup` answer ARP requests for the configured
+  address, including broadcast requests. They also answer unfragmented
+  IPv4 ICMP Echo requests from an on-link peer, with up to 524 payload
+  bytes and a 20-byte IPv4 header.
+- ARP and ICMP replies each have a 100 ms transmit interval and use the
+  shared DMA transmit descriptor when available. Both socket services
+  use the configured subnet. The `etharp` and `ethping` diagnostics use
+  the fixed `192.0.2.2` and `192.0.2.1` test addresses.
+  [ARP](https://www.rfc-editor.org/rfc/rfc826.html) · [ICMP](https://www.rfc-editor.org/rfc/rfc792.html)
+
+The native GEM fixture verifies replies on `192.0.2.6/30`, checksums,
+oversized and fragmented input rejection, reply rate limits, and DMA
+cleanup. QEMU passes the monitor command routing, UDP and TCP socket
+checks, and USB boot with a keyboard. The cable test below is the Pi
+acceptance check.
+
+Apply the boot-file update from Windows PowerShell in the project folder.
+The preview on the prior TCP package shows `Replace OUROS.IMG`.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-address-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the USB drive, then boot the Pi with Ethernet attached.
+In PuTTY, type `exit` at `user:/$`. Run these at the `>` prompt.
+
+```text
+ethaddr
+ethaddr 192.0.2.6/30
+ethup
+ethprobe
+```
+
+Repeat `ethprobe` until it reports `link=up autoneg=complete`. Run
+`ethtcpup` and confirm `Ethernet TCP and UDP active at 192.0.2.6/30`.
+Running `ethaddr 192.0.2.2/30` during the session should ask you to run
+`ethdown` first. Running `ethaddr` should still show `192.0.2.6/30`.
+
+In administrator Windows PowerShell, add a temporary address on the
+direct cable and wait for `AddressState` to show `Preferred`.
+Adding a static address can disable DHCP on that adapter.
+[Windows address configuration](https://learn.microsoft.com/en-us/powershell/module/nettcpip/new-netipaddress?view=windowsserver2025-ps)
+
+```powershell
+$nic = 'Ethernet 3'
+$dhcp = (Get-NetIPInterface -InterfaceAlias $nic -AddressFamily IPv4).Dhcp
+New-NetIPAddress -InterfaceAlias $nic -IPAddress 192.0.2.5 -PrefixLength 30 -PolicyStore ActiveStore
+Get-NetIPAddress -InterfaceAlias $nic -IPAddress 192.0.2.5 | Select-Object IPAddress,AddressState
+```
+
+Send three 512-byte pings. The neighbor entry should show
+`02-00-00-00-18-02` for `192.0.2.6`.
+
+```powershell
+ping.exe -n 3 -l 512 192.0.2.6
+Get-NetNeighbor -InterfaceAlias $nic -IPAddress 192.0.2.6 | Select-Object IPAddress,LinkLayerAddress,State
+```
+
+On the Pi, run these at `>`. Expect eight claims, the prior USB hash
+and the same mounted data generation.
+
+```text
+ethdown
+resinfo
+storagetest
+datacheck
+ethaddr 192.0.2.2/30
+```
+
+In the same administrator PowerShell, remove the temporary address.
+
+```powershell
+Remove-NetIPAddress -InterfaceAlias $nic -IPAddress 192.0.2.5 -PolicyStore ActiveStore -Confirm:$false
+if ($dhcp -eq 'Enabled') { Set-NetIPInterface -InterfaceAlias $nic -AddressFamily IPv4 -Dhcp Enabled -PolicyStore ActiveStore }
+```
+
+The Pi started at `192.0.2.6/30` with 100 Mbps full duplex. Windows
+received six 512-byte replies with zero loss and then showed neighbor
+`02-00-00-00-18-02` as reachable. The first neighbor query ran before
+the ping populated the cache. The Pi returned to eight claims, the USB
+read hash matched, and `/data` stayed at generation 1.
+[Wired IPv4 configuration capture](../proofs/pi5-ethernet-address-pass-2026-11-24.txt)
+
+## Phase 19 external PCIe
+
+`pcieinfo` reports the external PCIe connector's device-tree status,
+domain, controller register base, lane count, and configured maximum
+generation. `pcieinfo rp1` reports the internal port for comparison.
+The configured generation and lane count describe the device tree.
+[Pi 5 PCIe connector](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#raspberry-pi-connector-for-pcie)
+
+`pciewin` and `pciewin rp1` report the outbound CPU-to-PCI windows and
+inbound PCI-to-CPU DMA windows for each port. They validate address
+widths, span arithmetic, overlap, and the upstream AXI translation.
+An inbound table can describe an MSI doorbell alongside RAM. Both
+commands read the firmware device tree and can run on a Pi booted
+from USB. Live link training, endpoint enumeration, and NVMe queues
+are later Phase 19 steps.
+[BCM2712 port definitions](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/arch/arm64/boot/dts/broadcom/bcm2712.dtsi)
+
+The native checks pass on the pinned device tree and reject malformed
+windows. Both QEMU profiles exercise command routing and the USB storage
+regression passes. The header and debug builds each have 4 KiB before
+the firmware DTB. The updater preview against the Phase 18 files shows
+`Replace OUROS.IMG`.
+
+From Windows PowerShell in the project folder, apply the package to
+the existing USB boot volume.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase19-pcie-inventory-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject and boot the Pi. Type `exit` in the EL0 shell to reach the
+monitor. Run the following commands one at a time.
+
+```text
+pcieinfo
+pcieinfo rp1
+pciewin
+pciewin rp1
+resinfo
+storagetest
+datacheck
+```
+
+The default USB boot device tree describes the external port as
+`dt=disabled domain=1` with one lane. RP1 should show
+`dt=enabled domain=2`. The pinned tree has two outbound windows per
+port, two inbound windows for the external port, and three inbound
+windows for RP1. Finish by confirming eight resource claims, the USB
+read PASS, and the current `/data` generation.
+
+The Pi hardware run reported the expected external and RP1 window
+counts and addresses. USB readback passed, eight claims remained, and
+`/data` matched bank 0 at generation 1.
+[PCIe inventory capture](../proofs/pi5-pcie-inventory-pass-2026-11-24.txt)
+
+## Phase 20 RTC and power
+
+| Command | Behavior |
+| --- | --- |
+| `rtcset <YYYY-MM-DDTHH:MM:SSZ>` | Sets the hardware RTC and verifies it with a separate readback. Accepted values run from 2000-01-01 through 2106-02-07T06:28:15Z. |
+| `rtcsync` | Explicitly imports the RTC into the current OurOS UTC clock. UTC reports `source=rtc` and retains the existing 24-hour freshness limit and backward-time check. |
+| `rtcalarm` | Reads the firmware alarm timestamp and enable state. |
+| `powerinfo` | Shows the raw word and current and historical undervoltage, frequency capping, throttling, and soft temperature limit flags. |
+| `poweroff` | Stops the network worker, flushes mounted `/data`, quiesces storage, and requests a firmware halt on Pi or PSCI system off on QEMU. |
+
+The RTC write and software UTC import are separate operator actions.
+Alarm setup and wake testing are later work. The Pi's off state depends
+on EEPROM configuration. For this test, keep USB and power connected
+through the halt and use the Pi's power button to boot it again.
+[RTC firmware registers](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/rtc/rtc-rpi.c) · [Throttle flags](https://www.raspberrypi.com/documentation/computers/os.html#get_throttled) · [Firmware halt path](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/watchdog/bcm2835_wdt.c)
+
+Native checks pass for RTC reply handling, UTC source and backward-time
+handling, and the storage shutdown sequence. Both QEMU profiles pass
+reboot and exit cleanly on poweroff with the mounted disk hash intact.
+Both Pi builds have 4 KiB of room before the firmware device tree.
+The verified updater preview against Phase 19 replaces `OUROS.IMG`.
+
+Apply the boot-file package from Windows PowerShell in the project
+folder, with the boot volume mounted as `D:`.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase20-rtc-power-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject and boot the Pi. Type `exit` to reach the monitor, then
+check the existing RTC and `/data` baseline.
+
+```text
+rtcinfo
+utc
+datacheck
+```
+
+Generate a fresh RTC command in Windows PowerShell.
+
+```powershell
+"rtcset " + [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+```
+
+Run the line printed by PowerShell in PuTTY. Expect
+`RTC set verified unix_seconds=`. Then run these monitor commands.
+
+```text
+rtcinfo
+utc
+rtcsync
+utc
+rtcalarm
+powerinfo
+```
+
+On a fresh boot, the first `utc` remains unset until `rtcsync`.
+The second `utc` should show `source=rtc` and a recent UTC value.
+Once those checks finish, run the following.
+
+```text
+poweroff
+```
+
+Expect `Poweroff: storage synchronized and idle. Halt via BCM2712
+watchdog.` After the Pi halts, press its power button. Type `exit`
+again in the new shell, then run these commands.
+
+```text
+rtcinfo
+datacheck
+storagetest
+```
+
+Compare the RTC and data generation with the pre-shutdown readings.
+The USB storage test should pass.
+
+The Pi verified the RTC write, used the RTC as its UTC source, and
+reported all throttle flags clear. It issued the storage-synchronized
+halt request and subsequently booted with the RTC advancing and the
+same valid `/data` generation. Both alarm reads returned an invalid
+firmware response.
+[Phase 20 hardware capture](../proofs/pi5-rtc-power-2026-11-24.txt)
+
+## Phase 21 CPU and cache diagnostics
+
+- `cpulist` decodes CPU affinities and availability from the device
+  tree and identifies the CPU executing the monitor.
+- `cpustate` checks the firmware's PSCI affinity state for eligible
+  processors. The firmware can report on, off, pending, or unavailable.
+  [Arm PSCI specification](https://documentation-service.arm.com/static/6703a8b8d7e4b739d817e10d)
+- `cacheinfo` shows the current EL1 instruction and data cache enable
+  bits, the smallest line sizes, and the architecture's cache
+  maintenance geometry. It restores the previous cache selector after
+  each read. [Arm Cortex-A76 register reference](https://documentation-service.arm.com/static/5f562083235b3560a01e03bc)
+- `atomictest` exercises acquire/release, successful and failed
+  compare-exchange, and fetch-add on one aligned Normal-NC word owned
+  by the boot CPU. The test runs after MMU initialization.
+- The `rtcalarm` read accepts a missing selector echo and extracts the
+  alarm enable bit. It reports response fields on an invalid reply to
+  help identify any remaining firmware format differences.
+  [Raspberry Pi RTC driver](https://raw.githubusercontent.com/raspberrypi/linux/rpi-6.12.y/drivers/rtc/rtc-rpi.c)
+
+This increment prepares for secondary-core startup. The monitor runs on
+the boot CPU, and enabling caches and starting secondary cores are
+later steps. The Pi linker groups the strictest-aligned BSS sections
+first to recover padding while preserving page alignment and the
+firmware device-tree boundary.
+
+Both Pi kernel profiles fit with 8 KiB before the firmware device tree.
+The updater preview against a copy of the Phase 20 boot files selects
+`OUROS.IMG`.
+Four-core QEMU runs on Cortex-A53 and Cortex-A76 enumerated the boot
+CPU and three off cores, reported cache geometry, and passed repeated
+atomic tests and the USB and data checks. The Pi's reported firmware
+states and alarm response are hardware acceptance checks.
+
+Update the existing boot volume from Windows PowerShell.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase21-cpu-platform-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject and boot the Pi. Type `exit` at `user:/$`, then run these at
+the monitor prompt.
+
+```text
+cpulist
+cpustate
+cacheinfo
+atomictest
+rtcalarm
+resinfo
+storagetest
+datacheck
+```
+
+The pinned Pi device tree contains affinities `0x0`, `0x100`,
+`0x200`, and `0x300`. The running core is marked `current`. Record
+the firmware's reported states, cache geometry, and the alarm reply.
+Expect `Cache I=off D=off`, an atomic-test PASS, eight resource claims,
+the same USB hash, and the same data generation.
+
+The Pi listed all four affinities and PSCI reported the three
+secondary cores off. Cache diagnostics showed 64-byte lines and an L3
+cache. `atomictest` halted on `LDAXR` under the uncached profile. The
+syndrome identifies a synchronous external data abort and marks FAR
+invalid. The alarm command was pending when the monitor halted.
+[Phase 21 Pi capture](../proofs/pi5-cpu-atomic-abort-2026-11-24.txt) · [Arm exception syndrome](https://support.arm.com/documentation/111107/2026-09/AArch64-Registers/ESR-EL1--Exception-Syndrome-Register--EL1-)
+
+## Phase 22 Media inventory and WAV tools
+
+On the Pi, `atomictest` now verifies ordered loads and stores with
+`LDAR` and `STLR`. Exclusive read-modify-write testing on Pi needs a
+cacheable test mapping. QEMU retains the compare-exchange and fetch-add
+checks.
+
+| Feature | Usage |
+| --- | --- |
+| Media inventory | `mediainfo` at the kernel monitor lists firmware-described display, camera, audio, and graphics controllers and their effective device-tree status. |
+| WAV metadata | `/boot/WAVINFO.ELF <file>` validates a RIFF WAVE file and prints channels, sample rate, bit depth, frames, and duration. |
+| Sample statistics | `/boot/WAVINFO.ELF --stats <file>` adds per-channel minimum, maximum, peak magnitude, and the number of samples at either PCM rail. Use `-` to read binary stdin. |
+| Tone generation | `/boot/WAVTONE.ELF <Hz> <ms> > <new-file>` creates a 16-bit mono triangle wave at 8 kHz. Frequency is 20–2000 Hz and duration is 1–250 ms. |
+
+WAVINFO supports mono or stereo integer PCM at 8 or 16 bits and handles
+odd-length chunk padding. The parser streams data in bounded blocks
+and supports RIFF payloads up to 16 MiB. Playback, capture, and display
+scanout drivers are later Phase 22 steps.
+[Microsoft RIFF layout](https://learn.microsoft.com/en-us/windows/win32/xaudio2/resource-interchange-file-format--riff-) · [WAVEFORMATEX](https://learn.microsoft.com/en-us/windows/win32/api/mmreg/ns-mmreg-waveformatex)
+
+The Pi object's disassembly shows only the acquire/release loads and
+stores in the revised test. The same Pi diagnostic branch passed twice
+in a QEMU handoff test. The media suite passed on both QEMU profiles,
+including file and pipeline input, the odd RIFF padding case, malformed
+files, and USB and data validation. The updater replaces `OUROS.IMG`
+and adds `WAVINFO.ELF` and `WAVTONE.ELF` to the Phase 21 boot files.
+
+Apply the file update from Windows PowerShell in the project folder.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase22-media-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After boot, type `exit` at `user:/$` and run these at the monitor.
+
+```text
+atomictest
+atomictest
+mediainfo
+rtcalarm
+appshell
+```
+
+The Pi should print two acquire/release PASS lines. Capture the alarm
+response from this boot.
+
+At `user:/$`, test the WAV tools in the temporary filesystem.
+
+```text
+/boot/WAVTONE.ELF 400 200 > /tmp/phase22.wav
+/boot/WAVINFO.ELF /tmp/phase22.wav
+/boot/WAVINFO.ELF --stats /tmp/phase22.wav
+rm /tmp/phase22.wav
+exit
+```
+
+Expect `PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200`
+and `channel=1 min=-16000 max=16000 peak=16000 clipped=0`.
+At the monitor, run `resinfo`, `storagetest`, and `datacheck`.

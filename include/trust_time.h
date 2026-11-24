@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-enum { UTC_TEXT_BYTES=21,UTC_MAX_AGE=86400,TRUST_ANCHORS=4 };
+enum { UTC_TEXT_BYTES=21,UTC_MAX_AGE=86400,UTC_FIRST_SET=946684800,TRUST_ANCHORS=4 };
 enum utc_result { UTC_OK,UTC_UNSET,UTC_STALE,UTC_COUNTER };
 struct utc_clock { uint64_t seconds,start_ticks,last_ticks,hz; };
 struct utc_sample { uint64_t seconds;uint32_t age,remaining; };
@@ -24,6 +24,7 @@ bool trust_store_has(const struct trust_store *,const unsigned char [32]);
 enum trust_result trust_check(const struct trust_store *,const unsigned char [32],const struct utc_sample *,uint64_t not_before,uint64_t not_after);
 
 enum utc_result system_utc(struct utc_sample *);
+bool system_utc_set(uint64_t seconds,bool from_rtc);
 enum trust_result system_trust_check(const unsigned char [32],uint64_t not_before,uint64_t not_after);
 bool trust_time_command(const char *);
 #endif

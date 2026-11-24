@@ -4,6 +4,7 @@
 
 static struct utc_clock clock;
 static struct trust_store anchors;
+static bool rtc_source;
 
 enum utc_result system_utc(struct utc_sample *sample)
 { return utc_clock_read(&clock,timer_ticks(),timer_frequency(),sample); }
@@ -40,8 +41,26 @@ static void show_utc(void)
             r==UTC_COUNTER ? "UTC invalidated after a counter change. Set UTC again.\n" : "UTC unset. Use utc set <YYYY-MM-DDTHH:MM:SSZ>.\n");return;
     }
     char date[UTC_TEXT_BYTES];(void)utc_format(now.seconds,date);
-    console_write("UTC ");console_write(date);console_write(" source=operator age_seconds=");
+    console_write("UTC ");console_write(date);
+    console_write(rtc_source ? " source=rtc" : " source=operator");
+    console_write(" age_seconds=");
     console_u64(now.age);console_write(" remaining_seconds=");console_u64(now.remaining);console_write("\n");
+}
+
+bool system_utc_set(uint64_t seconds,bool from_rtc)
+{
+    struct utc_sample now;
+    if (system_utc(&now)==UTC_OK && seconds<now.seconds) {
+        console_write("UTC would move backward. Use utc clear to correct it.\n");
+        return false;
+    }
+    if (!utc_clock_set(&clock,seconds,timer_ticks(),timer_frequency())) {
+        console_write("UTC clock unavailable.\n");
+        return false;
+    }
+    rtc_source=from_rtc;
+    show_utc();
+    return true;
 }
 static void list_anchors(void)
 {
@@ -58,10 +77,10 @@ bool trust_time_command(const char *line)
     if (match(line,"utc")) { show_utc();return true; }
     if (match(line,"utc clear")) { clock=(struct utc_clock){0};console_write("UTC cleared.\n");return true; }
     if (prefix(line,"utc ")) {
-        uint64_t seconds;struct utc_sample now;
-        if (prefix(line,"utc set ") && utc_parse(line+8,&seconds)) {
-            if (system_utc(&now)==UTC_OK && seconds<now.seconds) { console_write("UTC would move backward. Use utc clear to correct it.\n");return true; }
-            if (utc_clock_set(&clock,seconds,timer_ticks(),timer_frequency())) { show_utc();return true; }
+        uint64_t seconds;
+        if (prefix(line,"utc set ") && utc_parse(line+8,&seconds) && seconds>=UTC_FIRST_SET) {
+            (void)system_utc_set(seconds,false);
+            return true;
         }
         console_write("Usage: utc set <YYYY-MM-DDTHH:MM:SSZ> (year 2000 or later) | utc clear\n");return true;
     }

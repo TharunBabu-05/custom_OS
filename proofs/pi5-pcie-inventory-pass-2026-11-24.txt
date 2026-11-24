@@ -1,0 +1,27 @@
+Selected UART from the Raspberry Pi 5 header build booted from USB.
+
+> pcieinfo
+PCIe external dt=disabled domain=1 registers=0x0000001000110000 lanes=1 max_gen=2
+> pcieinfo rp1
+PCIe RP1 dt=enabled domain=2 registers=0x0000001000120000 lanes=4 max_gen=2
+> pciewin
+PCIe external dt=disabled domain=1 registers=0x0000001000110000 lanes=1 max_gen=2
+  outbound mem32 pci=0x0000000080000000 cpu=0x0000001b80000000 bytes=0x0000000080000000
+  outbound mem64 prefetch pci=0x0000000400000000 cpu=0x0000001800000000 bytes=0x0000000380000000
+  inbound mem64 pci=0x0000001000000000 cpu=0x0000000000000000 bytes=0x0000001000000000
+  inbound mem64 pci=0x000000fffffff000 cpu=0x0000001000131000 bytes=0x0000000000001000
+> pciewin rp1
+PCIe RP1 dt=enabled domain=2 registers=0x0000001000120000 lanes=4 max_gen=2
+  outbound mem32 pci=0x0000000000000000 cpu=0x0000001f00000000 bytes=0x00000000fffffffc
+  outbound mem64 prefetch pci=0x0000000400000000 cpu=0x0000001c00000000 bytes=0x0000000300000000
+  inbound mem32 pci=0x0000000000000000 cpu=0x0000001f00000000 bytes=0x0000000000400000
+  inbound mem64 prefetch pci=0x0000001000000000 cpu=0x0000000000000000 bytes=0x0000001000000000
+  inbound mem64 pci=0x000000fffffff000 cpu=0x0000001000130000 bytes=0x0000000000001000
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty

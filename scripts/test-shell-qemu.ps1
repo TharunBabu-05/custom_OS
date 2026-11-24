@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$PlatformHealth,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$PlatformHealth,[switch]$CpuPlatform,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -23,10 +23,10 @@ function Range-Hash([string]$Path,[long]$Offset,[long]$Length) {
         $null=$sha.TransformFinalBlock((New-Object byte[] 0),0,0);return [Convert]::ToBase64String($sha.Hash)
     } finally { $f.Dispose();$sha.Dispose() }
 }
-function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs,[bool]$FastClock,[bool]$ReadOnlyVirtio) {
+function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs,[bool]$FastClock,[bool]$ReadOnlyVirtio,[bool]$Poweroff,[int]$Smp=1) {
     $si=New-Object Diagnostics.ProcessStartInfo
     $si.FileName=$QemuExe
-    $si.Arguments="-machine virt-9.2,virtualization=$Virt,secure=off -cpu $Cpu -accel tcg -smp 1 -m 128 -display none -monitor none -serial stdio -net none -kernel `"$kernel`""
+    $si.Arguments="-machine virt-9.2,virtualization=$Virt,secure=off -cpu $Cpu -accel tcg -smp $Smp -m 128 -display none -monitor none -serial stdio -net none -kernel `"$kernel`""
     if ($ReadOnlyVirtio) {
         $si.Arguments+=" -global virtio-mmio.force-legacy=false -drive file=`"$Disk`",if=none,format=raw,readonly=on,id=shelldisk -device virtio-blk-device,drive=shelldisk"
     } else {
@@ -46,9 +46,11 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
             foreach ($c in $text.ToCharArray()) { $p.StandardInput.Write($c);$p.StandardInput.Flush();Start-Sleep -Milliseconds 6 }
             Start-Sleep -Milliseconds $delay
         }
+        $offOk=!$Poweroff -or ($p.WaitForExit(5000) -and $p.ExitCode -eq 0)
         if (!$p.HasExited) { $p.Kill() };$p.WaitForExit();$text=$stdout.Result
         $text | Set-Content -Encoding ASCII (Join-Path $out "$Name.log")
         $stderr.Result | Set-Content -Encoding ASCII (Join-Path $out "$Name.stderr.log")
+        if (!$offOk) { throw "$Name did not power off; see log" }
         foreach ($s in $Expected) { if (!$text.Contains($s)) { throw "$Name missing '$s'; see log" } }
         if ($text.Contains('FATAL') -or $text.Contains('FAIL:') -or $text.Contains('Unknown command.') -or $text.Contains('fault=yes')) { throw "$Name unexpected failure" }
         if ($text.Contains('PASS: child readline before parent wait') -and
@@ -58,6 +60,27 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
 }
+if ($CpuPlatform) {
+    foreach ($case in @(@('cortex-a53','off','hvc'),@('cortex-a76','on','smc'))) {
+        $name="cpu-platform-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @('atomictest','storageinit','datainit','mmuinit','cpulist','cpustate',
+                'cacheinfo','atomictest','atomictest','storagetest','datacheck','pwd','halt') @(
+                'Run mmuinit before atomictest.','MMU enabled:',
+                "DT CPUs=4 PSCI=$($case[2])",'dt=enabled current psci=on','Cache I=off D=off',
+                'L1 instruction line_bytes=','L1 data line_bytes=','PASS: read-only storage','matches_mounted=yes'
+            ) 0 '' $false $false $false 4
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,'dt=enabled psci=off').Count -ne 3 -or
+                [regex]::Matches($log,'PASS: boot CPU acquire/release').Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name CPU state or disk differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
 if ($PlatformHealth) {
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
         $name="platform-health-$($case[0])"
@@ -65,7 +88,10 @@ if ($PlatformHealth) {
         Copy-Item -LiteralPath $source -Destination $disk
         try {
             Session $disk $name $case[0] $case[1] @('exit','datacheck','utc','platforminfo','therminfo','powerinfo','rtcinfo',
+                'rtcsync','rtcalarm','rtcset 2026-11-24T00:00:00Z',
                 'devlist','devinfo /pl011@9000000','devinfo /does-not-exist','rp1info','rp1msiinfo','rp1dmatest','ethprobe','ethprobe reset','ethup','ethdown','ethrecover','ethloop','etharp','ethping','ethudpup','ethtcpup',
+                'ethaddr','ethaddr 192.0.2.6/30',
+                'pcieinfo','pcieinfo rp1','pciewin','pciewin rp1',
                 'gpioinfo 14','gpioinfo 27','gpioinfo 27 ','gpioinfo 28','gpiotest 17','gpiotest 28','gpioloop','gpioloop 17',
                 'gpiopull 17','gpiopull 28',
                 'resinfo',@{Text='irqtest';Delay=4500},'resinfo',
@@ -86,6 +112,8 @@ if ($PlatformHealth) {
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             if ([regex]::Matches($log,'Ethernet probe requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet command routing failed" }
             if ([regex]::Matches($log,'Ethernet DMA test requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet DMA command routing failed" }
+            if ([regex]::Matches($log,'Ethernet addressing requires a Raspberry Pi 5\.').Count -ne 2) { throw "$name Ethernet address command routing failed" }
+            if ([regex]::Matches($log,'PCIe inventory requires a Raspberry Pi 5\.').Count -ne 4) { throw "$name PCIe inventory command routing failed" }
             if (!$log.Contains("> gpioloop`r`nGPIO test requires a Raspberry Pi 5.") -or
                 !$log.Contains("> gpioloop 17`r`nUsage: gpioloop")) { throw "$name GPIO loopback gate failed" }
             if (!$log.Contains("> gpiopull 17`r`nGPIO test requires a Raspberry Pi 5.") -or
@@ -94,7 +122,7 @@ if ($PlatformHealth) {
                 $log -notmatch '(?m)^> gpioinfo 28\r?\nUsage: gpioinfo <BCM GPIO 0\.\.27>\r?$') {
                 throw "$name rejected valid GPIO 27 or accepted GPIO 28"
             }
-            foreach ($command in @('platforminfo','therminfo','powerinfo','rtcinfo')) {
+            foreach ($command in @('platforminfo','therminfo','powerinfo','rtcinfo','rtcsync','rtcalarm','rtcset 2026-11-24T00:00:00Z')) {
                 if (!$log.Contains("> $command`r`nPlatform health: requires Raspberry Pi 5.")) { throw "Missing $command refusal" }
             }
             if ([regex]::Matches($log,'UTC unset\. Use utc set').Count -ne 2 -or
@@ -107,6 +135,55 @@ if ($PlatformHealth) {
             }
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
+    return
+}
+if ($MediaTools) {
+    . "$PSScriptRoot/data-backup.ps1"
+    . "$PSScriptRoot/data-format.ps1"
+    # Stereo unsigned 8-bit PCM with a padded odd-length metadata chunk.
+    [byte[]]$wave=@(
+        82,73,70,70,50,0,0,0,87,65,86,69,102,109,116,32,
+        16,0,0,0,1,0,2,0,64,31,0,0,128,62,0,0,2,0,8,0,
+        74,85,78,75,1,0,0,0,170,0,100,97,116,97,4,0,0,0,0,128,255,129
+    )
+    [byte[]]$badRate=$wave.Clone()
+    $badRate[28]=0
+    $partition=New-OurOSDataPartition -Version 4
+    $bank=New-OurOSDataBackup -Version 4 -Files @(
+        @{Name='stereo.wav';Data=$wave},
+        @{Name='badrate.wav';Data=$badRate},
+        @{Name='short.wav';Data=[byte[]]$wave[0..52]})
+    $bank.CopyTo($partition,512)
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="media-tools-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $file=[IO.File]::OpenWrite($disk)
+            try { $file.Position=260096L*512;$file.Write($partition,0,$partition.Length) } finally { $file.Dispose() }
+            $fixture=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk $name $case[0] $case[1] @('exit','mediainfo','appshell',
+                '/boot/WAVTONE.ELF 400 200 > /tmp/tone.wav',
+                '/boot/WAVINFO.ELF /tmp/tone.wav','/boot/WAVINFO.ELF --stats /tmp/tone.wav',
+                'cat /data/stereo.wav | /boot/WAVINFO.ELF --stats -',
+                '/boot/WAVINFO.ELF /data/badrate.wav || echo bad-rate=$?',
+                '/boot/WAVINFO.ELF /data/short.wav || echo short-file=$?',
+                '/boot/WAVTONE.ELF 2100 100 || echo tone-limit=$?',
+                'rm /tmp/tone.wav','exit','fileinfo','storagetest','datacheck','pwd','halt') @(
+                'Media devices described by firmware:', 'PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200',
+                'channel=1 min=-16000 max=16000 peak=16000 clipped=0',
+                'PCM channels=2 rate_hz=8000 bits=8 frames=2 duration_ms=0',
+                'channel=1 min=-128 max=127 peak=128 clipped=2',
+                'channel=2 min=0 max=1 peak=1 clipped=0','pipeline exit=0',
+                'bad-rate=2','short-file=2','tone-limit=2','Open files: 0/16',
+                'PASS: read-only storage','matches_mounted=yes') 2 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,'(?m)^PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^WAVINFO: invalid, unsupported or unreadable PCM WAV\r?$').Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $fixture) { throw "$name WAV results or disk differ" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
     return
 }
 if ($BinaryTools) {
@@ -723,6 +800,12 @@ if ($Reboot) {
                 !$halves[0].Contains($fileHash) -or !$halves[1].Contains($fileHash) -or
                 $generations.Count -ne 2 -or $generations[0].Value -cne $generations[1].Value -or
                 (Range-Hash $disk 0 (260096L*512)) -cne $boot) { throw "$name boot, persistence or boot partition differs" }
+            $beforeOff=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk "poweroff-$($case[0])" $case[0] $case[1] @('sha256 /data/reboot.bin','exit',
+                'datacheck','pwd',@{Text="poweroff`n";Delay=1000;Raw=$true}) @(
+                $fileHash,$generations[0].Value,"Poweroff: storage synchronized and idle. Halt via PSCI $($case[2])."
+            ) 1 'ouros.startup=shell' $false $false $true
+            if ((Get-FileHash -LiteralPath $disk).Hash -cne $beforeOff) { throw "$name poweroff changed the disk" }
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }

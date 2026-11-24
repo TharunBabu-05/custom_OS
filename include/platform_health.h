@@ -11,7 +11,7 @@ struct pi5_health {
 struct pi5_health pi5_health_discover(const void *dtb, size_t bytes);
 bool pi5_temperature(uint32_t status, int32_t *millicelsius);
 
-enum pi5_property { PI5_THROTTLED, PI5_RTC_TIME };
+enum pi5_property { PI5_THROTTLED, PI5_RTC_TIME, PI5_RTC_ALARM, PI5_RTC_ALARM_ENABLE };
 enum pi5_reply {
     PI5_REPLY_OK, PI5_REPLY_BUSY, PI5_REPLY_TIMEOUT, PI5_REPLY_MISMATCH,
     PI5_REPLY_REJECTED, PI5_REPLY_INVALID, PI5_REPLY_BLOCKED
@@ -21,6 +21,7 @@ struct pi5_mailbox {
     volatile uint32_t *message;
     uint32_t bus_address;
     bool blocked;
+    uint32_t reply_length,reply_selector,reply_value;
 };
 struct pi5_mailbox_io {
     uint32_t (*read)(uintptr_t base, unsigned offset);
@@ -30,5 +31,7 @@ struct pi5_mailbox_io {
 };
 enum pi5_reply pi5_property_read(struct pi5_mailbox *, const struct pi5_mailbox_io *,
                                uintptr_t base, uint64_t timeout_ticks, enum pi5_property, uint32_t *);
+enum pi5_reply pi5_rtc_set_time(struct pi5_mailbox *, const struct pi5_mailbox_io *,
+                               uintptr_t base, uint64_t timeout_ticks, uint32_t seconds, uint32_t *verified);
 bool platform_health_command(const char *line, const void *dtb, bool pi5);
 #endif

@@ -3,7 +3,6 @@
 #include "crypto.h"
 
 #define UTC_LAST 253402300799ULL
-#define UTC_FIRST_SET 946684800ULL
 static bool leap(unsigned y) { return !(y%4) && (y%100 || !(y%400)); }
 static unsigned month_days(unsigned y,unsigned m)
 {

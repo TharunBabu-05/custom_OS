@@ -14,7 +14,8 @@ SECTIONS
     .data : { *(.data .data.*) } :data
     .bss (NOLOAD) : {
         . = ALIGN(8); __bss_start = .;
-        *(.bss .bss.*) *(COMMON)
+        /* Place the page-aligned tables, stacks and DMA buffers first. */
+        *(SORT_BY_ALIGNMENT(.bss*)) *(COMMON)
         . = ALIGN(8); __bss_end = .;
     } :data
     .stack_guard (NOLOAD) : {

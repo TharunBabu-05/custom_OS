@@ -6,6 +6,7 @@
 #include "rp1_probe.h"
 #include "rp1_dma_test.h"
 #include "cpu.h"
+#include "arm_platform.h"
 #include "memory.h"
 #include "heap.h"
 #include "mmu.h"
@@ -28,6 +29,7 @@
 #include "trust_time.h"
 #include "framebuffer.h"
 #include "platform_health.h"
+#include "pi5_pcie.h"
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
@@ -129,6 +131,14 @@ static void startup(void)
 static void command(const char *line)
 {
     if (equal(line,"resinfo")) { resource_report(); return; }
+    if (equal(line,"pcieinfo") || equal(line,"pcieinfo rp1")) {
+        pi5_pcie_command((const void *)firmware_dtb,line[8] ? PI5_PCIE_RP1 : PI5_PCIE_EXTERNAL,false);
+        return;
+    }
+    if (equal(line,"pciewin") || equal(line,"pciewin rp1")) {
+        pi5_pcie_command((const void *)firmware_dtb,line[7] ? PI5_PCIE_RP1 : PI5_PCIE_EXTERNAL,true);
+        return;
+    }
     if (equal(line,"ethprobe") || equal(line,"ethprobe reset")) {
         rp1_ethernet_command(firmware_dtb,board.uart_base,line[8]==' ' ? ETH_PULSE : ETH_PROBE); return;
     }
@@ -137,6 +147,7 @@ static void command(const char *line)
     }
     if (equal(line,"ethrecover")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_RECOVER); return; }
     if (equal(line,"ethping")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_PING); return; }
+    if (rp1_ethernet_address_command(line)) { return; }
     if (equal(line,"ethudpup")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_UDP_UP); return; }
     if (equal(line,"ethtcpup")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_TCP_UP); return; }
     if (equal(line,"ethloop") || equal(line,"etharp")) {
@@ -149,6 +160,7 @@ static void command(const char *line)
     if (process_command(line) || task_command(line) || file_command(line) || trust_time_command(line)) { return; }
     if (exception_command(line) || irq_command(line)) { return; }
     if (mmu_command(line)) { return; }
+    if (arm_platform_command(line,(const void *)firmware_dtb)) { return; }
     if (device_inventory_command(line,(const void *)firmware_dtb,&board)) { return; }
     if (platform_health_command(line,(const void *)firmware_dtb,
                                 equal(board.name,"rpi5-header") || equal(board.name,"rpi5"))) { return; }
@@ -162,11 +174,14 @@ static void command(const char *line)
     if (equal(line,"keytest")) { console_write(wpa_keys_selftest() ? "PASS: AES-128, CMAC, key unwrap, SAE PTK, offline M2/M4, key-data and M3-retry known-answer tests.\n" : "FAIL: WPA key primitives; live handshake unavailable.\n");console_write("Public fixtures only; no key installation or EAPOL transmission.\n");return; }
     if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
-        console_write("help info cpuinfo meminfo uptime echo <text> clear reboot halt fault\n");
-        console_write("platforminfo therminfo powerinfo rtcinfo (Pi 5 diagnostics)\n");
+        console_write("help info cpuinfo meminfo uptime echo <text> clear reboot poweroff halt fault\n");
+        console_write("cpulist cpustate cacheinfo atomictest\n");
+        console_write("platforminfo therminfo powerinfo rtcinfo rtcset <UTC> rtcsync rtcalarm\n");
         console_write("devlist [DT path|alias] | devinfo <DT path|alias> (device tree)\n");
+        console_write("mediainfo (device-tree media controllers)\n");
         console_write("resinfo (active hardware resource claims)\n");
-        console_write("rp1info ethprobe [reset] ethup ethdown ethrecover ethloop etharp ethping ethudpup ethtcpup\n");
+        console_write("pcieinfo [rp1] | pciewin [rp1] (Pi 5 device tree)\n");
+        console_write("rp1info ethprobe [reset] ethup ethdown ethrecover ethloop etharp ethping ethaddr [IPv4/prefix] ethudpup ethtcpup\n");
         console_write("rp1msiinfo (Pi 5 PCIe MSI-X capability and doorbell)\n");
         console_write("rp1dmatest (Pi 5 DMA scratch copy)\n");
         console_write("rp1irqtest (GIC edge dispatch on test INTID)\n");
@@ -275,9 +290,10 @@ static void command(const char *line)
         const char *escape="\033[2J\033[H";
         while (*escape) { uart_putc(*escape++); }
         framebuffer_console_clear();
-    } else if (equal(line,"reboot")) {
-        if (network_worker_stop()) { system_reboot(board.name,firmware_dtb); }
-        else { console_write("Reboot refused: Wi-Fi worker still running.\n"); }
+    } else if (equal(line,"reboot") || equal(line,"poweroff")) {
+        bool poweroff=line[0]=='p';
+        if (network_worker_stop()) { system_power_transition(board.name,firmware_dtb,poweroff); }
+        else { console_write("Power transition refused: network worker active.\n"); }
     } else if (equal(line,"halt")) {
         if (!network_worker_stop()) { console_write("Halt refused: Wi-Fi worker still running.\n");return; }
         irq_fatal_stop();

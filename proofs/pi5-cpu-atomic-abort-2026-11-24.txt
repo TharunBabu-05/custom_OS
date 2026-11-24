@@ -1,0 +1,30 @@
+Selected Phase 21 header UART output on the Raspberry Pi 5.
+
+> cpulist
+Running CPU affinity=0x0000000000000000
+DT CPUs=4 PSCI=smc
+CPU affinity=0x0000000000000000 dt=enabled current
+CPU affinity=0x0000000000000100 dt=enabled
+CPU affinity=0x0000000000000200 dt=enabled
+CPU affinity=0x0000000000000300 dt=enabled
+> cpustate
+Running CPU affinity=0x0000000000000000
+DT CPUs=4 PSCI=smc
+CPU affinity=0x0000000000000000 dt=enabled current psci=on
+CPU affinity=0x0000000000000100 dt=enabled psci=off
+CPU affinity=0x0000000000000200 dt=enabled psci=off
+CPU affinity=0x0000000000000300 dt=enabled psci=off
+> cacheinfo
+Cache I=off D=off Imin_bytes=64 Dmin_bytes=64
+L1 instruction line_bytes=64 sets=256 ways=4
+L1 data line_bytes=64 sets=256 ways=4
+L2 unified line_bytes=64 sets=1024 ways=8
+L3 unified line_bytes=64 sets=2048 ways=16
+> atomictest
+
+Exception class: data abort SPSR=0x0000000060000345 SP=0x00000000001fde00
+[General-purpose register dump omitted]
+FATAL exception vector=4 ESR=0x0000000096000410 ELR=0x000000000008aee0 FAR=0x0000000000000000
+CPU halted.
+
+The Phase 21 Pi build disassembles ELR 0x8aee0 as LDAXR X1, [X19].

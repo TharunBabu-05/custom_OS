@@ -1,5 +1,6 @@
 #include "rp1_probe.h"
 #include "rp1_msix.h"
+#include "pi5_pcie.h"
 #include "xhci_test.h"
 #include <assert.h>
 #include <stdio.h>
@@ -600,6 +601,58 @@ static void test_ethernet(unsigned char *dtb,size_t bytes)
     puts("PASS: Pi Ethernet binding, exact Clause 22 reads, latched link status, PHY absence, timeout, busy refusal and verified MAC restore.");
 }
 
+static void test_pcie(unsigned char *dtb,size_t bytes)
+{
+    struct pi5_pcie_bridge external,rp1;
+    struct pi5_pcie_window windows[PI5_PCIE_MAX_WINDOWS];
+    assert(pi5_pcie_describe(dtb,bytes,PI5_PCIE_EXTERNAL,&external));
+    assert(!pi5_pcie_describe(dtb,bytes-1,PI5_PCIE_EXTERNAL,&external));
+    assert(external.state==DT_DISABLED && external.domain==1 && external.generation==2 &&
+           external.lanes==1 && external.registers==0x1000110000ULL);
+    assert(pi5_pcie_describe(dtb,bytes,PI5_PCIE_RP1,&rp1));
+    assert(rp1.state==DT_ENABLED && rp1.domain==2 && rp1.lanes==4 && rp1.registers==RP1_PCIE_BASE);
+    assert(pi5_pcie_windows(dtb,bytes,&external,false,windows)==2);
+    assert(windows[0].pci==0x80000000 && windows[0].cpu==0x1b80000000ULL &&
+           windows[0].bytes==0x80000000 && !windows[0].wide && !windows[0].prefetch);
+    assert(windows[1].pci==0x400000000ULL && windows[1].cpu==0x1800000000ULL &&
+           windows[1].bytes==0x380000000ULL && windows[1].wide && windows[1].prefetch);
+    assert(pi5_pcie_windows(dtb,bytes,&external,true,windows)==2);
+    assert(windows[0].pci==0x1000000000ULL && !windows[0].cpu && windows[0].bytes==0x1000000000ULL);
+    assert(windows[1].pci==0xfffffff000ULL && windows[1].cpu==0x1000131000ULL && windows[1].bytes==4096);
+    assert(pi5_pcie_windows(dtb,bytes,&rp1,false,windows)==2);
+    assert(windows[1].cpu==0x1c00000000ULL && windows[1].bytes==0x300000000ULL);
+    assert(pi5_pcie_windows(dtb,bytes,&rp1,true,windows)==3);
+    assert(windows[2].pci==0xfffffff000ULL && windows[2].cpu==0x1000130000ULL);
+
+    const unsigned char *p;
+    uint32_t n;
+    assert(dt_node_property(&external.node,"ranges",&p,&n)==DT_FOUND && n==56);
+    unsigned char *ranges=dtb+(p-dtb);
+    ranges[0]=1;
+    assert(!pi5_pcie_windows(dtb,bytes,&external,false,windows));
+    ranges[0]=2;
+    ranges[27]=1;
+    assert(!pi5_pcie_windows(dtb,bytes,&external,false,windows));
+    ranges[27]=0;
+    unsigned char before[8];
+    memcpy(before,ranges+32,8);
+    memcpy(ranges+32,ranges+4,8);
+    assert(!pi5_pcie_windows(dtb,bytes,&external,false,windows));
+    memcpy(ranges+32,before,8);
+    assert(dt_property(dtb,bytes,"/axi","dma-ranges",&p,&n) && n>=48);
+    unsigned char *parent=dtb+(p-dtb);
+    assert(parent[35]==0x10);
+    parent[35]=0x12;
+    assert(pi5_pcie_windows(dtb,bytes,&external,true,windows)==2 && windows[1].cpu==0x1200131000ULL);
+    assert(pi5_pcie_windows(dtb,bytes,&external,false,windows)==2 && windows[0].cpu==0x1b80000000ULL);
+    parent[35]=0x10;
+    assert(dt_property(dtb,bytes,"/axi/pcie@1000110000","linux,pci-domain",&p,&n) && n==4);
+    dtb[p-dtb+3]=2;
+    assert(!pi5_pcie_describe(dtb,bytes,PI5_PCIE_EXTERNAL,&external));
+    dtb[p-dtb+3]=1;
+    puts("PASS: Pi external and RP1 bridge bindings, outbound and DMA windows, distinct upstream translation, overlap, bad flags and 32-bit bounds.");
+}
+
 int main(int argc,char **argv)
 {
     assert(argc==2);
@@ -611,6 +664,7 @@ int main(int argc,char **argv)
     fclose(file);
 
     struct rp1_topology topology;
+    test_pcie(dtb,bytes);
     test_gpio(dtb,bytes);
     test_gpio_rio();
     test_gpio_loop();

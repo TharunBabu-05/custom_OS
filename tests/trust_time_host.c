@@ -3,6 +3,41 @@
 #include <stdio.h>
 #include <string.h>
 
+static uint64_t tick;
+static char output[200];
+void console_write(const char *text)
+{
+    assert(strlen(output)+strlen(text)<sizeof(output));
+    strcat(output,text);
+}
+void console_putc(char c) { const char text[]={c,0}; console_write(text); }
+void console_u64(uint64_t value)
+{
+    char text[21];
+    snprintf(text,sizeof(text),"%llu",(unsigned long long)value);
+    console_write(text);
+}
+uint64_t timer_ticks(void) { return tick; }
+uint64_t timer_frequency(void) { return 100; }
+
+static void system_clock_test(void)
+{
+    struct utc_sample sample;
+    assert(system_utc(&sample)==UTC_UNSET);
+    assert(!system_utc_set(42,true) && system_utc(&sample)==UTC_UNSET);
+    output[0]=0;
+    assert(system_utc_set(1796000000,true) && strstr(output,"source=rtc"));
+    tick=100;
+    output[0]=0;
+    assert(!system_utc_set(1796000000,false) && strstr(output,"UTC would move backward"));
+    assert(system_utc(&sample)==UTC_OK && sample.seconds==1796000001);
+    output[0]=0;
+    assert(trust_time_command("utc clear") && system_utc(&sample)==UTC_UNSET);
+    output[0]=0;
+    assert(trust_time_command("utc set 2026-11-24T12:00:00Z") && strstr(output,"source=operator"));
+    puts("PASS: explicit RTC clock source, backward-time refusal, clear and operator source.");
+}
+
 int main(void)
 {
     static const struct { const char *text;uint64_t seconds; } dates[]={
@@ -57,5 +92,6 @@ int main(void)
     for (unsigned i=1;i<TRUST_ANCHORS;++i) { other[0]=(unsigned char)i;assert(trust_store_add(&store,other)); }
     other[0]=4;assert(!trust_store_add(&store,other) && store.count==TRUST_ANCHORS);
     puts("PASS: UTC calendar and rollover, stale/counter invalidation, exact bounded anchors and certificate validity boundaries.");
+    system_clock_test();
     return 0;
 }

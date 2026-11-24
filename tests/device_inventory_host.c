@@ -1,4 +1,5 @@
 #include "board.h"
+#include "arm_platform.h"
 #include "dt_resources.h"
 #include <assert.h>
 #include <inttypes.h>
@@ -120,6 +121,30 @@ static void command(const char *line,const char *expected)
     assert(strstr(output,expected));
 }
 
+static void test_cpus(void)
+{
+    struct arm_topology topology;
+    assert(arm_topology_read(dtb,bytes,&topology) && topology.count==4);
+    for (unsigned i=0;i<topology.count;++i) {
+        assert(topology.cpu[i].affinity==i*0x100 && topology.cpu[i].enabled && topology.cpu[i].psci);
+    }
+    assert(psci_discover(dtb,bytes)==PSCI_SMC && psci_discover(dtb,bytes-1)==PSCI_NONE);
+    const unsigned char *property;
+    uint32_t n;
+    assert(dt_property(dtb,bytes,"/cpus/cpu@1","reg",&property,&n) && n==4);
+    unsigned char *reg=dtb+(property-dtb);
+    reg[2]=0;
+    assert(!arm_topology_read(dtb,bytes,&topology) && topology.cpu[1].affinity==0x100);
+    reg[2]=1;
+    assert(dt_property(dtb,bytes,"/cpus","#address-cells",&property,&n) && n==4);
+    unsigned char *cells=dtb+(property-dtb);
+    cells[3]=3;
+    assert(!arm_topology_read(dtb,bytes,&topology) && topology.count==4);
+    cells[3]=1;
+    assert(!arm_topology_read(dtb,bytes-1,&topology));
+    puts("PASS: Pi CPU affinities, PSCI conduit, malformed reg widths and duplicate affinity rejection.");
+}
+
 int main(int argc,char **argv)
 {
     assert(argc==2);
@@ -129,6 +154,7 @@ int main(int argc,char **argv)
     assert(bytes>40 && feof(input) && !ferror(input));
     fclose(input);
     test_resources();
+    test_cpus();
     command("devlist /axi/pcie@1000120000/rp1","spi@50000 status=disabled compatible=snps,dw-apb-ssi");
     command("devinfo usb1","dt_cpu=0x0000001f00300000");
     assert(strstr(output,"interrupt-parent: /axi/pcie@1000120000/rp1\n"));
@@ -137,6 +163,11 @@ int main(int argc,char **argv)
     command("devinfo ethernet0","clocks: /axi/pcie@1000120000/rp1/");
     command("devinfo " SOC "/rpi_rtc","firmware: " FIRMWARE);
     command("devinfo /does-not-exist","Device-tree node or alias not found.");
+    command("mediainfo","HDMI /soc@107c000000/hdmi@7c701400 status=");
+    assert(strstr(output,"CSI /axi/pcie@1000120000/rp1/csi@110000 status=disabled"));
+    assert(strstr(output,"DSI /axi/pcie@1000120000/rp1/dsi@128000 status=disabled"));
+    assert(strstr(output,"I2S /axi/pcie@1000120000/rp1/i2s@a0000 status=disabled"));
+    assert(strstr(output,"3D graphics /axi/v3d@2000000 status="));
     puts("PASS: Pi 5 device inventory, BCM2712/RP1 ranges, providers, disabled ancestry and invalid tree handling.");
     return 0;
 }

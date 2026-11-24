@@ -7,7 +7,7 @@ enum {
     NCR=0, NCFGR=4, DMACFG=0x10, TSR=0x14, RBQP=0x18, TBQP=0x1c, RSR=0x20,
     IMR=0x30, SA1_LOW=0x88, SA1_HIGH=0x8c, MID=0xfc, DCFG6=0x294,
     LOOPBACK=2, RX_ENABLE=4, TX_ENABLE=8, TX_START=1<<9,
-    TX_ACTIVE=1<<3, TX_DONE=1<<5, TX_W1C=0x1f7, RX_W1C=0xf,
+    TX_ACTIVE=1<<3, TX_DONE=1<<5, TX_W1C=0x1f7, RX_W1C=0xf, RX_BUS_ERROR=1<<3,
     DMA_IRQS=0xcf6,
     TX_WRAP=1<<30, TX_LAST=1<<15, RX_USED=1, RX_WRAP=2, RX_WHOLE=3<<14
 };
@@ -16,7 +16,7 @@ enum {
 #define RX_ERRORS 0xc
 
 const uint8_t rp1_eth_mac[]={2,0,0,0,0x18,2};
-const uint8_t rp1_eth_ip[]={192,0,2,2},rp1_eth_mask[]={255,255,255,252};
+const struct ethernet_ipv4 rp1_eth_default_ipv4={{192,0,2,2},{255,255,255,252},30};
 
 /* Locally administered 02:00:00:00:18:02, Pi 192.0.2.2, PC 192.0.2.1. */
 static const uint8_t arp_request[]={
@@ -57,12 +57,13 @@ static bool save_gem(const struct rp1_dma_io *io,struct gem_registers *s,struct 
 }
 
 static bool program_gem(const struct rp1_dma_io *io,const struct gem_registers *s,struct rp1_eth_loop_report *r,
-                        unsigned speed,uint32_t tx,uint32_t rx)
+                        unsigned speed,uint32_t tx,uint32_t rx,bool broadcast)
 {
     /* Preserve the firmware's RGMII routing, bus width, MDC and SRAM size.
-     * Cable mode filters unicast replies. Loopback accepts its own frame. */
+     * The socket worker receives ARP broadcasts. Loopback accepts its own frame. */
     uint32_t cfg=(s->cfg&(31u<<18)) | (1u<<17) | (1u<<1);
-    cfg|=speed ? 1u<<5 : 1u<<4;
+    if (!speed) { cfg|=1u<<4; }
+    else if (!broadcast) { cfg|=1u<<5; }
     if (!speed || speed==1000) { cfg|=1u<<10; }
     if (speed==100) { cfg|=1; }
     uint32_t dma=(s->dma&~((7u<<28)|(255u<<16)|(1u<<11)|(7u<<5))) | (GEM_RX_BYTES/64u<<16);
@@ -209,7 +210,7 @@ static enum rp1_eth_loop_result exchange(const struct rp1_dma_io *io,volatile st
     bool armed=false,completed=false;
     unsigned mode=speed ? 0 : LOOPBACK;
     if (program_gem(io,&saved,r,speed,(uint32_t)(bus+offsetof(struct rp1_eth_loop_memory,tx)),
-                    (uint32_t)(bus+offsetof(struct rp1_eth_loop_memory,rx))) &&
+                    (uint32_t)(bus+offsetof(struct rp1_eth_loop_memory,rx)),false) &&
         set(io,r,NCR,mode)) {
         armed=true;
         const unsigned active=mode|RX_ENABLE|TX_ENABLE;
@@ -279,7 +280,8 @@ static uint32_t rx_address(const struct rp1_eth_dma *s,unsigned slot)
 }
 
 enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *s,const struct rp1_dma_io *io,
-                                         struct rp1_eth_dma_memory *m,uint32_t bus,unsigned speed,bool tcp_enabled)
+                                         struct rp1_eth_dma_memory *m,uint32_t bus,unsigned speed,
+                                         const struct ethernet_ipv4 *ipv4,bool tcp_enabled)
 {
     if ((speed!=10 && speed!=100 && speed!=1000) || (bus&63) ||
         bus>UINT32_MAX-(sizeof(*m)-1) || !save_gem(io,&s->saved,NULL,true)) {
@@ -292,25 +294,26 @@ enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *s,const struct rp1
     s->pending=false;
     s->tcp_enabled=tcp_enabled;
     s->tcp_first=false;
+    s->ipv4=*ipv4;
+    s->reply_due[0]=s->reply_due[1]=0;
     m->tx=(struct gem_descriptor){bus+offsetof(struct rp1_eth_dma_memory,frame),TX_USED|TX_WRAP};
     for (unsigned i=0;i<2;++i) {
         m->rx[i]=(struct gem_descriptor){rx_address(s,i),0};
     }
     io->barrier(io->context);
     if (program_gem(io,&s->saved,NULL,speed,bus+offsetof(struct rp1_eth_dma_memory,tx),
-                    bus+offsetof(struct rp1_eth_dma_memory,rx)) &&
+                    bus+offsetof(struct rp1_eth_dma_memory,rx),true) &&
         set(io,NULL,NCR,RX_ENABLE|TX_ENABLE)) { return GEM_LOOP_OK; }
     return rp1_eth_dma_close(s) ? GEM_LOOP_SETUP : GEM_LOOP_RETAIN;
 }
 
-static enum block_result send_frame(struct rp1_eth_dma *s,size_t bytes,bool tcp)
+static enum block_result send_frame(struct rp1_eth_dma *s,size_t bytes)
 {
     const struct rp1_dma_io *io=s->io;
     io->barrier(io->context);
     s->memory->tx.status=TX_LAST|TX_WRAP|(uint32_t)bytes;
     io->barrier(io->context);
     s->pending=true;
-    s->tcp_first=!tcp;
     return io->write(io->context,NCR,RX_ENABLE|TX_ENABLE|TX_START) ? BLOCK_OK : BLOCK_IO;
 }
 
@@ -319,8 +322,9 @@ static enum block_result send_udp(void *context,const struct udp_packet *packet)
     struct rp1_eth_dma *s=context;
     if (s->pending) { return BLOCK_NOT_READY; }
     size_t bytes;
-    return udp_encode(packet,s->memory->frame,sizeof(s->memory->frame),&bytes) ?
-           send_frame(s,bytes,false) : BLOCK_IO;
+    if (!udp_encode(packet,s->memory->frame,sizeof(s->memory->frame),&bytes)) { return BLOCK_IO; }
+    s->tcp_first=true;
+    return send_frame(s,bytes);
 }
 
 static enum block_result send_tcp(void *context,const struct tcp_packet *packet)
@@ -328,8 +332,24 @@ static enum block_result send_tcp(void *context,const struct tcp_packet *packet)
     struct rp1_eth_dma *s=context;
     if (s->pending) { return BLOCK_NOT_READY; }
     size_t bytes;
-    return tcp_encode(packet,s->memory->frame,sizeof(s->memory->frame),&bytes) ?
-           send_frame(s,bytes,true) : BLOCK_IO;
+    if (!tcp_encode(packet,s->memory->frame,sizeof(s->memory->frame),&bytes)) { return BLOCK_IO; }
+    s->tcp_first=false;
+    return send_frame(s,bytes);
+}
+
+static enum block_result reply_to_control(struct rp1_eth_dma *s,const uint8_t *frame,
+                                          size_t bytes,uint64_t now_ms)
+{
+    if (s->pending || bytes<14) { return BLOCK_OK; }
+    unsigned kind=net_be16(frame+12)==0x800;
+    if (now_ms<s->reply_due[kind]) { return BLOCK_OK; }
+    uint8_t *out=s->memory->frame;
+    size_t length=ethernet_ipv4_reply(&s->ipv4,rp1_eth_mac,frame,bytes,out,sizeof(s->memory->frame));
+    if (!length) { return BLOCK_OK; }
+    /* Bound control traffic on the TX descriptor shared with UDP and TCP. */
+    s->reply_due[kind]=now_ms+100;
+    s->submitted=now_ms;
+    return send_frame(s,length);
 }
 
 enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
@@ -338,7 +358,7 @@ enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
     void *ctx=io->context;
     uint32_t tx,rx;
     if (!io->read(ctx,TSR,&tx) || !io->read(ctx,RSR,&rx) || tx==UINT32_MAX || rx==UINT32_MAX ||
-        (tx&~s->saved.tx_status&TX_ERRORS) || (rx&~s->saved.rx_status&RX_ERRORS)) { return BLOCK_IO; }
+        (tx&~s->saved.tx_status&TX_ERRORS) || (rx&~s->saved.rx_status&RX_BUS_ERROR)) { return BLOCK_IO; }
     io->barrier(ctx);
     if (s->pending) {
         uint32_t status=s->memory->tx.status;
@@ -358,17 +378,19 @@ enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
         if (address!=(expected|RX_USED)) { return BLOCK_IO; }
         io->barrier(ctx);
         uint32_t status=descriptor->status;
-        if ((status&RX_WHOLE)==RX_WHOLE) {
-            const void *frame=s->memory->received[slot];
-            unsigned bytes=status&0xfff;
+        unsigned bytes=status&0xfff;
+        if ((status&RX_WHOLE)==RX_WHOLE && bytes<=GEM_RX_BYTES) {
+            const uint8_t *frame=s->memory->received[slot];
             udp_receive(frame,bytes,now_ms);
             if (s->tcp_enabled) { tcp_receive(frame,bytes); }
+            if (reply_to_control(s,frame,bytes,now_ms)!=BLOCK_OK) { return BLOCK_IO; }
         }
         descriptor->status=0;
         io->barrier(ctx);
         descriptor->address=expected;
         s->head^=1;
     }
+    /* Recycle completed descriptors and acknowledge RX overruns after bursts. */
     if (rx&~s->saved.rx_status&RX_W1C) {
         if (!io->write(ctx,RSR,rx&~s->saved.rx_status&RX_W1C)) { return BLOCK_IO; }
     }

@@ -1,0 +1,36 @@
+Selected Phase 20 UART output from the Raspberry Pi 5 header build.
+
+> rtcinfo
+RTC unix_seconds=19 1970-01-01T00:00:19Z
+> utc
+UTC unset. Use utc set <YYYY-MM-DDTHH:MM:SSZ>.
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+> rtcset 2026-11-24T11:59:45Z
+RTC set verified unix_seconds=1795521585 2026-11-24T11:59:45Z
+> rtcinfo
+RTC unix_seconds=1795521592 2026-11-24T11:59:52Z
+> rtcsync
+UTC 2026-11-24T11:59:57Z source=rtc age_seconds=0 remaining_seconds=86400
+> utc
+UTC 2026-11-24T11:59:59Z source=rtc age_seconds=2 remaining_seconds=86398
+> rtcalarm
+Firmware query: invalid request or response.
+> rtcalarm
+Firmware query: invalid request or response.
+> powerinfo
+Firmware throttle_flags=0x0000000000000000 undervoltage_now=no undervoltage_seen=no frequency_capped_now=no frequency_capped_seen=no throttled_now=no throttled_seen=no soft_limit_now=no soft_limit_seen=no
+> poweroff
+Poweroff: storage synchronized and idle. Halt via BCM2712 watchdog.
+
+[Firmware and OurOS boot output]
+> rtcinfo
+RTC unix_seconds=1795521669 2026-11-24T12:01:09Z
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc

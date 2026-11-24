@@ -94,11 +94,11 @@ static bool fits(uint64_t address,uint64_t size,struct bus bus)
 }
 
 static bool translate(const struct dt_node *node,struct bus child,struct bus parent,
-                      uint64_t size,struct address *address)
+                      const char *property,uint64_t size,struct address *address)
 {
     const unsigned char *p;
     uint32_t bytes;
-    if (dt_node_property(node,"ranges",&p,&bytes)!=DT_FOUND) { return false; }
+    if (dt_node_property(node,property,&p,&bytes)!=DT_FOUND) { return false; }
     if (!bytes) { return child.pci==parent.pci && fits(address->value,size,parent); }
     unsigned stride=4*(child.addr+parent.addr+child.size);
     if (!child.size || bytes%stride) { return false; }
@@ -123,6 +123,36 @@ static bool translate(const struct dt_node *node,struct bus child,struct bus par
     return found;
 }
 
+static bool translate_to_root(const void *dtb,size_t bytes,char path[DT_PATH_CAPACITY],
+                               struct dt_node bus_node,struct bus bus,
+                               const char *property,uint64_t size,struct address *address)
+{
+    if (!fits(address->value,size,bus)) { return false; }
+    while (dt_parent_path(path)) {
+        struct dt_node upstream;
+        struct bus layout;
+        if (dt_find_node(dtb,bytes,path,&upstream)!=DT_FOUND || !bus_layout(&upstream,&layout) ||
+            !translate(&bus_node,bus,layout,property,size,address)) { return false; }
+        bus_node=upstream;
+        bus=layout;
+    }
+    return !address->space;
+}
+
+bool dt_bus_translate(const void *dtb,size_t bytes,const char *path,const char *property,
+                      uint64_t value,uint64_t size,uint64_t *cpu)
+{
+    char parent[DT_PATH_CAPACITY];
+    struct dt_node node;
+    struct bus bus;
+    struct address address={value,0};
+    if (!copy_path(parent,path) || dt_find_node(dtb,bytes,parent,&node)!=DT_FOUND ||
+        !bus_layout(&node,&bus) || bus.pci ||
+        !translate_to_root(dtb,bytes,parent,node,bus,property,size,&address)) { return false; }
+    *cpu=address.value;
+    return true;
+}
+
 enum dt_reg_result dt_reg_range(const void *dtb,size_t bytes,const char *path,const struct dt_node *device,
                                unsigned index,struct dt_reg_range *out)
 {
@@ -144,16 +174,7 @@ enum dt_reg_result dt_reg_range(const void *dtb,size_t bytes,const char *path,co
     struct address address=read_address(reg,bus);
     uint64_t size=read_cells(reg+4*bus.addr,bus.size);
     *out=(struct dt_reg_range){.address=address.value,.bytes=size};
-    if (!fits(address.value,size,bus)) { return DT_REG_LOCAL; }
-    while (dt_parent_path(parent)) {
-        struct dt_node upstream;
-        struct bus layout;
-        if (dt_find_node(dtb,bytes,parent,&upstream)!=DT_FOUND || !bus_layout(&upstream,&layout) ||
-            !translate(&bus_node,bus,layout,size,&address)) { return DT_REG_LOCAL; }
-        bus_node=upstream;
-        bus=layout;
-    }
-    if (address.space) { return DT_REG_LOCAL; }
+    if (!translate_to_root(dtb,bytes,parent,bus_node,bus,"ranges",size,&address)) { return DT_REG_LOCAL; }
     out->cpu=address.value;
     return DT_REG_CPU;
 }

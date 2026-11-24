@@ -9,6 +9,7 @@ enum gpio_command { GPIO_READ, GPIO_TEST, GPIO_LOOP, GPIO_PULL };
 #include "crypto.h"
 #include "memory.h"
 #include "mmu.h"
+#include "network_session.h"
 #include "network_worker.h"
 #include "resources.h"
 #include "rng200.h"
@@ -308,6 +309,40 @@ static void release_ethernet_dma(struct eth_dma_page *page)
     (void)page_free(page->physical);
 }
 
+static struct ethernet_ipv4 wired_ipv4;
+
+static const struct ethernet_ipv4 *ethernet_config(void)
+{
+    return wired_ipv4.prefix ? &wired_ipv4 : &rp1_eth_default_ipv4;
+}
+
+static void print_ethernet_address(void)
+{
+    const struct ethernet_ipv4 *ipv4=ethernet_config();
+    for (unsigned i=0;i<4;++i) {
+        if (i) { console_write("."); }
+        console_u64(ipv4->address[i]);
+    }
+    console_write("/");
+    console_u64(ipv4->prefix);
+}
+
+static bool set_ethernet_address(const char *arg)
+{
+    char literal[16];
+    unsigned count=0;
+    while (*arg && *arg!='/' && count<sizeof(literal)-1) { literal[count++]=*arg++; }
+    if (*arg!='/') { return false; }
+    literal[count]=0;
+    ++arg;
+    unsigned prefix=0;
+    while (*arg>='0' && *arg<='9' && prefix<=30) { prefix=prefix*10+(unsigned)(*arg++-'0'); }
+    while (*arg==' ') { ++arg; }
+    uint8_t address[4];
+    return !*arg && network_parse_ipv4(literal,address) &&
+           ethernet_ipv4_configure(&wired_ipv4,address,prefix);
+}
+
 static void wired_worker(void *unused)
 {
     (void)unused;
@@ -316,10 +351,11 @@ static void wired_worker(void *unused)
                                      platform_random_bytes(secret,sizeof(secret))!=BLOCK_OK);
     struct rp1_eth_dma session;
     struct rp1_eth_dma_memory *memory=(void *)(uintptr_t)wired.page.physical;
+    const struct ethernet_ipv4 *ipv4=ethernet_config();
     wired.result=wired.random_failed ? GEM_LOOP_SETUP :
-                 rp1_eth_dma_open(&session,&eth_dma_io,memory,(uint32_t)wired.page.bus,wired.speed,wired.tcp);
-    bool udp=wired.result==GEM_LOOP_OK && udp_link_up(rp1_eth_mac,rp1_eth_ip,rp1_eth_mask);
-    bool tcp=udp && wired.tcp && tcp_link_up(rp1_eth_mac,rp1_eth_ip,rp1_eth_mask,secret);
+                 rp1_eth_dma_open(&session,&eth_dma_io,memory,(uint32_t)wired.page.bus,wired.speed,ipv4,wired.tcp);
+    bool udp=wired.result==GEM_LOOP_OK && udp_link_up(rp1_eth_mac,ipv4->address,ipv4->mask);
+    bool tcp=udp && wired.tcp && tcp_link_up(rp1_eth_mac,ipv4->address,ipv4->mask,secret);
     crypto_wipe(secret,sizeof(secret));
     if (wired.result==GEM_LOOP_OK) {
         uint64_t hz=timer_frequency();
@@ -358,7 +394,9 @@ static void ethernet_net_up(const struct xhci_observer *bridge,const void *tree,
     }
     if (wired.running) {
         console_write(tcp ? "Ethernet TCP and UDP" : "Ethernet UDP");
-        console_write(" active at 192.0.2.2/30. Use ethdown to stop.\n");
+        console_write(" active at ");
+        print_ethernet_address();
+        console_write(". Use ethdown to stop.\n");
     } else if (wired.random_failed) {
         console_write("Ethernet TCP needs hardware randomness. Use rngtest for status.\n");
     } else {
@@ -410,6 +448,29 @@ bool rp1_ethernet_active(void)
 #else
     return false;
 #endif
+}
+
+bool rp1_ethernet_address_command(const char *line)
+{
+    for (const char *name="ethaddr";*name;++name) {
+        if (*line++!=*name) { return false; }
+    }
+    if (*line && *line!=' ') { return false; }
+#ifdef OUROS_PI5
+    while (*line==' ') { ++line; }
+    if (*line && wired.running) {
+        console_write("Run ethdown before changing the Ethernet address.\n");
+    } else if (*line && !set_ethernet_address(line)) {
+        console_write("Usage: ethaddr [IPv4/prefix] with a usable host address and prefix 1..30.\n");
+    } else {
+        console_write("Ethernet IPv4 ");
+        print_ethernet_address();
+        console_write("\n");
+    }
+#else
+    console_write("Ethernet addressing requires a Raspberry Pi 5.\n");
+#endif
+    return true;
 }
 
 void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action action)

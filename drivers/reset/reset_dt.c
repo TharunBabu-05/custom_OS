@@ -1,4 +1,5 @@
 #include "dt_property.h"
+#include "arm_platform.h"
 #include "reboot.h"
 
 static bool same(const char *a,const char *b)
@@ -35,6 +36,19 @@ static bool enabled(const void *dtb,size_t bytes,const char *node)
 static uint32_t be32(const unsigned char *p)
 { return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3]; }
 
+enum psci_conduit psci_discover(const void *dtb,size_t bytes)
+{
+    const unsigned char *p;
+    uint32_t n;
+    if (!enabled(dtb,bytes,"/psci") ||
+        !dt_property(dtb,bytes,"/psci","compatible",&p,&n) ||
+        !(has_compatible(p,n,"arm,psci-0.2") || has_compatible(p,n,"arm,psci-1.0")) ||
+        !dt_property(dtb,bytes,"/psci","method",&p,&n)) { return PSCI_NONE; }
+    if (string_is(p,n,"hvc")) { return PSCI_HVC; }
+    if (string_is(p,n,"smc")) { return PSCI_SMC; }
+    return PSCI_NONE;
+}
+
 bool reset_discover(const char *board,const void *dtb,size_t bytes,struct reset_target *out)
 {
     const unsigned char *p;uint32_t n;
@@ -51,11 +65,9 @@ bool reset_discover(const char *board,const void *dtb,size_t bytes,struct reset_
         *out=(struct reset_target){RESET_BCM2712,0x107d200000ULL};
         return true;
     }
-    if (!same(board,"qemu_virt") || !enabled(dtb,bytes,"/psci") ||
-        !dt_property(dtb,bytes,"/psci","compatible",&p,&n) ||
-        !(has_compatible(p,n,"arm,psci-0.2") || has_compatible(p,n,"arm,psci-1.0")) ||
-        !dt_property(dtb,bytes,"/psci","method",&p,&n)) { return false; }
-    if (string_is(p,n,"hvc")) { *out=(struct reset_target){RESET_PSCI_HVC,0};return true; }
-    if (string_is(p,n,"smc")) { *out=(struct reset_target){RESET_PSCI_SMC,0};return true; }
-    return false;
+    if (!same(board,"qemu_virt")) { return false; }
+    enum psci_conduit method=psci_discover(dtb,bytes);
+    if (method==PSCI_NONE) { return false; }
+    *out=(struct reset_target){method==PSCI_HVC ? RESET_PSCI_HVC : RESET_PSCI_SMC,0};
+    return true;
 }

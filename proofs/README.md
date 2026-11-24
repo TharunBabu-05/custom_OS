@@ -1,5 +1,27 @@
 # Real Raspberry Pi 5 proof
 
+Phase 21 listed four CPU affinities, read all PSCI states and reported
+L1 through L3 cache geometry. The exclusive-load test halted in the
+uncached profile. [CPU diagnostics and abort capture](pi5-cpu-atomic-abort-2026-11-24.txt)
+
+Phase 20 verified the RTC write and UTC sync, read the throttle flags,
+and remounted the same data generation after the halt request. Both
+alarm queries returned an invalid firmware response.
+[RTC and power capture](pi5-rtc-power-2026-11-24.txt)
+
+The PCIe commands reported the expected external and RP1 device-tree
+windows. USB readback and the mounted data check both passed.
+[PCIe inventory capture](pi5-pcie-inventory-pass-2026-11-24.txt)
+
+Windows reached the configured wired address `192.0.2.6/30`, received
+six 512-byte pings with zero loss, and learned the Pi's MAC address.
+The hardware resource and storage checks passed afterward.
+[Wired IPv4 configuration capture](pi5-ethernet-address-pass-2026-11-24.txt)
+
+`TCPCHK.ELF` and the Windows server reported the same SHA-256 for a
+16,384-byte wired TCP echo on port 4041.
+[Wired TCP capture](pi5-ethernet-tcp-pass-2026-11-24.txt)
+
 `UDPCHK.ELF` exchanged a nine-byte datagram with Windows over Ethernet
 at 100 Mbps. The earlier command targeted port 4. The echo listener
 was on port 4040. Ethernet cleanup returned to eight resource claims,

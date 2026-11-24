@@ -5,7 +5,7 @@ $ErrorActionPreference='Stop'
 Push-Location $ProjectRoot
 try {
     New-Item -ItemType Directory -Force build/trust-time-tests | Out-Null
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/trust_time_host.c lib/trust_time.c lib/crypto.c lib/sha256.c -o build/trust-time-tests/test.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/trust_time_host.c kernel/core/trust_time_commands.c lib/trust_time.c lib/crypto.c lib/sha256.c -o build/trust-time-tests/test.exe
     if ($LASTEXITCODE) { throw 'UTC and trust test compilation failed' }
     & ./build/trust-time-tests/test.exe
     if ($LASTEXITCODE) { throw 'UTC and trust tests failed' }

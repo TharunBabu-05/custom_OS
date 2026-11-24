@@ -181,8 +181,44 @@ static void show_device(const void *dtb,const char *path,const struct dt_node *n
     show_dependencies(dtb,node);
 }
 
+static void show_media(const char *path,const struct dt_node *node,void *context)
+{
+    static const struct { const char *binding,*kind; } media[]={
+        {"simple-framebuffer","framebuffer"},
+        {"brcm,bcm2712-hdmi0","HDMI"}, {"brcm,bcm2712-hdmi1","HDMI"},
+        {"brcm,bcm2712-hvs","display scaler"}, {"raspberrypi,rp1dsi","DSI"},
+        {"raspberrypi,rp1-cfe","CSI"}, {"raspberrypi,pispbe","image processor"},
+        {"snps,designware-i2s","I2S"}, {"raspberrypi,rp1-audio-out","audio output"},
+        {"brcm,2712-v3d","3D graphics"}, {"brcm,bcm2712-hevc-dec","HEVC decoder"}
+    };
+    const unsigned char *p;
+    uint32_t bytes;
+    if (dt_node_property(node,"compatible",&p,&bytes)!=DT_FOUND || !bytes || p[bytes-1]) { return; }
+    const char *kind=NULL;
+    for (uint32_t offset=0;offset<bytes && !kind;) {
+        const char *compatible=(const char *)p+offset;
+        for (unsigned i=0;i<sizeof(media)/sizeof(*media);++i) {
+            if (same(compatible,media[i].binding)) { kind=media[i].kind;break; }
+        }
+        do { ++offset; } while (p[offset-1]);
+    }
+    if (!kind) { return; }
+    console_write(kind); console_write(" "); console_write(path);
+    console_write(" status="); show_status(dt_device_state(context,DT_READ_LIMIT,path)); console_write("\n");
+}
+
 bool device_inventory_command(const char *line,const void *dtb,const struct board_info *board)
 {
+    if (same(line,"mediainfo")) {
+        struct dt_node root;
+        if (dt_find_node(dtb,DT_READ_LIMIT,"/",&root)!=DT_FOUND) {
+            console_write("Device tree invalid or unavailable.\n");
+        } else {
+            console_write("Media devices described by firmware:\n");
+            (void)dt_walk(dtb,DT_READ_LIMIT,show_media,(void *)dtb);
+        }
+        return true;
+    }
     const char *p=line;
     const char *name="dev";
     while (*name && *p==*name) { ++p; ++name; }
