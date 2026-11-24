@@ -21,7 +21,9 @@ enum uos_syscall {
     UOS_SYS_RESIZE_PAGES=44,UOS_SYS_MEMORY_PRESSURE=45,
     UOS_SYS_UDP_OPEN=46,UOS_SYS_UDP_SEND=47,UOS_SYS_UDP_RECV=48,UOS_SYS_UDP_CLOSE=49,
     UOS_SYS_TCP_OPEN=50,UOS_SYS_TCP_STATUS=51,UOS_SYS_TCP_WRITE=52,UOS_SYS_TCP_READ=53,UOS_SYS_TCP_CLOSE=54,
-    UOS_SYS_UTC_TIME=55,UOS_SYS_TRUST_CHECK=56,UOS_SYS_RANDOM=57
+    UOS_SYS_UTC_TIME=55,UOS_SYS_TRUST_CHECK=56,UOS_SYS_RANDOM=57,
+    UOS_SYS_FSTAT=58,UOS_SYS_PREAD=59,UOS_SYS_PWRITE=60,UOS_SYS_FTRUNCATE=61,
+    UOS_SYS_SPAWN_APPEND=62,UOS_SYS_PIPE_APPEND=63
 };
 enum { UOS_RANDOM_MAX=64 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
@@ -68,7 +70,10 @@ _Static_assert(sizeof(struct uos_child_info)==24,"child info ABI size");
 enum { UOS_FS_RAM=1,UOS_FS_FAT=2,UOS_FS_SNAPSHOT=3,UOS_FS_READONLY=1,UOS_FS_VOLATILE=2 };
 struct uos_fs_info { uint64_t max_write_bytes;uint32_t type,version,node_limit,used_nodes;uint64_t flags; };
 _Static_assert(sizeof(struct uos_fs_info)==32,"filesystem info ABI size");
-enum { UOS_READ=1,UOS_WRITE=2,UOS_CREATE=4,UOS_TRUNC=8 };
+enum { UOS_READ=1,UOS_WRITE=2,UOS_CREATE=4,UOS_TRUNC=8,UOS_EXCL=16,UOS_APPEND=32 };
+/* File length and offset in bytes. Flags contain only READ, WRITE and APPEND. */
+struct uos_file_info { uint64_t bytes,offset;uint32_t flags,reserved; };
+_Static_assert(sizeof(struct uos_file_info)==24,"file-handle info ABI size");
 enum { UOS_PROFILE_SAVE=1,UOS_PROFILE_LOAD=2 };
 enum { UOS_SEEK_SET=0,UOS_SEEK_CUR=1,UOS_SEEK_END=2 };
 enum { UOS_UDP_MAX_BYTES=256,UOS_UDP_MAX_WAIT_MS=10000 };

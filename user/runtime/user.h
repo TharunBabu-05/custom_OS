@@ -53,6 +53,14 @@ static inline int64_t uos_read(uint64_t h,void *p,size_t n)
 { return uos_call4(UOS_SYS_READ,h,(uintptr_t)p,n,0); }
 static inline int64_t uos_write_file(uint64_t h,const void *p,size_t n)
 { return uos_call4(UOS_SYS_WRITE_FILE,h,(uintptr_t)p,n,0); }
+static inline int64_t uos_fstat(uint64_t h,struct uos_file_info *out)
+{ return uos_call2(UOS_SYS_FSTAT,h,(uintptr_t)out); }
+static inline int64_t uos_pread(uint64_t h,void *p,size_t n,uint64_t offset)
+{ return uos_call4(UOS_SYS_PREAD,h,(uintptr_t)p,n,offset); }
+static inline int64_t uos_pwrite(uint64_t h,const void *p,size_t n,uint64_t offset)
+{ return uos_call4(UOS_SYS_PWRITE,h,(uintptr_t)p,n,offset); }
+static inline int64_t uos_ftruncate(uint64_t h,uint64_t bytes)
+{ return uos_call2(UOS_SYS_FTRUNCATE,h,bytes); }
 static inline int64_t uos_seek(uint64_t h,int64_t n,unsigned base)
 { return uos_call4(UOS_SYS_SEEK,h,(uint64_t)n,base,0); }
 static inline int64_t uos_close(uint64_t h) { return uos_call2(UOS_SYS_CLOSE,h,0); }
@@ -132,10 +140,14 @@ static inline int64_t uos_tcp_close(uint64_t handle)
 { return uos_call2(UOS_SYS_TCP_CLOSE,handle,0); }
 static inline int64_t uos_spawn_io(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
 { return uos_call4(UOS_SYS_SPAWN_IO,(uintptr_t)args,seconds,(uintptr_t)io,0); }
+static inline int64_t uos_spawn_append(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
+{ return uos_call4(UOS_SYS_SPAWN_APPEND,(uintptr_t)args,seconds,(uintptr_t)io,0); }
 /* Binary file stdin only; terminal input uses readline. Up to 512 bytes/call. */
 static inline int64_t uos_stdin(void *buffer,size_t capacity) { return uos_call2(UOS_SYS_STDIN,(uintptr_t)buffer,capacity); }
 /* Start two children concurrently, connect stdout -> stdin, wait for both.
  * io may be NULL for terminal output/no input file. Returns pipeline status. */
 static inline int64_t uos_pipeline(const struct app_args *producer,const struct app_args *consumer,unsigned seconds,const struct uos_stdio *io)
 { return uos_call4(UOS_SYS_PIPE_RUN,(uintptr_t)producer,(uintptr_t)consumer,seconds,(uintptr_t)io); }
+static inline int64_t uos_pipeline_append(const struct app_args *producer,const struct app_args *consumer,unsigned seconds,const struct uos_stdio *io)
+{ return uos_call4(UOS_SYS_PIPE_APPEND,(uintptr_t)producer,(uintptr_t)consumer,seconds,(uintptr_t)io); }
 #endif

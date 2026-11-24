@@ -1,0 +1,19 @@
+# Run with source -e /boot/TEXTCHK.OSH
+mkdir /tmp/textchk
+write /tmp/textchk/raw 'z,berry|a,apple|b,banana|a,apple|'
+tr '|' '\\n' /tmp/textchk/raw > /tmp/textchk/rows
+tail -n 2 /tmp/textchk/rows > /tmp/textchk/tail
+cut -d , -f 2 /tmp/textchk/rows > /tmp/textchk/fruits
+sort /tmp/textchk/fruits | uniq -c > /tmp/textchk/counts
+sha256 /tmp/textchk/rows 33918d1c53857f5c71fe81ebe9a92b894f82532937bb63bb6359916620beacad
+sha256 /tmp/textchk/tail d24f52acdec9a5b4add6a4f79b7723d0ef43591255c4132d6a7b7f24898d0cf6
+sha256 /tmp/textchk/fruits 2dc8f2f775e440ffc15816f9808d873b5e002fd300f5ed0ac7823f1de4a9788d
+sha256 /tmp/textchk/counts daabfab179cc9f11ee6a1906a045b6b56a59cc04d95dd18467344e5820f572ac
+cat /tmp/textchk/counts
+rm /tmp/textchk/raw
+rm /tmp/textchk/rows
+rm /tmp/textchk/tail
+rm /tmp/textchk/fruits
+rm /tmp/textchk/counts
+rmdir /tmp/textchk
+echo "PASS: all five text tools matched their expected output."

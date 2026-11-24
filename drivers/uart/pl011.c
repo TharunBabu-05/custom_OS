@@ -2,9 +2,12 @@
  * The caller supplies the CPU physical base and UART input clock. */
 #include "console.h"
 #include "cpu.h"
-enum { DR=0x00, FR=0x18, IBRD=0x24, FBRD=0x28, LCRH=0x2c,
-       CR=0x30, IMSC=0x38, ICR=0x44 };
+enum { DR=0x00, ECR=0x04, FR=0x18, IBRD=0x24, FBRD=0x28, LCRH=0x2c,
+       CR=0x30, IMSC=0x38, RIS=0x3c, ICR=0x44 };
+enum { RX_EMPTY=1u<<4, FIFO_ENABLE=1u<<4, FRAME_ERROR=1u<<8, PARITY_ERROR=1u<<9,
+       BREAK_ERROR=1u<<10, OVERRUN_ERROR=1u<<11, RX_ERRORS=0xf00 };
 static uintptr_t uart_base;
+static struct uart_rx_status rx;
 static uint32_t read_reg(unsigned offset)
 {
     uint32_t value = *(volatile uint32_t *)(uart_base + offset);
@@ -57,10 +60,33 @@ void uart_drain(void)
     uint64_t start=timer_ticks(),limit=timer_frequency()/20;
     while ((read_reg(FR)&(1u<<3)) && timer_ticks()-start<limit) { }
 }
+static int receive_error(uint32_t errors)
+{
+    rx.framing+=(errors&FRAME_ERROR)!=0;
+    rx.parity+=(errors&PARITY_ERROR)!=0;
+    rx.breaks+=(errors&BREAK_ERROR)!=0;
+    rx.overruns+=(errors&OVERRUN_ERROR)!=0;
+    if (errors&OVERRUN_ERROR) {
+        /* Queued bytes can predate the lost byte, including a line ending. */
+        for (unsigned i=0;i<32 && !(read_reg(FR)&RX_EMPTY);++i) { (void)read_reg(DR); }
+    }
+    write_reg(ECR,0);
+    write_reg(ICR,errors>>1);
+    return CONSOLE_RX_ERROR;
+}
 int uart_getc(void)
 {
-    if (read_reg(FR) & (1u << 4)) { return -1; }
+    /* Detect a full-FIFO overrun before returning any earlier queued byte. */
+    if (read_reg(RIS)&(OVERRUN_ERROR>>1)) { return receive_error(OVERRUN_ERROR); }
+    if (read_reg(FR)&RX_EMPTY) { return CONSOLE_NO_INPUT; }
     uint32_t data = read_reg(DR);
-    if (data & 0xf00) { return -1; } /* Discard errored input. */
+    if (data&RX_ERRORS) { return receive_error(data&RX_ERRORS); }
+    ++rx.bytes;
     return (int)(data & 0xff);
+}
+struct uart_rx_status uart_rx_status(void)
+{
+    struct uart_rx_status status=rx;
+    status.fifo=(read_reg(LCRH)&FIFO_ENABLE)!=0;
+    return status;
 }

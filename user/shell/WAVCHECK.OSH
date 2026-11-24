@@ -1,0 +1,22 @@
+# Run with source -e /boot/WAVCHECK.OSH
+mkdir /tmp/wavcheck
+/boot/WAVTONE.ELF 400 100 800 > /tmp/wavcheck/src.wav
+/boot/WAVEDIT.ELF trim 25 50 /tmp/wavcheck/src.wav > /tmp/wavcheck/trim.wav
+/boot/WAVEDIT.ELF gain 150 /tmp/wavcheck/src.wav > /tmp/wavcheck/gain.wav
+/boot/WAVEDIT.ELF mono /tmp/wavcheck/src.wav > /tmp/wavcheck/mono.wav
+/boot/WAVEDIT.ELF fade 25 25 /tmp/wavcheck/src.wav > /tmp/wavcheck/fade.wav
+/boot/WAVEDIT.ELF join /tmp/wavcheck/mono.wav /tmp/wavcheck/mono.wav > /tmp/wavcheck/join.wav
+sha256 /tmp/wavcheck/src.wav f86f9f0dc764874361bca10435d4a85d3cf035e7e3f6e095b3d774e48b84e5a2
+sha256 /tmp/wavcheck/trim.wav a4d4544840bb50266f5e50c737986f8bdc3bda30706bd07caccf29ebe1bf19ee
+sha256 /tmp/wavcheck/gain.wav 4262bdf81e017d5b6e6d6773285196347717189303fcb0e8941a6d49c47b7261
+sha256 /tmp/wavcheck/mono.wav f1decdfc4b732e1cf33dbf90ac5a83ecc8a7b083a2a50b9ce0257b8c55775f41
+sha256 /tmp/wavcheck/fade.wav dfe8f772b0d446e8245bf04a22f8d87296593e9897932c3d1a34909f3ac35c77
+sha256 /tmp/wavcheck/join.wav 2c229521c37f3d724757919f5cbe7530852c72ac7573569b9527562ba3afb30b
+rm /tmp/wavcheck/src.wav
+rm /tmp/wavcheck/trim.wav
+rm /tmp/wavcheck/gain.wav
+rm /tmp/wavcheck/mono.wav
+rm /tmp/wavcheck/fade.wav
+rm /tmp/wavcheck/join.wav
+rmdir /tmp/wavcheck
+echo "PASS: all five WAV edits matched their expected hashes."

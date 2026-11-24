@@ -1,0 +1,60 @@
+Raspberry Pi 5 serial log excerpts supplied on 2026-11-24.
+
+> atomictest
+PASS: boot CPU acquire/release. Exclusive RMW requires a cacheable test mapping on Pi.
+> atomictest
+PASS: boot CPU acquire/release. Exclusive RMW requires a cacheable test mapping on Pi.
+> atomictest
+PASS: boot CPU acquire/release. Exclusive RMW requires a cacheable test mapping on Pi.
+> mediainfo
+Media devices described by firmware:
+HDMI /soc@107c000000/hdmi@7c701400 status=disabled
+HDMI /soc@107c000000/hdmi@7c706400 status=disabled
+audio output /axi/pcie@1000120000/rp1/audio_out@94000 status=disabled
+I2S /axi/pcie@1000120000/rp1/i2s@a0000 status=disabled
+I2S /axi/pcie@1000120000/rp1/i2s@a4000 status=disabled
+I2S /axi/pcie@1000120000/rp1/i2s@a8000 status=disabled
+CSI /axi/pcie@1000120000/rp1/csi@110000 status=disabled
+CSI /axi/pcie@1000120000/rp1/csi@128000 status=disabled
+DSI /axi/pcie@1000120000/rp1/dsi@110000 status=disabled
+DSI /axi/pcie@1000120000/rp1/dsi@128000 status=disabled
+HEVC decoder /axi/codec@800000 status=enabled
+image processor /axi/pisp_be@880000 status=enabled
+3D graphics /axi/v3d@2000000 status=disabled
+display scaler /hvs@107c580000 status=disabled
+> rtcalarm
+RTC alarm disabled unix_seconds=0 1970-01-01T00:00:00Z
+> appshell
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ /boot/WAVTONE.ELF 400 200 > /tmp/phase22.wav
+child exit=0
+user:/$ /boot/WAVINFO.ELF /tmp/phase22.wav
+PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200
+child exit=0
+user:/$ /boot/WAVINFO.ELF --stats /tmp/phase22.wav
+PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200
+channel=1 min=-16000 max=16000 peak=16000 clipped=0
+child exit=0
+user:/$ rm /tmp/phase22.wav
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=2 switches=12 preemptions=6 yields=0 idle_waits=9106 terminal=yes budget_seconds=unlimited children_started=3 children_reaped=3 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=47 dispatches=18 sleeps=0 wakes=0 input_lines=5 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000150000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty

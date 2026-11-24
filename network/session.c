@@ -1,5 +1,6 @@
 /* Shared verified network session with foreground and cooperative drivers. */
 #include "network_session.h"
+#include "console.h"
 #include "crypto.h"
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
 static void write(const struct network_session_io *io,const char *s) { io->write(io->link.context,s); }
@@ -128,7 +129,13 @@ enum block_result network_session_run(const struct network_session_io *io,struct
         /* Drain at most one small UART FIFO per iteration, then service link
          * again. A long input line cannot starve networking or expiry checks. */
         for (unsigned k=0;k<16;++k) {
-            int c=io->getc(io->link.context);if (c<0) { break; }
+            int c=io->getc(io->link.context);
+            if (c==CONSOLE_RX_ERROR) {
+                length=0;overflow=false;
+                write(io,"\nSerial receive error; input discarded.\nnet> ");
+                continue;
+            }
+            if (c<0) { break; }
             if (c==3) { s->reason=NS_USER;stop=true;break; }
             if (c=='\r' || c=='\n') {
                 write(io,"\n");line[length]=0;++s->commands;

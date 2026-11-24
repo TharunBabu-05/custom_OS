@@ -37,6 +37,8 @@ if ($DataVersion -eq 5) {
 Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'build/apps') -Filter '*.ELF' -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $files $_.Name)
 }
+Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'user/shell') -File -Filter '*.OSH' |
+    Copy-Item -Destination $files
 # Explicit 8.3 names avoid dependence on a custom long-filename implementation.
 $map=[ordered]@{'OUROS.IMG'='ouros-rpi5.img';'PI5.DTB'='bcm2712-rpi-5-b.dtb';
     'COPYING.TXT'='COPYING.linux';'LICENSE.TXT'='LICENCE.broadcom'}

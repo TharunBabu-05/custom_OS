@@ -230,7 +230,7 @@ enum stream_syntax { STREAM_PLAIN,STREAM_VALID,STREAM_INVALID };
 struct stream_command {
     char stages[2][SHELL_LINE_BYTES];
     char input[SHELL_LINE_BYTES],output[SHELL_LINE_BYTES];
-    bool piping;
+    bool piping,append;
 };
 
 /* Operators are recognized only in the original text. Leave quote removal
@@ -267,6 +267,7 @@ static enum stream_syntax parse_stream(const char *p,struct stream_command *comm
             } else {
                 destination=c=='<' ? command->input : command->output;
                 if (*destination || (c=='<' && stage)) { return STREAM_INVALID; }
+                if (c=='>' && p[1]=='>') { command->append=true;++p; }
             }
             ++p;
             continue;
@@ -322,16 +323,16 @@ static void execute_stream(struct shell_state *state,const struct stream_command
         state->status=2;print("shell: invalid arguments or redirection path\n");return;
     }
     if (!stream_program(&left) || (piping && !stream_program(&right))) {
-        state->status=2;print("shell: use runnable programs with | < >\n");return;
+        state->status=2;print("shell: use runnable programs with | < > >>\n");return;
     }
     if (program(&left) || (piping && program(&right))) {
         state->status=127;print("shell: program not found\n");return;
     }
     int64_t code;
     if (piping) {
-        code=uos_pipeline(&left,&right,30,&io);
+        code=command->append ? uos_pipeline_append(&left,&right,30,&io) : uos_pipeline(&left,&right,30,&io);
     } else {
-        int64_t pid=uos_spawn_io(&left,30,&io);
+        int64_t pid=command->append ? uos_spawn_append(&left,30,&io) : uos_spawn_io(&left,30,&io);
         code=pid<0 ? pid : uos_wait((uint64_t)pid);
     }
     job_result(code,piping,&state->status);
@@ -370,7 +371,7 @@ static bool split_commands(char *line,struct command_list *list)
     }
 }
 static bool execute_line(struct shell_state *state,char *line);
-static void source_file(struct shell_state *state,const char *path)
+static void source_file(struct shell_state *state,const char *path,bool stop_on_error)
 {
     char text[SCRIPT_BYTES+1];size_t bytes=0;
     int64_t handle=uos_open(path,UOS_READ),got=0;
@@ -397,7 +398,14 @@ static void source_file(struct shell_state *state,const char *path)
         text[last]=0;lines[count++]=text+start;start=end+1;
     }
     state->sourcing=true;
-    for (unsigned i=0;i<count && !state->exiting;++i) { if (!execute_line(state,lines[i])) { break; } }
+    for (unsigned i=0;i<count && !state->exiting;++i) {
+        bool valid=execute_line(state,lines[i]);
+        if (stop_on_error && state->status) {
+            print("source: stopped at line ");number(i+1);print(" status=");number(state->status);print("\n");
+            break;
+        }
+        if (!valid) { break; }
+    }
     state->sourcing=false;
     return;
 invalid:
@@ -438,15 +446,18 @@ static bool execute_line(struct shell_state *state,char *line)
         if (kind==CMD_EXIT && args.count==1) { state->exiting=true;return true; }
         if ((kind==CMD_HELP) && args.count==1) {
             print("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nrun|exec PROGRAM [args]\nrunio IN|- OUT|- PROGRAM [args]\npipe PROGRAM [args] -- PROGRAM [args]\npipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]\n");
-            print("bg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg [PID] | stop [PID] (two jobs, 1..30 seconds)\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\nsource PATH | lists with ; && ||\n$NAME ${NAME} $?; single quotes keep literals\n");
+            print("bg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg [PID] | stop [PID] (two jobs, 1..30 seconds)\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\nsource [-e] PATH | lists with ; && ||\nsha256 PATH [expected-hex]\n$NAME ${NAME} $?; single quotes keep literals\n");
             print("Use exit for the kernel monitor (Wi-Fi commands and networktest).\n");
-            print("PROGRAM < IN > NEWOUT | two-stage pipes: LEFT | RIGHT\n");
+            print("PROGRAM < IN > NEWOUT | PROGRAM >> OUT | two-stage pipes: LEFT | RIGHT\n");
             print("history [-c] | !! repeats last | !N repeats entry N\n");
         } else if ((kind==CMD_STATUS) && args.count==1) { number(state->status);print("\n"); }
         else if (kind==CMD_HISTORY) { history_command(state,&args); }
-        else if (kind==CMD_SOURCE && args.count==2) {
+        else if (kind==CMD_SOURCE) {
+            bool stop_on_error=args.count==3 && same(p,"-e");
             if (state->sourcing) { state->status=2;print("shell: nested source refused\n"); }
-            else { source_file(state,p); }
+            else if (args.count==2 || stop_on_error) {
+                source_file(state,stop_on_error ? args.bytes+args.offset[2] : p,stop_on_error);
+            } else { state->status=2;print("Usage: source [-e] PATH\n"); }
         }
         else if ((kind==CMD_JOBS && args.count==1) || ((kind==CMD_FG || kind==CMD_STOP) && args.count<=2)) {
             job_command(kind,state->jobs,args.count==2 ? p : 0,&state->status);
@@ -522,11 +533,30 @@ static bool execute_line(struct shell_state *state,char *line)
             if (!result) { print(e.type==UOS_FILE ? "type=file bytes=" : "type=directory bytes=");number(e.bytes);print(" path=");print(p);print("\n"); }
         }
         else if ((kind==CMD_SYNC) && args.count==1) { result=uos_sync()!=0; }
-        else if ((kind==CMD_SHA256) && args.count==2) {
+        else if ((kind==CMD_SHA256) && (args.count==2 || args.count==3)) {
             unsigned char digest[32];char hex[65];const char *digits="0123456789abcdef";
+            const char *expected=args.count==3 ? args.bytes+args.offset[2] : NULL;
+            if (expected) {
+                bool valid=uos_length(expected)==64;
+                for (unsigned i=0;valid && i<64;++i) {
+                    char c=expected[i];
+                    valid=(c>='0' && c<='9') || (c>='a' && c<='f') || (c>='A' && c<='F');
+                }
+                if (!valid) { state->status=2;print("sha256: expected 64 hex digits\n");continue; }
+            }
             int64_t r=uos_filehash(p,digest);result=r!=0;
             if (r==UOS_ENOENT) { state->status=1;print("shell: file not found: ");print(p);print("\n");continue; }
-            if (!result) { for (unsigned i=0;i<32;++i) { hex[i*2]=digits[digest[i]>>4];hex[i*2+1]=digits[digest[i]&15]; }hex[64]=0;print(hex);print("  ");print(p);print("\n"); }
+            if (!result) {
+                for (unsigned i=0;i<32;++i) { hex[i*2]=digits[digest[i]>>4];hex[i*2+1]=digits[digest[i]&15]; }
+                hex[64]=0;print(hex);print("  ");print(p);print("\n");
+                if (expected) {
+                    for (unsigned i=0;i<64;++i) {
+                        char c=expected[i];
+                        if (c>='A' && c<='F') { c+='a'-'A'; }
+                        if (c!=hex[i]) { state->status=1;print("sha256: mismatch\n");break; }
+                    }
+                }
+            }
         }
         else if (kind==CMD_PWD && args.count==1) { char cwd[256];result=uos_getcwd(cwd,sizeof(cwd))<0;if (!result) { print(cwd);print("\n"); } }
         else if ((kind==CMD_CD) && args.count<=2) {

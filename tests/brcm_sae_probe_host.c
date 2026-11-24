@@ -2,6 +2,7 @@
 #include <string.h>
 #include "brcm_sae_probe.h"
 #include "brcm_assoc.h"
+#include "console.h"
 #include "p256.h"
 #include "sae_hunt.h"
 #include "aes.h"
@@ -576,10 +577,13 @@ static int session_input(void *ctx)
     if (m.session_case==2 || m.session_case==4 || m.session_case==5) { return -1; }
     if (m.session_case==10 && assoc.network.dns.written) { return 3; }
     const char *p=m.session_stage==0 ? "ping www.google.com\n" : (m.session_case==8 || m.session_case==11) ? "netinfo\ndisconnect\n" : m.session_stage==1 ? "ping\n" : "netinfo\ndisconnect\n";
+    if (!m.session_case && !m.session_stage) { p="disconnect\xfe" "ping www.google.com\n"; }
     if ((m.session_case==8 || m.session_case==11) && m.session_stage && !assoc.network.dns_finished) { return -1; }
     if (m.session_stage==1 && m.clock-assoc.session.started<35000) { return -1; }
     if (m.session_stage==2 && assoc.network.ping_finished<2) { return -1; }
-    if (!p[m.session_input]) { ++m.session_stage;m.session_input=0;return -1; }return p[m.session_input++];
+    if (!p[m.session_input]) { ++m.session_stage;m.session_input=0;return -1; }
+    unsigned char c=(unsigned char)p[m.session_input++];
+    return c==0xfe ? CONSOLE_RX_ERROR : c;
 }
 static void session_write(void *ctx,const char *text)
 { assert(ctx==&m && !m.in_callback);if (strstr(text,"Wi-Fi session OPEN")) { m.session_opened=true; } }

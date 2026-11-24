@@ -1866,3 +1866,275 @@ exit
 Expect `PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200`
 and `channel=1 min=-16000 max=16000 peak=16000 clipped=0`.
 At the monitor, run `resinfo`, `storagetest`, and `datacheck`.
+
+The Pi passed three corrected atomic tests, listed its firmware media
+devices, read the disabled RTC alarm, and reported the expected WAV
+metadata and sample statistics. The monitor still reported eight resource
+claims, the same USB storage hash, and mounted data generation 1.
+[Phase 22 Pi capture](../proofs/pi5-media-pass-2026-11-24.txt)
+
+## Phase 23 PCM WAV editing
+
+`WAVEDIT.ELF` adds five operations for mono and stereo 8-bit and 16-bit
+integer PCM. It validates each input before emitting a WAV with the
+resulting format and samples.
+
+| Operation | Arguments | Result |
+| --- | --- | --- |
+| Trim | `trim <start-ms> <length-ms> <file>` | Extracts a nonempty range of whole frames. |
+| Gain | `gain <percent> <file>` | Scales samples by 0–400 percent and saturates at the PCM limits. |
+| Mono | `mono <file>` | Averages the two channels of a stereo file and passes mono samples through. |
+| Fade | `fade <in-ms> <out-ms> <file>` | Ramps the beginning and end of the track linearly. Zero disables the corresponding ramp. A one-frame ramp silences that frame. |
+| Join | `join <left> <right>` | Concatenates files with equal sample rate, bit depth, and channel count. |
+
+Time values round down to whole frames. Trim ranges must fit the input
+and fades must fit without overlapping. Use ordinary files as inputs
+and redirect the binary output to a new path. The output contains the
+PCM format and audio data, with a final pad byte when needed. Invalid
+operands and I/O errors return exit code 2. The shell may leave an empty
+or incomplete output file after a failed edit. The mount's file-size limit applies
+to the finished WAV, including its header and padding.
+[RIFF chunk layout](https://learn.microsoft.com/en-us/windows/win32/xaudio2/resource-interchange-file-format--riff-)
+
+`WAVTONE.ELF` accepts an optional third argument for the right-channel
+frequency, which lets you test stereo editing without any accessories.
+The Phase 23 updater adds `WAVEDIT.ELF` and replaces `WAVINFO.ELF` and
+`WAVTONE.ELF` on a Phase 22 boot volume.
+
+The QEMU media suite passed on Cortex-A53 and Cortex-A76. It compared all
+five edits byte for byte with expected files, verified 16-bit stereo
+downmix and clipping, and checked invalid ranges, incompatible inputs,
+and truncated files. The updater passed preview, apply, and a second
+preview against a copy of the previous boot files.
+
+In Windows PowerShell from the project directory, preview and apply the
+update to the pendrive's boot volume.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase23-wav-edit-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive and boot the Pi. At `user:/$`, enter these commands.
+
+```text
+/boot/WAVTONE.ELF 400 100 800 > /tmp/p23-src.wav
+/boot/WAVEDIT.ELF trim 25 50 /tmp/p23-src.wav > /tmp/p23-trim.wav
+/boot/WAVEDIT.ELF gain 150 /tmp/p23-src.wav > /tmp/p23-gain.wav
+/boot/WAVEDIT.ELF mono /tmp/p23-src.wav > /tmp/p23-mono.wav
+/boot/WAVEDIT.ELF fade 25 25 /tmp/p23-src.wav > /tmp/p23-fade.wav
+/boot/WAVEDIT.ELF join /tmp/p23-mono.wav /tmp/p23-mono.wav > /tmp/p23-join.wav
+/boot/WAVINFO.ELF /tmp/p23-trim.wav
+/boot/WAVINFO.ELF --stats /tmp/p23-gain.wav
+/boot/WAVINFO.ELF --stats /tmp/p23-mono.wav
+hexdump -s 44 -n 4 /tmp/p23-fade.wav
+hexdump -s 3240 -n 4 /tmp/p23-fade.wav
+/boot/WAVINFO.ELF /tmp/p23-join.wav
+rm /tmp/p23-src.wav
+rm /tmp/p23-trim.wav
+rm /tmp/p23-gain.wav
+rm /tmp/p23-mono.wav
+rm /tmp/p23-fade.wav
+rm /tmp/p23-join.wav
+exit
+```
+
+Expected results are 400 trim frames, 24,000 peak on each gain channel,
+800 mono frames with one channel, four zero bytes at each fade endpoint,
+and 1,600 joined frames. At the monitor, run `resinfo`, `storagetest`,
+and `datacheck` to compare with the Phase 22 baseline.
+
+The Pi generated the stereo tone and verified the gain and downmix
+statistics. The trim, fade, and join attempts had altered paths or
+missing arguments in the serial transcript. The resource and storage
+checks passed. The Phase 24 script exercises all five edits on the Pi
+with one command. [Phase 23 Pi capture](../proofs/pi5-wav-serial-retest-2026-11-24.txt)
+
+## Phase 24 Serial diagnostics and batch verification
+
+| Feature | Behavior |
+| --- | --- |
+| UART status | `uartinfo` at the kernel monitor reports PL011 FIFO status, received bytes, and observed framing, parity, break, and overrun errors. |
+| Input rejection | A reported receive fault discards the damaged line through Enter. The monitor, EL0 terminal, and foreground Wi-Fi prompt report the rejection. Hidden input is wiped. |
+| Monitor editing | Ctrl+C cancels the current line. Ctrl+U clears it. |
+| Batch execution | `source -e PATH` stops at the first line with nonzero final status and prints its line number. `source PATH` retains its existing behavior. |
+| File verification | `sha256 PATH [expected-hex]` can compare a file against a 64-digit SHA-256. A mismatch returns 1 and malformed hex returns 2. |
+
+The PL011 driver checks for hardware overruns before accepting a queued
+byte. Its status counts the errors it observes since boot. Hardware can
+only report faults it detects. [Arm PL011 reference](https://documentation-service.arm.com/static/5e8e36c2fd977155116a90b5)
+
+`/boot/WAVCHECK.OSH` generates the stereo tone, applies all five edits,
+verifies all six file hashes, and removes its temporary directory on
+success. Run it with `source -e`. The script reserves `/tmp/wavcheck`
+for that run. If a run stops after creating it, reboot the Pi to clear
+the temporary files before retrying.
+
+The Cortex-A53 and Cortex-A76 QEMU profiles each verified two complete
+WAV runs, a batch that stopped at an existing directory, and recovery
+from a simulated UART break at each prompt. The host tests verified
+hidden-input wiping and foreground Wi-Fi prompt recovery. Preview,
+apply, and rollback passed on copied Phase 23 boot files.
+
+From the project folder in Windows PowerShell, preview and apply the
+boot file update to `OUROSBOOT`. A Phase 23 volume gets a replacement
+`OUROS.IMG` and `SHELL.ELF` and the new `WAVCHECK.OSH`.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase24-serial-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the pendrive and boot the Pi. In PuTTY at `user:/$`, type
+the first command, wait for its PASS line, and then type `exit`.
+
+```text
+source -e /boot/WAVCHECK.OSH
+exit
+```
+
+At the `>` monitor prompt, run each command on its own.
+
+```text
+uartinfo
+resinfo
+storagetest
+datacheck
+```
+
+Expect `PASS: all five WAV edits matched their expected hashes.` from
+the script. Record the UART counters and compare the claims, USB hash,
+and data bank generation with the preceding boot.
+
+The Pi matched the tone and all five edit hashes and reaped all six
+children. UART reported FIFO enabled and zero receive errors. The USB
+readback hash and the mounted data generation matched Phase 23.
+[Phase 24 Pi capture](../proofs/pi5-serial-batch-pass-2026-11-24.txt)
+
+## Phase 25 Text pipelines
+
+Five EL0 utilities extend file and pipe workflows. Each accepts one
+optional file path. Omit the path or use `-` to read from stdin.
+[Command syntax and limits](shell-workflows.md#text-pipeline-tools)
+
+The QEMU suite checks repeatable runs, file and pipe input, binary
+byte handling, line and count limits, and file-handle cleanup.
+Preview, apply, readback, and rollback passed on copied boot files.
+
+The boot update adds `TAIL.ELF`, `CUT.ELF`, `SORT.ELF`, `UNIQ.ELF`,
+`TR.ELF`, and `TEXTCHK.OSH` to the Phase 24 boot volume. It uses the
+Phase 24 kernel. In Windows PowerShell, from the project folder, use
+the `OUROSBOOT` drive letter when previewing and applying the update.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase25-text-pipelines-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive and boot the Pi. At `user:/$`, run the script
+and wait for its PASS line before entering `exit`.
+
+```text
+source -e /boot/TEXTCHK.OSH
+exit
+```
+
+The script translates record separators to newlines, takes the final
+two records, selects fruit names, and sorts and counts them. It checks
+the output at each step by hash and removes its temporary files on
+success. Expect `2 apple`, `1 banana`, and `1 berry`. If it stops after
+creating `/tmp/textchk`, reboot to clear the temporary files before
+retrying. At the kernel monitor, run `uartinfo`, `resinfo`,
+`storagetest`, and `datacheck`.
+
+The Pi matched all four hashes and printed the expected counts. All
+five children were reaped, the pipeline transferred 25 bytes, and both
+ends exited with code 0. UART reported zero errors, and resource and
+storage checks matched the prior boot. `tail` is an EL0 application.
+Type `appshell` at the kernel monitor to run it from `user:/$`.
+[Phase 25 Pi capture](../proofs/pi5-text-pipelines-pass-2026-11-24.txt)
+
+## Phase 26 Portable archives
+
+`TAR.ELF` creates an uncompressed ustar archive from a directory,
+lists its members, checks its structure, extracts a single file to
+stdout, and compares every member against a directory tree.
+[Command reference](shell-workflows.md#portable-archives)
+
+Native tests covered nested paths, ustar prefix fields, truncated and
+invalid headers, duplicate names, and the 32 KiB boundary. Windows
+`tar.exe` extracted an archive made with the OurOS header writer and
+supplied fixtures that OurOS read byte for byte. The
+`test-shell-qemu.ps1 -ArchiveTools` suite passed on Cortex-A53 and
+Cortex-A76, with zero open file handles after the tests.
+
+The boot update adds `TAR.ELF` and `TARCHK.OSH` to the Phase 25
+boot volume. In Windows PowerShell, from the project folder, use the
+`OUROSBOOT` drive letter to preview and apply the update.
+
+Preview, apply, readback, and rollback passed on copied Phase 25 boot
+files. The Phase 26 ZIP has SHA-256
+`e2d98cecee3fa881855ca75a2aeb34649c59eb1016c0e5ca6372cef74abc428d`.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase26-archives-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the pendrive and boot the Pi. At `user:/$`, enter
+`source -e /boot/TARCHK.OSH`. The batch builds a 4,096-byte archive
+with a nested binary file and an empty directory, verifies its
+structure, compares the extracted bytes and the source tree, and
+removes its temporary files on success. Wait for
+`PASS: archive creation, listing, validation, extraction, and comparison.`
+Then type `exit` and run `uartinfo`, `resinfo`, `storagetest`,
+and `datacheck` at the kernel monitor.
+
+The Pi passed all five archive operations and reaped all seven
+children. UART reported zero errors, and the USB storage hash and
+`/data` generation matched the preceding boot. The standalone shell
+uses the forms `tar list ARCHIVE` and `tar verify ARCHIVE`.
+[Phase 26 Pi capture](../proofs/pi5-archives-pass-2026-11-24.txt)
+
+## Phase 27 Kernel file handles and shell append
+
+The kernel adds exclusive creation, append mode, handle metadata,
+positioned reads and writes, and file resizing. The EL0 shell uses
+the append mode for `>>` with a single program or a pipeline.
+[File-handle ABI and semantics](file-handles.md#phase-27-el0-file-handles)
+
+The host tests passed on v4 and v5, including mode, alias and owner
+checks, cursor preservation, zero-filled growth, and allocator and disk
+failure injection. Both Cortex-A53 and Cortex-A76 passed
+`test-shell-qemu.ps1 -ExtendedFiles`, `-StreamSyntax`, and `-ArchiveTools`. They verified
+that the boot partition matched the baseline, the appended v5 file
+matched its hash after a fresh mount, and file handles were released.
+The Pi header kernel has 4 KiB of space before the
+firmware device tree. Preview, apply, readback, and rollback passed on
+copied Phase 26 boot files. The update ZIP has SHA-256
+`6171609eff9fc8a9a10c71fa7e50e454d942e2a45c8c6ced2fe5b81b735c8c3f`.
+
+The Phase 27 update replaces `OUROS.IMG` and `SHELL.ELF` and adds
+`FDCHK.ELF` and `FDCHK.OSH` on a Phase 26 boot volume.
+In Windows PowerShell, from the project folder, use your
+`OUROSBOOT` drive letter for the update.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase27-file-handles-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive and boot the Pi. At `user:/$`, run
+`source -e /boot/FDCHK.OSH`. Expect the six file-handle checks to
+pass, then `first`, `second`, and `third` on separate lines, followed
+by `PASS: kernel file handles and shell append.` The batch writes its
+test files under `/tmp` and removes them on success.
+
+Type `exit`, then run `fileinfo`, `uartinfo`, `resinfo`,
+`storagetest`, and `datacheck` at the kernel monitor. Expect
+`Open files: 0/16` and the usual storage checks.

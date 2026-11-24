@@ -1,0 +1,22 @@
+# Run with source -e /boot/TARCHK.OSH
+mkdir /tmp/tarchk
+mkdir /tmp/tarchk/src
+mkdir /tmp/tarchk/src/sub
+mkdir /tmp/tarchk/src/empty
+write /tmp/tarchk/src/note.txt OurOS
+/boot/TAIL.ELF -c 12 /boot/LARGE.BIN > /tmp/tarchk/src/sub/chunk.bin
+/boot/TAR.ELF create /tmp/tarchk/src > /tmp/tarchk/tree.tar
+/boot/TAR.ELF list /tmp/tarchk/tree.tar
+/boot/TAR.ELF verify /tmp/tarchk/tree.tar
+/boot/TAR.ELF extract /tmp/tarchk/tree.tar sub/chunk.bin > /tmp/tarchk/chunk.bin
+/boot/CMP.ELF /tmp/tarchk/src/sub/chunk.bin /tmp/tarchk/chunk.bin
+/boot/TAR.ELF compare /tmp/tarchk/tree.tar /tmp/tarchk/src
+rm /tmp/tarchk/chunk.bin
+rm /tmp/tarchk/tree.tar
+rm /tmp/tarchk/src/sub/chunk.bin
+rm /tmp/tarchk/src/note.txt
+rmdir /tmp/tarchk/src/sub
+rmdir /tmp/tarchk/src/empty
+rmdir /tmp/tarchk/src
+rmdir /tmp/tarchk
+echo "PASS: archive creation, listing, validation, extraction, and comparison."

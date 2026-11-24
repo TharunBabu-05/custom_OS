@@ -53,13 +53,13 @@ cannot be opened as files. `/boot` remains read-only, including attempts to
 create or truncate a file. An unavailable `/data` mount remains unavailable.
 The handle layer does not format or mount a disk automatically.
 
-Read access is bounded to the existing 64 KiB VFS file limit; writable RAM and
-data files remain limited to 4096 bytes. A successful write starts at the
-current offset and preserves bytes after the replaced range. It advances the
-offset by the number of bytes written. Seek accepts a signed offset relative
-to `set`, `cur`, or `end`, and only positions from zero through the file's
-current end are permitted. Append and sparse files are outside this phase.
-Zero-length operations do not extend a file.
+Read access is bounded to the 64 KiB VFS file limit. Writable files follow
+their mount's size limit, including 4 KiB on RAMFS and 32 KiB on extents v5.
+An ordinary write starts at the current offset and preserves bytes after the
+replaced range. It advances the offset by the number of bytes written.
+Seek accepts a signed offset relative to `set`, `cur`, or `end` and permits
+positions from zero through the file's current end. Zero-length operations
+leave the file length and offset intact.
 
 Argument, ownership, bounds, lease and backend failures leave the handle's
 offset unchanged. A failed persistent commit retains the data filesystem's
@@ -67,6 +67,31 @@ existing failure policy: further writes require a reboot. Successful `/data`
 updates already commit synchronously; closing a handle is not a substitute
 for the volume's durability checks. Owner cleanup releases remaining handles
 on explicit exit, implicit return and scheduler cancellation.
+
+## Phase 27 EL0 file handles
+
+The original open, read, write, seek, and close calls keep their argument
+layouts and return conventions. The extended operations share the same
+handle table, owner checks, and canonical path leases.
+
+| Feature | EL0 interface and behavior |
+| --- | --- |
+| Exclusive creation | Pass `UOS_WRITE`, `UOS_CREATE`, and `UOS_EXCL` to `uos_open`. An existing path returns `UOS_EEXIST`, including when reached through an alias. |
+| Append mode | Pass `UOS_APPEND` with write access. Each ordinary write starts at the current EOF and advances the cursor past the new bytes. An explicit seek still controls subsequent reads. |
+| Handle metadata | Syscall 58, `uos_fstat`, returns byte length, cursor, and read/write/append flags in `struct uos_file_info`. The reserved field is zero. |
+| Positioned read | Syscall 59, `uos_pread`, reads from an explicit byte offset and preserves the cursor. At or beyond EOF it returns zero bytes. |
+| Positioned write | Syscall 60, `uos_pwrite`, writes at an explicit offset, including on append handles, and preserves the cursor. The offset may reach EOF, and a write there extends the file. |
+| Resize | Syscall 61, `uos_ftruncate`, shrinks or zero-extends a writable file within its mount limit. Shrinking clamps a cursor beyond the new end. |
+| Shell append | `PROGRAM >> PATH` creates or appends to a file. `LEFT \| RIGHT >> PATH` applies the same mode to the last stage. Syscalls 62 and 63 use the existing stdio argument layouts and require an output path. |
+
+Positioned transfers accept up to 512 bytes per call. New handle calls
+report stale or foreign handles as `UOS_EBADF`. Output pointers are checked
+before use. The kernel updates cached length and offset after a successful
+backend commit. Each shell output write is a separate commit, so a child
+that exits after writing can leave the bytes it already appended.
+
+From the EL0 shell, run `source -e /boot/FDCHK.OSH` to exercise all seven
+features in temporary files.
 
 ## Monitor commands
 

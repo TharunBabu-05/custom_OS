@@ -164,13 +164,66 @@ static void boot_and_data(void)
     assert(persist_read(&independently_mounted,"/owned.txt",0,bytes,sizeof(bytes),&n)==FS_OK && n==9 && !memcmp(bytes,"persisted",9));
     assert(kfile_open(31,"/","/data/owned.txt",KFILE_READ|KFILE_WRITE,&h)==FS_OK);
     assert(kfile_seek(31,h,2,KFILE_SET,&offset)==FS_OK && offset==2);
-    uint64_t before=writes;fail_write=true;assert(kfile_write(31,h,"changed",7,&n)==FS_IO && !n);fail_write=false;
+    uint64_t before=writes;fail_write=true;
+    if (media[260096*512+8]==5) { assert(kfile_truncate(31,h,10)==FS_IO); }
+    else { assert(kfile_write(31,h,"changed",7,&n)==FS_IO && !n); }
+    fail_write=false;
     assert(writes==before+1 && position(31,h)==2);content("/data/owned.txt","persisted");
     before=writes;assert(kfile_write(31,h,"retry",5,&n)==FS_IO && !n && writes==before);
     assert(kfile_close_owner(31)==1 && kfile_count()==0);
     assert(vfs_data_failed() && vfs_rename("/","/data/owned.txt","/data/owned.txt")==FS_IO &&
         vfs_publish("/","/data/owned.txt","/data/owned.txt")==FS_IO && writes==before);
     puts("PASS: boot read-only handles/read-error cursor preservation, persistent handle write/read/close and independent remount, aliases pinned; failed commit preserves cursor/old RAM view and cleanup still releases owner");
+}
+
+static void extended_handles(void)
+{
+    uint64_t file,other;
+    size_t n;
+    unsigned char bytes[16];
+    const unsigned create=KFILE_WRITE|KFILE_CREATE|KFILE_EXCL;
+    const unsigned flags=KFILE_READ|KFILE_WRITE|KFILE_APPEND;
+    for (unsigned mount=0;mount<2;++mount) {
+        const char *path=mount ? "/data/extended.txt" : "/tmp/extended.txt";
+        const char *alias=mount ? "/data//./extended.txt" : "/tmp//./extended.txt";
+        assert(kfile_open(1,"/",path,KFILE_WRITE|KFILE_EXCL,&file)==FS_BAD_ARGUMENT && !file);
+        assert(kfile_open(1,"/",path,KFILE_READ|KFILE_APPEND,&file)==FS_BAD_ARGUMENT && !file);
+        assert(kfile_open(1,"/",path,create|flags,&file)==FS_OK);
+        assert(kfile_write(1,file,"abcdef",6,&n)==FS_OK && n==6);
+        uint32_t offset;
+        assert(kfile_seek(1,file,2,KFILE_SET,&offset)==FS_OK && offset==2);
+        assert(kfile_open(2,"/",alias,create|KFILE_TRUNC,&other)==FS_EXISTS && !other);
+        assert(kfile_open(2,"/",alias,KFILE_WRITE|KFILE_APPEND,&other)==FS_BUSY && !other);
+        assert(kfile_pread(1,file,bytes,sizeof(bytes),4,&n)==FS_OK && n==2 && !memcmp(bytes,"ef",2));
+        assert(kfile_pread(1,file,bytes,sizeof(bytes),UINT64_MAX,&n)==FS_OK && !n);
+        assert(kfile_pread(2,file,bytes,1,0,&n)==FS_BAD_HANDLE && !n);
+        struct kfile_status info={.bytes=99,.offset=9,.flags=7};
+        assert(kfile_stat(2,file,&info)==FS_BAD_HANDLE && info.bytes==99 && info.offset==9 && info.flags==7);
+        assert(kfile_stat(1,file,&info)==FS_OK && info.bytes==6 && info.offset==2 && info.flags==flags);
+        assert(kfile_pwrite(1,file,"XY",2,1,&n)==FS_OK && n==2 && position(1,file)==2);
+        assert(kfile_pwrite(1,file,"!",1,6,&n)==FS_OK && n==1 && position(1,file)==2);
+        assert(kfile_pwrite(1,file,"!",1,8,&n)==FS_BAD_ARGUMENT && !n && position(1,file)==2);
+        assert(kfile_write(1,file,"Z",1,&n)==FS_OK && n==1 && position(1,file)==8);
+        assert(kfile_write(1,file,NULL,0,&n)==FS_OK && !n && position(1,file)==8);
+        content(path,"aXYdef!Z");
+        if (!mount) {
+            allocation_budget=0;
+            assert(kfile_truncate(1,file,4096)==FS_NO_MEMORY && position(1,file)==8);
+            allocation_budget=-1;
+            content(path,"aXYdef!Z");
+        }
+        assert(kfile_truncate(1,file,3)==FS_OK && position(1,file)==3);
+        assert(kfile_truncate(1,file,8)==FS_OK && position(1,file)==3);
+        assert(kfile_pread(1,file,bytes,8,0,&n)==FS_OK && n==8 && !memcmp(bytes,"aXY\0\0\0\0\0",8));
+        uint64_t before=writes;
+        assert(kfile_truncate(1,file,8)==FS_OK && writes==before);
+        assert(kfile_truncate(1,file,UINT64_MAX)==FS_FILE_TOO_LARGE && position(1,file)==3);
+        assert(kfile_close(1,file)==FS_OK && kfile_stat(1,file,&info)==FS_BAD_HANDLE);
+        assert(kfile_open(1,"/",path,KFILE_READ,&file)==FS_OK);
+        assert(kfile_truncate(1,file,0)==FS_ACCESS && kfile_pwrite(1,file,"x",1,0,&n)==FS_ACCESS && !n);
+        assert(kfile_close(1,file)==FS_OK && vfs_remove(path,false)==FS_OK);
+    }
+    puts("PASS: exclusive create, append, metadata and positioned I/O preserve ownership/cursors; truncate clamps, zero-fills and rolls back on allocation failure.");
 }
 static void rename_leases(void)
 {
@@ -249,7 +302,7 @@ static void replacement_leases(void)
 static void mounted_capacity(void)
 {
     struct vfs_volume_info info,unchanged;assert(vfs_volume_info("/data",&info)==FS_OK);
-    unsigned version=media[260096*512+8],limit=version==4 ? 16384 : version==1 ? 4096 : 8192;
+    unsigned version=media[260096*512+8],limit=version==5 ? DATA_V5_FILE_BYTES : version==4 ? 16384 : version==1 ? 4096 : 8192;
     assert(info.type==VFS_SNAPSHOT && info.version==version && info.max_write_bytes==limit && !info.flags && !info.used);
     unchanged=info;assert(vfs_volume_info("/missing",&info)==FS_NOT_FOUND && !memcmp(&info,&unchanged,sizeof(info)));
     assert(vfs_volume_info("/tmp",&info)==FS_OK && info.type==VFS_RAM && info.flags==VFS_VOLATILE && info.max_write_bytes==4096);
@@ -274,10 +327,15 @@ int main(int argc,char **argv)
     media_bytes=(size_t)bytes;media=malloc(media_bytes);assert(media && fread(media,1,media_bytes,f)==media_bytes);fclose(f);
     const unsigned char *super=media+260096*512;
     unsigned bank=(unsigned)super[20]|(unsigned)super[21]<<8|(unsigned)super[22]<<16|(unsigned)super[23]<<24;
-    assert(bank==DATA_BANK_SECTORS || bank==DATA_V2_BANK_SECTORS || bank==DATA_V4_BANK_SECTORS);data_min_sectors=1+2*bank;
+    if (super[8]==5) { assert(bank==DATA_V5_BANK_SECTORS);data_min_sectors=DATA_V5_SECTORS; }
+    else {
+        assert(bank==DATA_BANK_SECTORS || bank==DATA_V2_BANK_SECTORS || bank==DATA_V4_BANK_SECTORS);
+        data_min_sectors=1+2*bank;
+    }
     disk=(struct block_device){.name="memory-copy",.sectors=media_bytes/512,.capacity_known=true,.read=sector_read,.write=sector_write,.flush=flush};
     assert(heap_init() && ramfs_init("host-test")==FS_OK && vfs_mount_boot(&disk)==FS_OK && vfs_mount_data(&disk)==FS_OK);
-    mounted_capacity();cursors_and_modes();leases();limits_and_rollback();rename_leases();directory_leases();replacement_leases();boot_and_data();
+    mounted_capacity();cursors_and_modes();leases();limits_and_rollback();rename_leases();directory_leases();replacement_leases();
+    extended_handles();boot_and_data();
     assert(vfs_remove("/tmp/base.txt",false)==FS_OK && !kfile_count() && heap_check());
     struct heap_stats heap=heap_get_stats();assert(heap.objects==3 && heap.pages==2 && heap.capacity_bytes==544 && live_pages==2);
     printf("PASS: final handle/lease count zero, RAMFS/heap/page baseline restored; reads=%llu writes=%llu flushes=%llu; only in-memory data-bank sectors changed\n",(unsigned long long)reads,(unsigned long long)writes,(unsigned long long)flushes);

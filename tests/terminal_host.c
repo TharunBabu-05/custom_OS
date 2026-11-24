@@ -1,4 +1,5 @@
 #include "terminal.h"
+#include "console.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,9 @@ int main(void)
     CHECK(terminal_feed(&l,21)==TERM_CLEAR && !l.length && !l.overflow);
     CHECK(terminal_feed(&l,'z')==TERM_ECHO);CHECK(terminal_feed(&l,4)==TERM_NONE);CHECK(terminal_feed(&l,'\r')==TERM_LINE && !strcmp(l.bytes,"z"));
     CHECK(terminal_begin(&l,128));CHECK(terminal_feed(&l,3)==TERM_CANCEL && l.done);
+    CHECK(terminal_begin(&l,128));CHECK(terminal_feed(&l,'a')==TERM_ECHO);
+    CHECK(terminal_feed(&l,CONSOLE_RX_ERROR)==TERM_RX_REJECT && l.done);
+    CHECK(terminal_feed(&l,'\n')==TERM_NONE);
     unsigned seed=17;
     for (unsigned round=0;round<20000;++round) {
         unsigned cap=2+round%127;CHECK(terminal_begin(&l,cap));

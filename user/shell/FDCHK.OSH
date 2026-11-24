@@ -1,0 +1,11 @@
+# Run with source -e /boot/FDCHK.OSH
+/boot/FDCHK.ELF
+mkdir /tmp/fd27
+/boot/ECHO.ELF first > /tmp/fd27/log
+/boot/ECHO.ELF second >> /tmp/fd27/log
+/boot/ECHO.ELF third | /boot/CAT.ELF >> /tmp/fd27/log
+sha256 /tmp/fd27/log f5c962601b413ccda2fc14d64d98479d9fc74c90c2dde15f25ee9922e57f5074
+cat /tmp/fd27/log
+rm /tmp/fd27/log
+rmdir /tmp/fd27
+echo "PASS: kernel file handles and shell append."

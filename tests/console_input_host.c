@@ -9,13 +9,15 @@ int uart_getc(void)
 {
     assert(++reads<10000); /* A missing terminator must fail instead of hang. */
     if (reads%3==0) { return -1; } /* Polling gaps must preserve CR/LF state. */
-    assert(at<bytes);return input[at++];
+    assert(at<bytes);
+    int c=input[at++];
+    return c==0xfe ? CONSOLE_RX_ERROR : c;
 }
 void uart_putc(char c) { (void)c;assert(!"secret input must never echo"); }
 void console_putc(char c) { (void)c;assert(!"secret input must never echo"); }
 void console_write(const char *s) { (void)s;assert(!"secret input must never echo"); }
 static void feed(const void *p,size_t n) { input=p;bytes=n;at=0;reads=0; }
-static int get(void) { int c;do { c=console_getc(); }while(c<0);return c; }
+static int get(void) { int c;do { c=console_getc(); }while(c==CONSOLE_NO_INPUT);return c; }
 static void wiped(const unsigned char *p,size_t n) { for (size_t i=0;i<n;++i) { assert(!p[i]); } }
 static void check(const char *line,const char *expected)
 {
@@ -32,6 +34,11 @@ int main(void)
     const char *lines="x\r\nfixture\r\ny\n";feed(lines,strlen(lines));assert(get()=='x' && get()=='\r');
     unsigned char out[128];size_t n;
     assert(console_read_secret(out,128,&n) && n==7 && !memcmp(out,"fixture",7));assert(get()=='y' && get()=='\n');
+    const char damaged[]="ab\xfetail\r\nclean\n";
+    feed(damaged,sizeof(damaged)-1);
+    assert(get()=='a' && get()=='b' && get()==CONSOLE_RX_ERROR);
+    assert(get()=='c' && get()=='l' && get()=='e' && get()=='a' && get()=='n' && get()=='\n');
+    check("bad\xfe\025new\r\n!",NULL); /* RX loss invalidates the entire line. */
     check("plain text.\n!","plain text.");check("\r!",NULL);check("\n!",NULL);
     check("ab\bc\177d\n!","ad");check("\b\177ok\n!","ok");check("secret\025new\r\n!","new");
     check("invalid\001tail\n!",NULL);check("cancel\003tail\n!",NULL);check("bad\200tail\n!",NULL);

@@ -1,7 +1,7 @@
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function Test-Rpi5UpdateName([string]$Name) {
-    $Name -cmatch '\A(OUROS\.IMG|CMDLINE\.TXT|[A-Z][A-Z0-9_]{0,7}\.ELF)\z' -and
+    $Name -cmatch '\A(OUROS\.IMG|CMDLINE\.TXT|[A-Z][A-Z0-9_]{0,7}\.(ELF|OSH))\z' -and
         $Name -cnotmatch '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])\.'
 }
 
@@ -51,6 +51,7 @@ function Expand-Rpi5UpdatePackage([string]$Package, [string]$Stage) {
                 'OUROS.IMG' { 1572864 }
                 'CMDLINE.TXT' { 1024 }
                 'manifest.json' { 65536 }
+                { $_.EndsWith('.OSH',[StringComparison]::Ordinal) } { 4096 }
                 default { 32768 }
             }
             if (($name -cne 'manifest.json' -and !(Test-Rpi5UpdateName $name)) -or

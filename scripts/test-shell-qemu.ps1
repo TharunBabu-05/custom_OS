@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$PlatformHealth,[switch]$CpuPlatform,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -23,10 +23,11 @@ function Range-Hash([string]$Path,[long]$Offset,[long]$Length) {
         $null=$sha.TransformFinalBlock((New-Object byte[] 0),0,0);return [Convert]::ToBase64String($sha.Hash)
     } finally { $f.Dispose();$sha.Dispose() }
 }
-function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs,[bool]$FastClock,[bool]$ReadOnlyVirtio,[bool]$Poweroff,[int]$Smp=1) {
+function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs,[bool]$FastClock,[bool]$ReadOnlyVirtio,[bool]$Poweroff,[int]$Smp=1,[bool]$SerialBreak=$false) {
     $si=New-Object Diagnostics.ProcessStartInfo
     $si.FileName=$QemuExe
-    $si.Arguments="-machine virt-9.2,virtualization=$Virt,secure=off -cpu $Cpu -accel tcg -smp $Smp -m 128 -display none -monitor none -serial stdio -net none -kernel `"$kernel`""
+    $serial=if ($SerialBreak) { 'mon:stdio' } else { 'stdio' }
+    $si.Arguments="-machine virt-9.2,virtualization=$Virt,secure=off -cpu $Cpu -accel tcg -smp $Smp -m 128 -display none -monitor none -serial $serial -net none -kernel `"$kernel`""
     if ($ReadOnlyVirtio) {
         $si.Arguments+=" -global virtio-mmio.force-legacy=false -drive file=`"$Disk`",if=none,format=raw,readonly=on,id=shelldisk -device virtio-blk-device,drive=shelldisk"
     } else {
@@ -137,9 +138,258 @@ if ($PlatformHealth) {
     }
     return
 }
+if ($ExtendedFiles) {
+    if ($layout.Version -ne 5) { throw 'ExtendedFiles requires the Phase 27 v5 test image' }
+    $hash='f5c962601b413ccda2fc14d64d98479d9fc74c90c2dde15f25ee9922e57f5074'
+    $pass='PASS: kernel file handles and shell append.'
+    $batch=@{Text='source -e /boot/FDCHK.OSH';Delay=1400}
+    $bootBytes=260096L*512
+    $bootHash=Range-Hash $source 0 $bootBytes
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="extended-files-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                $batch,$batch,
+                'echo first>>/tmp/append.log',
+                'echo second | cat >> /tmp/append.log',
+                'echo third >> /tmp/append.log',
+                'echo denied > /tmp/append.log || echo create-refused=$?',
+                'cat < /tmp/append.log >> /tmp/append.log || echo alias-refused=$?',
+                'echo denied >> /boot/CONFIG.TXT || echo readonly-refused=$?',
+                'echo denied >> "" || echo empty-refused=$?',
+                'echo "quoted >> output"',
+                "sha256 /tmp/append.log $hash && echo volatile-bytes-ok",
+                'echo first >> /data/phase27.log',
+                'echo second | cat >> /data/phase27.log',
+                'echo third >> /data/phase27.log',
+                'sync',
+                "sha256 /data/phase27.log $hash && echo persistent-bytes-ok",
+                'exit','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($pass,'PASS: exclusive create, append mode, fstat, pread, pwrite and ftruncate.',
+                'create-refused=127','alias-refused=127','readonly-refused=127','empty-refused=2',
+                "`r`nquoted >> output`r`n","`r`nvolatile-bytes-ok`r`n","`r`npersistent-bytes-ok`r`n",
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $mounted=[regex]::Match($log,'(?m)^Mounted /data bank=[01] generation=([0-9]+)')
+            if ([regex]::Matches($log,[regex]::Escape($pass)).Count -ne 2 -or !$mounted.Success -or
+                [uint64]$mounted.Groups[1].Value -le 1 -or (Range-Hash $disk 0 $bootBytes) -ne $bootHash) {
+                throw "$name file operations or boot partition differ"
+            }
+            $committed=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk "$name-remount" $case[0] $case[1] @(
+                "sha256 /data/phase27.log $hash && echo remount-bytes-ok",
+                'exit','fileinfo','datacheck','pwd','halt'
+            ) @("`r`nremount-bytes-ok`r`n",$mounted.Value,'matches_mounted=yes','Open files: 0/16') 1 'ouros.startup=shell'
+            if ((Get-FileHash -LiteralPath $disk).Hash -ne $committed) { throw "$name remount changed the disk" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($ArchiveTools) {
+    . "$PSScriptRoot/data-backup.ps1"
+    . "$PSScriptRoot/data-format.ps1"
+    $work=Join-Path $ProjectRoot ('build/usb-tests/ustar-'+[guid]::NewGuid().ToString('N'))
+    $archive=Join-Path $work 'host.tar'
+    $fixture=Join-Path $work 'fixture'
+    $binary=Join-Path $fixture 'blob.bin'
+    [byte[]]$sample=@(0,0x55,0xff)
+    try {
+        $null=New-Item -ItemType Directory -Path $fixture -Force
+        [IO.File]::WriteAllBytes($binary,$sample)
+        & tar.exe --format=ustar -cf $archive -C $fixture .
+        if ($LASTEXITCODE -ne 0) { throw 'Windows ustar fixture creation failed' }
+        [byte[]]$hostArchive=[IO.File]::ReadAllBytes($archive)
+    } finally {
+        Remove-Item -LiteralPath $binary,$archive -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $fixture -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $work -ErrorAction SilentlyContinue
+    }
+    [byte[]]$bad=$hostArchive.Clone()
+    $bad[0]=$bad[0] -bxor 1
+    $partition=New-OurOSDataPartition -Version 4
+    $bank=New-OurOSDataBackup -Version 4 -Files @(
+        @{Name='host.tar';Data=$hostArchive},@{Name='bad.tar';Data=$bad},@{Name='blob.bin';Data=$sample})
+    $bank.CopyTo($partition,512)
+    $pass='PASS: archive creation, listing, validation, extraction, and comparison.'
+    $batch=@{Text='source -e /boot/TARCHK.OSH';Delay=3000}
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="archive-tools-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $stream=[IO.File]::OpenWrite($disk)
+            try { $stream.Position=260096L*512;$stream.Write($partition,0,$partition.Length) } finally { $stream.Dispose() }
+            $before=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk $name $case[0] $case[1] @(
+                $batch,$batch,
+                'tar list /data/host.tar','cat /data/host.tar | tar verify -',
+                'tar extract /data/host.tar blob.bin > /tmp/extracted',
+                'cmp /tmp/extracted /data/blob.bin && echo external-bytes-ok',
+                'tar extract /data/host.tar absent > /tmp/absent || echo missing-member=$?',
+                'stat /tmp/absent',
+                'tar verify /data/bad.tar || echo bad-checksum=$?',
+                'tar extract /data/bad.tar blob.bin > /tmp/invalid || echo invalid-extract=$?',
+                'stat /tmp/invalid',
+                'mkdir /tmp/compare','cd /tmp/compare','write note.txt alpha',
+                'tar create . > /tmp/compare.tar','tar compare /tmp/compare.tar . && echo exact-tree-ok',
+                'write note.txt omega','tar compare /tmp/compare.tar . || echo changed=$?',
+                'write note.txt alpha','write extra.txt extra','tar compare /tmp/compare.tar . || echo extra=$?',
+                'rm extra.txt','rm note.txt','tar compare /tmp/compare.tar . || echo removed=$?',
+                'exit','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($pass,'dir 0 empty','dir 0 sub','file 12 sub/chunk.bin','file 3 blob.bin',
+                'tar: valid ustar archive','pipeline exit=0',"`r`nexternal-bytes-ok`r`n",
+                'missing-member=1','type=file bytes=0 path=/tmp/absent',
+                'bad-checksum=2','invalid-extract=2','type=file bytes=0 path=/tmp/invalid',
+                "`r`nexact-tree-ok`r`n",'tar: differs at note.txt','tar: differs at extra.txt',
+                'changed=1','extra=1','removed=1','Open files: 0/16',
+                'PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,[regex]::Escape($pass)).Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $before) { throw "$name archive results or disk differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($PipelineTools) {
+    . "$PSScriptRoot/data-backup.ps1"
+    . "$PSScriptRoot/data-format.ps1"
+    function Text-Hash([byte[]]$Bytes) {
+        $sha=[Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-','').ToLowerInvariant() }
+        finally { $sha.Dispose() }
+    }
+    $ascii=[Text.Encoding]::ASCII
+    $partition=New-OurOSDataPartition -Version 4
+    $bank=New-OurOSDataBackup -Version 4 -Files @(
+        @{Name='fields.txt';Data=$ascii.GetBytes("a::one:`nplain`nz:y::last`nonly:one`nx::end")},
+        @{Name='sort.txt';Data=$ascii.GetBytes("b`nA`n`nab`naa")},
+        @{Name='dups.txt';Data=$ascii.GetBytes("a`na`nb`na`na")},
+        @{Name='limit.txt';Data=$ascii.GetBytes((('a'*4096)+"`n")*2+'b')},
+        @{Name='long.txt';Data=$ascii.GetBytes('a'*4097)},
+        @{Name='many.txt';Data=$ascii.GetBytes("`n"*1025)}
+    )
+    $bank.CopyTo($partition,512)
+    $expected=@{
+        tail=Text-Hash ($ascii.GetBytes("only:one`nx::end"))
+        bytes=Text-Hash ([byte[]](32763..32767 | ForEach-Object { ($_*13+5)%256 }))
+        # Sorting normalizes the binary fixture's final record, adding one LF.
+        wrapped=Text-Hash ([byte[]]@(0xd6,0xe3,0xf0,0xfd,0x0a))
+        cut=Text-Hash ($ascii.GetBytes(":one`nplain`ny:`none`n:end"))
+        sort=Text-Hash ($ascii.GetBytes("b`nab`naa`nA`n`n"))
+        uniq=Text-Hash ($ascii.GetBytes("a`nb`na`n"))
+        empty=Text-Hash ([byte[]]@())
+    }
+    $pass='PASS: all five text tools matched their expected output.'
+    $batch=@{Text='source -e /boot/TEXTCHK.OSH';Delay=1700}
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="pipeline-tools-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            $file=[IO.File]::OpenWrite($disk)
+            try { $file.Position=260096L*512;$file.Write($partition,0,$partition.Length) } finally { $file.Dispose() }
+            $fixture=(Get-FileHash -LiteralPath $disk).Hash
+            Session $disk $name $case[0] $case[1] @(
+                $batch,$batch,
+                'tail -n 2 /data/fields.txt > /tmp/check-tail',
+                'cat /boot/EXTENT.BIN | tail -c 5 > /tmp/check-bytes',
+                'sort /boot/EXTENT.BIN | tail -c 5 > /tmp/check-wrap',
+                'sort /boot/EXTENT.BIN | tail -n 32768 || echo tail-window=$?',
+                'cut -d : -f 2-3 < /data/fields.txt > /tmp/check-cut',
+                'sort -r /data/sort.txt > /tmp/check-sort',
+                'uniq /data/dups.txt > /tmp/check-uniq',
+                'cat /data/fields.txt | tail -n 0 > /tmp/check-empty',
+                'sha256 /tmp/check-tail','sha256 /tmp/check-bytes','sha256 /tmp/check-wrap','sha256 /tmp/check-cut',
+                'sha256 /tmp/check-sort','sha256 /tmp/check-uniq','sha256 /tmp/check-empty',
+                'uniq -c /data/limit.txt | wc',
+                'tr -d ''\\x00'' /boot/LARGE.BIN | wc',
+                'tail -c 32769 /data/fields.txt || echo tail-range=$?',
+                'cut -f 3-2 /data/fields.txt || echo cut-range=$?',
+                'cut -f 1 /data/long.txt || echo cut-long=$?',
+                'sort /data/many.txt || echo sort-many=$?',
+                'uniq /data/long.txt || echo uniq-long=$?',
+                'tr ab x /data/fields.txt || echo tr-size=$?',
+                'exit','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($pass,"2 apple`r`n1 banana`r`n1 berry",
+                "$($expected.tail)  /tmp/check-tail","$($expected.bytes)  /tmp/check-bytes",
+                "$($expected.wrapped)  /tmp/check-wrap",
+                "$($expected.cut)  /tmp/check-cut","$($expected.sort)  /tmp/check-sort",
+                "$($expected.uniq)  /tmp/check-uniq","$($expected.empty)  /tmp/check-empty",
+                '2 4 4103','cut: line exceeds 4096 bytes','uniq: line exceeds 4096 bytes',
+                'sort: input exceeds 32768 bytes or 1024 lines',
+                'tail: requested lines exceed the 32768-byte suffix buffer','tail-window=2',
+                'tail-range=2','cut-range=2','cut-long=2','sort-many=2','uniq-long=2','tr-size=2',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,[regex]::Escape($pass)).Count -ne 2 -or
+                $log -notmatch '(?m)^64 \d+ 16320\r?$' -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $fixture) { throw "$name output or disk differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($SerialBatch) {
+    $digest='BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
+    $check=@{Text='source -e /boot/WAVCHECK.OSH';Delay=1800}
+    $pass='PASS: all five WAV edits matched their expected hashes.'
+    # QEMU's character multiplexer sends a PL011 break on Ctrl+A, b.
+    $sendBreak=@{Text=([string][char]1+'b');Raw=$true;Delay=300}
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="serial-batch-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                $check,'mkdir /tmp/wavcheck','write /tmp/wavcheck/src.wav existing-file',
+                $check,'echo source-status=$?','cat /tmp/wavcheck/src.wav','ls /tmp/wavcheck',
+                'rm /tmp/wavcheck/src.wav','rmdir /tmp/wavcheck',$check,
+                'write /tmp/digest abc',"sha256 /tmp/digest $digest && echo uppercase-ok",
+                ('sha256 /tmp/digest '+('0'*64)+' || echo mismatch-status=$?'),
+                'sha256 /tmp/digest xyz || echo hex-status=$?',
+                @{Text='echo broken-shell';Raw=$true;Delay=100},$sendBreak,
+                'discarded-shell-tail','echo shell-recovered','exit',
+                @{Text=('echo monitor-abandoned'+[char]3);Raw=$true;Delay=300},
+                ('echo monitor-erased'+[char]21+'echo monitor-clear-ok'),
+                @{Text='echo broken-monitor';Raw=$true;Delay=100},$sendBreak,
+                'discarded-monitor-tail','echo monitor-recovered',
+                'uartinfo','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($pass,'source: stopped at line 2 status=1','source-status=1',
+                "`r`nexisting-file`r`n","`r`nuppercase-ok`r`n",'sha256: mismatch','mismatch-status=1',
+                'sha256: expected 64 hex digits','hex-status=2',
+                "echo broken-shell`r`nSerial receive error; input discarded.`r`nshell: input rejected",
+                "echo broken-monitor`r`nSerial receive error; input discarded.`r`n> ",
+                "`r`nshell-recovered`r`n","`r`nmonitor-recovered`r`n",
+                "> echo monitor-abandoned^C`r`n> ","`r`nmonitor-clear-ok`r`n",
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell' $false $false $false 1 $true
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,[regex]::Escape($pass)).Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^child exit=0\r?$').Count -ne 12 -or
+                $log -notmatch '(?m)^PL011 FIFO=on rx_bytes=[1-9]\d* framing=0 parity=0 breaks=2 overruns=0\r?$' -or
+                $log -match '(discarded-(shell|monitor)-tail|(?m:^(monitor-abandoned|monitor-erased|broken-shell|broken-monitor)\r?$))' -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name serial output or disk differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
 if ($MediaTools) {
     . "$PSScriptRoot/data-backup.ps1"
     . "$PSScriptRoot/data-format.ps1"
+    function New-MonoWave([byte[]]$Samples) {
+        [byte[]]$header=@(
+            82,73,70,70,0,0,0,0,87,65,86,69,102,109,116,32,
+            16,0,0,0,1,0,1,0,232,3,0,0,232,3,0,0,1,0,8,0,100,97,116,97,0,0,0,0
+        )
+        $pad=$Samples.Length%2
+        [BitConverter]::GetBytes([uint32](36+$Samples.Length+$pad)).CopyTo($header,4)
+        [BitConverter]::GetBytes([uint32]$Samples.Length).CopyTo($header,40)
+        return ,([byte[]]($header+$Samples+(New-Object byte[] $pad)))
+    }
     # Stereo unsigned 8-bit PCM with a padded odd-length metadata chunk.
     [byte[]]$wave=@(
         82,73,70,70,50,0,0,0,87,65,86,69,102,109,116,32,
@@ -149,10 +399,21 @@ if ($MediaTools) {
     [byte[]]$badRate=$wave.Clone()
     $badRate[28]=0
     $partition=New-OurOSDataPartition -Version 4
+    [byte[]]$originalSamples=0,64,128,192,255
+    [byte[]]$mono=New-MonoWave @(64,192)
+    # The downmix keeps the stereo source's 8 kHz sample rate.
+    [BitConverter]::GetBytes([uint32]8000).CopyTo($mono,24)
+    [BitConverter]::GetBytes([uint32]8000).CopyTo($mono,28)
     $bank=New-OurOSDataBackup -Version 4 -Files @(
         @{Name='stereo.wav';Data=$wave},
         @{Name='badrate.wav';Data=$badRate},
-        @{Name='short.wav';Data=[byte[]]$wave[0..52]})
+        @{Name='short.wav';Data=[byte[]]$wave[0..52]},
+        @{Name='mono.wav';Data=(New-MonoWave $originalSamples)},
+        @{Name='trim.wav';Data=(New-MonoWave @(64,128,192))},
+        @{Name='gain.wav';Data=(New-MonoWave @(0,0,128,255,255))},
+        @{Name='downmix.wav';Data=$mono},
+        @{Name='fade.wav';Data=(New-MonoWave @(128,64,128,192,128))},
+        @{Name='join.wav';Data=(New-MonoWave ($originalSamples+$originalSamples))})
     $bank.CopyTo($partition,512)
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
         $name="media-tools-$($case[0])"
@@ -169,6 +430,25 @@ if ($MediaTools) {
                 '/boot/WAVINFO.ELF /data/badrate.wav || echo bad-rate=$?',
                 '/boot/WAVINFO.ELF /data/short.wav || echo short-file=$?',
                 '/boot/WAVTONE.ELF 2100 100 || echo tone-limit=$?',
+                '/boot/WAVTONE.ELF 400 100 800 > /tmp/stereo.wav',
+                '/boot/WAVINFO.ELF /tmp/stereo.wav',
+                '/boot/WAVEDIT.ELF trim 1 3 /data/mono.wav > /tmp/trim.wav',
+                'cmp /tmp/trim.wav /data/trim.wav && echo edit-trim-ok',
+                '/boot/WAVEDIT.ELF gain 200 /data/mono.wav > /tmp/gain.wav',
+                'cmp /tmp/gain.wav /data/gain.wav && echo edit-gain-ok',
+                '/boot/WAVEDIT.ELF mono /data/stereo.wav > /tmp/mono.wav',
+                'cmp /tmp/mono.wav /data/downmix.wav && echo edit-mono-ok',
+                '/boot/WAVEDIT.ELF fade 2 2 /data/mono.wav > /tmp/fade.wav',
+                'cmp /tmp/fade.wav /data/fade.wav && echo edit-fade-ok',
+                '/boot/WAVEDIT.ELF join /data/mono.wav /data/mono.wav > /tmp/join.wav',
+                'cmp /tmp/join.wav /data/join.wav && echo edit-join-ok',
+                '/boot/WAVEDIT.ELF mono /tmp/stereo.wav | /boot/WAVINFO.ELF --stats -',
+                '/boot/WAVEDIT.ELF gain 300 /tmp/tone.wav | /boot/WAVINFO.ELF --stats -',
+                '/boot/WAVEDIT.ELF trim 5 1 /data/mono.wav || echo trim-range=$?',
+                '/boot/WAVEDIT.ELF gain 401 /data/mono.wav || echo gain-range=$?',
+                '/boot/WAVEDIT.ELF fade 3 3 /data/mono.wav || echo fade-overlap=$?',
+                '/boot/WAVEDIT.ELF join /data/mono.wav /data/stereo.wav || echo join-format=$?',
+                '/boot/WAVEDIT.ELF mono /data/short.wav || echo edit-short=$?',
                 'rm /tmp/tone.wav','exit','fileinfo','storagetest','datacheck','pwd','halt') @(
                 'Media devices described by firmware:', 'PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200',
                 'channel=1 min=-16000 max=16000 peak=16000 clipped=0',
@@ -176,9 +456,15 @@ if ($MediaTools) {
                 'channel=1 min=-128 max=127 peak=128 clipped=2',
                 'channel=2 min=0 max=1 peak=1 clipped=0','pipeline exit=0',
                 'bad-rate=2','short-file=2','tone-limit=2','Open files: 0/16',
+                "`r`nedit-trim-ok`r`n","`r`nedit-gain-ok`r`n","`r`nedit-mono-ok`r`n",
+                "`r`nedit-fade-ok`r`n","`r`nedit-join-ok`r`n",
+                'PCM channels=2 rate_hz=8000 bits=16 frames=800 duration_ms=100',
+                'channel=1 min=-16000 max=8000 peak=16000 clipped=0',
+                'channel=1 min=-32768 max=32767 peak=32768 clipped=480',
+                'trim-range=2','gain-range=2','fade-overlap=2','join-format=2','edit-short=2',
                 'PASS: read-only storage','matches_mounted=yes') 2 'ouros.startup=shell'
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
-            if ([regex]::Matches($log,'(?m)^PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200\r?$').Count -ne 2 -or
+            if ([regex]::Matches($log,'(?m)^PCM channels=1 rate_hz=8000 bits=16 frames=1600 duration_ms=200\r?$').Count -ne 3 -or
                 [regex]::Matches($log,'(?m)^WAVINFO: invalid, unsupported or unreadable PCM WAV\r?$').Count -ne 2 -or
                 (Get-FileHash -LiteralPath $disk).Hash -ne $fixture) { throw "$name WAV results or disk differ" }
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
@@ -317,7 +603,7 @@ if ($StreamSyntax) {
                 'cat < /tmp/nonexistent > /tmp/failed || echo input-status=$?',
                 'stat /tmp/failed || echo no-partial-output',
                 'echo must-not-run; cat | wc | head',
-                'echo "blocked" >> /tmp/append',
+                'echo "blocked" >>> /tmp/append',
                 'cat > /tmp/wrong-side | wc', 'echo text | cat < /tmp/syntax-in',
                 'cd /tmp > /tmp/bad-builtin || echo builtin-status=$?',
                 'echo "retained"; cat /tmp/syntax-in',

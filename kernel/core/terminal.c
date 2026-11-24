@@ -1,4 +1,5 @@
 #include "terminal.h"
+#include "console.h"
 bool terminal_begin(struct terminal_line *l,unsigned capacity)
 {
     if (!l) { return false; }*l=(struct terminal_line){0};
@@ -7,6 +8,7 @@ bool terminal_begin(struct terminal_line *l,unsigned capacity)
 enum terminal_action terminal_feed(struct terminal_line *l,int ch)
 {
     if (!l || !l->capacity || l->done) { return TERM_NONE; }
+    if (ch==CONSOLE_RX_ERROR) { l->done=true;return TERM_RX_REJECT; }
     if (ch==3) { l->done=true;return TERM_CANCEL; }
     if (ch==4 && !l->length && !l->overflow) { l->done=true;return TERM_EOF; }
     if (ch=='\n' || ch=='\r') { l->done=true;return l->overflow ? TERM_REJECT : TERM_LINE; }

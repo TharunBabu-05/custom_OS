@@ -306,8 +306,9 @@ static void terminal_deliver(struct process *p,int ch)
     else if (a==TERM_ERASE) { console_write("\b \b"); }
     else if (a==TERM_CLEAR) { while (previous--) { console_write("\b \b"); } }
     else if (a==TERM_CANCEL) { terminal_interrupt(p); }
-    else if (a==TERM_LINE || a==TERM_REJECT || a==TERM_EOF) {
-        console_write("\n");p->context.x[0]=(uint64_t)(a==TERM_EOF ? UOS_EOF : UOS_ERROR);
+    else if (a==TERM_LINE || a==TERM_REJECT || a==TERM_EOF || a==TERM_RX_REJECT) {
+        console_write(a==TERM_RX_REJECT ? "\nSerial receive error; input discarded.\n" : "\n");
+        p->context.x[0]=(uint64_t)(a==TERM_EOF ? UOS_EOF : UOS_ERROR);
         if (a==TERM_LINE) {
             /* The blocked process cannot change its mappings while waiting.
              * Recheck before the final copy so future mapping changes fail closed. */
@@ -339,7 +340,14 @@ static void terminal_poll(void)
     /* Bounded polling on timer/idle scheduling points, never a blocking
      * UART read in exception context. Ctrl+C also stops non-reading loops. */
     for (unsigned i=0;i<32 && live(p);++i) {
-        int ch=console_getc();if (ch<0) { break; }
+        int ch=console_getc();
+        if (ch==CONSOLE_NO_INPUT) { break; }
+        if (ch==CONSOLE_RX_ERROR) {
+            if (input_dropping) { terminal_cancel(p,75); }
+            else if (p->status==INPUT_WAIT) { terminal_deliver(p,ch);input_clear(); }
+            else { input_clear();console_write("\nSerial receive error; input discarded.\n"); }
+            break;
+        }
         if (ch==3) { terminal_interrupt(p);break; }
         if (input_dropping) { if (ch=='\r' || ch=='\n') { terminal_cancel(p,75); }continue; }
         if (p->status==INPUT_WAIT && !input_count) { terminal_deliver(p,ch); }
@@ -590,6 +598,10 @@ static int64_t tcp_call(struct process *p,struct exception_frame *f)
     if (reading && r>0) { user_copy(p,address,data,(size_t)r,true); }
     zero(data,reading ? (r>0 ? (size_t)r : 0) : (size_t)bytes);return r;
 }
+static int64_t file_error(enum fs_result result,bool extended)
+{ return extended && result==FS_BAD_HANDLE ? UOS_EBADF : UOS_ERROR; }
+
+_Static_assert((int)UOS_EXCL==(int)KFILE_EXCL && (int)UOS_APPEND==(int)KFILE_APPEND,"open flags ABI");
 static int64_t syscall(struct process *p,struct exception_frame *f)
 {
     uint64_t a=f->x[0],b=f->x[1],c=f->x[2];unsigned char buffer[512];size_t count=0;enum fs_result r;
@@ -690,17 +702,37 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
         return ok ? 0 : UOS_ENORANDOM;
     }
     case UOS_SYS_OPEN:
-        if (!b || b>=RAMFS_PATH_MAX || c>15) { return UOS_ERROR; }if (!user_range(p,a,(size_t)b,false)) { return UOS_EFAULT; }
+        if (!b || b>=RAMFS_PATH_MAX || c>(UOS_READ|UOS_WRITE|UOS_CREATE|UOS_TRUNC|UOS_EXCL|UOS_APPEND)) { return UOS_ERROR; }
+        if (!user_range(p,a,(size_t)b,false)) { return UOS_EFAULT; }
         user_copy(p,a,buffer,(size_t)b,false);for (size_t i=0;i<b;++i) { if (!buffer[i]) { return UOS_ERROR; } }buffer[b]=0;
         { uint64_t handle;r=kfile_open(p->owner,p->cwd,(const char *)buffer,(unsigned)c,&handle);
-          if (r!=FS_OK) { return UOS_ERROR; }if (handle>INT64_MAX) { (void)kfile_close(p->owner,handle);return UOS_ERROR; }return (int64_t)handle; }
-    case UOS_SYS_READ:
+          if (r!=FS_OK) { return r==FS_EXISTS && (c&UOS_EXCL) ? UOS_EEXIST : UOS_ERROR; }
+          if (handle>INT64_MAX) { (void)kfile_close(p->owner,handle);return UOS_ERROR; }return (int64_t)handle; }
+    case UOS_SYS_FSTAT: {
+        if (!user_range(p,b,sizeof(struct uos_file_info),true)) { return UOS_EFAULT; }
+        struct kfile_status status;
+        r=kfile_stat(p->owner,a,&status);if (r!=FS_OK) { return file_error(r,true); }
+        struct uos_file_info out={.bytes=status.bytes,.offset=status.offset,.flags=status.flags};
+        user_copy(p,b,&out,sizeof(out),true);return 0;
+    }
+    case UOS_SYS_READ:case UOS_SYS_PREAD: {
+        bool positioned=f->x[8]==UOS_SYS_PREAD;
         if (c>sizeof(buffer)) { return UOS_ERROR; }if (!user_range(p,b,(size_t)c,true)) { return UOS_EFAULT; }
-        r=kfile_read(p->owner,a,buffer,(size_t)c,&count);if (r!=FS_OK) { return UOS_ERROR; }
+        r=positioned ? kfile_pread(p->owner,a,buffer,(size_t)c,f->x[3],&count) :
+                      kfile_read(p->owner,a,buffer,(size_t)c,&count);
+        if (r!=FS_OK) { return file_error(r,positioned); }
         user_copy(p,b,buffer,count,true);return (int64_t)count;
-    case UOS_SYS_WRITE_FILE:
+    }
+    case UOS_SYS_WRITE_FILE:case UOS_SYS_PWRITE: {
+        bool positioned=f->x[8]==UOS_SYS_PWRITE;
         if (c>sizeof(buffer)) { return UOS_ERROR; }if (!user_range(p,b,(size_t)c,false)) { return UOS_EFAULT; }
-        user_copy(p,b,buffer,(size_t)c,false);r=kfile_write(p->owner,a,buffer,(size_t)c,&count);return r==FS_OK ? (int64_t)count : UOS_ERROR;
+        user_copy(p,b,buffer,(size_t)c,false);
+        r=positioned ? kfile_pwrite(p->owner,a,buffer,(size_t)c,f->x[3],&count) :
+                      kfile_write(p->owner,a,buffer,(size_t)c,&count);
+        return r==FS_OK ? (int64_t)count : file_error(r,positioned);
+    }
+    case UOS_SYS_FTRUNCATE:
+        r=kfile_truncate(p->owner,a,b);return r==FS_OK ? 0 : file_error(r,true);
     case UOS_SYS_SEEK: {
         uint32_t offset;if (c>2) { return UOS_ERROR; }r=kfile_seek(p->owner,a,(int64_t)b,(enum kfile_whence)c,&offset);return r==FS_OK ? (int64_t)offset : UOS_ERROR;
     }
@@ -802,18 +834,18 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     __asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*f=p->context;return 0;
 }
-static int64_t streams_copy(struct process *p,uint64_t address,struct uos_stdio *io,char *output)
+static int64_t streams_copy(struct process *p,uint64_t address,struct uos_stdio *io,char *output,bool append)
 {
     if (!user_range(p,address,sizeof(*io),false)) { return UOS_EFAULT; }
     user_copy(p,address,io,sizeof(*io),false);
     unsigned in=0,out=0;while (in<sizeof(io->input) && io->input[in]) { ++in; }while (out<sizeof(io->output) && io->output[out]) { ++out; }
-    if (in==sizeof(io->input) || out==sizeof(io->output)) { return UOS_ERROR; }
+    if (in==sizeof(io->input) || out==sizeof(io->output) || (append && !out)) { return UOS_ERROR; }
     bool dir;
-    if (out && (io->output[out-1]=='/' || vfs_resolve(p->cwd,io->output,output,&dir)!=FS_NOT_FOUND ||
+    if (out && (io->output[out-1]=='/' || (!append && vfs_resolve(p->cwd,io->output,output,&dir)!=FS_NOT_FOUND) ||
         vfs_prepare_write(p->cwd,io->output,output)!=FS_OK)) { return UOS_ERROR; }
     return 0;
 }
-static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool redirected,uint64_t streams)
+static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool redirected,uint64_t streams,bool append)
 {
     /* One generation of children. IDs never repeat when a slot is reused. */
     if (p->parent!=PROCESS_LIMIT || !seconds || seconds>30) { return UOS_ERROR; }
@@ -822,12 +854,13 @@ static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool re
     struct app_args args;user_copy(p,address,&args,sizeof(args),false);if (!args_valid(&args)) { return UOS_ERROR; }
     struct uos_stdio io={0};char output[RAMFS_PATH_MAX];
     if (redirected) {
-        int64_t result=streams_copy(p,streams,&io,output);if (result) { return result; }
+        int64_t result=streams_copy(p,streams,&io,output,append);if (result) { return result; }
     }
+    unsigned flags=KFILE_WRITE|KFILE_CREATE|(append ? KFILE_APPEND : KFILE_EXCL);
     struct process *child=&tasks[slot];zero(child,sizeof(*child));
     if (!load(child,args.bytes,p->cwd,&args,&p->environment) ||
         (io.input[0] && kfile_open(child->owner,p->cwd,io.input,KFILE_READ,&child->stdin_handle)!=FS_OK) ||
-        (io.output[0] && kfile_open(child->owner,"/",output,KFILE_WRITE|KFILE_CREATE,&child->stdout_handle)!=FS_OK)) {
+        (io.output[0] && kfile_open(child->owner,"/",output,flags,&child->stdout_handle)!=FS_OK)) {
         if (!release(child)) { child_cleanup_failed=true; }zero(child,sizeof(*child));
         zero(image,sizeof(image));return UOS_ERROR;
     }
@@ -836,21 +869,23 @@ static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool re
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     return (int64_t)(child->owner&~(1ULL<<63))+1;
 }
-static int64_t pipeline_start(struct process *p,struct exception_frame *f)
+static int64_t pipeline_start(struct process *p,struct exception_frame *f,bool append)
 {
-    if (channel.active || p->parent!=PROCESS_LIMIT || has_children() || !f->x[2] || f->x[2]>30) { return UOS_ERROR; }
+    if (channel.active || p->parent!=PROCESS_LIMIT || has_children() || !f->x[2] || f->x[2]>30 ||
+        (append && !f->x[3])) { return UOS_ERROR; }
     if (!user_range(p,f->x[0],sizeof(struct app_args),false) || !user_range(p,f->x[1],sizeof(struct app_args),false)) { return UOS_EFAULT; }
     struct app_args left_args,right_args;user_copy(p,f->x[0],&left_args,sizeof(left_args),false);user_copy(p,f->x[1],&right_args,sizeof(right_args),false);
     if (!args_valid(&left_args) || !args_valid(&right_args)) { return UOS_ERROR; }
     struct uos_stdio io={0};char output[RAMFS_PATH_MAX];
-    if (f->x[3]) { int64_t result=streams_copy(p,f->x[3],&io,output);if (result) { return result; } }
+    if (f->x[3]) { int64_t result=streams_copy(p,f->x[3],&io,output,append);if (result) { return result; } }
+    unsigned flags=KFILE_WRITE|KFILE_CREATE|(append ? KFILE_APPEND : KFILE_EXCL);
     unsigned slots[2],found=0;
     for (unsigned i=0;i<PROCESS_LIMIT && found<2;++i) { if (tasks[i].status==UNUSED) { slots[found++]=i; } }
     if (found!=2) { return UOS_ERROR; }
     struct process *left=&tasks[slots[0]],*right=&tasks[slots[1]];zero(left,sizeof(*left));zero(right,sizeof(*right));
     bool loaded=load(left,left_args.bytes,p->cwd,&left_args,&p->environment) && load(right,right_args.bytes,p->cwd,&right_args,&p->environment);
     if (!loaded || (io.input[0] && kfile_open(left->owner,p->cwd,io.input,KFILE_READ,&left->stdin_handle)!=FS_OK) ||
-        (io.output[0] && kfile_open(right->owner,"/",output,KFILE_WRITE|KFILE_CREATE,&right->stdout_handle)!=FS_OK)) {
+        (io.output[0] && kfile_open(right->owner,"/",output,flags,&right->stdout_handle)!=FS_OK)) {
         bool a=release(left),b=release(right);if (!a || !b) { child_cleanup_failed=true; }
         zero(left,sizeof(*left));zero(right,sizeof(*right));
         zero(image,sizeof(image));return UOS_ERROR;
@@ -883,8 +918,9 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             f->x[0]=(uint64_t)udp_call(p,f);return p->status!=UDP_WAIT || schedule(f,false);
         }
         if (f->x[8]>=UOS_SYS_TCP_OPEN && f->x[8]<=UOS_SYS_TCP_CLOSE) { f->x[0]=(uint64_t)tcp_call(p,f);return true; }
-        if (f->x[8]==UOS_SYS_PIPE_RUN) {
-            int64_t result=pipeline_start(p,f);f->x[0]=(uint64_t)result;return result ? true : schedule(f,false);
+        if (f->x[8]==UOS_SYS_PIPE_RUN || f->x[8]==UOS_SYS_PIPE_APPEND) {
+            int64_t result=pipeline_start(p,f,f->x[8]==UOS_SYS_PIPE_APPEND);
+            f->x[0]=(uint64_t)result;return result ? true : schedule(f,false);
         }
         if (channel.active && ((current==channel.left && f->x[8]==UOS_SYS_WRITE) || (current==channel.right && f->x[8]==UOS_SYS_STDIN))) {
             bool reading=current==channel.right;uint64_t address=f->x[0],bytes=f->x[1];
@@ -898,7 +934,10 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             p->status=reading ? PIPE_READ_WAIT : PIPE_WRITE_WAIT;
             if (reading) { ++pipe_read_waits; }else { ++pipe_write_waits; }return schedule(f,false);
         }
-        if (f->x[8]==UOS_SYS_SPAWN || f->x[8]==UOS_SYS_SPAWN_IO) { f->x[0]=(uint64_t)spawn(p,f->x[0],f->x[1],f->x[8]==UOS_SYS_SPAWN_IO,f->x[2]);return true; }
+        if (f->x[8]==UOS_SYS_SPAWN || f->x[8]==UOS_SYS_SPAWN_IO || f->x[8]==UOS_SYS_SPAWN_APPEND) {
+            f->x[0]=(uint64_t)spawn(p,f->x[0],f->x[1],f->x[8]!=UOS_SYS_SPAWN,f->x[2],f->x[8]==UOS_SYS_SPAWN_APPEND);
+            return true;
+        }
         if (f->x[8]==UOS_SYS_WAIT) {
             struct process *child=owned_child(f->x[0]);
             if (!child) { f->x[0]=(uint64_t)UOS_ERROR;return true; }

@@ -1,0 +1,43 @@
+Raspberry Pi 5 serial log excerpts supplied on 2026-11-24.
+
+user:/$ source -e /boot/TARCHK.OSH
+child exit=0
+child exit=0
+dir 0 sub
+file 12 sub/chunk.bin
+dir 0 empty
+file 5 note.txt
+child exit=0
+tar: valid ustar archive
+child exit=0
+child exit=0
+child exit=0
+child exit=0
+PASS: archive creation, listing, validation, extraction, and comparison.
+user:/$ list
+shell: unknown command or arguments; type help
+user:/$ verify
+shell: unknown command or arguments; type help
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=26 preemptions=13 yields=0 idle_waits=2255 terminal=yes budget_seconds=unlimited children_started=7 children_reaped=7 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> uartinfo
+PL011 FIFO=on rx_bytes=53 framing=0 parity=0 breaks=0 overruns=0
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000150000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty

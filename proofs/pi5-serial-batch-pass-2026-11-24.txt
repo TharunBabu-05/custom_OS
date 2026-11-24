@@ -1,0 +1,40 @@
+Raspberry Pi 5 serial log excerpts supplied on 2026-11-24.
+
+user:/$ source -e /boot/WAVCHECK.OSH
+child exit=0
+child exit=0
+child exit=0
+child exit=0
+child exit=0
+child exit=0
+f86f9f0dc764874361bca10435d4a85d3cf035e7e3f6e095b3d774e48b84e5a2  /tmp/wavcheck/src.wav
+a4d4544840bb50266f5e50c737986f8bdc3bda30706bd07caccf29ebe1bf19ee  /tmp/wavcheck/trim.wav
+4262bdf81e017d5b6e6d6773285196347717189303fcb0e8941a6d49c47b7261  /tmp/wavcheck/gain.wav
+f1decdfc4b732e1cf33dbf90ac5a83ecc8a7b083a2a50b9ce0257b8c55775f41  /tmp/wavcheck/mono.wav
+dfe8f772b0d446e8245bf04a22f8d87296593e9897932c3d1a34909f3ac35c77  /tmp/wavcheck/fade.wav
+2c229521c37f3d724757919f5cbe7530852c72ac7573569b9527562ba3afb30b  /tmp/wavcheck/join.wav
+PASS: all five WAV edits matched their expected hashes.
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=24 preemptions=12 yields=0 idle_waits=785 terminal=yes budget_seconds=unlimited children_started=6 children_reaped=6 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=92 dispatches=41 sleeps=0 wakes=0 input_lines=2 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> uartinfo
+PL011 FIFO=on rx_bytes=43 framing=0 parity=0 breaks=0 overruns=0
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000150000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty

@@ -24,6 +24,8 @@ if ($basePath) {
 }
 Get-ChildItem -LiteralPath (Join-Path $work 'apps') -File -Filter '*.ELF' |
     Copy-Item -Destination $stage -Force
+Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'user/shell') -File -Filter '*.OSH' |
+    Copy-Item -Destination $stage -Force
 
 # Retain the matching profile hashes when pairing rebuilt apps with a base kernel.
 if ($basePath) {

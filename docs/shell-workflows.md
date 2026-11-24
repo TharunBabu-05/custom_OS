@@ -155,12 +155,68 @@ and confirm which kernel the pendrive is using.
 The Pi passed the search, preview, direct count, and piped count with
 the expected output and zero exit statuses. [Pi text utility capture](../proofs/pi5-text-tools-2026-11-22.txt)
 
+## Text pipeline tools
+
+| Command | Behavior |
+| --- | --- |
+| `tail [-n N\|-c N] [file]` | Prints the last N lines or bytes. The default is 10 lines. Counts range from 0 through 32,768. Line mode keeps up to 32 KiB of the suffix and reports an error if the requested lines exceed it. |
+| `cut [-d BYTE] -f N[-M] [file]` | Selects one field or a contiguous range using a single delimiter byte. Fields start at 1. The default delimiter is a tab. Lines without the delimiter pass through. |
+| `sort [-r] [file]` | Orders lines by unsigned byte value. `-r` reverses the order. The input limit is 32 KiB and 1,024 lines. |
+| `uniq [-c] [file]` | Collapses adjacent equal lines. `-c` prefixes each result with its count. Use `sort` first to group duplicates from different parts of the input. |
+| `tr FROM TO [file]`, `tr -d BYTES [file]` | Maps equal-length literal byte sets or deletes selected bytes. The escape sequences are `\n`, `\r`, `\t`, `\\`, and `\xHH`. |
+
+All five commands accept a filename, redirected input, or one upstream
+pipe. `cut`, `sort`, and `uniq` accept up to 4,096 bytes before LF.
+`tail` and `cut` preserve an unterminated last line. `sort` and `uniq`
+write LF after each output record. Usage, limit, and I/O errors exit 2.
+Escape backslashes for the shell as shown in the example.
+
+```text
+echo 'alpha|beta|gamma' | tr '|' '\\n'
+source -e /boot/TEXTCHK.OSH
+```
+
+## Portable archives
+
+Run these commands from the EL0 shell at `user:/$`. Use `appshell`
+to open it from the kernel monitor.
+
+| Command | Behavior |
+| --- | --- |
+| `tar create DIR > NEW.tar` | Archives a directory's contents, with names relative to `DIR`. Put the output outside the source tree. |
+| `tar list ARCHIVE` | Prints member type, byte count, and relative path. |
+| `tar verify ARCHIVE` | Checks the archive's structure, header checksums, member paths and types, and terminating blocks. |
+| `tar extract ARCHIVE MEMBER > NEWFILE` | Copies one regular file to stdout. Pass the member path printed by `tar list`. |
+| `tar compare ARCHIVE DIR` | Compares paths, types, and file bytes against a directory tree. Reports the first changed, added, or missing member. |
+
+Use `-` for archive input from a pipe or from `<` redirection.
+Successful commands return 0. A difference or a missing regular
+member returns 1. Invalid archives, usage, and I/O failures return 2.
+Create and extract write binary output. A failed command can leave a
+new empty or partially written file if the shell opened the output
+before the command failed.
+
+The uncompressed ustar reader accepts regular files and directories
+with components up to 31 bytes using letters, digits, `.`, `_`, or
+`-`. The archive cap is 32 KiB, including its headers and padding.
+The destination mount can impose a smaller file limit, including
+RAMFS's 4 KiB limit. Creation writes fixed metadata and preserves file
+bytes and empty directories. Run creation and comparison while the
+source tree is stable. Use `sha256 ARCHIVE` to check all archive bytes
+against a known digest.
+[ustar format and header checksum](https://docs.oracle.com/cd/E26926_01/html/E29113/pax-1.html)
+
+```text
+source -e /boot/TARCHK.OSH
+```
+
 ## Pipe and redirection operators
 
 The shell supports a two-stage `LEFT | RIGHT` pipeline and file
-redirection with `< INPUT` and `> NEWFILE`. A pipeline can read a
-file into the first program and write the second program's output
-to a new file. The shell never overwrites an existing output file.
+redirection with `< INPUT`, `> NEWFILE`, and `>> OUT`. Use `>` to
+create a new output file and `>>` to append or create one. A pipeline
+can read a file into its first program and redirect its second
+program's output.
 Programs are resolved through `PATH`, including the executable
 versions of `echo`, `cat`, `ls`, and `pwd`.
 

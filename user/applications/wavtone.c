@@ -2,7 +2,7 @@
 #include "wave.h"
 #include <stdbool.h>
 
-enum { RATE=8000, FRAME_BYTES=2, MAX_MS=250 };
+enum { RATE=8000, MAX_MS=250 };
 
 static unsigned decimal(unsigned index,unsigned limit)
 {
@@ -19,34 +19,33 @@ static unsigned decimal(unsigned index,unsigned limit)
 
 int app_main(void)
 {
-    unsigned hz=decimal(1,2000),ms=decimal(2,MAX_MS);
-    if (uos_argc()!=3 || hz<20 || !ms) {
-        uos_puts("Usage: WAVTONE <20..2000 Hz> <1..250 ms> > new.wav\n");
+    int64_t argc=uos_argc();
+    unsigned hz[2]={decimal(1,2000),0},ms=decimal(2,MAX_MS);
+    if (argc==4) { hz[1]=decimal(3,2000); }
+    if ((argc!=3 && argc!=4) || hz[0]<20 || !ms || (argc==4 && hz[1]<20)) {
+        uos_puts("Usage: WAVTONE <20..2000 Hz> <1..250 ms> [right Hz] > new.wav\n");
         return 2;
     }
-    uint32_t frames=ms*(RATE/1000),bytes=frames*FRAME_BYTES;
-    uint8_t header[44]={
-        'R','I','F','F',0,0,0,0,'W','A','V','E','f','m','t',' ',
-        16,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,2,0,16,0,'d','a','t','a',0,0,0,0
-    };
-    wave_put32(header+4,36+bytes);
-    wave_put32(header+24,RATE);
-    wave_put32(header+28,RATE*FRAME_BYTES);
-    wave_put32(header+40,bytes);
-    if (uos_write(header,sizeof(header))!=sizeof(header)) { return 2; }
-    /* Integer phase accumulator for a symmetric triangle wave. */
-    unsigned phase=0;
+    unsigned channels=argc==4 ? 2 : 1;
+    uint32_t frames=ms*(RATE/1000);
+    struct wave_info info={.channels=channels,.rate=RATE,.bits=16,.align=2*channels,.frames=frames};
+    if (!wave_write_header(&info)) { return 2; }
+    /* One integer phase accumulator per triangle-wave channel. */
+    unsigned phase[2]={0};
     while (frames) {
-        uint8_t samples[512];
-        unsigned n=frames<sizeof(samples)/FRAME_BYTES ? frames : sizeof(samples)/FRAME_BYTES;
+        uint8_t samples[WAVE_BUFFER_BYTES];
+        unsigned batch=sizeof(samples)/info.align;
+        unsigned n=frames<batch ? frames : batch;
         for (unsigned i=0;i<n;++i) {
-            unsigned rising=phase<=RATE/2 ? phase : RATE-phase;
-            int sample=(int)(rising*8)-16000;
-            wave_put16(samples+i*FRAME_BYTES,(unsigned)sample);
-            phase+=hz;
-            if (phase>=RATE) { phase-=RATE; }
+            for (unsigned c=0;c<channels;++c) {
+                unsigned rising=phase[c]<=RATE/2 ? phase[c] : RATE-phase[c];
+                int sample=(int)(rising*8)-16000;
+                wave_put_sample(samples+i*info.align+2*c,16,sample);
+                phase[c]+=hz[c];
+                if (phase[c]>=RATE) { phase[c]-=RATE; }
+            }
         }
-        unsigned count=n*FRAME_BYTES;
+        unsigned count=n*info.align;
         if (uos_write(samples,count)!=count) { return 2; }
         frames-=n;
     }

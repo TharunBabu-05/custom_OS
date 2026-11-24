@@ -3,12 +3,18 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+enum { CONSOLE_NO_INPUT=-1, CONSOLE_RX_ERROR=-2 };
+struct uart_rx_status {
+    uint64_t bytes,framing,parity,breaks,overruns;
+    bool fifo;
+};
 bool uart_init(uintptr_t base, uint32_t clock, uint32_t baud);
 bool uart_attach_firmware(uintptr_t base);
 void uart_putc(char c);
 int uart_getc(void);
+struct uart_rx_status uart_rx_status(void);
 void uart_drain(void);
-/* Shared CR/LF filtering for monitor and hidden input. -1 means no char. */
+/* Normalizes CRLF and reports RX errors after discarding through Enter. */
 int console_getc(void);
 /* Printable ASCII, max 128 bytes. No echo; empty/invalid/overflow input is
  * rejected and wiped. Backspace/Delete edit, Ctrl+U clears, Ctrl+C cancels

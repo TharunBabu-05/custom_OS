@@ -1,5 +1,6 @@
 #include "board.h"
 #include "console.h"
+#include "terminal.h"
 #include "dt_property.h"
 #include "dt_resources.h"
 #include "resources.h"
@@ -174,7 +175,7 @@ static void command(const char *line)
     if (equal(line,"keytest")) { console_write(wpa_keys_selftest() ? "PASS: AES-128, CMAC, key unwrap, SAE PTK, offline M2/M4, key-data and M3-retry known-answer tests.\n" : "FAIL: WPA key primitives; live handshake unavailable.\n");console_write("Public fixtures only; no key installation or EAPOL transmission.\n");return; }
     if (equal(line,"rngtest")) { platform_rng_test(firmware_dtb);return; }
     if (equal(line,"help")) {
-        console_write("help info cpuinfo meminfo uptime echo <text> clear reboot poweroff halt fault\n");
+        console_write("help info uartinfo cpuinfo meminfo uptime echo <text> clear reboot poweroff halt fault\n");
         console_write("cpulist cpustate cacheinfo atomictest\n");
         console_write("platforminfo therminfo powerinfo rtcinfo rtcset <UTC> rtcsync rtcalarm\n");
         console_write("devlist [DT path|alias] | devinfo <DT path|alias> (device tree)\n");
@@ -247,6 +248,14 @@ static void command(const char *line)
         console_write("\nFirmware DTB pointer="); console_hex(firmware_dtb);
         console_write("\nSingle core; polling UART; MMU ");console_write(mmu_enabled() ? "on" : "off");console_write("; no user processes.\n");
         console_write(ramfs_get_stats().ready ? "Root filesystem: RAMFS (volatile).\n" : "Root filesystem unavailable.\n");
+    } else if (equal(line,"uartinfo")) {
+        struct uart_rx_status status=uart_rx_status();
+        console_write(status.fifo ? "PL011 FIFO=on" : "PL011 FIFO=off");
+        console_write(" rx_bytes=");console_u64(status.bytes);
+        console_write(" framing=");console_u64(status.framing);
+        console_write(" parity=");console_u64(status.parity);
+        console_write(" breaks=");console_u64(status.breaks);
+        console_write(" overruns=");console_u64(status.overruns);console_write("\n");
     } else if (equal(line,"cpuinfo")) {
         uint64_t midr;
         __asm__ volatile ("mrs %0, midr_el1" : "=r"(midr));
@@ -349,26 +358,25 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
 #endif
     }
     console_write("Kernel monitor ready. Type help.\n> ");
-    char line[128];
-    unsigned length=0;
-    bool overflow=false;
+    struct terminal_line line;
+    (void)terminal_begin(&line,TERMINAL_BYTES);
     for (;;) {
         irq_run_deferred();
         network_worker_service();
         int input=console_getc();
-        if (input < 0) { continue; }
-        char c=(char)input;
-        if (c=='\r' || c=='\n') {
-            console_write("\n");
-            line[length]='\0';
-            if (overflow) { console_write("Input too long; command discarded.\n"); }
-            else { command(line); }
-            length=0; overflow=false; console_write("> ");
-        } else if (c=='\b' || c==127) {
-            if (!overflow && length) { --length; console_write("\b \b"); }
-        } else if (c>=32 && c<=126 && !overflow) {
-            if (length+1 < sizeof(line)) { line[length++]=c; console_putc(c); }
-            else { overflow=true; }
+        if (input==CONSOLE_NO_INPUT || input==4) { continue; }
+        unsigned previous=line.length;
+        switch (terminal_feed(&line,input)) {
+        case TERM_NONE: case TERM_EOF: continue;
+        case TERM_ECHO: console_putc((char)input);continue;
+        case TERM_ERASE: console_write("\b \b");continue;
+        case TERM_CLEAR: while (previous--) { console_write("\b \b"); }continue;
+        case TERM_CANCEL: console_write("^C\n");break;
+        case TERM_REJECT: console_write("\nInput too long; command discarded.\n");break;
+        case TERM_RX_REJECT: console_write("\nSerial receive error; input discarded.\n");break;
+        case TERM_LINE: console_write("\n");command(line.bytes);break;
         }
+        (void)terminal_begin(&line,TERMINAL_BYTES);
+        console_write("> ");
     }
 }

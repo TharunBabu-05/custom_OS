@@ -1,0 +1,41 @@
+Raspberry Pi 5 serial log excerpts supplied on 2026-11-24.
+
+user:/$ source -e /boot/TEXTCHK.OSH
+child exit=0
+child exit=0
+child exit=0
+pipeline exit=0
+33918d1c53857f5c71fe81ebe9a92b894f82532937bb63bb6359916620beacad  /tmp/textchk/rows
+d24f52acdec9a5b4add6a4f79b7723d0ef43591255c4132d6a7b7f24898d0cf6  /tmp/textchk/tail
+2dc8f2f775e440ffc15816f9808d873b5e002fd300f5ed0ac7823f1de4a9788d  /tmp/textchk/fruits
+daabfab179cc9f11ee6a1906a045b6b56a59cc04d95dd18467344e5820f572ac  /tmp/textchk/counts
+2 apple
+1 banana
+1 berry
+
+PASS: all five text tools matched their expected output.
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=19 preemptions=10 yields=0 idle_waits=1131 terminal=yes budget_seconds=unlimited children_started=5 children_reaped=5 last_child_code=0 cleanup=restored
+Pipelines: started=1 completed=1 written=25 read=25 reader_waits=1 writer_waits=0 left_exit=0 right_exit=0
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> uartinfo
+PL011 FIFO=on rx_bytes=42 framing=0 parity=0 breaks=0 overruns=0
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000150000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+> tail
+Unknown command. Type help.

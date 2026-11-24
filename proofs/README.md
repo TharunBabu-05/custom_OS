@@ -1,5 +1,29 @@
 # Real Raspberry Pi 5 proof
 
+Phase 26 passed archive creation, member listing, validation, binary
+extraction, and tree comparison. All seven children were collected,
+and serial, USB, and mounted-data checks passed.
+[Archive tools capture](pi5-archives-pass-2026-11-24.txt)
+
+Phase 25 matched the four text output hashes and the expected fruit
+counts. Both pipeline stages exited with code 0, and UART, resource
+and storage checks passed. [Text pipeline capture](pi5-text-pipelines-pass-2026-11-24.txt)
+
+Phase 24 verified all five WAV edits by hash. The UART reported zero
+framing, parity, break, and overrun errors during the run, and the
+resource and storage checks passed.
+[Batch verification capture](pi5-serial-batch-pass-2026-11-24.txt)
+
+Phase 23 verified stereo tone generation, gain, and downmix. The
+transcript shows altered trim and join input paths and a fade command
+with missing output redirection. USB and mounted data checks passed.
+[WAV and serial capture](pi5-wav-serial-retest-2026-11-24.txt)
+
+Phase 22 passed three ordered-load and ordered-store tests, displayed the
+media device inventory, read the RTC alarm state, and generated and analyzed
+a PCM WAV file. USB storage and the mounted data bank passed afterward.
+[Media and CPU capture](pi5-media-pass-2026-11-24.txt)
+
 Phase 21 listed four CPU affinities, read all PSCI states and reported
 L1 through L3 cache geometry. The exclusive-load test halted in the
 uncached profile. [CPU diagnostics and abort capture](pi5-cpu-atomic-abort-2026-11-24.txt)

@@ -1,0 +1,57 @@
+Raspberry Pi 5 serial log excerpts supplied on 2026-11-24.
+
+user:/$ /boot/WAVTONE.ELF 400 100 800 > /tmp/p23-src.wav
+child exit=0
+user:/$ /boot/WAVEDIT.ELF trim 25 50 /tmmp/p23-src.wav > /tmp/p23-trim.wav
+child exit=2
+user:/$ /boot/WAVEDIT.ELF gain 150 /tmp/p23-src.wav > /tmp/p23-gain.wav
+child exit=0
+user:/$ /boot/WAVEDIT.ELF mono /tmp/p23-mp/p23-mono.wav
+child exit=2
+user:/$ /boot/WAVEDIT.ELF mono /tmp/p23-src.wav > /tmp/p23-mono.wav
+child exit=0
+user:/$ /boot/WAVEDIT.ELF fade 25 25 /tmp/p23-fade.wav
+child exit=2
+user:/$ /boot/WAVEDIT.ELF join /tmp/p23-ono.wav /tmp/p23-mono.wav > /tmp/p23-join.wav
+child exit=2
+user:/$ /boot/WAVINFO.ELF /tmp/p23-trim.wav
+WAVINFO: invalid, unsupported or unreadable PCM WAV
+child exit=2
+user:/$ /boot/WAVINFO.ELF --stats /tmp/p23-gain.wav
+PCM channels=2 rate_hz=8000 bits=16 frames=800 duration_ms=100
+channel=1 min=-24000 max=24000 peak=24000 clipped=0
+channel=2 min=-24000 max=24000 peak=24000 clipped=0
+child exit=0
+user:/$ /boot/WAVINFO.ELF --stats /tmp/p23-mono.wav
+PCM channels=1 rate_hz=8000 bits=16 frames=800 duration_ms=100
+channel=1 min=-16000 max=8000 peak=16000 clipped=0
+child exit=0
+user:/$ hexdump -s 44 -n 4 /tmp/p23-fade.wav
+hexdump: cannot open input
+child exit=2
+user:/$ hexdump -s 3240 -n 4 /tmp/p23-fade.wav
+hexdump: cannot open input
+child exit=2
+user:/$ /boot/WAVINFO.ELF /tmp/p23-join.wav
+WAVINFO: invalid, unsupported or unreadable PCM WAV
+child exit=2
+user:/$ exit
+
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000150000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
