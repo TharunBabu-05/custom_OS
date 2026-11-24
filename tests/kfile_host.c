@@ -225,6 +225,43 @@ static void extended_handles(void)
     }
     puts("PASS: exclusive create, append, metadata and positioned I/O preserve ownership/cursors; truncate clamps, zero-fills and rolls back on allocation failure.");
 }
+static void descriptor_lifecycle(void)
+{
+    const char *path="/tmp/descriptor";
+    uint64_t base,reader,peer,aliases[KFILE_LIMIT-3],refused;
+    unsigned flags=KFILE_READ|KFILE_WRITE|KFILE_CREATE|KFILE_EXCL|KFILE_CLOEXEC;
+    assert(kfile_open(41,"/",path,flags,&base)==FS_OK);
+    assert(kfile_open(42,"/","/tmp/base.txt",KFILE_READ|KFILE_CLOEXEC,&peer)==FS_OK);
+    assert(kfile_dup(42,base,0,0,&refused)==FS_BAD_HANDLE && !refused);
+    assert(kfile_dup(41,base,KFILE_READ,0,&reader)==FS_OK && reader!=base);
+    assert(kfile_dup(41,reader,KFILE_WRITE,0,&refused)==FS_ACCESS && !refused);
+    assert(kfile_set_append(41,reader,true)==FS_ACCESS);
+    assert(kfile_set_append(42,base,true)==FS_BAD_HANDLE);
+    size_t n;
+    assert(kfile_write(41,base,"abc",3,&n)==FS_OK && n==3);
+    uint32_t offset;
+    assert(kfile_seek(41,reader,0,KFILE_SET,&offset)==FS_OK && !offset && !position(41,base));
+    assert(kfile_set_append(41,base,true)==FS_OK);
+    assert(kfile_write(41,base,"z",1,&n)==FS_OK && n==1 && position(41,reader)==4);
+    for (unsigned i=0;i<KFILE_LIMIT-3;++i) {
+        assert(kfile_dup(41,base,0,KFILE_CLOEXEC,&aliases[i])==FS_OK);
+    }
+    assert(kfile_dup(41,base,0,0,&refused)==FS_NO_HANDLES && !refused);
+    struct kfile_entry entries[KFILE_LIMIT];
+    assert(kfile_list_owner(41,base,reader,entries)==KFILE_LIMIT-3);
+    assert(kfile_list_owner(42,0,0,entries)==1 && entries[0].token==peer);
+    assert(kfile_close_on_exec(41)==KFILE_LIMIT-2 && kfile_count()==2);
+    assert(kfile_close(41,base)==FS_BAD_HANDLE);
+    assert(kfile_close(41,aliases[0])==FS_BAD_HANDLE);
+    assert(kfile_list_owner(41,0,0,entries)==1 && entries[0].token==reader);
+    assert(entries[0].status.offset==4 && entries[0].status.flags==(KFILE_READ|KFILE_APPEND) &&
+           !entries[0].descriptor_flags);
+    assert(vfs_write(path,"x",1)==FS_BUSY && vfs_remove(path,false)==FS_BUSY);
+    assert(kfile_close_owner(41)==1 && kfile_close_owner(42)==1 && !kfile_count());
+    content(path,"abcz");
+    assert(vfs_remove(path,false)==FS_OK);
+    puts("PASS: shared descriptors, restricted rights, append, exec cleanup, owner visibility and slot exhaustion.");
+}
 static void rename_leases(void)
 {
     assert(vfs_mkdir("/tmp/mv-dir")==FS_OK && vfs_write("/tmp/mv-src","unchanged",9)==FS_OK);
@@ -335,7 +372,7 @@ int main(int argc,char **argv)
     disk=(struct block_device){.name="memory-copy",.sectors=media_bytes/512,.capacity_known=true,.read=sector_read,.write=sector_write,.flush=flush};
     assert(heap_init() && ramfs_init("host-test")==FS_OK && vfs_mount_boot(&disk)==FS_OK && vfs_mount_data(&disk)==FS_OK);
     mounted_capacity();cursors_and_modes();leases();limits_and_rollback();rename_leases();directory_leases();replacement_leases();
-    extended_handles();boot_and_data();
+    extended_handles();descriptor_lifecycle();boot_and_data();
     assert(vfs_remove("/tmp/base.txt",false)==FS_OK && !kfile_count() && heap_check());
     struct heap_stats heap=heap_get_stats();assert(heap.objects==3 && heap.pages==2 && heap.capacity_bytes==544 && live_pages==2);
     printf("PASS: final handle/lease count zero, RAMFS/heap/page baseline restored; reads=%llu writes=%llu flushes=%llu; only in-memory data-bank sectors changed\n",(unsigned long long)reads,(unsigned long long)writes,(unsigned long long)flushes);

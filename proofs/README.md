@@ -1,5 +1,24 @@
 # Real Raspberry Pi 5 proof
 
+Phase 30 passed the Core OS check with all seven children reaped.
+The supervised service restarted once, retained PID 12 across shell
+sessions and advanced its heartbeat from 22 to 63 during the
+four-stage pipeline check. Shutdown returned to zero open handles,
+and the USB and mounted-data checks passed. [Core OS capture](pi5-core-os-2026-11-24.txt)
+
+Phase 29 streamed 16 KiB through three pipe rings on the Pi. All four
+children were reaped, both reader and writer waits occurred, and
+file, UART, and storage checks passed. [Pipeline capture](pi5-pipe-chain-2026-11-24.txt)
+
+Phase 28 passed handle duplication, access reduction, append control,
+close-on-exec and inventory. The test also passed its intentional failed
+`exec` case, retained redirected stdout through the successful `exec`,
+and returned to zero open handles. [Descriptor capture](pi5-descriptors-pass-2026-11-24.txt)
+
+Phase 27 passed the six file-handle checks and the shell append test.
+The append hash matched, all five children were reaped, and the
+monitor reported zero open handles. [File-handle capture](pi5-file-handles-pass-2026-11-24.txt)
+
 Phase 26 passed archive creation, member listing, validation, binary
 extraction, and tree comparison. All seven children were collected,
 and serial, USB, and mounted-data checks passed.

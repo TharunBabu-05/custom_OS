@@ -9,13 +9,22 @@
 #define NG (1ULL<<11)
 #define PXN (1ULL<<53)
 #define UXN (1ULL<<54)
+_Static_assert(USER_VM_BASE-USER_VA_BASE+USER_VM_REGIONS*USER_VM_REGION_PAGES*PAGE<=512*PAGE,
+               "VM window must fit the private leaf table");
 static bool aligned(uint64_t p) { return !(p&(PAGE-1)); }
 static bool physical_page(uint64_t p) { return p && aligned(p) && p<=ADDRESS_MASK; }
+static bool vm_page(uint64_t va)
+{ return va>=USER_VM_BASE && va-USER_VM_BASE<USER_VM_REGIONS*USER_VM_REGION_PAGES*PAGE; }
 static bool user_page(uint64_t va)
 {
     return aligned(va) && ((va>=USER_VA_BASE && va-USER_VA_BASE<USER_IMAGE_PAGES*PAGE) ||
         (va>=USER_STACK_BASE && va-USER_STACK_BASE<USER_STACK_PAGES*PAGE) ||
-        (va>=USER_HEAP_BASE && va-USER_HEAP_BASE<USER_HEAP_PAGES*PAGE));
+        (va>=USER_HEAP_BASE && va-USER_HEAP_BASE<USER_HEAP_PAGES*PAGE) || vm_page(va));
+}
+static bool allows(uint64_t va,enum user_page_kind kind)
+{
+    if (vm_page(va)) { return kind==USER_PAGE_RO || kind==USER_PAGE_RW; }
+    return va<USER_STACK_BASE || kind==USER_PAGE_RW;
 }
 static uint64_t flags(enum user_page_kind kind)
 {
@@ -40,7 +49,7 @@ enum user_mmu_result user_mmu_build(struct user_tables *out,uint64_t physical,
         if (!user_page(m->virtual_address) || !physical_page(m->physical) ||
             (m->physical>=physical && m->physical-physical<USER_TABLE_PAGES*PAGE)) { return USER_MMU_ADDRESS; }
         if (m->kind!=USER_PAGE_RX && m->kind!=USER_PAGE_RO && m->kind!=USER_PAGE_RW) { return USER_MMU_PERMISSION; }
-        if (m->virtual_address>=USER_STACK_BASE && m->kind!=USER_PAGE_RW) { return USER_MMU_PERMISSION; }
+        if (!allows(m->virtual_address,m->kind)) { return USER_MMU_PERMISSION; }
         for (unsigned j=0;j<i;++j) {
             if (m->virtual_address==checked[j].virtual_address || m->physical==checked[j].physical) { return USER_MMU_COLLISION; }
         }
@@ -61,7 +70,7 @@ bool user_mmu_lookup(const struct user_tables *t,uint64_t va,struct user_transla
     uint64_t raw=t->entries[2][(va>>12)&511],attributes=raw&~ADDRESS_MASK;
     const enum user_page_kind kinds[]={USER_PAGE_RX,USER_PAGE_RO,USER_PAGE_RW};
     for (unsigned i=0;i<3;++i) {
-        if (va>=USER_STACK_BASE && kinds[i]!=USER_PAGE_RW) { continue; }
+        if (!allows(va,kinds[i])) { continue; }
         if (attributes==flags(kinds[i])) {
             uint64_t base=raw&ADDRESS_MASK;if (!physical_page(base)) { return false; }
             *out=(struct user_translation){base+(va&(PAGE-1)),raw,kinds[i]};return true;

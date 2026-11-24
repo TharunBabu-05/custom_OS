@@ -55,6 +55,13 @@ static inline int64_t uos_write_file(uint64_t h,const void *p,size_t n)
 { return uos_call4(UOS_SYS_WRITE_FILE,h,(uintptr_t)p,n,0); }
 static inline int64_t uos_fstat(uint64_t h,struct uos_file_info *out)
 { return uos_call2(UOS_SYS_FSTAT,h,(uintptr_t)out); }
+static inline int64_t uos_fd_dup(uint64_t h,unsigned access,unsigned flags)
+{ return uos_call4(UOS_SYS_FD_DUP,h,access,flags,0); }
+/* Set a per-descriptor CLOEXEC flag or the shared APPEND mode. */
+static inline int64_t uos_fd_set(uint64_t h,unsigned flag,unsigned enabled)
+{ return uos_call4(UOS_SYS_FD_SET,h,flag,enabled,0); }
+static inline int64_t uos_fd_list(struct uos_fd_table *out)
+{ return uos_call2(UOS_SYS_FD_LIST,(uintptr_t)out,0); }
 static inline int64_t uos_pread(uint64_t h,void *p,size_t n,uint64_t offset)
 { return uos_call4(UOS_SYS_PREAD,h,(uintptr_t)p,n,offset); }
 static inline int64_t uos_pwrite(uint64_t h,const void *p,size_t n,uint64_t offset)
@@ -72,6 +79,20 @@ static inline int64_t uos_stat(const char *p,struct uos_entry *e) { return uos_c
 static inline int64_t uos_readdir(const char *p,unsigned index,struct uos_entry *e) { return uos_call4(UOS_SYS_READDIR,(uintptr_t)p,uos_length(p),index,(uintptr_t)e); }
 static inline int64_t uos_sleep_ms(unsigned ms) { return uos_call2(UOS_SYS_SLEEP_MS,ms,0); }
 static inline int64_t uos_getpid(void) { return uos_call2(UOS_SYS_GETPID,0,0); }
+static inline int64_t uos_ipc_send(const struct uos_message *message,unsigned wait_ms)
+{ return uos_call2(UOS_SYS_IPC_SEND,(uintptr_t)message,wait_ms); }
+static inline int64_t uos_ipc_recv(uint64_t peer,struct uos_message *message,unsigned wait_ms)
+{ return uos_call4(UOS_SYS_IPC_RECV,peer,(uintptr_t)message,wait_ms,0); }
+static inline int64_t uos_signal_send(uint64_t child,unsigned signal)
+{ return uos_call2(UOS_SYS_SIGNAL_SEND,child,signal); }
+static inline int64_t uos_signal_wait(unsigned wait_ms)
+{ return uos_call2(UOS_SYS_SIGNAL_WAIT,wait_ms,0); }
+static inline int64_t uos_child_fault(uint64_t child,struct uos_fault_info *out)
+{ return uos_call2(UOS_SYS_CHILD_FAULT,child,(uintptr_t)out); }
+static inline int64_t uos_vm_create(uint64_t peer,unsigned pages,unsigned rights,uint64_t *token)
+{ return uos_call4(UOS_SYS_VM_CREATE,peer,pages,rights,(uintptr_t)token); }
+static inline int64_t uos_vm_map(uint64_t token) { return uos_call2(UOS_SYS_VM_MAP,token,0); }
+static inline int64_t uos_vm_unmap(uint64_t token) { return uos_call2(UOS_SYS_VM_UNMAP,token,0); }
 static inline int64_t uos_readline(char *p,size_t n) { return uos_call2(UOS_SYS_READLINE,(uintptr_t)p,n); }
 static inline int64_t uos_mkdir(const char *p) { return uos_call2(UOS_SYS_MKDIR,(uintptr_t)p,uos_length(p)); }
 static inline int64_t uos_remove(const char *p,int directory) { return uos_call4(UOS_SYS_REMOVE,(uintptr_t)p,uos_length(p),(uint64_t)directory,0); }
@@ -112,6 +133,8 @@ static inline int64_t uos_memory_pressure(struct uos_memory_pressure *out)
 { return uos_call2(UOS_SYS_MEMORY_PRESSURE,(uintptr_t)out,0); }
 static inline int64_t uos_processes(struct uos_process_table *out)
 { return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
+static inline int64_t uos_processes_v2(struct uos_process_table_v2 *out)
+{ return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
 /* Poll/cancel never reap. Only a live direct-child relation grants authority;
  * finished children remain queryable until ordinary wait collects them. */
 static inline int64_t uos_child_poll(uint64_t pid,struct uos_child_info *out)
@@ -150,4 +173,7 @@ static inline int64_t uos_pipeline(const struct app_args *producer,const struct 
 { return uos_call4(UOS_SYS_PIPE_RUN,(uintptr_t)producer,(uintptr_t)consumer,seconds,(uintptr_t)io); }
 static inline int64_t uos_pipeline_append(const struct app_args *producer,const struct app_args *consumer,unsigned seconds,const struct uos_stdio *io)
 { return uos_call4(UOS_SYS_PIPE_APPEND,(uintptr_t)producer,(uintptr_t)consumer,seconds,(uintptr_t)io); }
+/* The argv array has count elements. The optional I/O applies at the ends. */
+static inline int64_t uos_pipe_chain(const struct app_args *stages,unsigned count,unsigned seconds,const struct uos_stdio *io,unsigned flags)
+{ return uos_call(UOS_SYS_PIPE_CHAIN,(uintptr_t)stages,count,seconds,(uintptr_t)io,flags,0); }
 #endif

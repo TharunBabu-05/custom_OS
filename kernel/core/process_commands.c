@@ -13,6 +13,24 @@ static void failure(enum fs_result r)
 bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
+    if (same(verb,"svc")) {
+        char action[8];space(&p);
+        if (!*p) { process_service_info();return true; }
+        if (word(&p,action,sizeof(action))==1) {
+            space(&p);
+            if (same(action,"start")) {
+                struct app_args args;
+                if (app_args_parse(p,&args)) {
+                    console_write(process_service_start(&args) ? "Service started.\n" : "Service start refused.\n");
+                    return true;
+                }
+            } else if (same(action,"stop") && !*p) {
+                process_service_stop();process_service_info();return true;
+            }
+        }
+        console_write("Usage: svc | svc start <ELF> [arguments] | svc stop\n");
+        return true;
+    }
     if (same(verb,"sha256") || same(verb,"runio") || same(verb,"run") || same(verb,"pipe") || same(verb,"pipeio") || same(verb,"status") || same(verb,"exec") || same(verb,"path") ||
         same(verb,"env") || same(verb,"getenv") || same(verb,"setenv") || same(verb,"unsetenv") || same(verb,"profile")) {
         console_write("Shell command: use appshell and wait for user:/$ (timerstart first if stopped).\n");return true;
@@ -55,5 +73,5 @@ term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");
     }
     if (!count) { goto usage; }(void)process_run(arguments,count);return true;
 usage:
-    console_write("Usage: apprun <ELF path> [ELF path] [ELF path]\n");return true;
+    console_write("Usage: apprun <ELF path> [additional ELF paths, up to five total]\n");return true;
 }

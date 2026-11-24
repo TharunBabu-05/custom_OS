@@ -96,7 +96,7 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
         'Installed validated ELF: /data/hello.elf bytes=','synchronous commit and full readback verified.',
         'app: already exists','app: installation refused:','app: invalid path',
         'path=/data/hello.elf state=exited code=0','process=2 path=/boot/COUNTER.ELF state=exited code=0',
-        'App run refused: require mmuinit, irqinit, timerstart and 1..3 valid paths.',
+        'App run refused: require mmuinit, irqinit, timerstart and 1..5 valid paths.',
         'ELF rejected: unsupported ELF header','generation=2','Open files: 0/16','pages=2 objects=3 capacity_bytes=544','apps-monitor-ok')+$more) $restorations
     # Reopen the same disk file in a fresh emulator process, without copying
     # or reflashing. Executing the installed ELF tests persistent binary I/O.

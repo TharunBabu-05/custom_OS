@@ -93,6 +93,23 @@ that exits after writing can leave the bytes it already appended.
 From the EL0 shell, run `source -e /boot/FDCHK.OSH` to exercise all seven
 features in temporary files.
 
+## Phase 28 Descriptor lifecycle
+
+| Feature | EL0 interface |
+| --- | --- |
+| Duplicate a handle | Syscall 64, `uos_fd_dup(handle, 0, 0)`, creates a token owned by the caller. Both tokens share a file length, cursor, append mode, and path lease. |
+| Reduce access | Pass `UOS_READ` or `UOS_WRITE` as the second argument to duplicate with that access. The new access must be a subset of the source token's rights. |
+| Control append mode | Syscall 65, `uos_fd_set(handle, UOS_APPEND, enabled)`, changes the shared append mode through a writable handle. |
+| Close on exec | Set `UOS_CLOEXEC` in `uos_open`, use it as the third argument to `uos_fd_dup`, or set or clear it using syscall 65. The flag applies to one token. A successful `exec` closes marked handles. A failed `exec` preserves them. |
+| Inspect active tokens | Syscall 66, `uos_fd_list`, returns the caller's explicit handles in a fixed 392-byte table with shared offsets and per-token access and flags. Unused entries are zeroed. |
+
+Each duplicate uses one of the 16 handle slots. Closing a token releases its
+slot immediately. The underlying file's original read or write lease lasts
+until the last reference closes, including when only a reduced-access
+duplicate remains. Separate calls to `uos_open` still have independent
+cursors. The inventory excludes kernel-managed stdin and stdout handles.
+Those streams retain the existing lifetime across `exec`.
+
 ## Monitor commands
 
 | Command | Purpose |

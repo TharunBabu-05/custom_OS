@@ -24,6 +24,16 @@ enum fs_result vfs_data_sync(void) { return persist_sync(&data_volume); }
 bool vfs_data_failed(void) { return data_volume.failed; }
 bool vfs_data_mounted(void) { return data_volume.ready; }
 enum fs_result vfs_data_check(struct persist_report *out) { return persist_check(&data_volume,out); }
+enum fs_result vfs_data_history(const char *path,struct persist_path_history *out)
+{
+    const char *relative=data_path(path);
+    return relative ? persist_history(&data_volume,relative,out) : FS_INVALID_PATH;
+}
+enum fs_result vfs_data_recover(const char *source,const char *destination,uint64_t *generation)
+{
+    const char *from=data_path(source),*to=data_path(destination);
+    return from && to ? persist_recover_previous(&data_volume,from,to,generation) : FS_INVALID_PATH;
+}
 enum fs_result vfs_data_export(persist_emit emit,void *context) { return persist_export(&data_volume,emit,context); }
 enum fs_result vfs_data_export_previous(persist_emit emit,void *context) { return persist_export_previous(&data_volume,emit,context); }
 static struct fat32_file restore_source;

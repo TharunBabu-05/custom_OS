@@ -140,6 +140,25 @@ static bool valid_extents(const struct persist_volume *v,const struct extent_ind
     }
     return true;
 }
+/* Read checked file bytes from an already validated extent address. */
+static bool verify_extent(const struct persist_volume *v,struct persist_bank_report *report,
+    const unsigned char *row,unsigned left,unsigned char *output)
+{
+    if (!left) { return true; }
+    uint64_t lba=(uint64_t)v->start+u32(row);
+    struct sha256 sum;sha256_init(&sum);
+    unsigned char data[512],digest[32];
+    while (left) {
+        if (!scan_read(v,report,lba++,data)) { return false; }
+        unsigned used=left<512 ? left : 512;
+        if (!zeros(data+used,512-used)) { return false; }
+        sha256_update(&sum,data,used);
+        if (output) { copy(output,data,used);output+=used; }
+        left-=used;
+    }
+    sha256_final(&sum,digest);
+    return equal(digest,row+4,sizeof(digest));
+}
 static struct persist_bank_report scan_extents(const struct persist_volume *v,unsigned bank,
     unsigned char header[512],struct extent_index *index)
 {
@@ -157,25 +176,78 @@ static struct persist_bank_report scan_extents(const struct persist_volume *v,un
     }
     if (!checksum(raw,sizeof(*index),header+32) || !valid_directory(v,index->directory) || !valid_extents(v,index)) { return out; }
     for (unsigned i=0;i<v->files;++i) {
-        unsigned left=u32(index->directory+i*64+32);
-        if (!left) { continue; }
-        const unsigned char *row=index->extents+i*64;
-        uint64_t lba=(uint64_t)v->start+u32(row);
-        struct sha256 sum;sha256_init(&sum);
-        unsigned char data[512],digest[32];
-        while (left) {
-            if (!scan_read(v,&out,lba++,data)) { return out; }
-            unsigned used=left<512 ? left : 512;
-            if (!zeros(data+used,512-used)) { return out; }
-            sha256_update(&sum,data,used);left-=used;
-        }
-        sha256_final(&sum,digest);
-        if (!equal(digest,row+4,sizeof(digest))) { return out; }
+        unsigned length=u32(index->directory+i*64+32);
+        if (!verify_extent(v,&out,index->extents+i*64,length,NULL)) { return out; }
     }
     out.state=PERSIST_BANK_VALID;
     out.matches_mounted=bank==v->bank && out.generation==v->generation &&
         equal(index->directory,v->live,sizeof(index->directory)) && equal(index->extents,v->extents,sizeof(index->extents));
     return out;
+}
+static enum fs_result older_extents(const struct persist_volume *v,struct extent_index *index,
+    uint64_t *generation)
+{
+    unsigned char header[512];
+    struct persist_bank_report report=scan_extents(v,v->bank^1,header,index);
+    if (report.state==PERSIST_BANK_UNREADABLE) { return FS_IO; }
+    if (report.state==PERSIST_BANK_BAD_HEADER || report.state==PERSIST_BANK_BAD_PAYLOAD) { return FS_CORRUPT; }
+    if (report.state!=PERSIST_BANK_VALID || report.generation>=v->generation) { return FS_NOT_FOUND; }
+    *generation=report.generation;
+    return FS_OK;
+}
+
+static enum fs_result history_path(const char *path)
+{
+    if (!path || *path!='/') { return FS_INVALID_PATH; }
+    unsigned length=0;
+    while (length<RAMFS_PATH_MAX-5 && path[length]) { ++length; }
+    if (length==RAMFS_PATH_MAX-5) { return FS_PATH_TOO_LONG; }
+    const char *part=path+1;
+    while (*part) {
+        char key[32];unsigned n=0;
+        while (part[n] && part[n]!='/') {
+            if (n==sizeof(key)-1) { return FS_NAME_TOO_LONG; }
+            key[n]=part[n];++n;
+        }
+        key[n]=0;
+        if (!name_ok(key) || (part[n] && !part[n+1])) { return FS_INVALID_PATH; }
+        part+=n+(part[n]!=0);
+    }
+    return FS_OK;
+}
+
+enum fs_result persist_history(struct persist_volume *v,const char *path,struct persist_path_history *report)
+{
+    if (!v || !report) { return FS_BAD_ARGUMENT; }
+    if (!v->ready) { return FS_NOT_READY; }
+    if (v->version!=5) { return FS_UNSUPPORTED; }
+    if (v->busy) { return FS_BUSY; }
+    enum fs_result result=history_path(path);
+    if (result!=FS_OK) { return result; }
+    struct persist_path_history out={0};
+    out.snapshots.mounted_bank=v->bank;
+    out.snapshots.mounted_generation=v->generation;
+    v->busy=true;
+    for (unsigned bank=0;bank<2;++bank) {
+        struct extent_index index;unsigned char header[512];
+        struct persist_bank_report scan=scan_extents(v,bank,header,&index);
+        out.snapshots.banks[bank]=scan;
+        if (bank==v->bank ? !scan.matches_mounted :
+            scan.state!=PERSIST_BANK_VALID || scan.generation>=v->generation) { continue; }
+        int slot;
+        if (lookup(v,index.directory,path,&slot)!=FS_OK) { continue; }
+        struct persist_path_entry *entry=&out.entries[bank];
+        if (slot<0 || is_dir(v,index.directory+(unsigned)slot*64)) {
+            entry->kind=PERSIST_PATH_DIRECTORY;continue;
+        }
+        entry->kind=PERSIST_PATH_FILE;
+        entry->bytes=u32(index.directory+(unsigned)slot*64+32);
+        if (entry->bytes) { copy(entry->digest,index.extents+(unsigned)slot*64+4,32); }
+        else { hash("",0,entry->digest); }
+    }
+    v->busy=false;
+    *report=out;
+    return FS_OK;
 }
 
 static enum fs_result mount_extents(struct persist_volume *v)
@@ -504,16 +576,75 @@ io:
      * before further writes. Mount will select a complete durable generation. */
     v->failed=true;stage_clear(v);return FS_IO;
 }
+static void stage_regular(struct persist_volume *v,unsigned slot,const char *name,unsigned parent,unsigned bytes)
+{
+    stage_begin(v);
+    v->staged_slot=slot;
+    unsigned char *entry=v->staged_directory+slot*64;
+    zero(entry,64);
+    for (unsigned i=0;name[i];++i) { entry[i]=(unsigned char)name[i]; }
+    put32(entry+32,bytes);
+    if (v->version>=3) { put32(entry+36,1);put32(entry+40,parent); }
+}
 enum fs_result persist_write(struct persist_volume *v,const char *path,const void *data,size_t length,bool touch)
 {
     if (!v || (length && !data)) { return FS_BAD_ARGUMENT; }if (!v->ready) { return FS_NOT_READY; }if (v->failed) { return FS_IO; }if (v->busy) { return FS_BUSY; }
     if (length>v->file_bytes) { return FS_FILE_TOO_LARGE; }char key[32]={0};unsigned parent;enum fs_result r=target_parent(v,path,&parent,key);if (r!=FS_OK) { return r; }
     int id=find(v,v->live,key,parent);if (id>=0 && is_dir(v,v->live+(unsigned)id*64)) { return FS_IS_DIR; }if (id>=0 && touch) { return FS_OK; }
     if (id<0) { for (unsigned i=0;i<v->files;++i) { if (!v->live[i*64]) { id=(int)i;break; } } }if (id<0) { return FS_NO_NODES; }
-    v->busy=true;stage_begin(v);v->staged_slot=(unsigned)id;unsigned char *e=v->staged_directory+id*64,*bytes=v->staged_file;
-    zero(e,64);unsigned n=0;while (key[n]) { e[n]=(unsigned char)key[n];++n; }put32(e+32,(uint32_t)length);zero(bytes,v->file_bytes);copy(bytes,data,length);
-    if (v->version>=3) { put32(e+36,1);put32(e+40,parent); }
+    v->busy=true;stage_regular(v,(unsigned)id,key,parent,(unsigned)length);copy(v->staged_file,data,length);
     r=commit(v);v->busy=false;return r;
+}
+
+enum fs_result persist_recover_previous(struct persist_volume *v,const char *source,const char *destination,
+    uint64_t *generation)
+{
+    if (!v || !generation) { return FS_BAD_ARGUMENT; }
+    if (!v->ready) { return FS_NOT_READY; }
+    if (v->version!=5) { return FS_UNSUPPORTED; }
+    if (v->failed) { return FS_IO; }
+    if (v->busy) { return FS_BUSY; }
+    enum fs_result result=history_path(source);
+    if (result!=FS_OK) { return result; }
+    result=history_path(destination);
+    if (result!=FS_OK) { return result; }
+    char key[32];unsigned parent;
+    result=target_parent(v,destination,&parent,key);
+    if (result!=FS_OK) { return result; }
+    if (find(v,v->live,key,parent)>=0) { return FS_EXISTS; }
+    unsigned slot=0;
+    while (slot<v->files && v->live[slot*64]) { ++slot; }
+    if (slot==v->files) { return FS_NO_NODES; }
+
+    v->busy=true;
+    struct extent_index index;unsigned char header[512];
+    struct persist_bank_report mounted=scan_extents(v,v->bank,header,&index);
+    if (!mounted.matches_mounted) {
+        result=mounted.state==PERSIST_BANK_UNREADABLE ? FS_IO : FS_CORRUPT;
+        goto done;
+    }
+    uint64_t recovered;
+    result=older_extents(v,&index,&recovered);
+    if (result!=FS_OK) { goto done; }
+    int old;
+    result=lookup(v,index.directory,source,&old);
+    if (result!=FS_OK) { goto done; }
+    if (old<0 || is_dir(v,index.directory+(unsigned)old*64)) { result=FS_IS_DIR;goto done; }
+    unsigned bytes=u32(index.directory+(unsigned)old*64+32);
+    stage_regular(v,slot,key,parent,bytes);
+    /* Recovery can reuse sectors from the older bank. Stage and recheck the
+     * complete file before the existing commit invalidates that bank. */
+    struct persist_bank_report read={0};
+    if (!verify_extent(v,&read,index.extents+(unsigned)old*64,bytes,v->staged_file)) {
+        stage_clear(v);
+        result=read.state==PERSIST_BANK_UNREADABLE ? FS_IO : FS_CORRUPT;
+        goto done;
+    }
+    result=commit(v);
+    if (result==FS_OK) { *generation=recovered; }
+done:
+    v->busy=false;
+    return result;
 }
 enum fs_result persist_remove(struct persist_volume *v,const char *path,bool directory)
 {
@@ -606,11 +737,9 @@ static enum fs_result export_extents(struct persist_volume *v,bool previous,pers
     struct extent_index other;
     unsigned char h[512]={0},digest[32];
     if (previous) {
-        struct persist_bank_report report=scan_extents(v,v->bank^1,h,&other);
-        if (report.state==PERSIST_BANK_UNREADABLE) { return FS_IO; }
-        if (report.state==PERSIST_BANK_BAD_HEADER || report.state==PERSIST_BANK_BAD_PAYLOAD) { return FS_CORRUPT; }
-        if (report.state!=PERSIST_BANK_VALID || report.generation>=v->generation) { return FS_NOT_FOUND; }
-        directory=other.directory;extents=other.extents;generation=report.generation;zero(h,sizeof(h));
+        enum fs_result result=older_extents(v,&other,&generation);
+        if (result!=FS_OK) { return result; }
+        directory=other.directory;extents=other.extents;
     }
     enum fs_result result=extent_archive_pass(v,directory,extents,NULL,NULL,h+32);
     if (result!=FS_OK) { return result; }

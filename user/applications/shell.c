@@ -228,9 +228,10 @@ static bool history_recall(const struct shell_history *history,const char *text,
 }
 enum stream_syntax { STREAM_PLAIN,STREAM_VALID,STREAM_INVALID };
 struct stream_command {
-    char stages[2][SHELL_LINE_BYTES];
+    char stages[UOS_PIPE_STAGES][SHELL_LINE_BYTES];
     char input[SHELL_LINE_BYTES],output[SHELL_LINE_BYTES];
-    bool piping,append;
+    unsigned count;
+    bool append;
 };
 
 /* Operators are recognized only in the original text. Leave quote removal
@@ -250,20 +251,20 @@ static const char *stream_word_end(const char *p)
 
 static enum stream_syntax parse_stream(const char *p,struct stream_command *command)
 {
-    *command=(struct stream_command){0};
-    size_t used[2]={0};
+    *command=(struct stream_command){.count=1};
+    size_t used[UOS_PIPE_STAGES]={0};
     char *destination=0;
     bool operated=false;
     while (*p) {
         char c=*p;
         if (c==' ' || c=='\t') { ++p;continue; }
-        unsigned stage=command->piping;
+        unsigned stage=command->count-1;
         if (c=='|' || c=='<' || c=='>') {
             operated=true;
             if (destination) { return STREAM_INVALID; }
             if (c=='|') {
-                if (stage || !used[0] || command->output[0]) { return STREAM_INVALID; }
-                command->piping=true;
+                if (command->count==UOS_PIPE_STAGES || !used[stage] || command->output[0]) { return STREAM_INVALID; }
+                ++command->count;
             } else {
                 destination=c=='<' ? command->input : command->output;
                 if (*destination || (c=='<' && stage)) { return STREAM_INVALID; }
@@ -290,7 +291,7 @@ static enum stream_syntax parse_stream(const char *p,struct stream_command *comm
         }
     }
     if (!operated) { return STREAM_PLAIN; }
-    return destination || !used[0] || (command->piping && !used[1]) ? STREAM_INVALID : STREAM_VALID;
+    return destination || !used[command->count-1] ? STREAM_INVALID : STREAM_VALID;
 }
 
 static bool stream_path(const char *text,char *path,size_t capacity,uint64_t *status)
@@ -310,29 +311,30 @@ static bool stream_program(const struct app_args *args)
 
 static void execute_stream(struct shell_state *state,const struct stream_command *command)
 {
-    struct app_args left,right;
+    struct app_args args[UOS_PIPE_STAGES];
     struct uos_stdio io={0};
-    bool piping=command->piping;
+    bool piping=command->count>1;
     if ((piping && (state->jobs[0] || state->jobs[1])) || (state->jobs[0] && state->jobs[1])) {
         state->status=1;print("shell: use fg or stop first\n");return;
     }
-    if (!app_args_expand(command->stages[0],expand_value,&state->status,&left) ||
-        (piping && !app_args_expand(command->stages[1],expand_value,&state->status,&right)) ||
-        !stream_path(command->input,io.input,sizeof(io.input),&state->status) ||
+    if (!stream_path(command->input,io.input,sizeof(io.input),&state->status) ||
         !stream_path(command->output,io.output,sizeof(io.output),&state->status)) {
         state->status=2;print("shell: invalid arguments or redirection path\n");return;
     }
-    if (!stream_program(&left) || (piping && !stream_program(&right))) {
-        state->status=2;print("shell: use runnable programs with | < > >>\n");return;
-    }
-    if (program(&left) || (piping && program(&right))) {
-        state->status=127;print("shell: program not found\n");return;
+    for (unsigned i=0;i<command->count;++i) {
+        if (!app_args_expand(command->stages[i],expand_value,&state->status,&args[i])) {
+            state->status=2;print("shell: invalid arguments or redirection path\n");return;
+        }
+        if (!stream_program(&args[i])) {
+            state->status=2;print("shell: use runnable programs with | < > >>\n");return;
+        }
+        if (program(&args[i])) { state->status=127;print("shell: program not found\n");return; }
     }
     int64_t code;
     if (piping) {
-        code=command->append ? uos_pipeline_append(&left,&right,30,&io) : uos_pipeline(&left,&right,30,&io);
+        code=uos_pipe_chain(args,command->count,30,&io,command->append ? UOS_PIPE_APPEND : 0);
     } else {
-        int64_t pid=command->append ? uos_spawn_append(&left,30,&io) : uos_spawn_io(&left,30,&io);
+        int64_t pid=command->append ? uos_spawn_append(args,30,&io) : uos_spawn_io(args,30,&io);
         code=pid<0 ? pid : uos_wait((uint64_t)pid);
     }
     job_result(code,piping,&state->status);
@@ -448,7 +450,7 @@ static bool execute_line(struct shell_state *state,char *line)
             print("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nrun|exec PROGRAM [args]\nrunio IN|- OUT|- PROGRAM [args]\npipe PROGRAM [args] -- PROGRAM [args]\npipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]\n");
             print("bg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg [PID] | stop [PID] (two jobs, 1..30 seconds)\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\nsource [-e] PATH | lists with ; && ||\nsha256 PATH [expected-hex]\n$NAME ${NAME} $?; single quotes keep literals\n");
             print("Use exit for the kernel monitor (Wi-Fi commands and networktest).\n");
-            print("PROGRAM < IN > NEWOUT | PROGRAM >> OUT | two-stage pipes: LEFT | RIGHT\n");
+            print("PROGRAM < IN > NEWOUT | PROGRAM >> OUT | up to four pipeline stages\n");
             print("history [-c] | !! repeats last | !N repeats entry N\n");
         } else if ((kind==CMD_STATUS) && args.count==1) { number(state->status);print("\n"); }
         else if (kind==CMD_HISTORY) { history_command(state,&args); }

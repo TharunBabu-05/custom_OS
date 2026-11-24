@@ -1,5 +1,7 @@
 # OurOS implementation and verification plan
 
+[Core OS milestones](remaining-os-roadmap.md#core-os-milestones) · [Other open work](remaining-os-roadmap.md#other-open-work)
+
 **Current platform milestone on 2026-11-24.** The Pi booted from USB,
 mounted extents v5 and passed the binary shell tools. Phase 11 stays
 deferred until an HDMI cable is available. The Pi verified the corrected

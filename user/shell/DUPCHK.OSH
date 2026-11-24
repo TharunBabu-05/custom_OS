@@ -1,0 +1,5 @@
+# Run with source -e /boot/DUPCHK.OSH
+/boot/FDDUP.ELF > /tmp/dupchk.log
+cat /tmp/dupchk.log
+rm /tmp/dupchk.log
+echo "PASS: descriptor lifecycle and redirected exec."

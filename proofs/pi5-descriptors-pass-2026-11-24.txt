@@ -1,0 +1,25 @@
+Raspberry Pi 5 serial log excerpts supplied on 2026-11-24.
+
+user:/$ source -e /boot/DUPCHK.OSH
+App load failed: path not found: /boot/NONE.ELF
+child exit=0
+PASS: descriptor duplication, rights, append control, close-on-exec and inventory.
+
+PASS: descriptor lifecycle and redirected exec.
+user:/$ exit
+EL0 processes: limit=3; private pages; timer preempts users only; runs=1 switches=4 preemptions=2 yields=0 idle_waits=991 terminal=yes budget_seconds=unlimited children_started=1 children_reaped=1 last_child_code=0 cleanup=restored
+App resources restored; monitor ready.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> uartinfo
+PL011 FIFO=on rx_bytes=50 framing=0 parity=0 breaks=0 overruns=0
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Unknown command. Type help.
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty

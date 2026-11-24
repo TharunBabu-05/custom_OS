@@ -106,7 +106,8 @@ static void dynamic_pages(void)
 {
     seed();unsigned base=count;
     for (unsigned i=0;i<USER_HEAP_PAGES;++i) { maps[count++]=(struct user_mapping){USER_HEAP_BASE+i*4096ULL,0x42000000+i*4096ULL,USER_PAGE_RW}; }
-    assert(count==USER_MAPPING_LIMIT && user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_OK);
+    assert(count==USER_IMAGE_PAGES+USER_STACK_PAGES+USER_HEAP_PAGES);
+    assert(user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_OK);
     struct user_translation t;
     for (unsigned i=base;i<count;++i) {
         assert(user_mmu_lookup(&table,maps[i].virtual_address+4095,&t) && t.physical==maps[i].physical+4095 && t.kind==USER_PAGE_RW);
@@ -120,4 +121,22 @@ static void dynamic_pages(void)
     assert(!user_mmu_lookup(&table,USER_HEAP_BASE,&t));
     puts("PASS: all 16 dynamic heap pages have exact private RW/PXN/UXN flags; heap guards, executable/readonly heap mappings and malformed executable heap descriptors refused.");
 }
-int main(void) { layout();invalid();corruption();staged_replacement();dynamic_pages();return 0; }
+static void vm_pages(void)
+{
+    seed();unsigned base=count;
+    for (unsigned i=0;i<USER_VM_MAPPED_PAGES;++i) {
+        maps[count++]=(struct user_mapping){USER_VM_BASE+i*4096ULL,0x43000000+i*4096ULL,i&1 ? USER_PAGE_RO : USER_PAGE_RW};
+    }
+    assert(user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_OK);
+    struct user_translation t;
+    for (unsigned i=base;i<count;++i) {
+        assert(user_mmu_lookup(&table,maps[i].virtual_address,&t));
+        assert(t.descriptor==(maps[i].physical|wanted(maps[i].kind)));
+    }
+    assert(!user_mmu_lookup(&table,USER_VM_BASE-1,&t) &&
+           !user_mmu_lookup(&table,USER_VM_BASE+USER_VM_MAPPED_PAGES*4096ULL,&t));
+    maps[base].kind=USER_PAGE_RX;
+    assert(user_mmu_build(&table,0x100000,root,maps,count)==USER_MMU_PERMISSION);
+    puts("PASS: 48 VM pages preserve read/write protection and refuse executable mappings.");
+}
+int main(void) { layout();invalid();corruption();staged_replacement();dynamic_pages();vm_pages();return 0; }

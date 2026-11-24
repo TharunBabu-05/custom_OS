@@ -1,0 +1,105 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Starting serial shell from /boot/SHELL.ELF
+Firmware boot source: USB mass storage.
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit checking usb0
+storageinit checking usb1
+storageinit selected usb1 port=1 (USB2 BOT).
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+Recovery rings: clears=0 command_wraps=0 control_wraps=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ appterm 70 /boot/CORECHK.ELF
+shell: unknown command or arguments; type help
+user:/$ exit\
+shell: invalid quoting, expansion or argument bounds (command list)
+user:/$ exit
+EL0 processes: limit=5; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=797 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=28 dispatches=10 sleeps=0 wakes=0 input_lines=3 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> appterm 70 /boot/CORECHK.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=70
+EL0 fault test: reading unmapped address zero.
+EL0 timeout test: infinite user loop.
+App load failed: path not found: /boot/NONE.ELF
+PASS: core IPC, descriptor transfer, blocking, signals, fault reports and virtual memory.
+EL0 processes: limit=5; private pages; timer preempts users only; runs=2 switches=130 preemptions=58 yields=0 idle_waits=60 terminal=yes budget_seconds=70 children_started=7 children_reaped=7 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/CORECHK.ELF state=exited code=0 syscalls=178 dispatches=81 sleeps=58 wakes=58 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+> svc start /boot/CORECHK.ELF service
+Service started.
+> svc
+Service enabled=yes active=yes launches=2 restarts=1 last_reason=1 last_code=31 cleanup=ok pid=12 path=/boot/CORECHK.ELF
+> cat /tmp/core30-beat
+22
+> appshell
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ source -e /boot/PIPE29.OSH
+pipeline exit=0
+56787e142c356f0af5142cc2e695559f923cfa4afe2b1f306d78a1e7fbab7da3  /tmp/pipe29/hash
+a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654
+
+PASS: four-stage pipeline preserved all 16384 bytes.
+user:/$ exit
+EL0 processes: limit=5; private pages; timer preempts users only; runs=3 switches=83 preemptions=14 yields=0 idle_waits=907 terminal=yes budget_seconds=unlimited children_started=4 children_reaped=4 last_child_code=0 cleanup=restored
+Pipelines: started=1 completed=1 written=49152 read=49152 reader_waits=30 writer_waits=28 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=50 dispatches=16 sleeps=0 wakes=0 input_lines=2 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+> svc
+Service enabled=yes active=yes launches=2 restarts=1 last_reason=1 last_code=31 cleanup=ok pid=12 path=/boot/CORECHK.ELF
+> cat /tmp/core30-beat
+63
+> svc stop
+Service enabled=no active=no launches=2 restarts=1 last_reason=4 last_code=143 cleanup=ok
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> rm /tmp/core30-started
+> rm /tmp/core30-beat
+> uartinfo
+PL011 FIFO=on rx_bytes=268 framing=0 parity=0 breaks=0 overruns=0
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x000000000013a000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+>

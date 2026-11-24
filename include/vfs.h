@@ -23,6 +23,8 @@ void vfs_data_info(void);
 bool vfs_data_failed(void);
 bool vfs_data_mounted(void);
 enum fs_result vfs_data_check(struct persist_report *);
+enum fs_result vfs_data_history(const char *,struct persist_path_history *);
+enum fs_result vfs_data_recover(const char *source,const char *destination,uint64_t *generation);
 enum fs_result vfs_data_export(persist_emit,void *);
 enum fs_result vfs_data_export_previous(persist_emit,void *);
 enum fs_result vfs_data_restore(const char *boot_path);

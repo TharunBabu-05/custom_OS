@@ -75,13 +75,13 @@ The current serial monitor has the tighter limit of **127 characters for the
 whole command line**, including `appexec` and spaces; overlong monitor lines
 are discarded. The 511-byte limit belongs to the underlying launch parser.
 
-`apprun <ELF> [ELF2] [ELF3]` still runs a concurrent batch of up to three
+`apprun <ELF> [ELF2] [ELF3] [ELF4] [ELF5]` runs a concurrent batch of up to five
 programs. Each receives its executable path as its sole argument. Working
 directories are copied from the monitor at launch, then private to each process;
 CHDIR never changes the monitor's cwd. Relative OPEN/STAT/READDIR use that cwd.
 argv[0] preserves the supplied executable spelling for `appexec`; the loaded
-path shown by `appinfo` is canonical. Processes do not yet spawn or wait for
-other processes, read terminal input, or run in the background.
+path shown by `appinfo` is canonical. The interactive shell supports child
+processes, terminal input and bounded jobs. [Shell workflows](shell-workflows.md)
 
 The tiny runtime keeps `app_main(void)`. Programs retrieve arguments through
 syscalls rather than a C `main(argc, argv)` entry stack. Existing ABI calls

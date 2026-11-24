@@ -139,6 +139,96 @@ static void capacity(void)
     assert(persist_read(&reopened,"/f2",32767,cross,sizeof(cross),&n)==FS_OK && n==1 && *cross==fixture[32767]);
     puts("PASS: 32 nodes, 992 KiB file contents, pool exhaustion before writes, extent reuse, 32 KiB readback and metadata-only publish");
 }
+static void path_history(void)
+{
+    blank();
+    struct persist_path_history history;
+    assert(persist_history(&volume,"/regular",&history)==FS_OK);
+    assert(history.snapshots.banks[1].state==PERSIST_BANK_EMPTY &&
+           history.entries[0].kind==PERSIST_PATH_MISSING);
+    assert(persist_history(&volume,"/missing/../regular",&history)==FS_INVALID_PATH);
+    for (unsigned i=0;i<sizeof(fixture);++i) { fixture[i]=(unsigned char)(i*13+5); }
+    assert(persist_mkdir(&volume,"/dir")==FS_OK);
+    assert(persist_write(&volume,"/dir/regular",fixture,sizeof(fixture),false)==FS_OK);
+    uint64_t older=volume.generation;
+    assert(persist_write(&volume,"/dir/regular","new",3,false)==FS_OK);
+    unsigned before=writes;
+    unsigned mounted=volume.bank,previous=mounted^1;
+    assert(persist_history(&volume,"/dir/regular",&history)==FS_OK);
+    assert(writes==before && history.snapshots.banks[mounted].matches_mounted &&
+           history.snapshots.banks[previous].generation==older);
+    unsigned char digest[32];
+    sha(fixture,sizeof(fixture),digest);
+    assert(history.entries[mounted].kind==PERSIST_PATH_FILE && history.entries[mounted].bytes==3);
+    assert(history.entries[previous].kind==PERSIST_PATH_FILE && history.entries[previous].bytes==sizeof(fixture) &&
+           !memcmp(history.entries[previous].digest,digest,sizeof(digest)));
+
+    uint64_t recovered=0;
+    assert(persist_recover_previous(&volume,"/dir/regular","/dir/regular",&recovered)==FS_EXISTS);
+    assert(writes==before && !recovered);
+    unsigned previous_index=(2+previous*9)*512;
+    unsigned previous_extent=get(cache+previous_index+DATA_V5_DIRECTORY_BYTES+64)*512;
+    assert(previous_extent>=DATA_V5_FIRST_EXTENT*512 && previous_extent<sizeof(cache));
+    cache[previous_extent]^=1;
+    assert(persist_history(&volume,"/dir/regular",&history)==FS_OK);
+    assert(history.snapshots.banks[previous].state==PERSIST_BANK_BAD_PAYLOAD);
+    assert(persist_recover_previous(&volume,"/dir/regular","/dir/recovered",&recovered)==FS_CORRUPT);
+    assert(writes==before && !recovered);
+    cache[previous_extent]^=1;
+    unsigned mounted_index=(2+mounted*9)*512;
+    unsigned mounted_extent=get(cache+mounted_index+DATA_V5_DIRECTORY_BYTES+64)*512;
+    assert(mounted_extent>=DATA_V5_FIRST_EXTENT*512 && mounted_extent<sizeof(cache) && mounted_extent!=previous_extent);
+    cache[mounted_extent]^=1;
+    assert(persist_recover_previous(&volume,"/dir/regular","/dir/recovered",&recovered)==FS_CORRUPT);
+    assert(writes==before && !recovered);
+    cache[mounted_extent]^=1;
+    assert(persist_recover_previous(&volume,"/dir/regular","/dir/recovered",&recovered)==FS_OK && recovered==older);
+    assert(persist_mount(&reopened,&device)==FS_OK);
+    value(&reopened,"/dir/regular","new",3);
+    value(&reopened,"/dir/recovered",fixture,sizeof(fixture));
+
+    blank();
+    assert(persist_write(&volume,"/empty",NULL,0,false)==FS_OK);
+    assert(persist_remove(&volume,"/empty",false)==FS_OK);
+    assert(persist_history(&volume,"/empty",&history)==FS_OK);
+    sha("",0,digest);
+    assert(history.entries[volume.bank].kind==PERSIST_PATH_MISSING &&
+           history.entries[volume.bank^1].kind==PERSIST_PATH_FILE && !history.entries[volume.bank^1].bytes &&
+           !memcmp(history.entries[volume.bank^1].digest,digest,sizeof(digest)));
+    assert(persist_recover_previous(&volume,"/empty","/recovered",&recovered)==FS_OK);
+    value(&volume,"/recovered","",0);
+    puts("PASS: v5 path history, older-file digest, guarded 32 KiB and empty recovery, and cold remount");
+}
+
+static void recovery_crashes(void)
+{
+    blank();
+    assert(persist_write(&volume,"/regular","older",5,false)==FS_OK);
+    assert(persist_write(&volume,"/regular","current",7,false)==FS_OK);
+    memcpy(baseline,disk,sizeof(disk));
+    uint64_t recovered=0;
+    event=0;fault=0;armed=true;
+    assert(persist_recover_previous(&volume,"/regular","/recovered",&recovered)==FS_OK);
+    unsigned operations=event;
+    assert(operations>20);
+    for (unsigned mode=0;mode<3;++mode) {
+        for (unsigned boundary=1;boundary<=operations;++boundary) {
+            armed=false;memcpy(disk,baseline,sizeof(disk));memcpy(cache,disk,sizeof(cache));
+            assert(persist_mount(&volume,&device)==FS_OK);
+            fault=boundary;event=0;armed=true;torn=mode==1;flush_commits=mode==2;recovered=0;
+            assert(persist_recover_previous(&volume,"/regular","/recovered",&recovered)==FS_IO && !recovered);
+            armed=false;memcpy(cache,disk,sizeof(cache));
+            assert(persist_mount(&reopened,&device)==FS_OK);
+            value(&reopened,"/regular","current",7);
+            if (reopened.generation==4) { value(&reopened,"/recovered","older",5); }
+            else {
+                bool directory=false;
+                assert(reopened.generation==3 && persist_stat(&reopened,"/recovered",&directory)==FS_NOT_FOUND);
+            }
+        }
+    }
+    puts("PASS: targeted recovery survives all injected read, write, torn-write and flush cut points");
+}
 struct input { size_t length,emitted;bool mutate; };
 static bool archive_read(uint32_t offset,void *p,size_t n,void *context)
 {
@@ -205,4 +295,4 @@ static void backups(void)
     value(&volume,"/nested/file",fixture,16384);
     puts("PASS: explicit v4 archive migration, no writes for malformed archive, v5 previous export/reimport, and changed archive refusal before publish");
 }
-int main(void) { crashes();metadata();capacity();backups();return 0; }
+int main(void) { crashes();metadata();capacity();backups();path_history();recovery_crashes();return 0; }

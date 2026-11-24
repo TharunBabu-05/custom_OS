@@ -14,6 +14,55 @@ storage, shell and networking evidence.
 The [UART-first platform driver plan](platform-driver-plan.md) tracks
 hardware discovery, driver ownership and extra devices for physical tests.
 
+## Core OS milestones
+
+Phase 29 and Phase 30 completed the planned Core OS milestones.
+Both QEMU profiles and the Raspberry Pi 5 acceptance runs passed.
+
+| Milestone | Implementation and acceptance |
+| --- | --- |
+| Process capacity and pipelines | Phase 29 implements five foreground EL0 slots, four-stage pipelines, and a five-entry process snapshot. Pi verification passed all three pipe rings, process teardown, and recovery of page and handle resources. |
+| Descriptor passing and IPC | Phase 30 adds direct parent–child mailboxes and file-rights reduction. Pi checks cover queue limits, stale peers, close-on-exec, and queued descriptor cleanup. |
+| Blocking I/O | Phase 30 adds timed blocking sends and receives with backpressure, interruption, and peer shutdown. |
+| Background services | Phase 30 adds one supervised EL0 service that runs alongside foreground jobs and across shell sessions. The Pi check covers restart, heartbeat progress, and explicit shutdown. |
+| Signals and fault reports | Phase 30 adds parent-targeted signal delivery and structured stop records. The Pi check distinguishes signal termination, data aborts, and deadlines. |
+| Larger and shared virtual memory | Phase 30 adds larger anonymous regions and explicit permission-limited child mappings, with non-executable pages and owner cleanup. |
+
+[Phase 29 Pi capture](../proofs/pi5-pipe-chain-2026-11-24.txt) · [Phase 30 Pi capture](../proofs/pi5-core-os-2026-11-24.txt)
+
+## Other open work
+
+This check uses the November 22 implementation plan, its later platform
+increments, and the recorded Pi captures. The Phase 27 file-handle test
+passed on Pi using RAMFS. Phase 28 passed its Pi descriptor and exec run.
+[Implementation plan](implementation-plan.md) · [Pi proof index](../proofs/README.md)
+
+### Core OS and storage
+
+| Area | Open tasks |
+| --- | --- |
+| Processes and ABI | Deeper process trees, scheduling fairness and priorities remain part of the longer-term process work. |
+| Memory and concurrency | Broader hardware lifecycle and concurrent allocation checks, file-backed mappings, and out-of-memory policy. Define IRQ-safe locking, cache maintenance for DMA, per-core stacks, secondary-core startup, interrupt affinity, and TLB invalidation. Verify the exclusive atomic operations on a cacheable Pi mapping. |
+| Data and recovery | Phase 31 adds inspection and single-file recovery from the previous v5 generation. Pi acceptance covers retaining both copies across reboot. Additional work includes Pi v4-to-v5 migration, v5 append retention, interrupted writes on spare media, and the backup/export/restore workflow. [Phase 31](data-v5.md#phase-31-file-history-and-recovery) |
+| Apps and distribution | Verify named-app install, upgrade, rollback, and uninstall on the Pi. Add a multi-file package format, manifests, dependency and version handling, authenticated repositories, transactions, and a general installer with backup and layout handling. Local pinned TLS and verified ELF download already have Pi evidence. |
+| Networking | Test Wi-Fi DHCP broadcast rebinding, AP group-key rotation, same-boot manual restart after cleanup, and intentional UDP timeout and recovery. Add wired DHCP and route selection across Wi-Fi and Ethernet, and verify link recovery and interface changes. Direct wired ARP, ICMP, UDP, and TCP have passed on the Pi. |
+| Platform maturity | Broaden the libc and ELF/toolchain support, process credentials and filesystem permissions, update and boot trust, CI coverage, driver soak tests, and board bring-up beyond the Pi 5 and QEMU profiles. |
+
+### Hardware and local UI
+
+| Plan phase | Open tasks |
+| --- | --- |
+| 11 and 22 · Display and media | Verify the HDMI pattern, scroll, and UART mirror once a cable is available. Extend local terminal input and rendering. Add playback and capture for a selected audio device, camera capture, DSI scanout, and GPU integration as hardware becomes available. |
+| 13–14 · Bus and IRQ | Extend driver binding and clock/reset/regulator ownership. Complete RP1 endpoint MSI-X mapping and live IRQ delivery, and test DMA coherency with caches enabled. |
+| 15 · Header buses | Repeat the wired GPIO loopback with the series resistor. Add GPIO edge delivery, pinmux, extra UART loopback, and device-backed I²C, SPI, PWM, and PIO tests. |
+| 16 · USB | Extend the verified direct-port boot-keyboard report to shell input. Add detach/reconnect acceptance, mouse/report support, hubs, and USB3/UAS. |
+| 17 · SD and Bluetooth | Extend the verified read-only microSD path with removal/reinsertion tests, full cold initialization, and write/flush checks on a spare card. Add Bluetooth HCI discovery and controller readback. |
+| 19 · External PCIe | Train the link with an attached endpoint, enumerate it, allocate BARs, confirm DMA mapping, and implement NVMe discovery and read-only queues before testing writes on spare storage. |
+| 20 · RTC and power | Verify battery-backed RTC retention, implement and test alarm programming and wake, and add watchdog and fan controls with ownership and thermal checks. |
+
+The sections below retain the original milestones and detail the
+subsystem foundations for those follow-up tasks.
+
 Remaining work extends these foundations. It does not restart interrupts,
 multitasking or writable storage from zero. Each table below separates what
 exists from the missing capability. A passing same-boot file test is not yet
@@ -35,10 +84,10 @@ jobs, process trees and indefinite services are still work.
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Scheduling | Cooperative EL1 tasks and preempted EL0. A parent can own two children with independent wait and cancellation. | Pi two-job checks, deeper process trees, blocking I/O, priorities, fairness and indefinite services |
-| Process memory | Private image/stack pages, kernel-only mappings, W^X, bounded dynamic RW/NX pages with quota/rollback/cleanup; Pi page/byte allocator examples pass | Broader Pi lifecycle/concurrent checks, larger VM, shared/file mappings, copy-on-write if needed and broader OOM policy |
-| Exceptions | Kernel diagnostics and new contained EL0 faults/timeouts | Rich per-process reporting, debugging, signals or another application fault policy |
-| System calls | Checked files/console/time/args/cwd/sleep/mutations/spawn/wait/file streams; new two-stage PIPE_RUN | ABI evolution, general descriptors/IPC, longer pipes, sockets and broader blocking I/O |
+| Scheduling | Cooperative EL1 tasks, five foreground EL0 slots, and one Pi-verified supervised service slot. A parent can own two ordinary children or launch a four-stage pipeline. | Pi two-job checks, deeper process trees, service dependencies, priorities and fairness |
+| Process memory | Private image and stack pages, W^X, bounded heap pages and larger anonymous regions with explicit read-only or read/write sharing | Broader Pi lifecycle checks, file-backed mappings, copy-on-write if needed, and OOM policy |
+| Exceptions | Contained EL0 faults and deadlines, targeted signals, and structured stop records | Debugger integration and extended signal policies |
+| System calls | Checked file, terminal, process, and socket I/O, bounded blocking IPC, and rights-reducing control of file handles | General IPC endpoints across process trees and asynchronous storage |
 | Executables | Static AArch64 ELF subset and compact runtime. The current shell adds command lists and bounded text scripts. [Shell workflows](shell-workflows.md) | Pi broader exec/update validation, stored-shell persistence, larger VM and broader toolchain tests |
 | Concurrency | Single active CPU; syscalls/drivers complete synchronously | Preemptive kernel synchronization, IRQ-safe driver queues, SMP startup/locking and multicore scheduling |
 

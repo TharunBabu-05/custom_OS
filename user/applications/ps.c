@@ -17,6 +17,8 @@ static const char *state(unsigned s)
     case UOS_PROCESS_INPUT:return "input";case UOS_PROCESS_WAIT_CHILD:return "wait-child";case UOS_PROCESS_PIPE_READ:return "pipe-read";
     case UOS_PROCESS_PIPE_WRITE:return "pipe-write";case UOS_PROCESS_EXITED:return "exited";case UOS_PROCESS_FAULTED:return "faulted";
     case UOS_PROCESS_UDP_WAIT:return "udp-wait";
+    case UOS_PROCESS_IPC_SEND:return "ipc-send";case UOS_PROCESS_IPC_RECV:return "ipc-recv";
+    case UOS_PROCESS_SIGNAL_WAIT:return "signal-wait";
     case UOS_PROCESS_TIMEOUT:return "timeout";case UOS_PROCESS_CANCELLED:return "cancelled";default:return "invalid";
     }
 }
@@ -26,7 +28,7 @@ static int valid(const struct uos_process_table *t)
     for (unsigned i=0;i<UOS_PROCESS_MAX;++i) {
         const struct uos_process_entry *e=&t->entries[i];
         if (i>=t->count) { if (!filled(e,sizeof(*e),0)) { return 0; }continue; }
-        if (!e->pid || e->state<UOS_PROCESS_RUNNING || e->state>UOS_PROCESS_UDP_WAIT || e->flags&~3u || e->reserved || e->heap_pages>16) { return 0; }
+        if (!e->pid || e->state<UOS_PROCESS_RUNNING || e->state>UOS_PROCESS_SIGNAL_WAIT || e->flags&~3u || e->reserved || e->heap_pages>16) { return 0; }
         for (unsigned j=0;j<i;++j) { if (t->entries[j].pid==e->pid) { return 0; } }
         if (e->flags&UOS_PROCESS_SELF) { if (e->pid!=t->caller_pid || e->state!=UOS_PROCESS_RUNNING) { return 0; }++self; }
         else if (e->pid==t->caller_pid || e->state==UOS_PROCESS_RUNNING) { return 0; }
@@ -41,7 +43,11 @@ static const struct uos_process_entry *find(const struct uos_process_table *t,ui
 static int snapshot(struct uos_process_table *t) { return !uos_processes(t) && valid(t); }
 static int show(void)
 {
-    struct uos_process_table t;if (!snapshot(&t)) { uos_puts("ps: snapshot failed\n");return 1; }
+    struct uos_process_table_v2 t;
+    if (uos_processes_v2(&t) || t.version!=UOS_PROCESS_VERSION_V2 || !t.count ||
+        t.count>UOS_PROCESS_MAX_V2 || t.caller_pid!=(uint64_t)uos_getpid()) {
+        uos_puts("ps: snapshot failed\n");return 1;
+    }
     uos_puts("PID PPID STATE PAGES PATH\n");
     for (unsigned i=0;i<t.count;++i) {
         const struct uos_process_entry *e=&t.entries[i];number(e->pid);uos_puts(" ");number(e->parent_pid);uos_puts(" ");

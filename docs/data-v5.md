@@ -116,3 +116,73 @@ The verified ZIP is `build/rpi5-header/OurOS-Pi5-header-extents-v5-prototype.zip
 It includes the raw image, its SHA-256 digest, and the image manifest.
 Raw image SHA-256
 `c0034b9782888ee801866007325fb94c2a18ed47c0154a48abbb6fb45281b152`.
+
+## Phase 31 File history and recovery
+
+`datahistory /data/PATH` validates both metadata banks and their
+file extents. It reports each generation's path type and, for a file,
+its length and SHA-256. An invalid bank reports its status, with
+the path marked unavailable. A valid bank without the path reports
+it as missing. Use absolute, canonical paths within `/data`.
+
+`datarecover /data/OLD /data/NEW` copies a regular file from the older
+valid generation to a new path in the mounted generation. The
+destination's parent directory must exist. The kernel checks the
+mounted bank and stages the complete verified file before writing.
+Recovery uses the existing ordered commit and consumes the older
+bank. After it succeeds, the previously mounted generation becomes
+the older snapshot.
+
+Native tests pass for healthy and damaged banks, empty and 32 KiB
+files, and injected failures across every recovery I/O boundary.
+Both QEMU profiles verify the comparison, refusal to overwrite,
+full-size recovery, and matching hashes after a cold remount. The
+boot update passed preview, apply, readback and rollback on a copy
+of the Phase 30 boot directory. Its ZIP SHA-256 is
+`4399c62d3be3f59da615702a2dc5323e186ba72f17badd1326491b18d4e174e5`.
+
+Apply the boot update from Windows PowerShell with the existing v5
+boot partition mounted as `D:\`. A Phase 30 boot drive should show
+one changed file, `OUROS.IMG`.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase31-data-recovery-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive and boot the Pi. At `user:/$` enter these
+commands one at a time, waiting for each prompt. The directory
+should be new.
+
+```text
+mkdir /data/p31-demo
+write /data/p31-demo/live.txt older
+write /data/p31-demo/live.txt current
+exit
+```
+
+At the `>` monitor prompt, compare the two copies, recover the
+older one and check the commit.
+
+```text
+datahistory /data/p31-demo/live.txt
+datarecover /data/p31-demo/live.txt /data/p31-demo/recovered.txt
+datahistory /data/p31-demo/recovered.txt
+datacheck
+reboot
+```
+
+Before recovery, the mounted file should show 7 bytes and the
+previous file 5 bytes. After recovery, the recovered file's digest
+should match the earlier 5-byte version. After reboot, check both
+files and the mounted generation.
+
+```text
+cat /data/p31-demo/live.txt
+cat /data/p31-demo/recovered.txt
+exit
+datacheck
+```
+
+Expect `current`, `older`, and `matches_mounted=yes`.

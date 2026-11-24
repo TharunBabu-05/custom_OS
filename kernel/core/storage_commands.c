@@ -20,6 +20,10 @@ static bool have_wifi_mac;
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a; ++b; } return *a==*b; }
 static bool begins(const char *a,const char *b) { while (*b) { if (*a++!=*b++) { return false; } }return true; }
 static const char digits[]="0123456789abcdef";
+static void print_digest(const unsigned char digest[32])
+{
+    for (unsigned i=0;i<32;++i) { console_putc(digits[digest[i]>>4]);console_putc(digits[digest[i]&15]); }
+}
 struct export_stream { struct sha256 hash;unsigned offset; };
 static bool export_hex(const void *data,size_t bytes,void *context)
 {
@@ -74,6 +78,15 @@ bool storage_mount_data(void)
     vfs_data_info();
     return !vfs_data_failed();
 }
+static const char *bank_state(enum persist_bank_state state)
+{
+    static const char *const states[]={
+        [PERSIST_BANK_EMPTY]="empty", [PERSIST_BANK_BAD_HEADER]="invalid header",
+        [PERSIST_BANK_BAD_PAYLOAD]="invalid payload", [PERSIST_BANK_UNREADABLE]="unreadable",
+        [PERSIST_BANK_VALID]="valid"
+    };
+    return states[state];
+}
 static void data_check(void)
 {
     struct persist_report report;
@@ -84,14 +97,9 @@ static void data_check(void)
     }
     console_write("Mounted /data bank=");console_u64(report.mounted_bank);
     console_write(" generation=");console_u64(report.mounted_generation);console_write("\n");
-    static const char *const states[]={
-        [PERSIST_BANK_EMPTY]="empty", [PERSIST_BANK_BAD_HEADER]="invalid header",
-        [PERSIST_BANK_BAD_PAYLOAD]="invalid payload", [PERSIST_BANK_UNREADABLE]="unreadable",
-        [PERSIST_BANK_VALID]="valid"
-    };
     for (unsigned bank=0;bank<2;++bank) {
         const struct persist_bank_report *info=&report.banks[bank];
-        console_write("bank=");console_u64(bank);console_write(" status=");console_write(states[info->state]);
+        console_write("bank=");console_u64(bank);console_write(" status=");console_write(bank_state(info->state));
         if (info->generation) { console_write(" generation=");console_u64(info->generation); }
         if (info->state==PERSIST_BANK_UNREADABLE) {
             console_write(" lba=");console_u64(info->lba);console_write(" result=");console_write(block_error(info->io));
@@ -102,16 +110,80 @@ static void data_check(void)
         console_write("\n");
     }
 }
+static void path_version(const char *label,unsigned bank,const struct persist_path_history *history)
+{
+    const struct persist_bank_report *info=&history->snapshots.banks[bank];
+    const struct persist_path_entry *entry=&history->entries[bank];
+    bool mounted=bank==history->snapshots.mounted_bank;
+    bool available=mounted ? info->matches_mounted :
+        info->state==PERSIST_BANK_VALID && info->generation<history->snapshots.mounted_generation;
+    console_write(label);console_write(" bank=");console_u64(bank);
+    if (info->generation) { console_write(" generation=");console_u64(info->generation); }
+    console_write(" status=");console_write(bank_state(info->state));
+    if (!available) { console_write(" path=unavailable"); }
+    else if (entry->kind==PERSIST_PATH_FILE) {
+        console_write(" path=file bytes=");console_u64(entry->bytes);
+        console_write(" sha256=");print_digest(entry->digest);
+    } else { console_write(entry->kind==PERSIST_PATH_DIRECTORY ? " path=directory" : " path=missing"); }
+    console_write("\n");
+}
+static void data_history(const char *path)
+{
+    struct persist_path_history history;
+    enum fs_result result=vfs_data_history(path,&history);
+    if (result!=FS_OK) {
+        console_write("Data history unavailable: ");console_write(ramfs_error(result));console_write("\n");
+        return;
+    }
+    console_write("Data history ");console_write(path);console_write("\n");
+    path_version("mounted",history.snapshots.mounted_bank,&history);
+    path_version("previous",history.snapshots.mounted_bank^1,&history);
+}
+static bool data_word(const char **line,char out[RAMFS_PATH_MAX])
+{
+    while (**line==' ') { ++*line; }
+    unsigned n=0;
+    while (**line && **line!=' ') {
+        if (n==RAMFS_PATH_MAX-1) { return false; }
+        out[n++]=*(*line)++;
+    }
+    out[n]=0;
+    while (**line==' ') { ++*line; }
+    return n!=0;
+}
 bool storage_command(const char *line)
 {
     if (same(line,"datacheck")) { data_check();return true; }
+    if (same(line,"datahistory") || begins(line,"datahistory ")) {
+        const char *args=line+11;char path[RAMFS_PATH_MAX];
+        if (data_word(&args,path) && !*args) { data_history(path); }
+        else { console_write("Usage: datahistory /data/PATH (v5)\n"); }
+        return true;
+    }
+    if (same(line,"datarecover") || begins(line,"datarecover ")) {
+        const char *args=line+11;char from[RAMFS_PATH_MAX],to[RAMFS_PATH_MAX];
+        if (!data_word(&args,from) || !data_word(&args,to) || *args) {
+            console_write("Usage: datarecover /data/OLD /data/NEW (v5, new destination)\n");
+            return true;
+        }
+        uint64_t generation;
+        enum fs_result result=vfs_data_recover(from,to,&generation);
+        if (result==FS_OK) {
+            console_write("Recovered generation ");console_u64(generation);
+            console_write(" to ");console_write(to);console_write("\n");
+        } else {
+            console_write("Data recovery refused/failed: ");console_write(ramfs_error(result));console_write("\n");
+            if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); }
+        }
+        return true;
+    }
     bool previous=same(line,"dataexport previous");
     if (previous || same(line,"dataexport")) {
         struct export_stream stream={0};sha256_init(&stream.hash);
         enum fs_result r=previous ? vfs_data_export_previous(export_hex,&stream) : vfs_data_export(export_hex,&stream);
         if (r==FS_OK) {
             unsigned char hash[32];sha256_final(&stream.hash,hash);console_write("OUROS-DATA-SHA256 ");
-            for (unsigned i=0;i<32;++i) { console_putc(digits[hash[i]>>4]);console_putc(digits[hash[i]&15]); }
+            print_digest(hash);
             console_write("\n-----END OUROS DATA BACKUP V1-----\nData export complete; files unchanged.\n");
         } else if (previous && r==FS_NOT_FOUND) {
             console_write("No older committed snapshot available.\n");

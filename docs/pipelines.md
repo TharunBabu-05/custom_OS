@@ -1,5 +1,8 @@
 # Two-stage application pipes and clearer path errors
 
+Phase 29 extends `|` to four stages and keeps the explicit two-stage
+commands below. [Current pipeline behavior and Pi test](platform-driver-plan.md#phase-29-process-capacity-and-pipelines)
+
 **Update:** [Physical pipe acceptance now passes](../proofs/pi5-pipelines-2026-11-14.txt):
 PIPECHK, streamed digest, shell pipelines and resource cleanup. The `---` typo
 was corrected to `--`. Current images add [persistent capacity v2](data-v2.md)

@@ -104,6 +104,7 @@ are separate and still consume RAM when that column is zero.
 | Call | Interface | Result |
 | --- | --- | --- |
 | 40 PROCESSES | `uos_processes(struct uos_process_table *)` | One coherent 952-byte, version-1 snapshot of up to three entries |
+| 40 PROCESSES | `uos_processes_v2(struct uos_process_table_v2 *)` | One coherent 1576-byte, version-2 snapshot of up to five entries. The kernel selects the schema by buffer length. |
 | 41 CHILD_POLL | `uos_child_poll(pid, struct uos_child_info *)` | A 24-byte pending/completed child result, without sleeping or reaping |
 | 42 CHILD_CANCEL | `uos_child_cancel(pid)` | Mark a live owned child cancelled with code 130; preserve an already completed outcome |
 

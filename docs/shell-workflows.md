@@ -212,10 +212,10 @@ source -e /boot/TARCHK.OSH
 
 ## Pipe and redirection operators
 
-The shell supports a two-stage `LEFT | RIGHT` pipeline and file
+The shell supports pipelines of up to four programs and file
 redirection with `< INPUT`, `> NEWFILE`, and `>> OUT`. Use `>` to
 create a new output file and `>>` to append or create one. A pipeline
-can read a file into its first program and redirect its second
+can read a file into its first program and redirect its last
 program's output.
 Programs are resolved through `PATH`, including the executable
 versions of `echo`, `cat`, `ls`, and `pwd`.
@@ -255,8 +255,8 @@ background jobs. `jobs` lists both PIDs and their states. `fg PID` gives
 one child the terminal and waits for it. `stop PID` cancels and collects
 one child. With one job, `fg` and `stop` still accept no arguments.
 
-The shell and its children share the existing three process slots. One
-background job leaves room for a foreground command. A two-stage pipeline
+Ordinary shell job control allows two children. One background job
+leaves room for a foreground command. A pipeline
 or `exec` requires collecting the background jobs first. Completed jobs
 retain their result and slot until collected. Their original deadlines
 keep running. Exiting the shell cancels and collects any remaining children,

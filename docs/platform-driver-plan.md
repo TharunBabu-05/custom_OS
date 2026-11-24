@@ -2138,3 +2138,210 @@ test files under `/tmp` and removes them on success.
 Type `exit`, then run `fileinfo`, `uartinfo`, `resinfo`,
 `storagetest`, and `datacheck` at the kernel monitor. Expect
 `Open files: 0/16` and the usual storage checks.
+
+The Pi passed the extended file-handle checks and the shell append
+hash. It reaped all five children, reported zero UART errors and
+open handles, and preserved the USB and mounted-data baseline.
+[Phase 27 Pi capture](../proofs/pi5-file-handles-pass-2026-11-24.txt)
+
+## Phase 28 Descriptor lifecycle
+
+The kernel adds duplicable file handles with shared cursors, access
+reduction per token, runtime append control, per-token close-on-exec,
+and a process-local handle inventory.
+[Descriptor ABI](file-handles.md#phase-28-descriptor-lifecycle)
+
+Native v4 and v5 checks covered slot exhaustion, owner isolation, shared
+cursors, and release of the last lease. Both QEMU profiles passed the
+descriptor batch, Phase 27 append and remount, and the existing exec
+regression. The header
+and debug kernels each leave 4 KiB before the firmware DTB. Update preview,
+apply, readback, and rollback passed on a Phase 27 copy. The ZIP SHA-256
+is `1354dbf674af8710c7ea40967974d9f9f7179e4dda3146222af00d8ed8423fb0`.
+
+The Phase 28 update replaces `OUROS.IMG` and adds `FDDUP.ELF`
+and `DUPCHK.OSH` on a Phase 27 boot volume.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase28-descriptors-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After safely ejecting the drive and booting the Pi, run
+`source -e /boot/DUPCHK.OSH` at `user:/$`. Expect
+`PASS: descriptor lifecycle and redirected exec.` The test replaces
+its own image, checks that only the intended handle survives, and
+writes its result to a temporary file through the retained stdout.
+Type `exit`, then run `fileinfo`, `uartinfo`, `resinfo`,
+`storagetest`, and `datacheck` at the monitor.
+
+The Pi passed both descriptor checks with exit code 0, restored all
+resources, and reported zero open handles and UART errors. The
+`/boot/NONE.ELF` load failure is the intentional failed-exec case.
+The repeated `datacheck` matched bank 0 at generation 1.
+[Phase 28 Pi capture](../proofs/pi5-descriptors-pass-2026-11-24.txt)
+
+## Phase 29 Process capacity and pipelines
+
+- The kernel supports five active EL0 slots. The shell can use four
+  for a pipeline, and `apprun` accepts up to five standalone programs.
+  Ordinary job control retains its two-child limit.
+- Each adjacent pair has a bounded FIFO. A stage blocks when the
+  next pipe is full or its input pipe is empty. EOF propagates once
+  the upstream writer closes and its buffered output is read. The
+  scheduler runs one foreground pipeline at a time.
+- Pipelines accept `<` at the first stage and `>` or `>>` at the
+  last. The shell reports the rightmost nonzero stage status, or 0
+  when every stage succeeds. Ctrl+C cancels the entire pipeline.
+- The version 2 process snapshot holds five entries. The version 1
+  snapshot remains usable by existing ELFs and includes the caller
+  when the active batch exceeds its three-entry capacity.
+- Process page tables use physical page allocator backing. A failed
+  launch releases the stages prepared so far. A failed `exec` preserves
+  the original process, and a successful `exec` installs its new root.
+
+The Cortex-A53 and Cortex-A76 QEMU runs pass three- and four-stage
+pipelines, end-to-end data checks, append, middle-stage `exec`, load
+rollback, contained faults, cancellation, and resource cleanup. The
+descriptor, process-control, stream syntax, exec, and memory-pressure
+regressions also pass on both profiles. The header and debug builds each leave 72 KiB
+before the firmware device tree. Preview, apply, readback, and rollback
+pass against a Phase 28 boot-directory copy. The ZIP SHA-256 is
+`d4713dee71a3ce2f978521321a4502fcf7fcb79dadaaa7734fab58bf7452f970`.
+
+The Phase 29 boot update replaces `OUROS.IMG`, `SHELL.ELF`, and
+`PS.ELF` and adds `PIPE29.OSH` on a Phase 28 volume. Use the Windows
+PowerShell commands below from the project folder.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase29-pipelines-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject the drive, boot the Pi, and type this in PuTTY at `user:/$`.
+
+```text
+source -e /boot/PIPE29.OSH
+```
+
+Look for `PASS: four-stage pipeline preserved all 16384 bytes.` Then
+type `exit` and use these commands at the kernel monitor.
+
+```text
+fileinfo
+uartinfo
+resinfo
+storagetest
+datacheck
+```
+
+Expect a five-slot summary, restored app resources, zero open file
+handles, and the same USB read hash and mounted data generation.
+[Remaining core OS milestones](remaining-os-roadmap.md#core-os-milestones)
+
+The Pi passed the four-stage pipeline at 16,384 bytes with 49,152 bytes
+through the three rings, 26 reader waits and 35 writer waits. All four
+children were reaped and the monitor reported zero open files.
+[Phase 29 Pi capture](../proofs/pi5-pipe-chain-2026-11-24.txt)
+
+## Phase 30 Core OS
+
+- Direct parent and child processes can exchange messages of up to 96
+  bytes. Each recipient holds four messages. A nonzero timeout parks
+  the task on an empty receive or full send. A receive from a specific
+  peer drains messages already sent, then returns `UOS_EPIPE` when the
+  peer is gone.
+- A message may duplicate one file handle with explicit read or write
+  rights. The receiver shares the open description and its file offset.
+  The kernel holds the copy until receive, and drops queued copies on
+  exit or successful exec. Received handles are close-on-exec.
+- A parent can send `SIGINT` or `SIGTERM` to stop a child, or `SIGUSR1`
+  to wake a signal waiter or interrupt a blocked read, send, or sleep.
+  An interrupted wait returns `UOS_EINTR` and leaves the signal pending
+  for `uos_signal_wait`. The parent can inspect an unreaped child's
+  stop record, including the exception PC, syndrome and valid fault
+  address when applicable.
+- Anonymous VM regions hold up to 32 zeroed pages each, with 48 mapped
+  region pages per process and four active objects system-wide.
+  The creator can grant read-only or read/write access to one direct
+  child. All region mappings are non-executable. An attached child
+  retains the backing until it unmaps or exits. Successful exec drops
+  that process's mappings and unconsumed grants.
+- The monitor supervises one EL0 service in a dedicated slot. The
+  service can run while the monitor or shell is idle, and share the
+  scheduler with a four-stage foreground pipeline. A nonzero exit
+  triggers up to two restart attempts after a 250 ms delay. The monitor
+  reports the last outcome. `svc stop` clears the service and releases
+  its resources. Services use file I/O for output.
+
+Both QEMU profiles pass the core check, exec mapping cleanup, a service
+restart and heartbeat across shell sessions, and shell responsiveness
+while a service runs a CPU loop. Native MMU, heap, and file tests pass.
+The Pi header and debug builds each leave 52 KiB before the firmware
+device tree. Preview, apply, readback, and rollback passed against a
+Phase 29 boot-directory copy. The Phase 30 ZIP SHA-256 is
+`1a888840650543aeed50f9e408d9b27a8fb34fd98671c7ed3d34152174373dbb`.
+
+Use the Phase 30 package with the existing Pi header boot partition.
+The update replaces `OUROS.IMG` and `PS.ELF` and adds `CORECHK.ELF`.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase30-core-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+After safely ejecting the USB drive and booting the Pi, type `exit` in
+the shell. At the monitor prompt, run the core application check.
+
+```text
+appterm 70 /boot/CORECHK.ELF
+```
+
+Expect the core IPC PASS line and restored app resources. The test's
+null read and missing ELF are intentional fault and failed-exec cases.
+Wait for the monitor prompt before entering the service commands.
+
+```text
+svc start /boot/CORECHK.ELF service
+svc
+cat /tmp/core30-beat
+appshell
+```
+
+The sample service exits once with code 31. It restarts after 250 ms
+and starts writing a heartbeat. If needed, repeat `svc` after a second
+and check `active=yes launches=2 restarts=1`. From the shell, run the
+pipeline check while the service remains active.
+
+```text
+source -e /boot/PIPE29.OSH
+exit
+```
+
+At the monitor, confirm the service PID remains the same and the beat
+has increased, then stop it and check cleanup.
+
+```text
+svc
+cat /tmp/core30-beat
+svc stop
+fileinfo
+rm /tmp/core30-started
+rm /tmp/core30-beat
+uartinfo
+resinfo
+storagetest
+datacheck
+```
+
+Expect `active=no`, `cleanup=ok`, and `Open files: 0/16` after stopping.
+
+The Pi passed the core application check with all seven children
+reaped. The service restarted once, held PID 12 across the shell
+reopen and passed the pipeline alongside it. Its heartbeat advanced
+from 22 to 63. The service stopped with `cleanup=ok`, and the
+monitor reported zero open files, no UART errors and the expected USB
+hash and mounted data generation. [Phase 30 Pi capture](../proofs/pi5-core-os-2026-11-24.txt)

@@ -51,6 +51,16 @@ struct persist_report {
     uint64_t mounted_generation;
     struct persist_bank_report banks[2];
 };
+enum persist_path_kind { PERSIST_PATH_MISSING, PERSIST_PATH_FILE, PERSIST_PATH_DIRECTORY };
+struct persist_path_entry {
+    enum persist_path_kind kind;
+    unsigned bytes;
+    unsigned char digest[32];
+};
+struct persist_path_history {
+    struct persist_report snapshots;
+    struct persist_path_entry entries[2];
+};
 /* Original bounded snapshot format in its own MBR type-DA partition. No
  * format/resize/raw-write command; only preformatted, verified volumes mount. */
 enum fs_result persist_mount(struct persist_volume *,const struct block_device *);
@@ -65,6 +75,8 @@ enum fs_result persist_publish(struct persist_volume *,const char *source,const 
 enum fs_result persist_mkdir(struct persist_volume *,const char *path);
 enum fs_result persist_sync(struct persist_volume *);
 enum fs_result persist_check(struct persist_volume *,struct persist_report *);
+enum fs_result persist_history(struct persist_volume *,const char *,struct persist_path_history *);
+enum fs_result persist_recover_previous(struct persist_volume *,const char *source,const char *destination,uint64_t *generation);
 typedef bool (*persist_emit)(const void *,size_t,void *);
 typedef bool (*persist_input)(void *,size_t,void *);
 typedef bool (*persist_read_at)(uint32_t,void *,size_t,void *);

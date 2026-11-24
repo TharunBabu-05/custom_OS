@@ -25,9 +25,10 @@
 #include "crypto.h"
 static unsigned char copy_bytes[VFS_FILE_MAX];
 static unsigned char profile_bytes[APP_PROFILE_BYTES];
-enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,UDP_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
+enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,UDP_WAIT,
+              IPC_SEND_WAIT,IPC_RECV_WAIT,SIGNAL_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
 struct process {
-    struct user_tables tables;
+    struct user_tables *tables;
     struct user_mapping maps[USER_MAPPING_LIMIT];unsigned map_count;
     struct user_heap heap;
     struct uos_memory_pressure pressure;
@@ -41,14 +42,34 @@ struct process {
     uint64_t input_address,lines;unsigned input_capacity;
     unsigned parent,wait_child;uint64_t deadline;
     uint64_t stdin_handle,stdout_handle;bool io_failed;
-    uint64_t pipe_address;size_t pipe_bytes;unsigned char pipe_buffer[512];
+    uint64_t pipe_address;size_t pipe_bytes;unsigned char pipe_buffer[512];unsigned pipe_stage;
     uint64_t udp_handle,udp_address;size_t udp_capacity;
+    struct uos_message inbox[UOS_IPC_DEPTH],outgoing;
+    uint64_t ipc_peer,ipc_address,ipc_image;
+    unsigned inbox_count,stop_signal;
+    bool signal_pending,has_exception;
 };
-static struct process tasks[PROCESS_LIMIT];
-/* Inactive candidate: prepare tables for the current slot's physical root.
- * This permits exec even when all three process slots are occupied. */
+static struct process tasks[PROCESS_LIMIT+1];
+static struct process *const service_task=&tasks[PROCESS_LIMIT];
+static struct {
+    struct app_args args;
+    char cwd[RAMFS_PATH_MAX];
+    struct uos_fault_info last;
+    uint64_t retry_at,last_slice,launches,restarts;
+    unsigned retries_left;
+    bool enabled,slice,cleanup_failed;
+} service;
+/* Staging uses an independent PMM-backed root until exec commits. */
 static struct process exec_stage;
 static struct user_tables memory_stage;
+struct vm_region {
+    uint64_t token,creator,peer;
+    uint64_t physical[USER_VM_REGION_PAGES];
+    unsigned pages,peer_rights;
+    bool peer_mapped;
+};
+static struct vm_region regions[USER_VM_REGIONS];
+static uint64_t region_sequence;
 static unsigned char image[APP_ELF_MAX_BYTES];
 static bool running,last_clean,child_cleanup_failed;
 static unsigned current,total;
@@ -58,7 +79,11 @@ static bool interactive,input_dropping;
 static unsigned budget_seconds,input_head,input_count;
 static unsigned char input_queue[TERMINAL_BYTES];
 static struct terminal_line input_line;
-static struct { bool active,cancelled;unsigned parent,left,right;struct byte_pipe ring; } channel;
+static struct {
+    bool active,cancelled;
+    unsigned parent,count,slots[UOS_PIPE_STAGES];
+    struct byte_pipe rings[UOS_PIPE_STAGES-1];
+} channel;
 static uint64_t pipe_runs,pipe_completions,pipe_written,pipe_read,pipe_read_waits,pipe_write_waits;
 static int pipe_left_code,pipe_right_code;
 extern void process_arch_root(uint64_t root);
@@ -78,7 +103,7 @@ static bool user_range(const struct process *p,uint64_t address,size_t bytes,boo
 {
     if (!bytes) { return true; }if (address>=1ULL<<39 || bytes>(1ULL<<39)-address) { return false; }
     while (bytes) {
-        struct user_translation t;if (!user_mmu_lookup(&p->tables,address,&t) || (write && t.kind!=USER_PAGE_RW)) { return false; }
+        struct user_translation t;if (!user_mmu_lookup(p->tables,address,&t) || (write && t.kind!=USER_PAGE_RW)) { return false; }
         size_t n=4096-(size_t)(address&4095);if (n>bytes) { n=bytes; }address+=n;bytes-=n;
     }return true;
 }
@@ -86,7 +111,7 @@ static void user_copy(const struct process *p,uint64_t address,void *buffer,size
 {
     unsigned char *b=buffer;
     while (bytes) {
-        struct user_translation t;if (!user_mmu_lookup(&p->tables,address,&t)) { exception_frame_fatal(&p->context); }
+        struct user_translation t;if (!user_mmu_lookup(p->tables,address,&t)) { exception_frame_fatal(&p->context); }
         size_t n=4096-(size_t)(address&4095);if (n>bytes) { n=bytes; }
         if (to_user) { copy((void *)(uintptr_t)t.physical,b,n); }else { copy(b,(const void *)(uintptr_t)t.physical,n); }
         address+=n;b+=n;bytes-=n;
@@ -99,17 +124,69 @@ static bool allocate(struct process *p,uint64_t va,enum user_page_kind kind)
     if (!mmu_dma_buffer(physical,4096)) { (void)page_free(physical);return false; }
     zero((void *)(uintptr_t)physical,4096);p->maps[p->map_count++]=(struct user_mapping){va,physical,kind};return true;
 }
+enum { TABLE_BACKING_PAGES=sizeof(struct user_tables)/4096 };
+_Static_assert(sizeof(struct user_tables)%4096==0,"user table backing pages");
+_Static_assert((unsigned)USER_VM_REGION_PAGES==(unsigned)UOS_VM_MAX_PAGES,"VM page limit ABI");
+static bool vm_release(struct vm_region *region,uint64_t owner)
+{
+    if (!owner) { return true; }
+    if (region->creator==owner) {
+        region->creator=0;
+        if (!region->peer_mapped) { region->peer=0; }
+    }
+    if (region->peer==owner) { region->peer=0;region->peer_mapped=false; }
+    if (!region->token || region->creator || region->peer) { return true; }
+    bool good=true;
+    for (unsigned i=0;i<region->pages;++i) {
+        zero((void *)(uintptr_t)region->physical[i],4096);
+        if (!page_free(region->physical[i])) { good=false; }
+    }
+    zero(region,sizeof(*region));
+    return good;
+}
 static bool release_memory(struct process *p)
 {
     bool good=true;
-    for (unsigned i=0;i<p->map_count;++i) { zero((void *)(uintptr_t)p->maps[i].physical,4096);if (!page_free(p->maps[i].physical)) { good=false; } }
-    p->map_count=0;zero(&p->tables,sizeof(p->tables));zero(&p->environment,sizeof(p->environment));
+    for (unsigned i=0;i<p->map_count;++i) {
+        if (p->maps[i].virtual_address>=USER_VM_BASE) { continue; }
+        zero((void *)(uintptr_t)p->maps[i].physical,4096);
+        if (!page_free(p->maps[i].physical)) { good=false; }
+    }
+    p->map_count=0;
+    if (p->tables) {
+        uintptr_t physical=(uintptr_t)p->tables;
+        zero(p->tables,sizeof(*p->tables));
+        for (unsigned i=0;i<TABLE_BACKING_PAGES;++i) { if (!page_free(physical+i*4096)) { good=false; } }
+        p->tables=NULL;
+    }
+    zero(&p->environment,sizeof(p->environment));
     zero(p->heap.runs,sizeof(p->heap.runs));p->heap.live=0;
     zero(p->pipe_buffer,sizeof(p->pipe_buffer));p->pipe_bytes=p->pipe_address=0;return good;
 }
+static bool release_vm(struct process *p)
+{
+    bool good=true;
+    for (unsigned i=0;i<USER_VM_REGIONS;++i) {
+        if (!vm_release(&regions[i],p->owner)) { good=false; }
+    }
+    return good;
+}
+static uint64_t ipc_escrow(const struct process *p) { return p->owner | (1ULL<<61); }
+static void ipc_discard(struct process *p)
+{
+    if (p->inbox_count) { (void)kfile_close_owner(ipc_escrow(p)); }
+    p->inbox_count=0;
+    zero(p->inbox,sizeof(p->inbox));
+    zero(&p->outgoing,sizeof(p->outgoing));
+    p->ipc_peer=p->ipc_address=p->ipc_image=0;
+}
 static bool release(struct process *p)
-{ close_sockets(p->owner);(void)kfile_close_owner(p->owner);return release_memory(p); }
-static bool load_at(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env,uint64_t owner,uint64_t table_root)
+{
+    close_sockets(p->owner);ipc_discard(p);(void)kfile_close_owner(p->owner);
+    bool good=release_memory(p);
+    return release_vm(p) && good;
+}
+static bool load_at(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env,uint64_t owner)
 {
     /* Keep process owners clear of the reserved kernel file-owner IDs. */
     if (!owner && pid_sequence>=(1ULL<<60)-1) { return false; }
@@ -138,7 +215,15 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
         }
     }
     for (unsigned i=0;i<USER_STACK_PAGES;++i) { if (!allocate(p,USER_STACK_BASE+(uint64_t)i*4096,USER_PAGE_RW)) { return false; } }
-    enum user_mmu_result ur=user_mmu_build(&p->tables,table_root ? table_root : (uintptr_t)p->tables.entries,(const uint64_t *)(uintptr_t)kernel_root,p->maps,p->map_count);
+    uint64_t root;
+    if (!page_alloc_run(TABLE_BACKING_PAGES,&root)) { return false; }
+    if (!mmu_dma_buffer(root,sizeof(*p->tables))) {
+        for (unsigned i=0;i<TABLE_BACKING_PAGES;++i) { if (!page_free(root+i*4096)) { child_cleanup_failed=true; } }
+        return false;
+    }
+    p->tables=(void *)(uintptr_t)root;
+    zero(p->tables,sizeof(*p->tables));
+    enum user_mmu_result ur=user_mmu_build(p->tables,root,(const uint64_t *)(uintptr_t)kernel_root,p->maps,p->map_count);
     if (ur!=USER_MMU_OK) { console_write("User mapping failed: ");console_write(user_mmu_result_text(ur));console_write("\n");return false; }
     p->context=(struct exception_frame){.elr=plan.entry,.spsr=0x340};p->sp=USER_STACK_BASE+USER_STACK_PAGES*4096;p->status=READY;
     size_t i=0;do { p->path[i]=absolute[i]; } while (absolute[i++]);
@@ -149,9 +234,11 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
     return true;
 }
 static bool load(struct process *p,const char *path,const char *cwd,const struct app_args *args,const struct app_environment *env)
-{ return load_at(p,path,cwd,args,env,0,0); }
-static bool live(const struct process *p) { return p->status>=READY && p->status<=UDP_WAIT; }
-_Static_assert((unsigned)PROCESS_LIMIT==(unsigned)UOS_PROCESS_MAX,"process snapshot capacity");
+{ return load_at(p,path,cwd,args,env,0); }
+static bool live(const struct process *p) { return p->status>=READY && p->status<EXITED; }
+static unsigned scheduled_slots(void) { return service.enabled ? PROCESS_LIMIT+1 : total; }
+_Static_assert((unsigned)PROCESS_LIMIT==(unsigned)UOS_PROCESS_MAX_V2,"process snapshot capacity");
+_Static_assert(PROCESS_LIMIT==UOS_PIPE_STAGES+1,"pipeline and parent capacity");
 static uint64_t process_pid(const struct process *p) { return p->owner ? (p->owner&~(1ULL<<63))+1 : 0; }
 static unsigned public_state(const struct process *p)
 {
@@ -160,13 +247,15 @@ static unsigned public_state(const struct process *p)
     case SLEEPING:return UOS_PROCESS_SLEEPING;case INPUT_WAIT:return UOS_PROCESS_INPUT;
     case CHILD_WAIT:return UOS_PROCESS_WAIT_CHILD;case PIPE_READ_WAIT:return UOS_PROCESS_PIPE_READ;
     case PIPE_WRITE_WAIT:return UOS_PROCESS_PIPE_WRITE;case UDP_WAIT:return UOS_PROCESS_UDP_WAIT;case EXITED:return UOS_PROCESS_EXITED;
+    case IPC_SEND_WAIT:return UOS_PROCESS_IPC_SEND;case IPC_RECV_WAIT:return UOS_PROCESS_IPC_RECV;
+    case SIGNAL_WAIT:return UOS_PROCESS_SIGNAL_WAIT;
     case FAULTED:return UOS_PROCESS_FAULTED;case TIMED_OUT:return UOS_PROCESS_TIMEOUT;
     case CANCELLED:return UOS_PROCESS_CANCELLED;default:return 0;
     }
 }
 static bool is_child(unsigned parent,const struct process *child)
 {
-    return child->status!=UNUSED && child->parent==parent;
+    return parent<PROCESS_LIMIT && child->status!=UNUSED && child->parent==parent;
 }
 static struct process *owned_child(uint64_t pid)
 {
@@ -181,14 +270,45 @@ static bool has_children(void)
     for (unsigned i=0;i<total;++i) { if (is_child(current,&tasks[i])) { return true; } }
     return false;
 }
+static struct uos_fault_info stop_info(const struct process *p)
+{
+    struct uos_fault_info out={.pid=process_pid(p),.code=(uint32_t)p->code,.signal=p->stop_signal};
+    switch (p->status) {
+    case EXITED:out.reason=UOS_STOP_EXIT;break;
+    case TIMED_OUT:out.reason=UOS_STOP_TIMEOUT;break;
+    case CANCELLED:out.reason=UOS_STOP_SIGNAL;break;
+    case FAULTED:
+        out.reason=p->has_exception ? UOS_STOP_FAULT : UOS_STOP_KERNEL;
+        if (p->has_exception) {
+            unsigned ec=(unsigned)(p->esr>>26);
+            out.pc=p->pc;out.esr=p->esr;
+            if ((ec==0x20 || ec==0x24) && !(p->esr&(1ULL<<10))) {
+                out.flags=UOS_FAULT_FAR_VALID;out.far=p->far;
+            }
+        }
+        break;
+    default:break;
+    }
+    return out;
+}
 static int64_t process_control(struct process *p,struct exception_frame *f)
 {
     if (f->x[8]==UOS_SYS_PROCESSES) {
-        if (f->x[1]!=sizeof(struct uos_process_table)) { return UOS_ERROR; }
-        if (!user_range(p,f->x[0],sizeof(struct uos_process_table),true)) { return UOS_EFAULT; }
-        struct uos_process_table table;zero(&table,sizeof(table));table.version=UOS_PROCESS_VERSION;table.caller_pid=process_pid(p);
-        for (unsigned i=0;i<total;++i) {
+        bool legacy=f->x[1]==sizeof(struct uos_process_table);
+        size_t bytes=legacy ? sizeof(struct uos_process_table) : sizeof(struct uos_process_table_v2);
+        if (f->x[1]!=bytes) { return UOS_ERROR; }
+        if (!user_range(p,f->x[0],bytes,true)) { return UOS_EFAULT; }
+        unsigned limit=legacy ? UOS_PROCESS_MAX : UOS_PROCESS_MAX_V2;
+        struct uos_process_table_v2 table={0};
+        table.version=legacy ? UOS_PROCESS_VERSION : UOS_PROCESS_VERSION_V2;
+        table.caller_pid=process_pid(p);
+        unsigned first=p==service_task ? PROCESS_LIMIT : 0;
+        unsigned end=p==service_task ? PROCESS_LIMIT+1 : total;
+        for (unsigned i=first;i<end;++i) {
             const struct process *source=&tasks[i];if (source->status==UNUSED) { continue; }
+            if (table.count==limit) { break; }
+            /* Keep one slot for the caller when filling the legacy table. */
+            if (i<current && table.count==limit-1) { continue; }
             struct uos_process_entry *e=&table.entries[table.count++];e->pid=process_pid(source);
             if (source->parent<total && tasks[source->parent].status!=UNUSED) { e->parent_pid=process_pid(&tasks[source->parent]); }
             e->state=public_state(source);e->syscalls=source->calls;e->dispatches=source->dispatches;e->heap_pages=source->heap.live;
@@ -196,13 +316,20 @@ static int64_t process_control(struct process *p,struct exception_frame *f)
             e->flags=(i==current ? UOS_PROCESS_SELF : 0) | (source==owned_child(e->pid) ? UOS_PROCESS_CHILD : 0);
             size_t n=0;while (n+1<sizeof(e->path) && source->path[n]) { e->path[n]=source->path[n];++n; }
         }
-        user_copy(p,f->x[0],&table,sizeof(table),true);return 0;
+        user_copy(p,f->x[0],&table,bytes,true);return 0;
     }
     struct process *child=owned_child(f->x[0]);if (!child) { return UOS_ECHILD; }
+    if (f->x[8]==UOS_SYS_CHILD_FAULT) {
+        if (!user_range(p,f->x[1],sizeof(struct uos_fault_info),true)) { return UOS_EFAULT; }
+        if (live(child)) { return UOS_EAGAIN; }
+        struct uos_fault_info out=stop_info(child);
+        user_copy(p,f->x[1],&out,sizeof(out),true);
+        return 0;
+    }
     if (f->x[8]==UOS_SYS_CHILD_CANCEL) {
         /* Preserve completed outcomes. Reaping remains explicit: retaining the
          * slot keeps poll idempotent and old PIDs cannot name a reused slot. */
-        if (live(child)) { child->status=CANCELLED;child->code=130;close_sockets(child->owner); }return 0;
+        if (live(child)) { child->status=CANCELLED;child->code=130;child->stop_signal=UOS_SIGINT;close_sockets(child->owner); }return 0;
     }
     if (!user_range(p,f->x[1],sizeof(struct uos_child_info),true)) { return UOS_EFAULT; }
     struct uos_child_info result={0};result.pid=process_pid(child);result.state=public_state(child);result.finished=!live(child);
@@ -218,40 +345,55 @@ static unsigned terminal_owner(void)
 static int64_t pipe_transfer(struct process *p,bool reading,bool *blocked)
 {
     *blocked=false;size_t n=0;enum byte_pipe_result r;
+    struct byte_pipe *ring=&channel.rings[p->pipe_stage-1-(reading ? 1u : 0u)];
     if (reading) {
         if (!user_range(p,p->pipe_address,p->pipe_bytes,true)) { return UOS_EFAULT; }
-        r=byte_pipe_read(&channel.ring,p->pipe_buffer,p->pipe_bytes,&n);
-    } else { r=byte_pipe_write(&channel.ring,p->pipe_buffer,p->pipe_bytes);n=p->pipe_bytes; }
+        r=byte_pipe_read(ring,p->pipe_buffer,p->pipe_bytes,&n);
+    } else { r=byte_pipe_write(ring,p->pipe_buffer,p->pipe_bytes);n=p->pipe_bytes; }
     if (r==BYTE_PIPE_AGAIN) { *blocked=true;return 0; }
     if (r!=BYTE_PIPE_OK) { p->io_failed=true;return r==BYTE_PIPE_BROKEN ? UOS_EPIPE : UOS_ERROR; }
     if (reading) { user_copy(p,p->pipe_address,p->pipe_buffer,n,true);pipe_read+=n; }else { pipe_written+=n; }
     return (int64_t)n;
 }
+static void pipeline_cancel(void)
+{
+    for (unsigned i=0;i<channel.count;++i) {
+        struct process *p=&tasks[channel.slots[i]];
+        if (live(p)) { p->status=CANCELLED;p->code=130;p->stop_signal=UOS_SIGINT; }
+    }
+}
 /* All pipe progress/collection runs under the canonical kernel root. */
 static void pipeline_refresh(void)
 {
     if (!channel.active) { return; }
-    struct process *parent=&tasks[channel.parent],*left=&tasks[channel.left],*right=&tasks[channel.right];
-    if (!live(parent)) {
-        if (live(left)) { left->status=CANCELLED;left->code=130; }
-        if (live(right)) { right->status=CANCELLED;right->code=130; }
+    struct process *parent=&tasks[channel.parent];
+    if (!live(parent)) { pipeline_cancel(); }
+    for (unsigned i=0;i+1<channel.count;++i) {
+        struct byte_pipe *ring=&channel.rings[i];
+        if (!live(&tasks[channel.slots[i]]) && ring->writer) { byte_pipe_close_writer(ring); }
+        if (!live(&tasks[channel.slots[i+1]]) && ring->reader) { byte_pipe_close_reader(ring); }
     }
-    if (!live(left) && channel.ring.writer) { byte_pipe_close_writer(&channel.ring); }
-    if (!live(right) && channel.ring.reader) { byte_pipe_close_reader(&channel.ring); }
     for (unsigned round=0;round<2;++round) {
-        struct process *peers[]={left,right};
-        for (unsigned i=0;i<2;++i) {
-            struct process *p=peers[i];if (p->status!=PIPE_READ_WAIT && p->status!=PIPE_WRITE_WAIT) { continue; }
+        for (unsigned i=0;i<channel.count;++i) {
+            struct process *p=&tasks[channel.slots[i]];
+            if (p->status!=PIPE_READ_WAIT && p->status!=PIPE_WRITE_WAIT) { continue; }
             bool blocked;int64_t result=pipe_transfer(p,p->status==PIPE_READ_WAIT,&blocked);
             if (!blocked) { p->context.x[0]=(uint64_t)result;p->status=READY;p->pipe_bytes=0;zero(p->pipe_buffer,sizeof(p->pipe_buffer)); }
         }
     }
-    if (live(left) || live(right)) { return; }
-    pipe_left_code=left->code;pipe_right_code=right->code;
-    int result=channel.cancelled ? 130 : right->code ? right->code : left->code;
-    bool left_clean=release(left),right_clean=release(right);
-    if (!left_clean || !right_clean) { child_cleanup_failed=true;result=126; }
-    left->status=right->status=UNUSED;children_reaped+=2;child_last_code=result;++pipe_completions;
+    for (unsigned i=0;i<channel.count;++i) { if (live(&tasks[channel.slots[i]])) { return; } }
+    pipe_left_code=tasks[channel.slots[0]].code;pipe_right_code=tasks[channel.slots[channel.count-1]].code;
+    int result=0;
+    bool clean=true;
+    for (unsigned i=0;i<channel.count;++i) {
+        struct process *stage=&tasks[channel.slots[i]];
+        if (stage->code) { result=stage->code; }
+        if (!release(stage)) { clean=false; }
+        stage->status=UNUSED;
+    }
+    if (channel.cancelled) { result=130; }
+    if (!clean) { child_cleanup_failed=true;result=126; }
+    children_reaped+=channel.count;child_last_code=result;++pipe_completions;
     if (live(parent)) { parent->context.x[0]=(uint64_t)result;parent->status=READY; }
     zero(&channel,sizeof(channel));input_clear();
 }
@@ -270,7 +412,7 @@ static void children_refresh(void)
         if (child->status==UNUSED || owner>=total || (channel.active && owner==channel.parent)) { continue; }
         struct process *p=&tasks[owner];
         if (!live(p)) {
-            if (live(child)) { child->status=CANCELLED;child->code=130; }
+            if (live(child)) { child->status=CANCELLED;child->code=130;child->stop_signal=UOS_SIGINT; }
             (void)collect_child(child);
         } else if (p->status==CHILD_WAIT && p->wait_child==i && !live(child)) {
             p->context.x[0]=(uint64_t)collect_child(child);
@@ -281,7 +423,7 @@ static void children_refresh(void)
 }
 static void terminal_cancel(struct process *p,int code)
 {
-    p->status=CANCELLED;p->code=code;input_clear();
+    p->status=CANCELLED;p->code=code;p->stop_signal=code==130 ? UOS_SIGINT : 0;input_clear();
     console_write(code==130 ? "^C\n" : "\nTerminal queue overflow; application cancelled.\n");
 }
 static void terminal_interrupt(struct process *p)
@@ -326,8 +468,7 @@ static void terminal_poll(void)
         if (!interactive || !live(&tasks[channel.parent])) { return; }
         for (unsigned i=0;i<32;++i) {
             int ch=console_getc();if (ch<0) { break; }if (ch!=3) { continue; }
-            unsigned peers[]={channel.left,channel.right};channel.cancelled=true;
-            for (unsigned j=0;j<2;++j) { if (live(&tasks[peers[j]])) { tasks[peers[j]].status=CANCELLED;tasks[peers[j]].code=130; } }
+            channel.cancelled=true;pipeline_cancel();
             input_clear();console_write("^C\n");break;
         }
         return;
@@ -376,37 +517,209 @@ static void udp_wait_ready(struct process *p,uint64_t now)
     p->udp_handle=p->udp_address=p->udp_capacity=0;
     p->context.x[0]=(uint64_t)result;p->status=READY;
 }
+static struct process *ipc_peer(const struct process *p,uint64_t pid)
+{
+    if (p==service_task) { return NULL; }
+    unsigned slot=(unsigned)(p-tasks);
+    for (unsigned i=0;i<total;++i) {
+        struct process *peer=&tasks[i];
+        if (live(peer) && process_pid(peer)==pid && (p->parent==i || peer->parent==slot)) { return peer; }
+    }
+    return NULL;
+}
+static int64_t ipc_enqueue(struct process *p,struct process *peer,const struct uos_message *message)
+{
+    if (peer->inbox_count==UOS_IPC_DEPTH) { return UOS_EAGAIN; }
+    struct uos_message entry={.peer=process_pid(p),.bytes=message->bytes,.rights=message->rights};
+    if (message->handle) {
+        enum fs_result r=kfile_dup_to(p->owner,message->handle,ipc_escrow(peer),message->rights,
+                                     KFILE_CLOEXEC,&entry.handle);
+        if (r!=FS_OK) { return r==FS_NO_HANDLES ? UOS_ENOSPC : UOS_EBADF; }
+    }
+    copy(entry.data,message->data,entry.bytes);
+    peer->inbox[peer->inbox_count++]=entry;
+    return 0;
+}
+static int64_t ipc_dequeue(struct process *p,uint64_t peer,uint64_t address)
+{
+    if (!user_range(p,address,sizeof(struct uos_message),true)) { return UOS_EFAULT; }
+    for (unsigned i=0;i<p->inbox_count;++i) {
+        struct uos_message *entry=&p->inbox[i];
+        if (peer && entry->peer!=peer) { continue; }
+        if (entry->handle && kfile_receive(ipc_escrow(p),entry->handle,p->owner)!=FS_OK) { return UOS_EBADF; }
+        user_copy(p,address,entry,sizeof(*entry),true);
+        --p->inbox_count;
+        for (unsigned j=i;j<p->inbox_count;++j) { p->inbox[j]=p->inbox[j+1]; }
+        p->inbox[p->inbox_count]=(struct uos_message){0};
+        return 0;
+    }
+    return peer && !ipc_peer(p,peer) ? UOS_EPIPE : UOS_EAGAIN;
+}
+static uint64_t wait_until(uint64_t ms)
+{ return timer_ticks()+(timer_frequency()*ms+999)/1000; }
+static void wait_complete(struct process *p,int64_t result)
+{
+    p->context.x[0]=(uint64_t)result;
+    p->status=READY;
+    p->ipc_peer=p->ipc_address=p->ipc_image=0;
+    zero(&p->outgoing,sizeof(p->outgoing));
+    p->udp_handle=p->udp_address=p->udp_capacity=0;
+    ++p->wakes;
+}
+static int64_t ipc_call(struct process *p,struct exception_frame *f)
+{
+    bool sending=f->x[8]==UOS_SYS_IPC_SEND;
+    uint64_t ms=sending ? f->x[1] : f->x[2];
+    if (ms>UOS_WAIT_MAX_MS) { return UOS_ERROR; }
+    int64_t result;
+    if (sending) {
+        if (!user_range(p,f->x[0],sizeof(struct uos_message),false)) { return UOS_EFAULT; }
+        struct uos_message message;
+        user_copy(p,f->x[0],&message,sizeof(message),false);
+        if (message.bytes>UOS_IPC_BYTES || (message.handle && (!message.rights ||
+            (message.rights&~(UOS_READ|UOS_WRITE)))) || (!message.handle && message.rights)) { return UOS_ERROR; }
+        if (message.handle && (message.handle==p->stdin_handle || message.handle==p->stdout_handle)) { return UOS_EBADF; }
+        struct process *peer=ipc_peer(p,message.peer);
+        if (!peer) { return UOS_EPIPE; }
+        result=ipc_enqueue(p,peer,&message);
+        if (result!=UOS_EAGAIN || !ms) { return result; }
+        p->outgoing=message;
+        p->ipc_image=peer->execs;
+    } else {
+        result=ipc_dequeue(p,f->x[0],f->x[1]);
+        if (result!=UOS_EAGAIN || !ms) { return result; }
+        p->ipc_peer=f->x[0];
+        p->ipc_address=f->x[1];
+    }
+    p->status=sending ? IPC_SEND_WAIT : IPC_RECV_WAIT;
+    p->wake=wait_until(ms);
+    ++p->sleeps;
+    return 0;
+}
+static int64_t signal_call(struct process *p,struct exception_frame *f)
+{
+    if (f->x[8]==UOS_SYS_SIGNAL_WAIT) {
+        if (f->x[0]>UOS_WAIT_MAX_MS) { return UOS_ERROR; }
+        if (p->signal_pending) { p->signal_pending=false;return UOS_SIGUSR1; }
+        if (!f->x[0]) { return UOS_EAGAIN; }
+        p->wake=wait_until(f->x[0]);p->status=SIGNAL_WAIT;++p->sleeps;return 0;
+    }
+    unsigned signal=(unsigned)f->x[1];
+    if ((uint64_t)signal!=f->x[1] || (signal!=UOS_SIGINT && signal!=UOS_SIGTERM && signal!=UOS_SIGUSR1)) { return UOS_ERROR; }
+    struct process *child=owned_child(f->x[0]);
+    if (!child || !live(child)) { return UOS_ECHILD; }
+    if (signal!=UOS_SIGUSR1) {
+        child->status=CANCELLED;child->code=128+(int)signal;child->stop_signal=signal;
+    } else if (child->status==SIGNAL_WAIT) {
+        wait_complete(child,signal);
+    } else {
+        child->signal_pending=true;
+        if (child->status==IPC_SEND_WAIT || child->status==IPC_RECV_WAIT || child->status==UDP_WAIT ||
+            child->status==SLEEPING || child->status==INPUT_WAIT) {
+            if (child->status==INPUT_WAIT && (unsigned)(child-tasks)==terminal_owner()) { input_clear(); }
+            wait_complete(child,UOS_EINTR);
+        }
+    }
+    return 0;
+}
+static void ipc_refresh(struct process *p,uint64_t now)
+{
+    int64_t result=UOS_EAGAIN;
+    if (p->status==IPC_RECV_WAIT) {
+        result=ipc_dequeue(p,p->ipc_peer,p->ipc_address);
+    } else if (p->status==IPC_SEND_WAIT) {
+        struct process *peer=ipc_peer(p,p->outgoing.peer);
+        result=peer && peer->execs==p->ipc_image ? ipc_enqueue(p,peer,&p->outgoing) : UOS_EPIPE;
+    } else if (p->status!=SIGNAL_WAIT) {
+        return;
+    }
+    if (result!=UOS_EAGAIN || (int64_t)(now-p->wake)>=0) {
+        wait_complete(p,result!=UOS_EAGAIN ? result : UOS_ETIMEDOUT);
+    }
+}
+static bool service_load(void)
+{
+    zero(service_task,sizeof(*service_task));
+    bool loaded=load(service_task,service.args.bytes,service.cwd,&service.args,NULL);
+    zero(image,sizeof(image));
+    if (loaded) {
+        ++service.launches;
+        __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
+        return true;
+    }
+    if (!release(service_task)) { service.cleanup_failed=true; }
+    zero(service_task,sizeof(*service_task));
+    service.last=(struct uos_fault_info){.reason=UOS_STOP_KERNEL,.code=126};
+    return false;
+}
+static void service_collect(void)
+{
+    service.last=stop_info(service_task);
+    if (!release(service_task)) { service.cleanup_failed=true; }
+    zero(service_task,sizeof(*service_task));
+}
+static void service_refresh(uint64_t now)
+{
+    if (!service.enabled) { return; }
+    if (!irq_timer_running()) {
+        if (live(service_task)) { service_task->status=FAULTED;service_task->code=126; }
+        if (service_task->status!=UNUSED) { service_collect(); }
+        service.enabled=false;
+        return;
+    }
+    if (live(service_task)) { return; }
+    if (service_task->status!=UNUSED) {
+        service_collect();
+        service.retry_at=wait_until(250);
+    }
+    if (!service.last.code || !service.retries_left || service.cleanup_failed) { service.enabled=false;return; }
+    if ((int64_t)(now-service.retry_at)>=0) {
+        --service.retries_left;
+        ++service.restarts;
+        if (!service_load()) { service.enabled=false; }
+    }
+}
 static void refresh(void)
 {
     uint64_t now=timer_ticks();bool expired=budget_seconds && now-started>=timer_frequency()*budget_seconds;
-    for (unsigned i=0;i<total;++i) {
+    for (unsigned i=0;i<scheduled_slots();++i) {
         struct process *p=&tasks[i];if (!live(p)) { continue; }
         if (!irq_timer_running()) { p->status=FAULTED;p->code=126; }
-        else if (expired || (p->deadline && (int64_t)(now-p->deadline)>=0)) { p->status=TIMED_OUT;p->code=124; }
+        else if ((p!=service_task && expired) || (p->deadline && (int64_t)(now-p->deadline)>=0)) { p->status=TIMED_OUT;p->code=124; }
         else if (p->status==SLEEPING && (int64_t)(now-p->wake)>=0) { p->status=READY;++p->wakes; }
         else if (p->status==UDP_WAIT) { udp_wait_ready(p,now); }
     }
-    terminal_poll();
+    if (!service.slice) { terminal_poll(); }
     pipeline_refresh();
     children_refresh();
-    for (unsigned i=0;i<total;++i) {
-        if (tasks[i].status!=UNUSED && !live(&tasks[i])) { close_sockets(tasks[i].owner); }
+    for (unsigned i=0;i<scheduled_slots();++i) {
+        struct process *p=&tasks[i];
+        if (live(p)) { ipc_refresh(p,now); }
+        else if (p->status!=UNUSED) { close_sockets(p->owner);if (p->inbox_count) { ipc_discard(p); } }
     }
+    service_refresh(now);
 }
 static bool network_checkpoint;
 static bool schedule(struct exception_frame *frame,bool timer)
 {
     struct process *old=&tasks[current];old->context=*frame;old->context.spsr=(frame->spsr&0xf0000000ULL)|0x340;old->sp=user_sp();
     refresh();
+    if (service.slice) { goto kernel; }
+    if (service.enabled) {
+        unsigned slot=0;
+        while (slot<total && !live(&tasks[slot])) { ++slot; }
+        if (slot==total) { goto kernel; }
+    }
     if (timer && network_worker_due()) {
         network_checkpoint=true;
         goto kernel;
     }
-    for (unsigned step=1;step<=total;++step) {
-        unsigned next=(current+step)%total;if (tasks[next].status!=READY) { continue; }
+    unsigned slots=scheduled_slots();
+    for (unsigned step=1;step<=slots;++step) {
+        unsigned next=(current+step)%slots;if (tasks[next].status!=READY) { continue; }
         if (next!=current) { ++switches;if (timer) { ++preemptions; } }
         current=next;struct process *p=&tasks[current];++p->dispatches;
-        process_arch_root(p->tables.physical);__asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*frame=p->context;return true;
+        process_arch_root(p->tables->physical);__asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*frame=p->context;return true;
     }
 kernel:
     process_arch_root(kernel_root);frame->elr=(uintptr_t)process_arch_return;frame->spsr=0x3c5;return true;
@@ -601,7 +914,36 @@ static int64_t tcp_call(struct process *p,struct exception_frame *f)
 static int64_t file_error(enum fs_result result,bool extended)
 { return extended && result==FS_BAD_HANDLE ? UOS_EBADF : UOS_ERROR; }
 
-_Static_assert((int)UOS_EXCL==(int)KFILE_EXCL && (int)UOS_APPEND==(int)KFILE_APPEND,"open flags ABI");
+_Static_assert((int)UOS_EXCL==(int)KFILE_EXCL && (int)UOS_APPEND==(int)KFILE_APPEND &&
+               (int)UOS_CLOEXEC==(int)KFILE_CLOEXEC && (int)UOS_FD_MAX==(int)KFILE_LIMIT,"file handle ABI");
+static int64_t descriptor_call(struct process *p,struct exception_frame *f)
+{
+    uint64_t handle=f->x[0],arg=f->x[1],value=f->x[2];
+    if (f->x[8]==UOS_SYS_FD_LIST) {
+        if (!user_range(p,handle,sizeof(struct uos_fd_table),true)) { return UOS_EFAULT; }
+        struct kfile_entry entries[KFILE_LIMIT];
+        struct uos_fd_table out={0};
+        out.count=(uint32_t)kfile_list_owner(p->owner,p->stdin_handle,p->stdout_handle,entries);
+        for (unsigned i=0;i<out.count;++i) {
+            const struct kfile_entry *e=&entries[i];
+            out.entries[i]=(struct uos_fd_entry){e->token,e->status.bytes,e->status.offset,e->status.flags,e->descriptor_flags};
+        }
+        user_copy(p,handle,&out,sizeof(out),true);
+        return 0;
+    }
+    if (handle==p->stdin_handle || handle==p->stdout_handle) { return UOS_EBADF; }
+    if (f->x[8]==UOS_SYS_FD_DUP) {
+        if (arg>(UOS_READ|UOS_WRITE) || (value && value!=UOS_CLOEXEC)) { return UOS_ERROR; }
+        uint64_t duplicate;
+        enum fs_result r=kfile_dup(p->owner,handle,(unsigned)arg,(unsigned)value,&duplicate);
+        if (r==FS_NO_HANDLES) { return UOS_ENOSPC; }
+        return r==FS_OK ? (int64_t)duplicate : file_error(r,true);
+    }
+    if (value>1 || (arg!=UOS_CLOEXEC && arg!=UOS_APPEND)) { return UOS_ERROR; }
+    enum fs_result r=arg==UOS_CLOEXEC ? kfile_set_cloexec(p->owner,handle,value!=0) :
+                                         kfile_set_append(p->owner,handle,value!=0);
+    return r==FS_OK ? 0 : file_error(r,true);
+}
 static int64_t syscall(struct process *p,struct exception_frame *f)
 {
     uint64_t a=f->x[0],b=f->x[1],c=f->x[2];unsigned char buffer[512];size_t count=0;enum fs_result r;
@@ -616,7 +958,8 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
         struct uos_fs_info out={info.max_write_bytes,info.type,info.version,info.nodes,info.used,info.flags};
         user_copy(p,c,&out,sizeof(out),true);return 0;
     }
-    case UOS_SYS_PROCESSES:case UOS_SYS_CHILD_POLL:case UOS_SYS_CHILD_CANCEL:return process_control(p,f);
+    case UOS_SYS_PROCESSES:case UOS_SYS_CHILD_POLL:case UOS_SYS_CHILD_CANCEL:
+    case UOS_SYS_CHILD_FAULT:return process_control(p,f);
     case UOS_SYS_ENV_PROFILE:return profile_call(p,f);
     case UOS_SYS_ENV_GET:case UOS_SYS_ENV_SET:case UOS_SYS_ENV_UNSET:case UOS_SYS_ENV_ENTRY:return environment_call(p,f);
     case UOS_SYS_RENAME:case UOS_SYS_PUBLISH: {
@@ -647,7 +990,7 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
             r=vfs_resolve(p->cwd,requested,absolute,&dir);
             if (r==FS_OK && c) {
                 if (ancestor(absolute,filesystem_cwd())) { return UOS_ERROR; }
-                for (unsigned i=0;i<total;++i) { if (live(&tasks[i]) && ancestor(absolute,tasks[i].cwd)) { return UOS_ERROR; } }
+                for (unsigned i=0;i<scheduled_slots();++i) { if (live(&tasks[i]) && ancestor(absolute,tasks[i].cwd)) { return UOS_ERROR; } }
             }
             if (r==FS_OK) { r=vfs_remove(absolute,c!=0); }return r==FS_OK ? 0 : UOS_ERROR;
         }
@@ -656,6 +999,7 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
         user_copy(p,c,buffer,(size_t)f->x[3],false);r=vfs_write(absolute,buffer,(size_t)f->x[3]);return r==FS_OK ? (int64_t)f->x[3] : UOS_ERROR;
     }
     case UOS_SYS_WRITE:
+        if (p==service_task) { return UOS_ENOTTY; }
         if (b>sizeof(buffer)) { return UOS_ERROR; }if (!user_range(p,a,(size_t)b,false)) { return UOS_EFAULT; }
         user_copy(p,a,buffer,(size_t)b,false);
         if (p->stdout_handle) {
@@ -701,8 +1045,9 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
         crypto_wipe(sample,sizeof(sample));
         return ok ? 0 : UOS_ENORANDOM;
     }
+    case UOS_SYS_FD_DUP:case UOS_SYS_FD_SET:case UOS_SYS_FD_LIST:return descriptor_call(p,f);
     case UOS_SYS_OPEN:
-        if (!b || b>=RAMFS_PATH_MAX || c>(UOS_READ|UOS_WRITE|UOS_CREATE|UOS_TRUNC|UOS_EXCL|UOS_APPEND)) { return UOS_ERROR; }
+        if (!b || b>=RAMFS_PATH_MAX || c>(UOS_READ|UOS_WRITE|UOS_CREATE|UOS_TRUNC|UOS_EXCL|UOS_APPEND|UOS_CLOEXEC)) { return UOS_ERROR; }
         if (!user_range(p,a,(size_t)b,false)) { return UOS_EFAULT; }
         user_copy(p,a,buffer,(size_t)b,false);for (size_t i=0;i<b;++i) { if (!buffer[i]) { return UOS_ERROR; } }buffer[b]=0;
         { uint64_t handle;r=kfile_open(p->owner,p->cwd,(const char *)buffer,(unsigned)c,&handle);
@@ -763,9 +1108,86 @@ static bool heap_release_page(void *context,uint64_t physical)
 static bool heap_publish(void *context,const struct user_mapping *maps,unsigned count)
 {
     struct process *p=context;
-    enum user_mmu_result r=user_mmu_build(&memory_stage,(uintptr_t)p->tables.entries,(const uint64_t *)(uintptr_t)kernel_root,maps,count);
-    if (r==USER_MMU_OK) { copy(&p->tables,&memory_stage,sizeof(p->tables));__asm__ volatile("dsb sy" ::: "memory"); }
+    enum user_mmu_result r=user_mmu_build(&memory_stage,(uintptr_t)p->tables->entries,(const uint64_t *)(uintptr_t)kernel_root,maps,count);
+    if (r==USER_MMU_OK) { copy(p->tables,&memory_stage,sizeof(*p->tables));__asm__ volatile("dsb sy" ::: "memory"); }
     zero(&memory_stage,sizeof(memory_stage));return r==USER_MMU_OK;
+}
+static uint64_t region_address(const struct vm_region *region)
+{ return USER_VM_BASE+(uint64_t)(region-regions)*USER_VM_REGION_PAGES*4096; }
+static bool vm_fits(const struct process *p,unsigned pages)
+{
+    unsigned mapped=0;
+    for (unsigned i=0;i<p->map_count;++i) { mapped+=p->maps[i].virtual_address>=USER_VM_BASE; }
+    return pages<=USER_VM_MAPPED_PAGES-mapped;
+}
+static int64_t vm_attach(struct process *p,struct vm_region *region,enum user_page_kind kind)
+{
+    if (!vm_fits(p,region->pages)) { return UOS_ENOSPC; }
+    uint64_t address=region_address(region);
+    for (unsigned i=0;i<region->pages;++i) {
+        p->maps[p->map_count+i]=(struct user_mapping){address+(uint64_t)i*4096,region->physical[i],kind};
+    }
+    if (!heap_publish(p,p->maps,p->map_count+region->pages)) { return UOS_ERROR; }
+    p->map_count+=region->pages;
+    return (int64_t)address;
+}
+static int64_t vm_create(struct process *p,struct exception_frame *f)
+{
+    uint64_t peer_pid=f->x[0],pages=f->x[1],rights=f->x[2],out=f->x[3];
+    if (!pages || pages>USER_VM_REGION_PAGES ||
+        (peer_pid ? (rights!=UOS_READ && rights!=(UOS_READ|UOS_WRITE)) : rights!=0)) { return UOS_ERROR; }
+    if (!user_range(p,out,sizeof(uint64_t),true)) { return UOS_EFAULT; }
+    struct process *peer=peer_pid ? owned_child(peer_pid) : NULL;
+    if (peer_pid && (!peer || !live(peer))) { return UOS_ECHILD; }
+    if (!vm_fits(p,(unsigned)pages) || region_sequence==UINT64_MAX) { return UOS_ENOSPC; }
+    struct vm_region *region=NULL;
+    for (unsigned i=0;i<USER_VM_REGIONS;++i) { if (!regions[i].token) { region=&regions[i];break; } }
+    if (!region) { return UOS_ENOSPC; }
+    region->token=++region_sequence;
+    region->creator=p->owner;
+    int64_t result;
+    for (;region->pages<pages;++region->pages) {
+        if (!heap_allocate_page(p,&region->physical[region->pages])) { break; }
+    }
+    result=region->pages==pages ? vm_attach(p,region,USER_PAGE_RW) : UOS_ENOMEM;
+    if (result<0) {
+        if (!vm_release(region,p->owner)) { child_cleanup_failed=true; }
+        return result;
+    }
+    region->peer=peer ? peer->owner : 0;
+    region->peer_rights=(unsigned)rights;
+    user_copy(p,out,&region->token,sizeof(region->token),true);
+    return result;
+}
+static int64_t vm_call(struct process *p,struct exception_frame *f)
+{
+    if (f->x[8]==UOS_SYS_VM_CREATE) { return vm_create(p,f); }
+    struct vm_region *region=NULL;
+    for (unsigned i=0;i<USER_VM_REGIONS;++i) {
+        if (f->x[0] && regions[i].token==f->x[0]) { region=&regions[i];break; }
+    }
+    if (!region) { return UOS_ENOENT; }
+    bool creator=region->creator==p->owner,peer=region->peer==p->owner;
+    if (f->x[8]==UOS_SYS_VM_MAP) {
+        if (!peer || region->peer_mapped || !ipc_peer(p,(region->creator&~(1ULL<<63))+1)) { return UOS_ENOENT; }
+        int64_t address=vm_attach(p,region,region->peer_rights&UOS_WRITE ? USER_PAGE_RW : USER_PAGE_RO);
+        if (address>0) { region->peer_mapped=true; }
+        return address;
+    }
+    if (!creator && !(peer && region->peer_mapped)) { return UOS_ENOENT; }
+    uint64_t address=region_address(region);
+    struct user_mapping next[USER_MAPPING_LIMIT];
+    unsigned count=0;
+    for (unsigned i=0;i<p->map_count;++i) {
+        uint64_t va=p->maps[i].virtual_address;
+        if (va<address || va-address>=region->pages*4096ULL) { next[count++]=p->maps[i]; }
+    }
+    if (!heap_publish(p,next,count)) { return UOS_ERROR; }
+    copy(p->maps,next,count*sizeof(next[0]));
+    p->map_count=count;
+    if (vm_release(region,p->owner)) { return 0; }
+    child_cleanup_failed=true;p->status=FAULTED;p->code=126;
+    return UOS_ERROR;
 }
 static int64_t memory_call(struct process *p,struct exception_frame *f)
 {
@@ -808,7 +1230,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     zero(&exec_stage,sizeof(exec_stage));
     /* The kernel root is active. Old pages, handles and frame remain intact
      * until every ELF byte, allocation and new table has been prepared. */
-    bool loaded=load_at(&exec_stage,args.bytes,p->cwd,&args,&p->environment,p->owner,(uintptr_t)p->tables.entries);
+    bool loaded=load_at(&exec_stage,args.bytes,p->cwd,&args,&p->environment,p->owner);
     zero(image,sizeof(image));
     if (!loaded) {
         if (!release_memory(&exec_stage)) { child_cleanup_failed=true; }
@@ -819,6 +1241,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
         exec_stage.deadline=timer_ticks()+timer_frequency()*30;
     }
     exec_stage.stdin_handle=p->stdin_handle;exec_stage.stdout_handle=p->stdout_handle;exec_stage.io_failed=p->io_failed;
+    exec_stage.pipe_stage=p->pipe_stage;
     exec_stage.calls=p->calls;exec_stage.dispatches=p->dispatches;
     exec_stage.sleeps=p->sleeps;exec_stage.wakes=p->wakes;exec_stage.lines=p->lines;exec_stage.execs=p->execs+1;
     exec_stage.heap.peak=p->heap.peak;exec_stage.heap.allocations=p->heap.allocations;exec_stage.heap.free_calls=p->heap.free_calls;
@@ -830,6 +1253,9 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
         (void)release_memory(&exec_stage);zero(&exec_stage,sizeof(exec_stage));return UOS_ERROR;
     }
     close_sockets(p->owner);
+    ipc_discard(p);
+    if (!release_vm(p)) { child_cleanup_failed=true; }
+    (void)kfile_close_on_exec(p->owner);
     copy(p,&exec_stage,sizeof(*p));zero(&exec_stage,sizeof(exec_stage));
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     __asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*f=p->context;return 0;
@@ -848,7 +1274,12 @@ static int64_t streams_copy(struct process *p,uint64_t address,struct uos_stdio 
 static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool redirected,uint64_t streams,bool append)
 {
     /* One generation of children. IDs never repeat when a slot is reused. */
-    if (p->parent!=PROCESS_LIMIT || !seconds || seconds>30) { return UOS_ERROR; }
+    if (p==service_task || p->parent!=PROCESS_LIMIT || !seconds || seconds>30) { return UOS_ERROR; }
+    /* Keep the original ordinary spawn quota. A pipeline reserves its
+     * children together through the separate pipeline launch path. */
+    unsigned children=0;
+    for (unsigned i=0;i<total;++i) { children+=is_child(current,&tasks[i]); }
+    if (children>=2) { return UOS_ERROR; }
     unsigned slot=0;while (slot<PROCESS_LIMIT && tasks[slot].status!=UNUSED) { ++slot; }if (slot==PROCESS_LIMIT) { return UOS_ERROR; }
     if (!user_range(p,address,sizeof(struct app_args),false)) { return UOS_EFAULT; }
     struct app_args args;user_copy(p,address,&args,sizeof(args),false);if (!args_valid(&args)) { return UOS_ERROR; }
@@ -869,37 +1300,63 @@ static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool re
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     return (int64_t)(child->owner&~(1ULL<<63))+1;
 }
-static int64_t pipeline_start(struct process *p,struct exception_frame *f,bool append)
+static int64_t pipeline_start(struct process *p,struct exception_frame *f)
 {
-    if (channel.active || p->parent!=PROCESS_LIMIT || has_children() || !f->x[2] || f->x[2]>30 ||
-        (append && !f->x[3])) { return UOS_ERROR; }
-    if (!user_range(p,f->x[0],sizeof(struct app_args),false) || !user_range(p,f->x[1],sizeof(struct app_args),false)) { return UOS_EFAULT; }
-    struct app_args left_args,right_args;user_copy(p,f->x[0],&left_args,sizeof(left_args),false);user_copy(p,f->x[1],&right_args,sizeof(right_args),false);
-    if (!args_valid(&left_args) || !args_valid(&right_args)) { return UOS_ERROR; }
+    bool chain=f->x[8]==UOS_SYS_PIPE_CHAIN;
+    uint64_t count=chain ? f->x[1] : 2;
+    if (count<2 || count>UOS_PIPE_STAGES || (chain && f->x[4]>UOS_PIPE_APPEND) ||
+        channel.active || p==service_task || p->parent!=PROCESS_LIMIT || has_children() || !f->x[2] || f->x[2]>30) { return UOS_ERROR; }
+    bool append=chain ? f->x[4]==UOS_PIPE_APPEND : f->x[8]==UOS_SYS_PIPE_APPEND;
+    if (append && !f->x[3]) { return UOS_ERROR; }
+    struct app_args args[UOS_PIPE_STAGES];
+    if (chain) {
+        size_t bytes=(size_t)count*sizeof(args[0]);
+        if (!user_range(p,f->x[0],bytes,false)) { return UOS_EFAULT; }
+        user_copy(p,f->x[0],args,bytes,false);
+    } else {
+        for (unsigned i=0;i<2;++i) {
+            if (!user_range(p,f->x[i],sizeof(args[i]),false)) { return UOS_EFAULT; }
+            user_copy(p,f->x[i],&args[i],sizeof(args[i]),false);
+        }
+    }
+    for (unsigned i=0;i<count;++i) { if (!args_valid(&args[i])) { return UOS_ERROR; } }
     struct uos_stdio io={0};char output[RAMFS_PATH_MAX];
     if (f->x[3]) { int64_t result=streams_copy(p,f->x[3],&io,output,append);if (result) { return result; } }
     unsigned flags=KFILE_WRITE|KFILE_CREATE|(append ? KFILE_APPEND : KFILE_EXCL);
-    unsigned slots[2],found=0;
-    for (unsigned i=0;i<PROCESS_LIMIT && found<2;++i) { if (tasks[i].status==UNUSED) { slots[found++]=i; } }
-    if (found!=2) { return UOS_ERROR; }
-    struct process *left=&tasks[slots[0]],*right=&tasks[slots[1]];zero(left,sizeof(*left));zero(right,sizeof(*right));
-    bool loaded=load(left,left_args.bytes,p->cwd,&left_args,&p->environment) && load(right,right_args.bytes,p->cwd,&right_args,&p->environment);
-    if (!loaded || (io.input[0] && kfile_open(left->owner,p->cwd,io.input,KFILE_READ,&left->stdin_handle)!=FS_OK) ||
-        (io.output[0] && kfile_open(right->owner,"/",output,flags,&right->stdout_handle)!=FS_OK)) {
-        bool a=release(left),b=release(right);if (!a || !b) { child_cleanup_failed=true; }
-        zero(left,sizeof(*left));zero(right,sizeof(*right));
-        zero(image,sizeof(image));return UOS_ERROR;
+    unsigned slots[UOS_PIPE_STAGES],found=0;
+    for (unsigned i=0;i<PROCESS_LIMIT && found<count;++i) { if (tasks[i].status==UNUSED) { slots[found++]=i; } }
+    if (found!=count) { return UOS_ERROR; }
+    unsigned prepared=0;
+    for (unsigned i=0;i<count;++i) {
+        struct process *stage=&tasks[slots[i]];zero(stage,sizeof(*stage));++prepared;
+        if (!load(stage,args[i].bytes,p->cwd,&args[i],&p->environment)) { goto fail; }
     }
-    zero(image,sizeof(image));channel.active=true;channel.parent=current;channel.left=slots[0];channel.right=slots[1];byte_pipe_init(&channel.ring);
-    left->parent=right->parent=current;left->deadline=right->deadline=timer_ticks()+timer_frequency()*f->x[2];p->status=CHILD_WAIT;
-    if (slots[1]>=total) { total=slots[1]+1; }children_spawned+=2;++pipe_runs;input_clear();
+    struct process *first=&tasks[slots[0]],*last=&tasks[slots[count-1]];
+    if ((io.input[0] && kfile_open(first->owner,p->cwd,io.input,KFILE_READ,&first->stdin_handle)!=FS_OK) ||
+        (io.output[0] && kfile_open(last->owner,"/",output,flags,&last->stdout_handle)!=FS_OK)) { goto fail; }
+    uint64_t deadline=timer_ticks()+timer_frequency()*f->x[2];
+    for (unsigned i=0;i<count;++i) {
+        struct process *stage=&tasks[slots[i]];
+        stage->parent=current;stage->deadline=deadline;stage->pipe_stage=i+1;channel.slots[i]=slots[i];
+        if (i+1<count) { byte_pipe_init(&channel.rings[i]); }
+    }
+    zero(image,sizeof(image));channel.active=true;channel.parent=current;channel.count=(unsigned)count;p->status=CHILD_WAIT;
+    if (slots[count-1]>=total) { total=slots[count-1]+1; }
+    children_spawned+=count;++pipe_runs;input_clear();
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");return 0;
+fail:
+    for (unsigned i=0;i<prepared;++i) {
+        struct process *stage=&tasks[slots[i]];
+        if (!release(stage)) { child_cleanup_failed=true; }
+        zero(stage,sizeof(*stage));
+    }
+    zero(image,sizeof(image));return UOS_ERROR;
 }
 static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool irq_ok)
 {
     struct process *p=&tasks[current];
     if (f->vector==9) {
-        if (!irq_ok) { for (unsigned i=0;i<total;++i) { if (live(&tasks[i])) { tasks[i].status=FAULTED;tasks[i].code=126; } }return schedule(f,true); }
+        if (!irq_ok) { for (unsigned i=0;i<scheduled_slots();++i) { if (live(&tasks[i])) { tasks[i].status=FAULTED;tasks[i].code=126; } }return schedule(f,true); }
         if (!timer_tick) { return true; }
         return schedule(f,true);
     }
@@ -908,6 +1365,9 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         if (f->x[8]==UOS_SYS_ALLOC_PAGES || f->x[8]==UOS_SYS_FREE_PAGES || f->x[8]==UOS_SYS_MEMORY_INFO ||
             f->x[8]==UOS_SYS_RESIZE_PAGES || f->x[8]==UOS_SYS_MEMORY_PRESSURE) {
             f->x[0]=(uint64_t)memory_call(p,f);if (!live(p)) { return schedule(f,false); }return true;
+        }
+        if (f->x[8]>=UOS_SYS_VM_CREATE && f->x[8]<=UOS_SYS_VM_UNMAP) {
+            f->x[0]=(uint64_t)vm_call(p,f);return live(p) || schedule(f,false);
         }
         if (f->x[8]==UOS_SYS_EXEC) {
             int64_t result=replace_image(p,f->x[0],f);
@@ -918,12 +1378,18 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             f->x[0]=(uint64_t)udp_call(p,f);return p->status!=UDP_WAIT || schedule(f,false);
         }
         if (f->x[8]>=UOS_SYS_TCP_OPEN && f->x[8]<=UOS_SYS_TCP_CLOSE) { f->x[0]=(uint64_t)tcp_call(p,f);return true; }
-        if (f->x[8]==UOS_SYS_PIPE_RUN || f->x[8]==UOS_SYS_PIPE_APPEND) {
-            int64_t result=pipeline_start(p,f,f->x[8]==UOS_SYS_PIPE_APPEND);
+        if (f->x[8]==UOS_SYS_IPC_SEND || f->x[8]==UOS_SYS_IPC_RECV ||
+            f->x[8]==UOS_SYS_SIGNAL_SEND || f->x[8]==UOS_SYS_SIGNAL_WAIT) {
+            f->x[0]=(uint64_t)(f->x[8]<=UOS_SYS_IPC_RECV ? ipc_call(p,f) : signal_call(p,f));
+            return p->status==READY || schedule(f,false);
+        }
+        if (f->x[8]==UOS_SYS_PIPE_RUN || f->x[8]==UOS_SYS_PIPE_APPEND || f->x[8]==UOS_SYS_PIPE_CHAIN) {
+            int64_t result=pipeline_start(p,f);
             f->x[0]=(uint64_t)result;return result ? true : schedule(f,false);
         }
-        if (channel.active && ((current==channel.left && f->x[8]==UOS_SYS_WRITE) || (current==channel.right && f->x[8]==UOS_SYS_STDIN))) {
-            bool reading=current==channel.right;uint64_t address=f->x[0],bytes=f->x[1];
+        if (channel.active && p->pipe_stage &&
+            ((p->pipe_stage<channel.count && f->x[8]==UOS_SYS_WRITE) || (p->pipe_stage>1 && f->x[8]==UOS_SYS_STDIN))) {
+            bool reading=f->x[8]==UOS_SYS_STDIN;uint64_t address=f->x[0],bytes=f->x[1];
             if (bytes>sizeof(p->pipe_buffer)) { f->x[0]=(uint64_t)UOS_ERROR;return true; }
             if (!user_range(p,address,(size_t)bytes,reading)) { f->x[0]=(uint64_t)UOS_EFAULT;return true; }
             if (!bytes) { f->x[0]=0;return true; }
@@ -970,21 +1436,95 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         }
         f->x[0]=(uint64_t)syscall(p,f);return true;
     }
-    p->status=FAULTED;p->code=125;p->esr=f->esr;p->far=f->far;p->pc=f->elr;(void)kfile_close_owner(p->owner);return schedule(f,false);
+    p->status=FAULTED;p->code=125;p->has_exception=true;p->esr=f->esr;p->far=f->far;p->pc=f->elr;
+    (void)kfile_close_owner(p->owner);return schedule(f,false);
 }
 bool process_exception(struct exception_frame *f,bool timer_tick,bool irq_ok)
 {
-    if (!running || current>=total || (f->spsr&15)!=0 || (f->vector!=8 && f->vector!=9)) { return false; }
+    if (!running || current>=scheduled_slots() || (f->spsr&15)!=0 || (f->vector!=8 && f->vector!=9)) { return false; }
     /* All lower-EL kernel work uses the verified identity root. This also
      * makes allocator/DMA policy checks valid and keeps active user tables
      * out of the child teardown path. User copies walk explicit private maps. */
     process_arch_root(kernel_root);bool handled=dispatch_exception(f,timer_tick,irq_ok);
-    if (handled && !(f->spsr&15)) { process_arch_root(tasks[current].tables.physical); }
+    if (handled && !(f->spsr&15)) { process_arch_root(tasks[current].tables->physical); }
     return handled;
+}
+bool process_service_start(const struct app_args *args)
+{
+    if (!args_valid(args) || running || service.enabled || service.cleanup_failed ||
+        !mmu_enabled() || !mmu_dma_compatible() || !irq_timer_running()) { return false; }
+    uint64_t flags=irq_save();
+    if (flags&0x80) { irq_restore(flags);return false; }
+    __asm__ volatile("mrs %0, ttbr0_el1" : "=r"(kernel_root));
+    zero(&service,sizeof(service));
+    service.args=*args;
+    const char *cwd=filesystem_cwd();
+    copy(service.cwd,cwd,length(cwd)+1);
+    service.retries_left=2;
+    service.last_slice=UINT64_MAX;
+    service.enabled=service_load();
+    irq_restore(flags);
+    return service.enabled;
+}
+void process_service_stop(void)
+{
+    uint64_t flags=irq_save();
+    if (service_task->status!=UNUSED) {
+        service_task->status=CANCELLED;service_task->code=143;service_task->stop_signal=UOS_SIGTERM;
+        service_collect();
+    }
+    service.enabled=false;
+    irq_restore(flags);
+}
+void process_service_info(void)
+{
+    console_write("Service enabled=");console_write(service.enabled ? "yes" : "no");
+    console_write(" active=");console_write(live(service_task) ? "yes" : "no");
+    console_write(" launches=");console_u64(service.launches);
+    console_write(" restarts=");console_u64(service.restarts);
+    console_write(" last_reason=");console_u64(service.last.reason);
+    console_write(" last_code=");console_u64(service.last.code);
+    console_write(" cleanup=");console_write(service.cleanup_failed ? "failed" : "ok");
+    if (live(service_task)) {
+        console_write(" pid=");console_u64(process_pid(service_task));
+        console_write(" path=");console_write(service_task->path);
+    }
+    if (service.last.reason==UOS_STOP_FAULT) {
+        console_write(" ESR=");console_hex(service.last.esr);
+        console_write(" PC=");console_hex(service.last.pc);
+        if (service.last.flags&UOS_FAULT_FAR_VALID) { console_write(" FAR=");console_hex(service.last.far); }
+    }
+    console_write("\n");
+}
+void process_service_step(void)
+{
+    if (!service.enabled) { return; }
+    uint64_t now=timer_ticks();
+    if (now==service.last_slice && irq_timer_running()) { return; }
+    service.last_slice=now;
+    uint64_t flags=irq_save();
+    service.slice=true;
+    refresh();
+    if (!(flags&0x80) && service_task->status==READY) {
+        unsigned foreground=current;
+        current=PROCESS_LIMIT;running=true;
+        ++service_task->dispatches;
+        process_arch_root(service_task->tables->physical);
+        process_arch_enter(&service_task->context,service_task->sp);
+        current=foreground;running=false;
+    }
+    service.slice=false;
+    irq_restore(flags);
+}
+static unsigned service_pages(void)
+{
+    if (!service_task->tables) { return 0; }
+    return TABLE_BACKING_PAGES+service_task->map_count;
 }
 void process_info(void)
 {
-    console_write("EL0 processes: limit=3; private pages; timer preempts users only; runs=");console_u64(epoch);
+    console_write("EL0 processes: limit=");console_u64(PROCESS_LIMIT);
+    console_write("; private pages; timer preempts users only; runs=");console_u64(epoch);
     console_write(" switches=");console_u64(switches);console_write(" preemptions=");console_u64(preemptions);console_write(" yields=");console_u64(yields);
     console_write(" idle_waits=");console_u64(idles);
     console_write(" terminal=");console_write(interactive ? "yes" : "no");console_write(" budget_seconds=");
@@ -1005,19 +1545,24 @@ void process_info(void)
         console_write(" execs=");console_u64(p->execs);
         console_write(" heap_live_pages=");console_u64(p->heap.live);console_write(" heap_peak_pages=");console_u64(p->heap.peak);
         console_write(" heap_allocations=");console_u64(p->heap.allocations);console_write(" heap_free_calls=");console_u64(p->heap.free_calls);
-        if (p->esr) { console_write(" ESR=");console_hex(p->esr);console_write(" FAR=");console_hex(p->far); }
+        if (p->has_exception) {
+            struct uos_fault_info fault=stop_info(p);
+            console_write(" ESR=");console_hex(fault.esr);console_write(" PC=");console_hex(fault.pc);
+            if (fault.flags&UOS_FAULT_FAR_VALID) { console_write(" FAR=");console_hex(fault.far); }
+        }
         console_write("\n");
     }
 }
 static int run(const char *const *paths,unsigned count,const struct app_args *args,bool terminal,unsigned seconds)
 {
     if (!paths || !count || count>PROCESS_LIMIT || (terminal && count!=1) || running || !mmu_enabled() || !mmu_dma_compatible() || !irq_timer_running() || epoch>=(1ULL<<60)-2) {
-        console_write("App run refused: require mmuinit, irqinit, timerstart and 1..3 valid paths.\n");return 2;
+        console_write("App run refused: require mmuinit, irqinit, timerstart and 1..5 valid paths.\n");return 2;
     }
     uint64_t flags=irq_save();if (flags&0x80) { irq_restore(flags);console_write("App run refused: CPU IRQs must be unmasked.\n");return 2; }
     struct page_stats before=pages_stats();struct heap_stats heap=heap_get_stats();unsigned handles=kfile_count();
+    unsigned original_service_pages=service_pages(),original_service_handles=kfile_owner_count(service_task->owner);
     __asm__ volatile("mrs %0, ttbr0_el1" : "=r"(kernel_root));
-    zero(tasks,sizeof(tasks));++epoch;total=count;current=0;switches=preemptions=yields=idles=0;last_clean=false;bool loaded=true,clean=true;
+    zero(tasks,PROCESS_LIMIT*sizeof(tasks[0]));++epoch;total=count;current=0;switches=preemptions=yields=idles=0;last_clean=false;bool loaded=true,clean=true;
     children_spawned=children_reaped=0;child_last_code=0;child_cleanup_failed=false;
     zero(&channel,sizeof(channel));pipe_runs=pipe_completions=pipe_written=pipe_read=pipe_read_waits=pipe_write_waits=0;pipe_left_code=pipe_right_code=0;
     interactive=terminal;budget_seconds=seconds;
@@ -1034,22 +1579,22 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
         __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
         for (;;) {
             network_worker_service();
-            refresh();unsigned next=total;bool pending=false;
+            refresh();unsigned slots=scheduled_slots(),next=slots;bool pending=false;
             bool checkpoint=network_checkpoint;
             network_checkpoint=false;
-            for (unsigned step=0;step<total;++step) {
-                unsigned i=checkpoint ? (current+step+1)%total : step;
-                if (live(&tasks[i])) { pending=true; }
-                if (next==total && tasks[i].status==READY) { next=i; }
+            for (unsigned step=0;step<slots;++step) {
+                unsigned i=checkpoint ? (current+step+1)%slots : step;
+                if (i<total && live(&tasks[i])) { pending=true; }
+                if (next==slots && tasks[i].status==READY) { next=i; }
             }
             if (!pending) { break; }
-            if (next==total) {
+            if (next==slots) {
                 /* Back on the kernel root/stack, outside exception dispatch.
                  * The periodic IRQ bounds the check-to-WFI wakeup race. */
                 ++idles;irq_restore(flags);__asm__ volatile("wfi" ::: "memory");(void)irq_save();continue;
             }
             if (next!=current) { ++switches;if (checkpoint) { ++preemptions; } }current=next;++tasks[next].dispatches;
-            process_arch_root(tasks[next].tables.physical);process_arch_enter(&tasks[next].context,tasks[next].sp);
+            process_arch_root(tasks[next].tables->physical);process_arch_enter(&tasks[next].context,tasks[next].sp);
         }
         running=false;
     }
@@ -1059,8 +1604,11 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     struct page_stats after=pages_stats();struct heap_stats final=heap_get_stats();
     /* RAM files created by applications legitimately retain heap storage.
      * Account for that ownership; private process pages must all be freed. */
-    last_clean=clean && !child_cleanup_failed && before.allocated_pages+final.pages==after.allocated_pages+heap.pages && before.free_pages+heap.pages==after.free_pages+final.pages &&
-        handles==kfile_count() && heap_check() && mmu_dma_compatible();
+    unsigned final_service_pages=service_pages(),final_service_handles=kfile_owner_count(service_task->owner);
+    last_clean=clean && !child_cleanup_failed && !service.cleanup_failed &&
+        before.allocated_pages+final.pages+final_service_pages==after.allocated_pages+heap.pages+original_service_pages &&
+        before.free_pages+heap.pages+original_service_pages==after.free_pages+final.pages+final_service_pages &&
+        handles+final_service_handles==kfile_count()+original_service_handles && heap_check() && mmu_dma_compatible();
     irq_restore(flags);process_info();
     console_write(last_clean ? "App resources restored; monitor ready.\n" : "FAIL: application resource restoration.\n");
     if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); }

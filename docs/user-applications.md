@@ -32,7 +32,7 @@ same three-slot foreground and one-child-per-root bounds.
 
 ## What runs
 
-`apprun` starts one to three static AArch64 ELF64 little-endian executables as
+`apprun` starts one to five static AArch64 ELF64 little-endian executables as
 a foreground batch. Each process gets independently allocated backing pages
 and a private user mapping subtree at virtual address `0x2000000000`, with up
 to eight image pages (32 KiB) and four stack pages (16 KiB). Unmapped space

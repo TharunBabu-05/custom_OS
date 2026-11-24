@@ -195,7 +195,8 @@ static void command(const char *line)
         console_write("fbinfo fbtest fbon fboff (firmware HDMI framebuffer and UART mirror)\n");
         console_write("excinfo exctest irqinit irqinfo irqtest timerstart timerinfo timertest timerstop\n");
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
-        console_write("appinfo apptest apprun <ELF> [ELF2] [ELF3] (EL0; requires MMU/timer)\n");
+        console_write("appinfo apptest apprun <ELF> [up to four more] (EL0; requires MMU/timer)\n");
+        console_write("svc | svc start <ELF> [arguments] | svc stop\n");
         console_write("appexec <ELF> [arguments] tooltest (EL0 utilities and sleeping processes)\n");
         console_write("appshell | appterm <1..300 seconds> <ELF> [arguments] (interactive EL0 serial session)\n");
         console_write("appinstall <source ELF> </data/new-file> (validated ELF, no overwrite)\n");
@@ -207,6 +208,7 @@ static void command(const char *line)
         console_write("fseek <handle> <signed offset> set|cur|end | fclose <handle>\n");
         console_write("datainit datainfo sync (persistent /data on the preformatted data partition)\n");
         console_write("datacheck (read both on-disk snapshots)\n");
+        console_write("datahistory /data/PATH | datarecover /data/OLD /data/NEW (v5)\n");
         console_write("heapinfo heaptest heapalloc <1..4096> heapfree <slot>\n");
         console_write("cryptotest (published vectors) rngtest (manual hardware source, no sample output)\n");
         console_write("keytest (offline AES/CMAC/unwrap/PTK/M2/M4/key-data/M3-retry vectors; no radio)\n");
@@ -364,6 +366,7 @@ void kernel_main(uintptr_t dtb, unsigned long boot_el)
         irq_run_deferred();
         network_worker_service();
         int input=console_getc();
+        if (input==CONSOLE_NO_INPUT) { process_service_step(); }
         if (input==CONSOLE_NO_INPUT || input==4) { continue; }
         unsigned previous=line.length;
         switch (terminal_feed(&line,input)) {

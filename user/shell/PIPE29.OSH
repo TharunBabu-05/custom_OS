@@ -1,0 +1,8 @@
+# Run with source -e /boot/PIPE29.OSH
+mkdir /tmp/pipe29
+/boot/STREAM.ELF generate | cat | cat | /boot/HASH.ELF > /tmp/pipe29/hash
+sha256 /tmp/pipe29/hash 56787e142c356f0af5142cc2e695559f923cfa4afe2b1f306d78a1e7fbab7da3
+cat /tmp/pipe29/hash
+rm /tmp/pipe29/hash
+rmdir /tmp/pipe29
+echo "PASS: four-stage pipeline preserved all 16384 bytes."
