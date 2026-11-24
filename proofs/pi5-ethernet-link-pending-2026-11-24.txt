@@ -1,0 +1,25 @@
+Raspberry Pi 5 booted from USB on the corrected ARP image.
+Selected UART output.
+
+> ethup
+PHY reset pulsed.
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=down autoneg=pending held=yes
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=down autoneg=pending held=yes
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=down autoneg=pending held=yes
+> etharp
+etharp needs full duplex. status=0x0000000000007949 aux=0x0000000000001000
+> ethdown
+PHY hold released.
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+After the UART session, Windows reported Ethernet 3 Disconnected at
+0 bps and 192.0.2.1 Tentative.

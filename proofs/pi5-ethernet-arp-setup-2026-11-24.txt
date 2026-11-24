@@ -1,0 +1,36 @@
+Raspberry Pi 5 USB boot, direct cable to the Windows USB Ethernet adapter.
+Selected UART output from the first etharp package.
+
+> ethup
+PHY reset pulsed.
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=down autoneg=pending held=yes
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> etharp
+Ethernet link Mbps=100
+Ethernet DMA result=2 queues=0x0000000008820000 imr=0x000000003fffffff tx=0x0000000000000000 rx=0x0000000000000000 tsr=0x0000000000000000 rsr=0x0000000000000000
+> etharp
+Ethernet link Mbps=100
+Ethernet DMA result=2 queues=0x0000000008820000 imr=0x000000003fffffff tx=0x0000000000000000 rx=0x0000000000000000 tsr=0x0000000000000000 rsr=0x0000000000000000
+> ethdown
+PHY hold released.
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+Windows adapter
+
+Name       Status LinkSpeed MacAddress
+----       ------ --------- ----------
+Ethernet 3 Up     100 Mbps  20-7B-D5-1A-C0-91
+
+IPAddress AddressState
+--------- ------------
+192.0.2.1    Preferred
+
+Windows removed the test address and ran the conditional DHCP restore.

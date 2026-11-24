@@ -65,7 +65,7 @@ if ($PlatformHealth) {
         Copy-Item -LiteralPath $source -Destination $disk
         try {
             Session $disk $name $case[0] $case[1] @('exit','datacheck','utc','platforminfo','therminfo','powerinfo','rtcinfo',
-                'devlist','devinfo /pl011@9000000','devinfo /does-not-exist','rp1info','rp1msiinfo','rp1dmatest','ethprobe','ethprobe reset','ethup','ethdown',
+                'devlist','devinfo /pl011@9000000','devinfo /does-not-exist','rp1info','rp1msiinfo','rp1dmatest','ethprobe','ethprobe reset','ethup','ethdown','ethrecover','ethloop','etharp','ethping','ethudpup','ethtcpup',
                 'gpioinfo 14','gpioinfo 27','gpioinfo 27 ','gpioinfo 28','gpiotest 17','gpiotest 28','gpioloop','gpioloop 17',
                 'gpiopull 17','gpiopull 28',
                 'resinfo',@{Text='irqtest';Delay=4500},'resinfo',
@@ -76,6 +76,7 @@ if ($PlatformHealth) {
                 'owner=serial-console live_mmio=0x0000000009000000','Device-tree node or alias not found.',
                 'RP1 observation requires a Raspberry Pi 5.','RP1 DMA test requires a Raspberry Pi 5.',
                 'RP1 MSI-X preflight requires a Raspberry Pi 5.','Ethernet probe requires a Raspberry Pi 5.',
+                'Ethernet DMA test requires a Raspberry Pi 5.',
                 'GPIO readback requires a Raspberry Pi 5.','Usage: gpioinfo <BCM GPIO 0..27>',
                 'GPIO test requires a Raspberry Pi 5.','Usage: gpiotest <BCM GPIO 0..27>',
                 'Usage: gpioloop',
@@ -83,7 +84,8 @@ if ($PlatformHealth) {
                 'owner=qemu-xhci kind=dma-memory','owner=gic-timer kind=irq domain=0x0000000008000000 start=30 length=1',
                 'UTC unset. Use utc set','Platform health: requires Raspberry Pi 5.','platform-shell-ok') 2 'ouros.startup=shell'
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
-            if ([regex]::Matches($log,'Ethernet probe requires a Raspberry Pi 5\.').Count -ne 4) { throw "$name Ethernet command routing failed" }
+            if ([regex]::Matches($log,'Ethernet probe requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet command routing failed" }
+            if ([regex]::Matches($log,'Ethernet DMA test requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet DMA command routing failed" }
             if (!$log.Contains("> gpioloop`r`nGPIO test requires a Raspberry Pi 5.") -or
                 !$log.Contains("> gpioloop 17`r`nUsage: gpioloop")) { throw "$name GPIO loopback gate failed" }
             if (!$log.Contains("> gpiopull 17`r`nGPIO test requires a Raspberry Pi 5.") -or
@@ -443,7 +445,7 @@ if ($TcpSockets) {
             ) @('PASS: EL0 TCP connect, checked buffers, ordered stream, EOF and close.',
                 'PASS: TCP worker and EL0 file transfer.',
                 "PASS: TCP echoed 16384 bytes. SHA-256 $digest",
-                'TCP requires an active background Wi-Fi session.','Open files: 0/16') 3
+                'TCP requires an active ','Open files: 0/16') 3
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
@@ -461,7 +463,7 @@ if ($UdpSockets) {
             ) @('PASS: EL0 UDP ownership, datagrams, checked buffers and receive timeout.',
                 'PASS: UDP link loss woke the blocked receive and invalidated its handle.',
                 'PASS: UDP worker and EL0 socket integration.',
-                'UDP requires an active background Wi-Fi session.','Open files: 0/16') 3
+                'UDP requires an active ','Open files: 0/16') 3
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }

@@ -1,5 +1,36 @@
 # Real Raspberry Pi 5 proof
 
+`UDPCHK.ELF` exchanged a nine-byte datagram with Windows over Ethernet
+at 100 Mbps. The earlier command targeted port 4. The echo listener
+was on port 4040. Ethernet cleanup returned to eight resource claims,
+and the USB and data checks passed. [Wired UDP capture](pi5-ethernet-udp-pass-2026-11-24.txt)
+
+The Pi passed two wired IPv4 echo exchanges at 100 Mbps. It returned
+to eight resource claims and passed the USB and data checks.
+[Wired IPv4 capture](pi5-ethernet-ipv4-pass-2026-11-24.txt)
+
+The Pi exchanged ARP frames with Windows over the 100 Mbps cable and
+reported the adapter's MAC `20-7B-D5-1A-C0-91`. Releasing Ethernet
+returned to eight resource claims and the storage checks passed.
+[Successful cable ARP capture](pi5-ethernet-arp-pass-2026-11-24.txt)
+
+The PHY responded while held, but link negotiation remained pending.
+`etharp` stopped before the DMA test. The Pi returned to eight claims
+and passed USB and data checks. [Pending link capture](pi5-ethernet-link-pending-2026-11-24.txt)
+
+`etharp` resolved a 100 Mbps link with Windows at the test address,
+then stopped during MAC setup. PHY release returned the Pi to eight
+claims, with USB and data checks passing. [ARP setup capture](pi5-ethernet-arp-setup-2026-11-24.txt)
+
+`ethloop` passed three times. The Pi returned to eight resource claims,
+reproduced the prior USB hash and mounted `/data` at generation 1.
+[GEM loopback capture](pi5-ethernet-loopback-2026-11-24.txt)
+
+`ethup` held the PHY out of reset until auto-negotiation completed.
+Windows reported `Ethernet 3` up at 100 Mbps. After `ethdown`, the Pi
+returned to eight claims, reproduced the USB hash, and reported valid
+`/data` generation 1. [Ethernet link capture](pi5-ethernet-link-2026-11-24.txt)
+
 PHY reset released the onboard Ethernet PHY long enough to read its ID
 `0x600d84a2`. The next probe got no reply after the diagnostic restored
 GPIO32. USB storage and `/data` passed. [Ethernet reset capture](pi5-ethernet-phy-reset-2026-11-24.txt)

@@ -1,0 +1,33 @@
+Raspberry Pi 5 USB boot, direct Ethernet to the Windows USB adapter.
+Selected UART and Windows output.
+
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethudpup
+Ethernet link Mbps=100
+Ethernet UDP active at 192.0.2.2/30. Use ethdown to stop.
+> appshell
+user:/$ run /boot/UDPCHK.ELF 192.0.2.1 4
+UDP echo timed out.
+child exit=1
+user:/$ run /boot/UDPCHK.ELF 192.0.2.1 4040 wired-udp
+PASS: UDP echo matched the sent datagram.
+child exit=0
+user:/$ exit
+App resources restored; monitor ready.
+> ethdown
+PHY hold released.
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+Windows echo server
+Waiting for 192.0.2.2 on 192.0.2.1:4040
+Echoed 9 bytes to 192.0.2.2:49153
+
+Windows removed the temporary OurOS-Ethernet-UDP-Test firewall rule.

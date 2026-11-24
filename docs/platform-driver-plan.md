@@ -1206,3 +1206,295 @@ Get-NetAdapter -Name 'Ethernet 3' | Select-Object Name,Status,LinkSpeed
 
 Run `ethdown`, `resinfo`, `storagetest`, and `datacheck` in PuTTY to
 verify cleanup and compare storage with the previous capture.
+
+The Pi reported link up and auto-negotiation complete while the PHY was
+held. The Windows adapter reported 100 Mbps. After `ethdown`, the Pi
+returned to eight resource claims, the USB read hash matched the earlier
+run, and `/data` remained at generation 1.
+[Pi and Windows capture](../proofs/pi5-ethernet-link-2026-11-24.txt)
+
+### Phase 18 Ethernet MAC DMA loopback
+
+`ethloop` runs a bounded internal Cadence GEM loopback. It uses queue zero,
+two legacy descriptors per direction, and one page of Normal-NC DMA memory
+claimed alongside the MAC. The test checks descriptor ownership, frame
+length and contents, and RX buffer guards. It stops the MAC and restores
+the saved configuration before returning the page and claims. If completion
+or restoration cannot be verified, the page and claims remain reserved until
+reboot. Hardware frame counters may advance while the test runs.
+[RP1 peripheral documentation](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008370-DS-1-rp1-peripherals.pdf)
+
+Apply the boot package to the existing `OUROSBOOT` partition.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-loop-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot from the updated USB drive with Ethernet unplugged. At the PuTTY
+`user:/$` prompt run `exit`. At the `>` prompt run `ethloop`. After a
+PASS, repeat `ethloop`, then run `resinfo`, `storagetest`, and
+`datacheck`. Expect two matching passes, eight claims, the prior USB
+hash, and the same mounted data generation. Capture the full `ethloop`
+output on failure. Reboot if the command reports that it retained the
+DMA page.
+
+On the Pi, three `ethloop` runs passed. Resource claims returned to eight,
+the USB hash matched, and `/data` remained at generation 1.
+[GEM loopback capture](../proofs/pi5-ethernet-loopback-2026-11-24.txt)
+
+### Phase 18 Ethernet ARP over the cable
+
+`etharp` reads the onboard PHY's negotiated full-duplex speed while
+`ethup` holds it out of reset. It programs the GEM speed and unicast
+filter using the board's RGMII routing and sends a broadcast ARP request from
+`192.0.2.2` to Windows at `192.0.2.1`. It checks the full ARP reply
+address tuple and prints the peer MAC. The command restores the MAC
+configuration after a completed exchange. An unverified DMA completion
+keeps the page reserved until reboot.
+[RP1 GEM configuration](https://github.com/raspberrypi/linux/blob/rpi-6.12.y/drivers/net/ethernet/cadence/macb_main.c)
+
+The first cable test resolved 100 Mbps, but both attempts stopped during
+MAC setup with `result=2`. The output contained no descriptor completion
+and did not identify the failed register. The updated test leaves the
+generic GEM `USRIO` selector as configured by the firmware. It prints the
+register offset, expected value, and readback when a configuration
+write fails verification.
+[ARP capture](../proofs/pi5-ethernet-arp-setup-2026-11-24.txt)
+
+The next run read the PHY ID with the link down and negotiation
+pending. `etharp` stopped at the link check. USB and data checks passed.
+[Pending link capture](../proofs/pi5-ethernet-link-pending-2026-11-24.txt)
+
+`ethrecover` can be used after `ethup` when negotiation stalls. It
+requests one Clause 22 restart on the held BCM54213PE with auto-negotiation
+enabled and polls status for about four seconds. A link that is already
+up and negotiated is left alone. The command restores the GEM management
+registers before reporting the current status.
+[Clause 22 definitions](https://github.com/raspberrypi/linux/blob/rpi-6.12.y/include/uapi/linux/mii.h)
+
+Apply the recovery package to the existing USB boot volume.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-recovery-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot the Pi and connect its Ethernet port directly to the laptop's USB
+Ethernet adapter. At `user:/$` enter `exit`. At `>` run `ethup`, wait
+a few seconds, and run `ethprobe`. If it still reports `link=down`,
+reseat the cable at both ends and run `ethrecover`. Check `Ethernet 3`
+in Windows while `held=yes`. Proceed when the Pi reports
+`link=up autoneg=complete` and Windows reports `Up`.
+
+Run the following in an administrator PowerShell on Windows. Keep the
+window open so the saved DHCP state is available for cleanup. Wait for
+the address state to be `Preferred` before running the Pi test.
+[Windows address configuration](https://learn.microsoft.com/en-us/powershell/module/nettcpip/new-netipaddress?view=windowsserver2025-ps)
+
+```powershell
+$nic = 'Ethernet 3'
+Get-NetAdapter -Name $nic | Select-Object Name,Status,LinkSpeed,MacAddress
+if (!(Get-NetIPAddress -InterfaceAlias $nic -IPAddress 192.0.2.1 -ErrorAction SilentlyContinue)) {
+    $dhcp = (Get-NetIPInterface -InterfaceAlias $nic -AddressFamily IPv4).Dhcp
+    New-NetIPAddress -InterfaceAlias $nic -IPAddress 192.0.2.1 -PrefixLength 30 -PolicyStore ActiveStore
+}
+Get-NetIPAddress -InterfaceAlias $nic -IPAddress 192.0.2.1 | Select-Object IPAddress,AddressState
+```
+
+Run `etharp` at `>`. Expect `PASS: ARP reply from 192.0.2.1` and the
+Windows adapter MAC. After a pass, repeat `etharp`, then run `ethdown`,
+`resinfo`, `storagetest`, and `datacheck`. Expect eight claims and the
+previous storage hash and generation. On failure, include the entire
+report with any `reg`, `expected`, and `observed` values. Reboot if the
+report says the DMA page was retained.
+
+In the same administrator PowerShell, remove the address created for
+the test and restore DHCP if it was enabled.
+
+```powershell
+Remove-NetIPAddress -InterfaceAlias $nic -IPAddress 192.0.2.1 -PolicyStore ActiveStore -Confirm:$false
+if ($dhcp -eq 'Enabled') {
+    Set-NetIPInterface -InterfaceAlias $nic -AddressFamily IPv4 -Dhcp Enabled -PolicyStore ActiveStore
+}
+```
+
+The Pi received the ARP reply at 100 Mbps from Windows
+(`20-7B-D5-1A-C0-91`). After `ethdown`, resource claims returned to eight,
+the USB read hash matched, and `/data` remained at generation 1.
+[Successful cable ARP capture](../proofs/pi5-ethernet-arp-pass-2026-11-24.txt)
+
+### Phase 18 IPv4 echo over Ethernet
+
+`ethping` uses the held onboard Ethernet interface. It resolves the
+Windows MAC with ARP and sends one IPv4 ICMP Echo Request from
+`192.0.2.2` to `192.0.2.1`. The reply must match both MAC and IPv4
+addresses, the echo identifier, sequence and payload. The IPv4 header
+and ICMP checksums must both verify. Each exchange restores the GEM
+before sharing the scratch page with the next transfer. A failure
+identifies the ARP or ICMP step.
+[ICMP Echo format](https://www.rfc-editor.org/rfc/rfc792.html)
+
+Apply the IPv4 update to the existing USB boot volume.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-ipv4-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot the Pi with the Ethernet cable connected. At the PuTTY
+`user:/$` prompt enter `exit`. At `>` run `ethup` and then
+`ethprobe`. If the link stalls, run `ethrecover`. While the PHY is
+held, confirm in Windows that `Ethernet 3` is up and the test address
+is preferred, using the address setup above if needed.
+
+```powershell
+Get-NetAdapter -Name 'Ethernet 3' | Select-Object Status,LinkSpeed
+Get-NetIPAddress -InterfaceAlias 'Ethernet 3' -IPAddress 192.0.2.1 |
+    Select-Object IPAddress,AddressState
+```
+
+In administrator PowerShell, allow incoming echo requests only on the
+direct USB Ethernet link between the two test addresses.
+[Windows firewall rule documentation](https://learn.microsoft.com/en-us/powershell/module/netsecurity/new-netfirewallrule?view=windowsserver2025-ps)
+
+```powershell
+New-NetFirewallRule -Name 'OurOS-Ethernet-ICMP-Test' -DisplayName 'OurOS Ethernet ICMP test' `
+    -Direction Inbound -Action Allow -Protocol ICMPv4 -IcmpType 8 `
+    -InterfaceAlias 'Ethernet 3' -LocalAddress 192.0.2.1 -RemoteAddress 192.0.2.2
+```
+
+At the Pi monitor run `ethping`. Expect `PASS: ICMP echo reply from
+192.0.2.1` and the Windows adapter MAC. After a pass, repeat `ethping`
+then run `ethdown`, `resinfo`, `storagetest`, and `datacheck`. If the
+diagnostic reports DMA retention, capture the full output and reboot
+before retrying.
+
+Remove the temporary rule in administrator PowerShell.
+
+```powershell
+Remove-NetFirewallRule -Name 'OurOS-Ethernet-ICMP-Test'
+```
+
+Both Pi runs received the matching IPv4 echo reply from Windows at
+100 Mbps. After releasing the PHY, eight resource claims remained, the
+USB hash matched, and `/data` remained at generation 1.
+[Wired IPv4 capture](../proofs/pi5-ethernet-ipv4-pass-2026-11-24.txt)
+
+### Phase 18 UDP sockets over Ethernet
+
+`ethudpup` activates the existing UDP socket service on the held
+Ethernet link using the direct-test address `192.0.2.2/30`. It selects
+the interface explicitly and uses the same cooperative worker and EL0
+socket ABI as Wi-Fi. The worker shares the PHY hold's GEM claim and
+acquires one DMA page for the transmit and receive rings. It exchanges
+ARP and UDP frames while the monitor or user shell runs. `ethdown`
+stops the worker, invalidates UDP sockets, restores the GEM and
+releases the PHY. An unverified DMA stop retains the relevant resources
+until boot. Ethernet uses the single active network worker. The cable
+test covers outbound IPv4 UDP to the on-link Windows peer.
+[Cadence GEM ring handling](https://github.com/raspberrypi/linux/blob/rpi-6.12.y/drivers/net/ethernet/cadence/macb_main.c)
+
+Apply the UDP update to the existing USB boot volume.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-udp-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot the Pi with the cable connected. At `user:/$` type `exit`. Run
+`ethup` and wait for `ethprobe` to show `link=up autoneg=complete`.
+Run `ethudpup` at `>`, then `appshell` after it reports that UDP is
+active. Use the address setup above if Windows needs `192.0.2.1/30`.
+
+Run the following in administrator Windows PowerShell from the project
+folder. The firewall rule applies to UDP port 4040 on the direct cable.
+[Windows firewall rule reference](https://learn.microsoft.com/en-us/powershell/module/netsecurity/new-netfirewallrule?view=windowsserver2025-ps)
+
+```powershell
+New-NetFirewallRule -Name 'OurOS-Ethernet-UDP-Test' -DisplayName 'OurOS Ethernet UDP test' `
+    -Direction Inbound -Action Allow -Protocol UDP -LocalPort 4040 `
+    -InterfaceAlias 'Ethernet 3' -LocalAddress 192.0.2.1 -RemoteAddress 192.0.2.2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/udp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4040
+```
+
+With Windows waiting, run this at `user:/$`.
+
+```text
+run /boot/UDPCHK.ELF 192.0.2.1 4040 wired-udp
+```
+
+Expect Windows to echo nine bytes and the app to print `PASS: UDP
+echo matched the sent datagram.` Start the Windows echo script again
+for a second test in the same Pi session. Then type `exit` and run
+`ethdown`, `resinfo`, `storagetest` and `datacheck` at `>`.
+Expect eight resource claims and the prior storage hash and generation.
+Remove the temporary Windows firewall rule after the test.
+
+```powershell
+Remove-NetFirewallRule -Name 'OurOS-Ethernet-UDP-Test'
+```
+
+Windows echoed nine bytes at port 4040, and `UDPCHK.ELF` confirmed
+the contents. An earlier attempt used port 4 and timed out. Resource
+claims, the USB hash, and the data generation returned to their
+baseline after `ethdown`.
+[Wired UDP capture](../proofs/pi5-ethernet-udp-pass-2026-11-24.txt)
+
+### Phase 18 TCP streams over Ethernet
+
+`ethtcpup` enables the existing TCP and UDP socket APIs on the held
+Ethernet interface at `192.0.2.2/30`. The worker alternates which
+protocol gets first use of the shared transmit descriptor. TCP takes
+its session secret from the Pi's hardware RNG, and `ethdown` closes
+both socket services before releasing GEM DMA and the PHY. Use
+`ethudpup` to start a UDP-only session. TCP uses active connections to
+on-link IPv4 peers.
+[TCP specification](https://www.rfc-editor.org/rfc/rfc9293.html)
+
+Apply the TCP update to the USB boot volume. `LARGE.BIN` is the existing
+16 KiB input file used by the echo application.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase18-ethernet-tcp-boot-update.zip'
+Get-Item -LiteralPath D:\LARGE.BIN | Select-Object Name,Length
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Boot with the Ethernet cable attached. In PuTTY, type `exit` to reach
+`>`, run `ethup`, and check for `link=up autoneg=complete` with
+`ethprobe`. Run `ethtcpup` and then `appshell` once the monitor reports
+`Ethernet TCP and UDP active at 192.0.2.2/30`.
+
+In administrator Windows PowerShell, with `192.0.2.1` preferred on
+`Ethernet 3`, allow TCP port 4041 only between the test addresses and
+start the echo service from the project folder.
+[Windows firewall rule reference](https://learn.microsoft.com/en-us/powershell/module/netsecurity/new-netfirewallrule?view=windowsserver2025-ps)
+
+```powershell
+New-NetFirewallRule -Name 'OurOS-Ethernet-TCP-Test' -DisplayName 'OurOS Ethernet TCP test' `
+    -Direction Inbound -Action Allow -Protocol TCP -LocalPort 4041 `
+    -InterfaceAlias 'Ethernet 3' -LocalAddress 192.0.2.1 -RemoteAddress 192.0.2.2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4041
+```
+
+When Windows says `Waiting`, run this at the OurOS `user:/$` prompt.
+
+```text
+run /boot/TCPCHK.ELF 192.0.2.1 4041
+```
+
+Expect both sides to report 16384 bytes with identical SHA-256 values.
+Type `exit`, then run `ethdown`, `resinfo`, `storagetest`, and
+`datacheck` at `>`. The baseline is eight resource claims and the
+previous USB hash and data generation. Remove the temporary firewall
+rule in the administrator PowerShell.
+
+```powershell
+Remove-NetFirewallRule -Name 'OurOS-Ethernet-TCP-Test'
+```

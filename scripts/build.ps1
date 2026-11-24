@@ -78,7 +78,7 @@ try {
         $sources+=@('kernel/core/dt_resources.c','kernel/core/device_inventory.c')
         $sources+=@('kernel/core/resources.c','kernel/core/resource_report.c')
         $sources+=@('kernel/core/rp1_commands.c','kernel/core/rp1_dma_command.c')
-        if ($Target -eq 'rpi5') { $sources+=@('drivers/platform/rp1_probe.c','drivers/platform/rp1_dma_test.c','drivers/platform/rp1_msix.c','drivers/platform/rp1_eth.c') }
+        if ($Target -eq 'rpi5') { $sources+=@('drivers/platform/rp1_probe.c','drivers/platform/rp1_dma_test.c','drivers/platform/rp1_msix.c','drivers/platform/rp1_eth.c','drivers/platform/rp1_eth_loop.c') }
         if ($Target -ne 'rpi5') { $sources+='kernel/core/fdt.c' }
         $objects = @()
         foreach ($source in $sources) {
@@ -87,21 +87,24 @@ try {
             $optimize=if ($source -in @('kernel/core/trust_time_commands.c','lib/trust_time.c','network/tcp.c','network/netprobe.c','network/udp.c','drivers/storage/brcm_control.c','drivers/storage/brcm_assoc.c','drivers/storage/pi5_wifi_probe.c',
                 'drivers/display/simple_framebuffer.c','drivers/display/framebuffer_terminal.c','kernel/core/framebuffer_commands.c','kernel/core/dt_property.c','kernel/core/main.c',
                 'drivers/platform/pi5_health.c','drivers/platform/pi5_mailbox.c','kernel/core/platform_health_commands.c',
-                'kernel/core/dt_resources.c','kernel/core/device_inventory.c',
+                'kernel/core/dt_resources.c','kernel/core/device_inventory.c','kernel/core/console.c','kernel/memory/boot_memory.c',
                 'kernel/core/resources.c','kernel/core/resource_report.c','kernel/core/app_files.c','kernel/core/storage_commands.c',
                 'kernel/core/rp1_commands.c','drivers/platform/rp1_probe.c','kernel/core/rp1_dma_command.c','drivers/platform/rp1_dma_test.c',
                 'filesystem/vfs.c','filesystem/fat32.c','filesystem/kfile.c','filesystem/ramfs.c',
                 'arch/aarch64/interrupts/irq.c','drivers/irq/gic.c','drivers/irq/gic_dt.c',
                 'drivers/platform/rp1_msix.c','drivers/usb/pi5_usb_dt.c','kernel/core/usb_commands.c',
                 'drivers/usb/xhci_observe.c','drivers/usb/xhci_test_report.c','drivers/usb/pi5_xhci_test.c','drivers/usb/usb_descriptors.c',
-                'kernel/scheduler/tasks.c','kernel/memory/pages.c','drivers/storage/usb_bot.c','network/session.c',
+                'kernel/scheduler/tasks.c','kernel/scheduler/network_worker.c','kernel/memory/pages.c','drivers/storage/usb_bot.c','network/session.c',
                 'kernel/memory/map.c','drivers/storage/sdhci.c','drivers/storage/pi5_sd.c','drivers/storage/pi5_sd_probe.c',
                 'kernel/core/process_commands.c','kernel/process/user_heap.c','kernel/process/elf_app.c',
                 'kernel/memory/mmu_tables.c','kernel/memory/heap.c',
                 'kernel/memory/heap_commands.c','drivers/storage/brcm_scan.c','drivers/storage/brcm_firmware.c',
-                'drivers/storage/sdio.c','drivers/platform/rp1_eth.c','drivers/storage/brcm_sdio.c',
+                'drivers/storage/sdio.c','drivers/platform/rp1_eth.c','drivers/platform/rp1_eth_loop.c','drivers/storage/brcm_sdio.c',
+                'drivers/storage/brcm_auth.c','drivers/storage/brcm_auth_probe.c','drivers/storage/brcm_join_probe.c','drivers/storage/brcm_sae_probe.c',
+                'arch/aarch64/mmu/runtime.c','drivers/random/pi5_rng200.c','drivers/reset/reset_dt.c','drivers/storage/wifi_target.c','drivers/storage/brcm_chip.c',
                 'network/dns.c','kernel/process/app_env.c','kernel/process/app_profile.c','drivers/storage/pi5_wifi_power.c',
-                'lib/wpa_probe.c','lib/wpa_kde.c','lib/wpa_rsn.c','drivers/storage/block.c','kernel/interrupts/exception.c',
+                'lib/wpa_probe.c','lib/wpa_kde.c','lib/wpa_rsn.c','lib/aes_selftest.c','lib/p256_selftest.c','lib/sae_session_selftest.c',
+                'lib/sae_h2e_selftest.c','lib/wpa_retry_selftest.c','lib/wpa_keys_selftest.c','drivers/storage/block.c','kernel/interrupts/exception.c',
                 'kernel/core/fs_commands.c','kernel/core/file_commands.c','kernel/memory/fdt_memory.c','network/dhcp.c',
                 'filesystem/persist.c','kernel/process/process.c','drivers/usb/xhci_enumerate.c','drivers/usb/xhci_test.c')) { @('-Os') } else { @() }
             Invoke-Tool gcc ($common + $optimize + @("-mcpu=$cpu",'-c',$source,'-o',$object))

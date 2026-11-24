@@ -135,6 +135,13 @@ static void command(const char *line)
     if (equal(line,"ethup") || equal(line,"ethdown")) {
         rp1_ethernet_command(firmware_dtb,board.uart_base,line[3]=='u' ? ETH_UP : ETH_DOWN); return;
     }
+    if (equal(line,"ethrecover")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_RECOVER); return; }
+    if (equal(line,"ethping")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_PING); return; }
+    if (equal(line,"ethudpup")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_UDP_UP); return; }
+    if (equal(line,"ethtcpup")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_TCP_UP); return; }
+    if (equal(line,"ethloop") || equal(line,"etharp")) {
+        rp1_ethernet_command(firmware_dtb,board.uart_base,line[3]=='l' ? ETH_LOOP : ETH_ARP); return;
+    }
     if (rp1_command(line,firmware_dtb,board.uart_base)) { return; }
     if (rp1_gpio_command(line,firmware_dtb,board.uart_base)) { return; }
     if (rp1_dma_test_command(line,firmware_dtb,board.uart_base)) { return; }
@@ -159,7 +166,7 @@ static void command(const char *line)
         console_write("platforminfo therminfo powerinfo rtcinfo (Pi 5 diagnostics)\n");
         console_write("devlist [DT path|alias] | devinfo <DT path|alias> (device tree)\n");
         console_write("resinfo (active hardware resource claims)\n");
-        console_write("rp1info ethprobe [reset] ethup ethdown\n");
+        console_write("rp1info ethprobe [reset] ethup ethdown ethrecover ethloop etharp ethping ethudpup ethtcpup\n");
         console_write("rp1msiinfo (Pi 5 PCIe MSI-X capability and doorbell)\n");
         console_write("rp1dmatest (Pi 5 DMA scratch copy)\n");
         console_write("rp1irqtest (GIC edge dispatch on test INTID)\n");

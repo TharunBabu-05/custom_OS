@@ -318,9 +318,10 @@ static void test_gpio_loop(void)
 
 struct phy_model {
     uint32_t control,config,request,mac_id;
-    unsigned writes,reads,delay;
+    unsigned writes,reads,delay,restarts,recovery_reads,link_after;
     uint64_t time;
-    bool no_reply,stuck,drop_restore,link;
+    uint16_t phy_control;
+    bool no_reply,stuck,drop_restore,link,drop_restart,lose_phy;
 };
 
 static bool phy_read_reg(void *context,uint32_t offset,uint32_t *out)
@@ -341,8 +342,8 @@ static bool phy_read_reg(void *context,uint32_t offset,uint32_t *out)
 
 static bool phy_write_reg(void *context,uint32_t offset,uint32_t value)
 {
-    static const uint8_t regs[]={2,3,0,1,1};
-    static const uint16_t replies[]={0x600d,0x84a2,0x1140,0x7949,0x796d};
+    static const uint8_t regs[]={2,3,0,1,1,0x19};
+    static const uint16_t replies[]={0x600d,0x84a2,0x1140,0x7949,0x796d,0x8504};
     struct phy_model *m=context;
     ++m->writes;
     if (offset==0) {
@@ -352,10 +353,28 @@ static bool phy_write_reg(void *context,uint32_t offset,uint32_t value)
         assert(!m->control && (value==0x1200 || value==(0x1200|7u<<18)));
         if (!m->drop_restore || value!=0x1200) { m->config=value; }
     } else {
-        assert(offset==0x34 && m->control==0x10 && m->reads<sizeof(regs) && !m->delay);
+        assert(offset==0x34 && m->control==0x10 && !m->delay);
+        if (value==0x50821340u) {
+            assert(m->reads==5 && !m->link && !m->phy_control);
+            if (m->drop_restart) { return false; }
+            ++m->restarts;
+            m->recovery_reads=0;
+            m->delay=2;
+            return true;
+        }
+        if (m->restarts && m->reads==5) {
+            assert(value==0x60860000u);
+            ++m->recovery_reads;
+            bool linked=m->link_after && m->recovery_reads>=m->link_after && !(m->recovery_reads&1);
+            m->request=value|(m->lose_phy ? UINT16_MAX : linked ? 0x796d : 0x7949);
+            m->delay=2;
+            return true;
+        }
+        assert(m->reads<sizeof(regs));
         assert(value==(0x60820000u|(uint32_t)regs[m->reads]<<18));
         uint16_t reply=replies[m->reads++];
-        if (!m->link) { reply&=m->reads==5 ? (uint16_t)~4u : UINT16_MAX; }
+        if (m->phy_control && m->reads==3) { reply=m->phy_control; }
+        if (!m->link && m->reads==5) { reply=0x7949; }
         m->request=value|(m->no_reply ? UINT16_MAX : reply);
         m->delay=2;
     }
@@ -483,6 +502,8 @@ static void test_ethernet_link(void)
     };
     struct rp1_eth_link link={0};
     struct rp1_phy_snapshot snapshot;
+    assert(rp1_eth_link_control(&io,ETH_ARP,&link,&snapshot)==RP1_PHY_BUSY && !model.gem.writes);
+    assert(rp1_eth_link_control(&io,ETH_RECOVER,&link,&snapshot)==RP1_PHY_BUSY && !model.gem.writes);
     assert(rp1_eth_link_control(&io,ETH_PROBE,&link,&snapshot)==RP1_PHY_NO_REPLY && !model.gpio.writes);
     assert(rp1_eth_link_control(&io,ETH_PULSE,&link,&snapshot)==RP1_PHY_OK && snapshot.pulsed && !link.held);
     assert(rp1_eth_link_control(&io,ETH_PROBE,&link,&snapshot)==RP1_PHY_NO_REPLY);
@@ -492,6 +513,40 @@ static void test_ethernet_link(void)
     model.gem.link=true;
     assert(rp1_eth_link_control(&io,ETH_PROBE,&link,&snapshot)==RP1_PHY_OK && (snapshot.status&4) && !snapshot.pulsed);
     assert(rp1_eth_link_control(&io,ETH_UP,&link,&snapshot)==RP1_PHY_OK && link.held && model.gpio.writes==writes);
+    assert(rp1_eth_link_control(&io,ETH_RECOVER,&link,&snapshot)==RP1_PHY_OK &&
+           !snapshot.restarted && !model.gem.restarts);
+    assert(rp1_eth_link_control(&io,ETH_ARP,&link,&snapshot)==RP1_PHY_OK &&
+           rp1_phy_full_duplex_speed(&snapshot)==100 && model.gem.reads==6);
+    snapshot.aux=0x8704;
+    assert(rp1_phy_full_duplex_speed(&snapshot)==1000);
+    snapshot.aux=0x8204;
+    assert(rp1_phy_full_duplex_speed(&snapshot)==10);
+    snapshot.aux=0x8304;
+    assert(!rp1_phy_full_duplex_speed(&snapshot));
+    snapshot.aux=0x8504;
+    snapshot.status&=~4u;
+    assert(!rp1_phy_full_duplex_speed(&snapshot));
+    model.gem.link=false;
+    model.gem.phy_control=0x1940; /* Power-down mode must remain untouched. */
+    assert(rp1_eth_link_control(&io,ETH_RECOVER,&link,&snapshot)==RP1_PHY_MODE && !model.gem.restarts);
+    model.gem.phy_control=0;
+    model.gem.drop_restart=true;
+    assert(rp1_eth_link_control(&io,ETH_RECOVER,&link,&snapshot)==RP1_PHY_IO && !snapshot.restarted);
+    assert(!model.gem.control && model.gem.config==initial.gem.config);
+    model.gem.drop_restart=false;
+    uint64_t before=model.gem.time;
+    assert(rp1_eth_link_control(&io,ETH_RECOVER,&link,&snapshot)==RP1_PHY_OK && snapshot.restarted);
+    assert(snapshot.status==0x7949 && model.gem.restarts==1 && model.gem.recovery_reads==80);
+    assert(model.gem.time-before>=4000 && model.gem.time-before<5000);
+    model.gem.restarts=0;
+    model.gem.link_after=3;
+    assert(rp1_eth_link_control(&io,ETH_RECOVER,&link,&snapshot)==RP1_PHY_OK && snapshot.restarted);
+    assert(snapshot.status==0x796d && model.gem.restarts==1 && model.gem.recovery_reads==4);
+    model.gem.restarts=0;
+    model.gem.lose_phy=true;
+    assert(rp1_eth_link_control(&io,ETH_RECOVER,&link,&snapshot)==RP1_PHY_NO_REPLY && snapshot.restarted);
+    assert(link.held && model.gem.restarts==1 && !model.gem.control && model.gem.config==initial.gem.config);
+    assert(model.gpio.writes==writes);
     assert(rp1_eth_link_control(&io,ETH_DOWN,&link,&snapshot)==RP1_PHY_OK && !link.held);
     assert(model.gpio.control==initial.gpio.control && model.gpio.pad==initial.gpio.pad &&
            model.gpio.out==initial.gpio.out && model.gpio.oe==initial.gpio.oe);
@@ -506,6 +561,7 @@ static void test_ethernet_link(void)
     model.gpio.fail_write=model.gpio.writes+3;
     assert(rp1_eth_link_control(&io,ETH_DOWN,&link,&snapshot)==RP1_PHY_RESTORE && link.held);
     puts("PASS: pulse-only vs sustained PHY, link change while held, repeat-up idempotence, cleanup on no reply and failed release detection.");
+    puts("PASS: one Clause 22 negotiation restart on held PHY, live-link and unsafe-mode skips, latched status, timeout and management restore.");
 }
 
 static void test_ethernet(unsigned char *dtb,size_t bytes)

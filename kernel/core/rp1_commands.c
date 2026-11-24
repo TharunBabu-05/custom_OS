@@ -6,8 +6,13 @@ enum gpio_command { GPIO_READ, GPIO_TEST, GPIO_LOOP, GPIO_PULL };
 
 #ifdef OUROS_PI5
 #include "cpu.h"
+#include "crypto.h"
+#include "memory.h"
 #include "mmu.h"
+#include "network_worker.h"
 #include "resources.h"
+#include "rng200.h"
+#include "rp1_eth_loop.h"
 #include "xhci_test.h"
 
 static bool read_register(void *context,uint32_t offset,uint32_t *out)
@@ -25,6 +30,12 @@ static bool write_register(void *context,uint32_t offset,uint32_t value)
 }
 
 static uint64_t ethernet_ticks(void *context) { (void)context; return timer_ticks(); }
+
+static void ethernet_barrier(void *context)
+{
+    (void)context;
+    __asm__ volatile("dsb sy" ::: "memory");
+}
 
 static void test_gpio(const struct xhci_observer *gpio,unsigned pin,enum gpio_command command)
 {
@@ -248,7 +259,158 @@ static void report_rp1(uintptr_t dtb,uintptr_t uart)
     report_mip((const void *)dtb,topology.msi_parent);
     report_dma(&bridge);
 }
+struct eth_dma_page { uint64_t physical,bus; unsigned ticket; };
+static struct {
+    struct eth_dma_page page;
+    uintptr_t dtb;
+    unsigned speed;
+    enum rp1_eth_loop_result result;
+    bool running,tcp,random_failed;
+} wired;
+
+static const struct rp1_dma_io eth_dma_io={
+    (void *)(RP1_LIVE_BASE+RP1_ETH_OFFSET),read_register,write_register,ethernet_ticks,ethernet_barrier
+};
+
+static bool ethernet_dma_page(const struct xhci_observer *bridge,const void *tree,bool held,struct eth_dma_page *page)
+{
+    _Static_assert(sizeof(struct rp1_eth_loop_memory)<=PAGE_SIZE,"GEM DMA scratch");
+    _Static_assert(sizeof(struct rp1_eth_dma_memory)<=PAGE_SIZE,"GEM network DMA");
+    struct pi5_dma_window window;
+    uint64_t physical,bus;
+    if (!mmu_dma_compatible() || !pi5_dma_description(tree,0x200000) ||
+        !pi5_dma_window_read(bridge,&window) ||
+        !page_alloc(&physical)) {
+        console_write("Ethernet DMA unavailable.\n"); return false;
+    }
+    const uintptr_t base=RP1_LIVE_BASE+RP1_ETH_OFFSET;
+    const struct resource_range claims[]={
+        {RESOURCE_MMIO,0,base,RP1_ETH_SPAN}, {RESOURCE_DMA_MEMORY,0,physical,PAGE_SIZE}
+    };
+    if (!mmu_dma_buffer(physical,PAGE_SIZE) || !pi5_dma_address(&window,physical,PAGE_SIZE,&bus) ||
+        bus>UINT32_MAX-(PAGE_SIZE-1)) {
+        (void)page_free(physical);
+        console_write("Ethernet DMA unavailable.\n"); return false;
+    }
+    /* Cable tests run under the existing PHY hold's GEM claim. */
+    unsigned ticket=resource_acquire("ethernet-dma",claims+held,2-held);
+    if (!ticket) {
+        (void)page_free(physical);
+        console_write("Ethernet DMA claim refused.\n"); return false;
+    }
+    *page=(struct eth_dma_page){physical,bus,ticket};
+    return true;
+}
+
+static void release_ethernet_dma(struct eth_dma_page *page)
+{
+    (void)resource_release(page->ticket);
+    (void)page_free(page->physical);
+}
+
+static void wired_worker(void *unused)
+{
+    (void)unused;
+    unsigned char secret[32];
+    wired.random_failed=wired.tcp && (!platform_rng_prepare(wired.dtb) ||
+                                     platform_random_bytes(secret,sizeof(secret))!=BLOCK_OK);
+    struct rp1_eth_dma session;
+    struct rp1_eth_dma_memory *memory=(void *)(uintptr_t)wired.page.physical;
+    wired.result=wired.random_failed ? GEM_LOOP_SETUP :
+                 rp1_eth_dma_open(&session,&eth_dma_io,memory,(uint32_t)wired.page.bus,wired.speed,wired.tcp);
+    bool udp=wired.result==GEM_LOOP_OK && udp_link_up(rp1_eth_mac,rp1_eth_ip,rp1_eth_mask);
+    bool tcp=udp && wired.tcp && tcp_link_up(rp1_eth_mac,rp1_eth_ip,rp1_eth_mask,secret);
+    crypto_wipe(secret,sizeof(secret));
+    if (wired.result==GEM_LOOP_OK) {
+        uint64_t hz=timer_frequency();
+        if (udp && (!wired.tcp || tcp)) {
+            wired.running=true;
+            while (network_worker_pause()) {
+                uint64_t now=timer_ticks();
+                uint64_t ms=now/hz*1000+now%hz*1000/hz;
+                if (rp1_eth_dma_service(&session,ms)!=BLOCK_OK) {
+                    wired.result=GEM_LOOP_FRAME;
+                    break;
+                }
+            }
+            wired.running=false;
+        } else {
+            wired.result=GEM_LOOP_BUSY;
+        }
+        if (tcp) { tcp_link_down(); }
+        if (udp) { udp_link_down(); }
+        if (!rp1_eth_dma_close(&session)) { wired.result=GEM_LOOP_RETAIN; }
+    }
+    if (wired.result!=GEM_LOOP_RETAIN) { release_ethernet_dma(&wired.page); }
+}
+
+static void ethernet_net_up(const struct xhci_observer *bridge,const void *tree,unsigned speed,bool tcp)
+{
+    if (network_worker_active()) { console_write("Stop the active network worker first.\n"); return; }
+    if (!ethernet_dma_page(bridge,tree,true,&wired.page)) { return; }
+    wired.speed=speed;
+    wired.dtb=(uintptr_t)tree;
+    wired.tcp=tcp;
+    wired.random_failed=false;
+    if (!network_worker_start(wired_worker,NULL)) {
+        release_ethernet_dma(&wired.page);
+        wired.result=GEM_LOOP_BUSY;
+    }
+    if (wired.running) {
+        console_write(tcp ? "Ethernet TCP and UDP" : "Ethernet UDP");
+        console_write(" active at 192.0.2.2/30. Use ethdown to stop.\n");
+    } else if (wired.random_failed) {
+        console_write("Ethernet TCP needs hardware randomness. Use rngtest for status.\n");
+    } else {
+        console_write("Ethernet network result="); console_u64(wired.result); console_write("\n");
+    }
+}
+
+static bool ethernet_exchange(const struct xhci_observer *bridge,const void *tree,unsigned speed,bool ping)
+{
+    struct eth_dma_page page;
+    if (!ethernet_dma_page(bridge,tree,speed!=0,&page)) { return true; }
+    struct rp1_eth_loop_report report;
+    volatile struct rp1_eth_loop_memory *memory=(void *)(uintptr_t)page.physical;
+    uint64_t timeout=timer_frequency()/(speed ? 1 : 4);
+    enum rp1_eth_loop_result result=ping ? rp1_eth_ping(&eth_dma_io,memory,page.bus,timeout,speed,&report) :
+                                          rp1_eth_exchange(&eth_dma_io,memory,page.bus,timeout,speed,&report);
+    if (result!=GEM_LOOP_RETAIN) { release_ethernet_dma(&page); }
+    if (result==GEM_LOOP_OK) {
+        if (speed) {
+            console_write("PASS: "); console_write(ping ? "ICMP echo" : "ARP");
+            console_write(" reply from 192.0.2.1 mac="); console_hex(report.peer_mac); console_write("\n");
+        } else {
+            console_write("PASS: GEM looped back 96 bytes, guards intact, DMA page and claims released.\n");
+        }
+        return true;
+    }
+    if (ping) { console_write(report.echo ? "ICMP " : "ARP "); }
+    console_write("Ethernet DMA result="); console_u64(result);
+    console_write(" queues="); console_hex(report.queues);
+    console_write(" imr="); console_hex(report.mask);
+    console_write(" tx="); console_hex(report.tx);
+    console_write(" rx="); console_hex(report.rx);
+    console_write(" tsr="); console_hex(report.tsr);
+    console_write(" rsr="); console_hex(report.rsr);
+    if (report.register_failed) {
+        console_write(" reg="); console_hex(report.offset);
+        console_write(" expected="); console_hex(report.expected);
+        console_write(" observed="); console_hex(report.observed);
+    }
+    console_write(result==GEM_LOOP_RETAIN ? " DMA page retained. Reboot before retrying.\n" : "\n");
+    return result!=GEM_LOOP_RETAIN;
+}
 #endif
+
+bool rp1_ethernet_active(void)
+{
+#ifdef OUROS_PI5
+    return wired.running;
+#else
+    return false;
+#endif
+}
 
 void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action action)
 {
@@ -256,12 +418,26 @@ void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action actio
     static unsigned ticket;
     static bool restore_failed;
     static struct rp1_eth_link link;
+    if (wired.running && (action!=ETH_DOWN || !network_worker_stop())) {
+        console_write("Ethernet active. Use ethdown.\n"); return;
+    }
+    if (wired.result==GEM_LOOP_RETAIN) { console_write("Ethernet DMA retained until reboot.\n"); return; }
     if (action==ETH_DOWN && !ticket) { console_write("PHY hold released.\n"); return; }
     const struct xhci_observer bridge={read_register,(void *)RP1_PCIE_BASE,0x9310};
     if (restore_failed || uart!=RP1_LIVE_BASE+0x30000 || !rp1_pci_description((const void *)dtb,0x200000) ||
         !rp1_eth_description((const void *)dtb,0x200000) ||
         rp1_reachable(&bridge,RP1_ETH_OFFSET+RP1_ETH_SPAN-1)!=RP1_SNAPSHOT_OK) {
         console_write("Ethernet probe unavailable.\n"); return;
+    }
+    if (action==ETH_LOOP) {
+        if (link.held) { console_write("Run ethdown before ethloop.\n"); return; }
+        (void)ethernet_exchange(&bridge,(const void *)dtb,0,false);
+        return;
+    }
+    bool sockets=action==ETH_UDP_UP || action==ETH_TCP_UP;
+    bool wire=action==ETH_ARP || action==ETH_PING || sockets;
+    if ((wire || action==ETH_RECOVER) && !link.held) {
+        console_write("Run ethup first.\n"); return;
     }
     bool needs_gpio=action==ETH_DOWN || (action!=ETH_PROBE && !link.held);
     if (needs_gpio && (!rp1_eth_reset_description((const void *)dtb,0x200000) ||
@@ -283,14 +459,27 @@ void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action actio
     enum rp1_phy_result result=rp1_eth_link_control(&io,action,&link,&snapshot);
     if (result==RP1_PHY_RESTORE) { restore_failed=true; }
     else if (!link.held) { (void)resource_release(ticket); ticket=0; }
+    if (wire && result==RP1_PHY_OK) {
+        unsigned speed=rp1_phy_full_duplex_speed(&snapshot);
+        if (!speed) {
+            console_write(snapshot.status&4 ? "Ethernet needs full duplex. status=" : "Ethernet link down. status=");
+            console_hex(snapshot.status);
+            console_write(" aux="); console_hex(snapshot.aux); console_write("\n"); return;
+        }
+        console_write("Ethernet link Mbps="); console_u64(speed); console_write("\n");
+        if (sockets) { ethernet_net_up(&bridge,(const void *)dtb,speed,action==ETH_TCP_UP); }
+        else { restore_failed=!ethernet_exchange(&bridge,(const void *)dtb,speed,action==ETH_PING); }
+        return;
+    }
     if (action==ETH_DOWN && result==RP1_PHY_OK) { console_write("PHY hold released.\n"); return; }
     if (snapshot.pulsed) { console_write("PHY reset pulsed.\n"); }
+    if (snapshot.restarted) { console_write("PHY restart requested.\n"); }
     if (action!=ETH_DOWN) {
         console_write("GEM id="); console_hex(snapshot.mac_id);
         console_write(" phy=1 id="); console_hex(snapshot.phy_id);
     }
     if (result!=RP1_PHY_OK) {
-        static const char *const errors[]={"", "invalid MAC", "MAC busy", "MDIO I/O", "no PHY reply", "restore unverified", "reset failed"};
+        static const char *const errors[]={"", "invalid MAC", "MAC busy", "MDIO I/O", "no PHY reply", "restore unverified", "reset failed", "PHY mode"};
         console_write(" ethprobe: "); console_write(errors[result]); console_write("\n"); return;
     }
     console_write(snapshot.status&4 ? " link=up" : " link=down");
@@ -300,7 +489,9 @@ void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action actio
     console_write("\n");
 #else
     (void)dtb; (void)uart; (void)action;
-    console_write("Ethernet probe requires a Raspberry Pi 5.\n");
+    console_write(action==ETH_LOOP || action==ETH_ARP || action==ETH_PING || action==ETH_UDP_UP || action==ETH_TCP_UP ?
+                  "Ethernet DMA test requires a Raspberry Pi 5.\n" :
+                  "Ethernet probe requires a Raspberry Pi 5.\n");
 #endif
 }
 

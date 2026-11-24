@@ -19,4 +19,15 @@ try {
     if ($LASTEXITCODE) { throw 'RP1 MSI-X native test build failed' }
     & $msixFixture
     if ($LASTEXITCODE) { throw 'RP1 MSI-X native tests failed' }
+    $socketSources=@('network/udp.c','network/tcp.c','lib/crypto.c','lib/sha256.c')
+    $ethFixture=Join-Path $out 'rp1-eth-loop-host.exe'
+    & $HostCompiler -std=c11 -Os -Wall -Wextra -Werror -Iinclude tests/rp1_eth_loop_host.c drivers/platform/rp1_eth_loop.c @socketSources -o $ethFixture
+    if ($LASTEXITCODE) { throw 'GEM loopback native test build failed' }
+    & $ethFixture
+    if ($LASTEXITCODE) { throw 'GEM loopback native tests failed' }
+    $udpFixture=Join-Path $out 'rp1-eth-udp-host.exe'
+    & $HostCompiler -std=c11 -Os -Wall -Wextra -Werror -Iinclude tests/rp1_eth_udp_host.c drivers/platform/rp1_eth_loop.c @socketSources -o $udpFixture
+    if ($LASTEXITCODE) { throw 'GEM UDP native test build failed' }
+    & $udpFixture
+    if ($LASTEXITCODE) { throw 'GEM UDP native tests failed' }
 } finally { Pop-Location }

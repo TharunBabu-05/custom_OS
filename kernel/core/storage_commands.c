@@ -9,6 +9,7 @@
 #include "netprobe.h"
 #include "sha256.h"
 #include "network_worker.h"
+#include "rp1_probe.h"
 static struct block_device disk;
 static bool attached;
 static uintptr_t firmware_dtb;
@@ -146,21 +147,27 @@ bool storage_command(const char *line)
         if (!el0 && !same(line,"networktest")) {
             console_write("Usage: networktest [el0] (e, lowercase L, digit zero)\n");return true;
         }
-        if (network_worker_active()) { console_write("Disconnect background Wi-Fi before the worker test.\n");return true; }
+        if (network_worker_active()) { console_write("Stop the active network worker first.\n");return true; }
         console_write(network_worker_test(el0) ?
             "PASS: network worker yielded, resumed, preserved its stack and stopped.\n" :
             "Network worker test did not pass. Check MMU, timer and /boot for the EL0 test.\n");
         return true;
     }
-    if (same(line,"netup") || begins(line,"netup ")) { platform_wifi_background(line[5] ? line+6 : "");return true; }
+    if (same(line,"netup") || begins(line,"netup ")) {
+        if (rp1_ethernet_active()) { console_write("Use ethdown.\n"); }
+        else { platform_wifi_background(line[5] ? line+6 : ""); }
+        return true;
+    }
     if (same(line,"netping") || begins(line,"netping ")) { platform_network_ping(line[7] ? line+8 : "");return true; }
     if (same(line,"netrenew")) { platform_network_renew();return true; }
     if (same(line,"netdown")) {
+        if (rp1_ethernet_active()) { console_write("Use ethdown.\n"); return true; }
         if (!network_worker_active()) { console_write("No background Wi-Fi session.\n");return true; }
         console_write(network_worker_stop() ? "Wi-Fi worker stopped. Use netinfo for cleanup status.\n" : "Wi-Fi worker still running.\n");return true;
     }
     if (network_worker_active() && begins(line,"wifi")) {
-        console_write("Background Wi-Fi owns the radio. Use netinfo or netdown.\n");return true;
+        console_write(rp1_ethernet_active() ? "Use ethdown.\n" :
+                      "Background Wi-Fi owns the radio. Use netinfo or netdown.\n");return true;
     }
     if (same(line,"wifiinit")) { platform_wifi_init(firmware_dtb); return true; }
     if (same(line,"wificores")) { platform_wifi_cores(); return true; }

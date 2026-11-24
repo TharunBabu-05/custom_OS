@@ -24,7 +24,7 @@ static int parse_ip(const char *p,uint8_t ip[4])
 }
 static int report(int64_t error)
 {
-    if (error==UOS_ENETDOWN) { uos_puts("UDP requires an active background Wi-Fi session.\n"); }
+    if (error==UOS_ENETDOWN) { uos_puts("UDP requires an active network session.\n"); }
     else if (error==UOS_EHOSTUNREACH) { uos_puts("UDP LAN peer did not answer ARP or is off-subnet.\n"); }
     else if (error==UOS_ETIMEDOUT) { uos_puts("UDP echo timed out.\n"); }
     else { uos_puts("UDP echo failed.\n"); }

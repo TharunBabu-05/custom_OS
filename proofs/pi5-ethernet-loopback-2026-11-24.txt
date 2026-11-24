@@ -1,0 +1,29 @@
+Raspberry Pi 5 USB boot. Selected UART output.
+
+> ethloop
+PASS: GEM looped back 96 bytes, guards intact, DMA page and claims released.
+> ethloop
+PASS: GEM looped back 96 bytes, guards intact, DMA page and claims released.
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x00000000001d3000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+> ethloop
+PASS: GEM looped back 96 bytes, guards intact, DMA page and claims released.
+> ethup
+PHY reset pulsed.
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=down autoneg=pending held=yes
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=down autoneg=pending held=yes

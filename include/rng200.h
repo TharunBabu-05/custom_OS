@@ -23,5 +23,6 @@ enum block_result rng200_init(const struct rng200_io *,struct rng200_state *);
  * not certify entropy or constitute a NIST 90B validation. max 256 bytes. */
 enum block_result rng200_bytes(struct rng200_state *,void *,size_t);
 void platform_rng_test(uintptr_t dtb);
+bool platform_rng_prepare(uintptr_t dtb);
 enum block_result platform_random_bytes(void *,size_t);
 #endif

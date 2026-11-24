@@ -36,7 +36,7 @@ static int64_t wait_result(uint64_t handle,void *buffer,size_t bytes,unsigned op
 }
 static int error(int64_t result)
 {
-    if (result==UOS_ENETDOWN) { uos_puts("TCP requires an active background Wi-Fi session.\n"); }
+    if (result==UOS_ENETDOWN) { uos_puts("TCP requires an active TCP network session.\n"); }
     else if (result==UOS_EHOSTUNREACH) { uos_puts("TCP peer did not answer ARP or is off-subnet.\n"); }
     else if (result==UOS_ECONNRESET) { uos_puts("TCP peer refused or reset the connection.\n"); }
     else if (result==UOS_ETIMEDOUT) { uos_puts("TCP operation timed out.\n"); }

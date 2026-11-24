@@ -36,17 +36,25 @@ static bool write_reg(void *ctx,unsigned at,uint32_t v)
 }
 static uint64_t ticks(void *ctx) { (void)ctx;return timer_ticks(); }
 enum block_result platform_random_bytes(void *out,size_t n) { return rng200_bytes(&source,out,n); }
-void platform_rng_test(uintptr_t dtb)
+bool platform_rng_prepare(uintptr_t dtb)
 {
     if (!tested) {
-        uint64_t address;if (!pi5_rng200_description((const void *)dtb,0x200000,&address)) { console_write("RNG200: unsupported DT mapping; no MMIO touched.\n");return; }
+        uint64_t address;if (!pi5_rng200_description((const void *)dtb,0x200000,&address)) { return false; }
         base=(uintptr_t)address;tested=true;struct rng200_io io={NULL,read_reg,write_reg,ticks,timer_frequency()};
         enum block_result r=rng200_init(&io,&source);unsigned char first[64]={0},second[64]={0};
         if (r==BLOCK_OK) { r=rng200_bytes(&source,first,sizeof(first)); }
         if (r==BLOCK_OK) { r=rng200_bytes(&source,second,sizeof(second)); }
         if (r==BLOCK_OK && crypto_equal(first,second,sizeof(first))) { source.ready=false;source.error=BLOCK_IO; }
         test_pass=r==BLOCK_OK && source.ready;crypto_wipe(first,sizeof(first));crypto_wipe(second,sizeof(second));
-    }else { console_write("RNG self-test already attempted; cached status only.\n"); }
+    }
+    return test_pass && source.ready;
+}
+void platform_rng_test(uintptr_t dtb)
+{
+    if (tested) { console_write("RNG self-test already attempted; cached status only.\n"); }
+    else if (!platform_rng_prepare(dtb) && !tested) {
+        console_write("RNG200: unsupported DT mapping; no MMIO touched.\n");return;
+    }
     console_write("RNG200: ");console_write(block_error(source.error));console_write(" phase=");console_u64(source.phase);console_write(" base=");console_hex(base);
     console_write(source.inherited ? " configuration=inherited\n" : " configuration=initialized\n");
     console_write("control=");console_hex(source.control);console_write(" status=");console_hex(source.status);console_write(" warmup_bits=");console_u64(source.total_bits);
@@ -55,6 +63,7 @@ void platform_rng_test(uintptr_t dtb)
     console_write("No random bytes printed. Engineering health checks are not entropy certification; RNG testing alone does not authenticate Wi-Fi.\n");
 }
 #else
+bool platform_rng_prepare(uintptr_t dtb) { (void)dtb;return false; }
 enum block_result platform_random_bytes(void *out,size_t n) { if (out && n<=256) { crypto_wipe(out,n); }return BLOCK_NOT_READY; }
 void platform_rng_test(uintptr_t dtb) { (void)dtb;console_write("No Pi RNG200 source on QEMU virt; randomness unavailable.\n"); }
 #endif
