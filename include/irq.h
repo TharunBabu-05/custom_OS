@@ -14,4 +14,8 @@ bool irq_timer_running(void);
 bool irq_ensure_periodic(void);
 /* Delivered IRQs since timerstart; snapshot with CPU IRQs briefly masked. */
 uint64_t irq_timer_delivered(void);
+struct gic_state;
+/* Foreground reservation. The returned controller has immutable banked I/O. */
+const struct gic_state *irq_claim_sgi(void);
+bool irq_release_sgi(void);
 #endif

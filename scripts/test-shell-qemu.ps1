@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -61,6 +61,102 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($SecondaryMap) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="secondary-map-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'smptlb map','storageinit','datainit','mmuinit','irqinit','timerstart','meminfo','resinfo',
+                'smpstart 0x1','smpirq on','smpstart 0x2','meminfo','smptlb map','meminfo',
+                'smpstart','smpirq on','resinfo','meminfo','smptlb invalid',
+                'smppark 0x2','smptlb','smpsubmit 2','smptlb map','smpwait',
+                'smptlb map','smpinfo','meminfo','smpstart 0x2','smpfault 0x3',
+                'smptlb map','smpinfo','meminfo','smpstart 0x3','smptest',
+                'mmuinfo','mmutest',@{Text='timertest';Delay=1000},'irqinfo',
+                'appshell','smptlb map','run /boot/COPYCHK.ELF','echo map-shell-ok','exit',
+                'smpirq off','resinfo','smpstop','cpustate','meminfo','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('Enable secondary SGIs with smpirq on.','Selected secondaries require verified SGI routes.',
+                'Usage: smptlb [map]','Secondary batch pending. Use smpwait or smpcancel.',
+                'PASS: SMP TLB invalidations=4','PASS: secondary fault captured, worker parked.',
+                'PASS: secondary checksum jobs=3','MMU: on; verified identity profile',
+                'PASS: MMU null/guard translation faults, code/constants write faults, data execution fault;',
+                'PASS: periodic timer IRQs delivered;','Type exit, then run this command at the > monitor prompt.',
+                'PASS: binary copy, zero/4096-byte bounds, no overwrite, SHA256 vectors, leases and pointer checks.',
+                'map-shell-ok','Secondary SGI routes released.','Secondary CPU stacks released.',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes'
+            ) 1 '' $false $false $false 4
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $pages=@([regex]::Matches($log,'(?m)^managed_pages=\d+ free_pages=\d+ allocated_pages=(\d+)\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            $claims=@([regex]::Matches($log,'(?m)^Resource claims: (\d+)/16\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            if ($pages.Count -ne 7 -or $pages[1] -ne ($pages[0]+2) -or $pages[2] -ne $pages[1] -or
+                $pages[3] -ne ($pages[0]+3) -or $pages[4] -ne $pages[3] -or $pages[5] -ne $pages[3] -or
+                $pages[6] -ne $pages[0] -or $claims.Count -ne 3 -or $claims[1] -ne ($claims[0]+1) -or $claims[2] -ne $claims[0] -or
+                [regex]::Matches($log,'(?m)^SMP map CPUs A/unmapped/B/revoked/restored=4/4/4/4/4\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^PASS: SMP remap, EL1 read-only and EL0 denial, roots and pages restored\.\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^CPU affinity=0x[0-9a-f]+ dt=enabled psci=off\r?$').Count -ne 3 -or
+                $log -notmatch '(?m)^Secondary CPU 0x0+2 state=parked .* ipis=6 tlb=3 ' -or
+                $log -notmatch '(?m)^Secondary CPU 0x0+3 state=fault-parked .* ipis=11 tlb=5 ' -or
+                $log -notmatch ' unexpected=0 ' -or (Get-FileHash -LiteralPath $disk).Hash -ne $original) {
+                throw "$name mapping, parked acknowledgements, cleanup or disk differs"
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($SecondaryIrq) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="secondary-irq-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'smpirq on','storageinit','datainit','mmuinit','meminfo','smpstart','smpirq on',
+                'irqinit','timerstart','resinfo','smpipi','smpirq on','smpirq on','resinfo',
+                'smpipi 0x0','smpipi 0x2','smpinfo','smpipi','smppark 0x2','smptlb','smpinfo',
+                'smpstart 0x2','smpsubmit 16','smpipi 0x3','smpwait',@{Text='timertest';Delay=1000},'irqinfo',
+                'appshell','smpipi 0x1','meminfo','datacheck','echo hint-status=$?','echo smp-shell-ok','exit',
+                'smppark 0x1','smpirq off','resinfo','smpipi 0x2','smpstart 0x1','smptest',
+                'smpirq on','smpipi','smppark 0x2','smpstop','resinfo','cpustate','meminfo',
+                'fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('Start secondary CPUs with smpstart.','Secondary SGI unavailable. Check irqinit and resinfo.',
+                'Unknown secondary CPU affinity.','Enable secondary SGIs with smpirq on.',
+                'Secondary SGI routes ready.','Secondary SGI routes released.',
+                'PASS: SMP TLB invalidations=4','PASS: secondary checksum jobs=3','PASS: periodic timer IRQs delivered;',
+                'hint-status=2','smp-shell-ok','Secondary CPU stacks released.','Open files: 0/16',
+                'PASS: read-only storage','matches_mounted=yes'
+            ) 1 '' $false $false $false 4
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $claims=@([regex]::Matches($log,'(?m)^Resource claims: (\d+)/16\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            $pages=@([regex]::Matches($log,'(?m)^managed_pages=\d+ free_pages=\d+ allocated_pages=(\d+)\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            $targeted='(?m)^Secondary CPU 0x0+1 .* gic_target=0x0+2 ipis=0 tlb=0 iar=0x0+\r?\n' +
+                'Secondary CPU 0x0+2 .* gic_target=0x0+4 ipis=1 tlb=0 iar=0x0+f\r?\n' +
+                'Secondary CPU 0x0+3 .* gic_target=0x0+8 ipis=0 tlb=0 iar=0x0+\r?$'
+            $tlb='(?m)^Secondary CPU 0x0+1 .* ipis=2 tlb=1 iar=0x0+f\r?\n' +
+                'Secondary CPU 0x0+2 state=parked .* ipis=3 tlb=1 iar=0x0+f\r?\n' +
+                'Secondary CPU 0x0+3 .* ipis=2 tlb=1 iar=0x0+f\r?$'
+            if ($claims.Count -ne 4 -or $claims[1] -ne ($claims[0]+1) -or
+                $claims[2] -ne $claims[0] -or $claims[3] -ne $claims[0] -or
+                $pages.Count -ne 2 -or $pages[1] -ne $pages[0] -or
+                [regex]::Matches($log,'(?m)^owner=smp-ipi kind=irq .* start=15 length=1\r?$').Count -ne 1 -or
+                [regex]::Matches($log,'(?m)^PASS: SMP IPI replies=1\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^PASS: SMP IPI replies=3\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^Type exit, then run this command at the > monitor prompt\.\r?$').Count -ne 3 -or
+                [regex]::Matches($log,'(?m)^CPU affinity=0x[0-9a-f]+ dt=enabled psci=off\r?$').Count -ne 3 -or
+                $log -notmatch $targeted -or $log -notmatch $tlb -or $log -notmatch ' unexpected=0 ' -or
+                $log.Contains('unverified') -or $log.Contains('stack retained.') -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name IPI, TLB, cleanup or disk differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($SecondaryCores) {
     foreach ($case in @(@('cortex-a53','off','HVC',1),@('cortex-a76','on','SMC',2))) {

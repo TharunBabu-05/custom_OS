@@ -24,6 +24,18 @@ mmu_arch_enable:                 /* x0=root PA, x1=TCR, x2=MAIR */
     ret
 .size mmu_arch_enable, . - mmu_arch_enable
 
+.global mmu_switch_root
+.type mmu_switch_root, %function
+mmu_switch_root:
+    dsb sy
+    msr ttbr0_el1, x0
+    isb
+    tlbi vmalle1
+    dsb sy
+    isb
+    ret
+.size mmu_switch_root, . - mmu_switch_root
+
 .global mmu_probe_read, mmu_probe_read_fault, mmu_probe_read_resume
 .type mmu_probe_read, %function
 mmu_probe_read:

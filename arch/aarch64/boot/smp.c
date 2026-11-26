@@ -3,17 +3,22 @@
 #include "console.h"
 #include "cpu.h"
 #include "exception.h"
+#include "gic.h"
+#include "irq.h"
 #include "mmu.h"
 #include "smp.h"
 
 enum worker_phase { STARTING,READY,PARKED,FAULT_PARKED,STOPPING,FAULTED,BAD_MMU,OFF_RETURNED };
 enum { PSCI_ON=0, PSCI_OFF=1, PSCI_PENDING=2, MAX_ROUNDS=1024 };
+enum { IPI_PING, IPI_TLB, IPI_MAP, IPI_SHIFT=3 };
+_Static_assert(IPI_MAP+MMU_SMP_RESTORE<(1u<<IPI_SHIFT),"IPI operation fits in request");
 #define STOP_REQUEST UINT64_MAX
 #define FAULT_REQUEST (UINT64_MAX-1)
 #define PARK_REQUEST (UINT64_MAX-2)
 #define RESUME_REQUEST (UINT64_MAX-3)
 #define CANCEL_BIT (1ULL<<63)
-#define MAX_SEQUENCE ((CANCEL_BIT>>1)-1)
+#define ROUTE_BIT (1ULL<<62)
+#define MAX_SEQUENCE ((ROUTE_BIT>>1)-1)
 #define STACK_CANARY 0x6f75726f73736d70ULL
 #define CPU_LIFECYCLE_CODE __attribute__((section(".text.cpu_lifecycle")))
 
@@ -23,6 +28,8 @@ struct smp_worker {
     uint64_t request,reply,seed,result,job_ticks;
     uint64_t esr,pc;
     uint64_t launches,verified,resumes;
+    uint64_t irq_state,ipi_request,ipi_reply,ipi_count,tlb_count,ipi_token,ipi_verified;
+    struct gic_sgi_route route;
     int32_t off_status;
     unsigned rounds;
     bool retained;
@@ -36,6 +43,11 @@ static unsigned worker_count;
 static enum psci_conduit conduit;
 static uint64_t sequence;
 static unsigned batch_mask;
+static const struct gic_state *ipi_controller;
+static uint8_t ipi_source;
+static uint64_t ipi_sequence;
+static bool ipi_blocked;
+enum { IRQ_RESTORE_FAILED=256, IRQ_SETUP_FAILED, IRQ_HANDLER_FAILED };
 extern unsigned char smp_secondary_entry[];
 extern void smp_test_break(void);
 
@@ -46,6 +58,64 @@ static void publish(uint64_t *value,uint64_t next)
 static void wake_workers(void)
 { __asm__ volatile("dsb sy; sev" ::: "memory"); }
 
+static bool target_mask(uint64_t state) { return state && state<IRQ_RESTORE_FAILED; }
+
+static bool ipi_operation(unsigned op)
+{
+    if (op==IPI_PING) { return true; }
+    if (op==IPI_TLB) {
+        __asm__ volatile("dsb sy; tlbi vmalle1; dsb sy; isb" ::: "memory");
+        return true;
+    }
+    return mmu_smp_observe(op-IPI_MAP);
+}
+
+static __attribute__((noinline)) bool worker_irq_off(struct smp_worker *w)
+{
+    (void)irq_save();
+    bool clean=mmu_smp_restore();
+    if (w->route.saved) { clean=gic_sgi_close(ipi_controller,&w->route) && clean; }
+    publish(&w->irq_state,clean ? 0 : IRQ_RESTORE_FAILED);
+    return clean;
+}
+
+static void worker_irq_config(struct smp_worker *w,bool enable)
+{
+    if (!enable) { (void)worker_irq_off(w);return; }
+    if (gic_sgi_open(ipi_controller,&w->route)) {
+        publish(&w->irq_state,w->route.target);
+        irq_restore(0);
+    } else {
+        publish(&w->irq_state,w->route.saved ? IRQ_RESTORE_FAILED : IRQ_SETUP_FAILED);
+    }
+}
+
+static __attribute__((noinline)) void worker_ipi(struct smp_worker *w,struct exception_frame *f)
+{
+    uint32_t token;
+    if (gic_sgi_take(ipi_controller,&token)) {
+        unsigned id=token&1023u;
+        if (id>=1020) { return; }
+        if (id==GIC_WORK_SGI && (1u<<((token>>10)&7))==ipi_source) {
+            uint64_t request=acquire(&w->ipi_request);
+            if (request!=acquire(&w->ipi_reply)) {
+                unsigned op=request&((1u<<IPI_SHIFT)-1);
+                bool verified=ipi_operation(op);
+                if (verified && (op==IPI_TLB || op==IPI_MAP+MMU_SMP_UNMAPPED)) {
+                    publish(&w->tlb_count,acquire(&w->tlb_count)+1);
+                }
+                publish(&w->ipi_verified,verified);
+                publish(&w->ipi_token,token);
+                publish(&w->ipi_count,acquire(&w->ipi_count)+1);
+                publish(&w->ipi_reply,request);
+            }
+            return;
+        }
+    }
+    f->spsr|=0x80;
+    if (worker_irq_off(w)) { publish(&w->irq_state,IRQ_HANDLER_FAILED); }
+}
+
 static uint64_t checksum(uint64_t input)
 {
     for (uint64_t i=0;i<512;++i) { input=(input^i)*1099511628211ULL; }
@@ -55,6 +125,7 @@ static uint64_t checksum(uint64_t input)
 static _Noreturn CPU_LIFECYCLE_CODE void worker_poweroff(struct smp_worker *w,enum worker_phase phase)
 {
     publish(&w->phase,phase);
+    if (w->route.saved) { (void)worker_irq_off(w); }
     __asm__ volatile("dsb sy" ::: "memory");
     w->off_status=psci_call(conduit,PSCI_CPU_OFF,0);
     publish(&w->phase,OFF_RETURNED);
@@ -64,6 +135,7 @@ static _Noreturn CPU_LIFECYCLE_CODE void worker_poweroff(struct smp_worker *w,en
 
 CPU_LIFECYCLE_CODE void smp_worker_exception(struct smp_worker *w,struct exception_frame *f)
 {
+    if (f->vector==5 && target_mask(acquire(&w->irq_state))) { worker_ipi(w,f);return; }
     if (acquire(&w->phase)>=STOPPING) {
         cpu_halt();
         __builtin_unreachable();
@@ -108,6 +180,10 @@ _Noreturn CPU_LIFECYCLE_CODE void smp_worker_main(struct smp_worker *w,uint64_t 
         } else if (request==PARK_REQUEST) { publish(&w->phase,PARKED); }
         else if (request==RESUME_REQUEST) { publish(&w->phase,READY); }
         else if (request&CANCEL_BIT) { publish(&w->reply,request); }
+        else if (request&ROUTE_BIT) {
+            worker_irq_config(w,request&1);
+            publish(&w->reply,request);
+        }
         else { execute_checksum(w,request); }
     }
 }
@@ -165,6 +241,9 @@ static bool release_stack(struct smp_worker *w)
     }
     w->stack_top=0;
     w->retained=false;
+    if (w->route.saved) { cpu_label(w);console_write("SGI restore unverified at CPU_OFF.\n"); }
+    w->route=(struct gic_sgi_route){0};
+    publish(&w->irq_state,0);
     if (!intact) { cpu_label(w);console_write("stack canary changed.\n"); }
     return intact;
 }
@@ -229,6 +308,8 @@ static bool start_worker(struct smp_worker *w)
     publish(&w->phase,STARTING);
     publish(&w->reply,0);
     publish(&w->request,0);
+    publish(&w->ipi_request,0);
+    publish(&w->ipi_reply,0);
     publish(&w->stack_top,page+PAGE_SIZE);
     __asm__ volatile("dsb sy" ::: "memory");
     int32_t status=psci_call_args(conduit,PSCI_CPU_ON,w->affinity,(uintptr_t)smp_secondary_entry,(uintptr_t)w);
@@ -268,21 +349,32 @@ static CPU_LIFECYCLE_CODE bool reap_offline(struct smp_worker *w)
     return false;
 }
 
+static bool release_ipi(void)
+{
+    if (!mmu_smp_release() || !irq_release_sgi()) { return false; }
+    ipi_controller=NULL;
+    ipi_blocked=false;
+    return true;
+}
+
 bool smp_shutdown(void)
 {
-    bool active=false,clean=true;
+    bool active=false,clean=true,retained=false;
     for (unsigned i=0;i<worker_count;++i) {
         struct smp_worker *w=&smp_workers[i];
         if (w->stack_top) { publish(&w->request,STOP_REQUEST);active=true; }
     }
     batch_mask=0;
-    if (!active) { return true; }
+    if (!active) { return release_ipi(); }
     wake_workers();
     for (unsigned i=0;i<worker_count;++i) {
         struct smp_worker *w=&smp_workers[i];
-        if (w->stack_top && !reap_offline(w)) { clean=false; }
+        if (w->stack_top && !reap_offline(w)) {
+            clean=false;
+            retained|=w->stack_top!=0;
+        }
     }
-    return clean;
+    return !retained && release_ipi() && clean;
 }
 
 static void park_workers(unsigned mask)
@@ -314,6 +406,15 @@ static void information(void)
         console_write(" resumes=");console_u64(w->resumes);
         console_write(" psci=");console_write(psci==PSCI_ON ? "on" : psci==PSCI_OFF ? "off" :
                                                psci==PSCI_PENDING ? "pending" : "unavailable");
+        uint64_t irq=acquire(&w->irq_state);
+        if (ipi_controller || acquire(&w->ipi_count)) {
+            console_write(" sgi=");console_write(target_mask(irq) ? "ready" : !irq ? "off" :
+                irq==IRQ_RESTORE_FAILED ? "restore-failed" : irq==IRQ_SETUP_FAILED ? "unavailable" : "irq-failed");
+            if (target_mask(irq)) { console_write(" gic_target=");console_hex(irq); }
+            console_write(" ipis=");console_u64(acquire(&w->ipi_count));
+            console_write(" tlb=");console_u64(acquire(&w->tlb_count));
+            console_write(" iar=");console_hex(acquire(&w->ipi_token));
+        }
         if (phase!=STARTING && phase!=READY) {
             if (phase==BAD_MMU) { console_write(" MMU setup failed"); }
             if (phase==OFF_RETURNED) { console_write(" CPU_OFF status=");firmware_status(w->off_status); }
@@ -334,6 +435,157 @@ static void information(void)
         console_write("Secondary batch=");console_u64(sequence);
         console_write(" replies=");console_u64(ready);console_write("/");console_u64(count);console_write("\n");
     }
+}
+
+static unsigned resident_mask(void)
+{
+    unsigned mask=0;
+    for (unsigned i=0;i<worker_count;++i) {
+        if (smp_workers[i].stack_top) { mask|=1u<<i; }
+    }
+    return mask;
+}
+
+static bool wait_value(const uint64_t *field,uint64_t value,uint64_t start,uint64_t hz)
+{
+    do {
+        if (acquire(field)==value) { return true; }
+        __asm__ volatile("yield");
+    } while (timer_ticks()-start<hz);
+    return false;
+}
+
+static bool route_workers(unsigned mask,bool enable)
+{
+    if (!mask) { return true; }
+    if (sequence==MAX_SEQUENCE) { return false; }
+    uint64_t request=ROUTE_BIT|(++sequence<<1)|enable;
+    for (unsigned i=0;i<worker_count;++i) {
+        if (!(mask&(1u<<i))) { continue; }
+        struct smp_worker *w=&smp_workers[i];
+        if (enable && target_mask(acquire(&w->irq_state))) { mask&=~(1u<<i);continue; }
+        publish(&w->request,request);
+    }
+    wake_workers();
+    uint64_t start=timer_ticks(),hz=timer_frequency();
+    bool clean=true;
+    for (unsigned i=0;i<worker_count;++i) {
+        if (!(mask&(1u<<i))) { continue; }
+        struct smp_worker *w=&smp_workers[i];
+        if (!wait_value(&w->reply,request,start,hz) || !stack_intact(w) ||
+            (enable ? !target_mask(acquire(&w->irq_state)) : acquire(&w->irq_state)!=0)) {
+            cpu_label(w);console_write("SGI setup or restore unverified.\n");clean=false;
+        } else if (!enable) {
+            /* With IRQs masked and pending state cleared, retire any old request. */
+            publish(&w->ipi_request,acquire(&w->ipi_reply));
+        }
+    }
+    return clean;
+}
+
+static uint8_t ipi_targets(unsigned mask)
+{
+    uint8_t targets=ipi_source;
+    for (unsigned i=0;i<worker_count;++i) {
+        if (!(mask&(1u<<i))) { continue; }
+        const struct smp_worker *w=&smp_workers[i];
+        uint64_t irq=acquire(&w->irq_state);
+        if (w->retained || !target_mask(irq) || (targets&irq)) { return 0; }
+        targets|=(uint8_t)irq;
+    }
+    return targets&~ipi_source;
+}
+
+static void irq_mode(bool enable)
+{
+    unsigned mask=resident_mask();
+    if (!enable) {
+        bool clean=!ipi_controller || (route_workers(mask,false) && release_ipi());
+        if (!clean) { ipi_blocked=true; }
+        console_write(clean ? "Secondary SGI routes released.\n" : "Secondary SGI cleanup unverified.\n");
+        return;
+    }
+    if (!mask) { console_write("Start secondary CPUs with smpstart.\n");return; }
+    if (ipi_blocked) { console_write("Release the old routes with smpirq off.\n");return; }
+    if (!ipi_controller) {
+        ipi_controller=irq_claim_sgi();
+        if (!ipi_controller) { console_write("Secondary SGI unavailable. Check irqinit and resinfo.\n");return; }
+        ipi_source=gic_sgi_target(ipi_controller);
+    }
+    if (!ipi_source || !route_workers(mask,true) || !ipi_targets(mask)) {
+        ipi_blocked=!(route_workers(mask,false) && release_ipi());
+        console_write("Secondary SGI setup refused. Workers use event wakeups.\n");
+        return;
+    }
+    console_write("Secondary SGI routes ready.\n");
+}
+
+static bool ipi_exchange(unsigned mask,unsigned op,unsigned *replies)
+{
+    *replies=0;
+    uint8_t targets=ipi_targets(mask);
+    if (ipi_blocked || !targets) { return false; }
+    uint64_t request=(++ipi_sequence<<IPI_SHIFT)|op;
+    for (unsigned i=0;i<worker_count;++i) {
+        if (mask&(1u<<i)) { publish(&smp_workers[i].ipi_request,request); }
+    }
+    bool verified=ipi_operation(op);
+    *replies=verified && op!=IPI_PING;
+    bool complete=gic_sgi_send(ipi_controller,targets);
+    uint64_t start=timer_ticks(),hz=timer_frequency();
+    for (unsigned i=0;complete && i<worker_count;++i) {
+        if (!(mask&(1u<<i))) { continue; }
+        struct smp_worker *w=&smp_workers[i];
+        if (!wait_value(&w->ipi_reply,request,start,hz)) { complete=false; }
+        else if (acquire(&w->ipi_verified)) { ++*replies; }
+        else { verified=false; }
+    }
+    ipi_blocked=!complete;
+    return complete && verified;
+}
+
+static void test_mapping(unsigned mask)
+{
+    if (!mmu_smp_prepare()) { console_write("SMP map unavailable. Check MMU and free pages.\n");return; }
+    static const enum mmu_smp_check checks[]={MMU_SMP_FIRST,MMU_SMP_UNMAPPED,MMU_SMP_SECOND,MMU_SMP_UNMAPPED};
+    enum { STAGES=sizeof(checks)/sizeof(checks[0]) };
+    unsigned replies[STAGES+1]={0},step=0;
+    uint64_t flags=irq_save();
+    for (;step<STAGES;++step) {
+        enum mmu_smp_check check=checks[step];
+        if (step) { mmu_smp_publish(check==MMU_SMP_SECOND); }
+        if (!ipi_exchange(mask,IPI_MAP+check,&replies[step])) { break; }
+    }
+    bool restored=ipi_exchange(mask,IPI_MAP+MMU_SMP_RESTORE,&replies[STAGES]);
+    bool local=mmu_smp_restore();
+    bool released=restored && local && mmu_smp_release();
+    irq_restore(flags);
+    console_write("SMP map CPUs A/unmapped/B/revoked/restored=");
+    for (unsigned i=0;i<=STAGES;++i) {
+        console_u64(replies[i]);console_write(i==STAGES ? "\n" : "/");
+    }
+    if (!released) {
+        ipi_blocked=true;
+        console_write("FAIL: SMP map pages retained. Use smpirq off or smpstop.\n");return;
+    }
+    console_write(step==STAGES ? "PASS: SMP remap, EL1 read-only and EL0 denial, roots and pages restored.\n" :
+                                  "FAIL: SMP map observations differ. Roots and pages restored.\n");
+}
+
+static void ipi_test(unsigned mask,unsigned op)
+{
+    if (!ipi_controller || ipi_blocked) { console_write("Enable secondary SGIs with smpirq on.\n");return; }
+    unsigned requests=op==IPI_MAP ? 5 : 1;
+    if (!ipi_targets(mask) || ipi_sequence>(UINT64_MAX>>IPI_SHIFT)-requests) {
+        console_write("Selected secondaries require verified SGI routes.\n");return;
+    }
+    if (op==IPI_MAP) { test_mapping(mask);return; }
+    unsigned replies;
+    if (!ipi_exchange(mask,op,&replies)) {
+        console_write("FAIL: secondary SGI acknowledgement missing. Use smpirq off.\n");return;
+    }
+    console_write(op==IPI_TLB ? "PASS: SMP TLB invalidations=" : "PASS: SMP IPI replies=");
+    console_u64(replies);console_write("\n");
 }
 
 static bool submit_batch(unsigned rounds)
@@ -445,9 +697,10 @@ static unsigned select_workers(const char *arg)
 
 bool smp_command(const char *line,const void *dtb)
 {
-    enum { START,INFO,TEST,FAULT,STOP,PARK,SUBMIT,WAIT,CANCEL,COMMAND_COUNT };
+    enum { START,INFO,TEST,FAULT,STOP,PARK,SUBMIT,WAIT,CANCEL,IRQ,IPI,TLB,COMMAND_COUNT };
     static const char *const commands[COMMAND_COUNT]={
-        "smpstart","smpinfo","smptest","smpfault","smpstop","smppark","smpsubmit","smpwait","smpcancel"
+        "smpstart","smpinfo","smptest","smpfault","smpstop","smppark","smpsubmit","smpwait","smpcancel",
+        "smpirq","smpipi","smptlb"
     };
     unsigned cmd=0;
     const char *arg=line;
@@ -459,9 +712,14 @@ bool smp_command(const char *line,const void *dtb)
     }
     if (cmd==COMMAND_COUNT) { return false; }
     while (*arg==' ') { ++arg; }
-    bool targeted=cmd==START || cmd==PARK || cmd==FAULT;
+    bool targeted=cmd==START || cmd==PARK || cmd==FAULT || cmd==IPI;
+    bool enable=arg[0]=='o' && arg[1]=='n' && !arg[2];
+    bool disable=arg[0]=='o' && arg[1]=='f' && arg[2]=='f' && !arg[3];
+    bool map=cmd==TLB && arg[0]=='m' && arg[1]=='a' && arg[2]=='p' && !arg[3];
+    if (cmd==IRQ && !(enable || disable)) { console_write("Usage: smpirq on|off\n");return true; }
+    if (cmd==TLB && *arg && !map) { console_write("Usage: smptlb [map]\n");return true; }
     unsigned rounds=1;
-    if (*arg && !targeted && (cmd!=SUBMIT || !app_args_uint(arg,MAX_ROUNDS,&rounds) || !rounds)) {
+    if (*arg && !targeted && cmd!=IRQ && !map && (cmd!=SUBMIT || !app_args_uint(arg,MAX_ROUNDS,&rounds) || !rounds)) {
         console_write("Invalid SMP arguments. smpsubmit accepts 1..1024 rounds.\n");return true;
     }
     if (cmd==STOP) {
@@ -469,7 +727,7 @@ bool smp_command(const char *line,const void *dtb)
         return true;
     }
     if (cmd==WAIT || cmd==CANCEL) { collect_batch(cmd==CANCEL);return true; }
-    if (batch_mask && cmd!=INFO) {
+    if (batch_mask && cmd!=INFO && cmd!=IPI && (cmd!=TLB || map)) {
         console_write("Secondary batch pending. Use smpwait or smpcancel.\n");return true;
     }
     if (cmd==START && !(mmu_enabled() && mmu_dma_compatible())) {
@@ -491,6 +749,10 @@ bool smp_command(const char *line,const void *dtb)
     } else if (cmd==INFO) { information(); }
     else if (cmd==PARK) { park_workers(mask); }
     else if (cmd==FAULT) { test_fault(mask); }
+    else if (cmd==IRQ) { irq_mode(enable); }
+    else if (cmd==IPI || cmd==TLB) {
+        ipi_test(cmd==IPI && *arg ? mask : resident_mask(),cmd==IPI ? IPI_PING : map ? IPI_MAP : IPI_TLB);
+    }
     else if (submit_batch(rounds)) {
         if (cmd==TEST) { collect_batch(false); }
         else { console_write("Secondary batch submitted. Use smpwait or smpcancel.\n"); }

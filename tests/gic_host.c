@@ -22,11 +22,17 @@ static bool write32(void *ctx,bool cpu,unsigned at,uint32_t value)
         if (at==4 && model.bad_pmr) { return true; }model.c[at/4]=value;return true;
     }
     assert(at==0 || (at>=0x100 && at<0x300) ||
-        at==0x41c || at==0x428 || at==0x828 || at==0xc04 || at==0xc08);
+        at==0x40c || at==0x41c || at==0x428 || at==0x828 || at==0xc04 || at==0xc08 ||
+        at==0xf00 || at==0xf1c);
     if (at>=0x100 && at<0x180) { if (!model.inaccessible) { model.d[at/4]|=value; }return true; }
     if (at>=0x180 && at<0x200) { if (!model.disable_ignored) { model.d[(at-0x80)/4]&=~value; }return true; }
     if (at>=0x200 && at<0x280) { model.d[at/4]|=value;return true; }
     if (at>=0x280 && at<0x300) { model.d[(at-0x80)/4]&=~value;return true; }
+    if (at==0xf1c) {
+        model.d[at/4]&=~value;
+        if (!(model.d[at/4]>>24)) { model.d[0x200/4]&=~(1u<<GIC_WORK_SGI); }
+        return true;
+    }
     if (at==0x41c && model.inaccessible) { return true; }model.d[at/4]=value;return true;
 }
 static const struct gic_io io={&model,read32,write32};
@@ -140,6 +146,71 @@ static void spi_routes(void)
     puts("PASS: edge SPI software pending, neighboring trigger modes, and restoring level and edge routes.");
     puts("PASS: SPI ownership, programmable and fixed routing, adjacent fields, rollback, quarantine and raw EOI on mask failure.");
 }
+static void seed_sgi(void)
+{
+    seed();assert(gic_initialize(&state,&description,&io)==GIC_OK);
+    model.d[0x800/4]=0x04040404;
+    model.d[0x100/4]=0x3456;
+    model.d[0x40c/4]=0xc824282c;
+    model.d[0xf1c/4]=0x00020301;
+    model.c[0]=0x260;
+    model.c[1]=0xe0;
+}
+static void sgi_restored(uint32_t enable)
+{
+    assert(model.d[0x100/4]==enable && model.d[0x40c/4]==0xc824282c && model.d[0xf1c/4]==0x00020301);
+    assert(model.c[0]==0x260 && model.c[1]==0xe0 && state.ready && state.cpu_targets==0x01010101);
+    assert(!state.timer_enabled && !state.acknowledgements && !state.completions);
+}
+static void sgi_routes(void)
+{
+    seed_sgi();
+    struct gic_sgi_route route={0};
+    uint32_t bit=1u<<GIC_WORK_SGI;
+    assert(gic_sgi_target(&state)==4);
+    unsigned before=model.calls;
+    assert(gic_sgi_open(&state,&route) && route.target==4 && route.saved);
+    unsigned steps=model.calls-before;
+    assert(model.d[0x40c/4]==0x4024282c && model.d[0x100/4]==(0x3456|bit) &&
+           model.c[0]==0x61 && model.c[1]==0x80);
+    before=model.writes;
+    assert(!gic_sgi_open(&state,&route) && !gic_sgi_send(&state,0) &&
+           !gic_sgi_send(&state,0x10) && model.writes==before);
+    assert(gic_sgi_send(&state,0x06) && model.d[0xf00/4]==0x0006000f);
+    uint32_t raw;
+    model.c[12/4]=0x80f;
+    assert(gic_sgi_take(&state,&raw) && raw==0x80f && model.eoi==raw);
+    model.c[12/4]=1023;
+    assert(gic_sgi_take(&state,&raw) && raw==1023 && model.eoi==0x80f);
+    model.d[0xf1c/4]|=0x03000000;
+    model.d[0x200/4]|=bit;
+    assert(gic_sgi_close(&state,&route) && !route.saved && !route.target && !(model.d[0x200/4]&bit));
+    sgi_restored(0x3456);
+
+    seed_sgi();model.d[0x100/4]|=bit;
+    assert(gic_sgi_open(&state,&route) && gic_sgi_close(&state,&route));
+    sgi_restored(0x3456|bit);
+    for (unsigned step=1;step<=steps;++step) {
+        seed_sgi();model.fail_at=model.calls+step;
+        assert(!gic_sgi_open(&state,&route) && !route.saved);
+        sgi_restored(0x3456);
+    }
+    seed_sgi();
+    assert(gic_sgi_open(&state,&route));
+    model.fail_at=model.calls+1;
+    assert(!gic_sgi_close(&state,&route) && route.saved && !route.target);
+    assert(gic_sgi_close(&state,&route) && !route.saved);
+    sgi_restored(0x3456);
+
+    before=model.writes;
+    model.d[0x800/4]=0x05050505;assert(!gic_sgi_target(&state) && !gic_sgi_open(&state,&route));
+    model.d[0x800/4]=0x10101010;assert(!gic_sgi_target(&state) && !gic_sgi_open(&state,&route));
+    model.d[0x800/4]=0x04040404;
+    model.d[0x200/4]|=bit;assert(!gic_sgi_open(&state,&route));
+    model.d[0x200/4]&=~bit;model.d[0x300/4]|=bit;assert(!gic_sgi_open(&state,&route));
+    assert(model.writes==before);
+    puts("PASS: banked SGI target checks, setup rollback, pending cleanup, restore retry and full IAR tokens.");
+}
 struct event_probe { unsigned acks,calls;bool stuck; };
 static bool event_ack(void *context)
 { struct event_probe *probe=context;++probe->acks;return !probe->stuck; }
@@ -212,7 +283,7 @@ static void dt(const char *path,bool pi)
 int main(int argc,char **argv)
 {
     assert(argc==5);
-    driver();failures();spi_routes();deferred_work();
+    driver();failures();spi_routes();sgi_routes();deferred_work();
     dt(argv[1],true);
     for (int i=2;i<argc;++i) { dt(argv[i],false); }
     return 0;

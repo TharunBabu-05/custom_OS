@@ -180,6 +180,7 @@ static void command(const char *line)
         console_write("cpulist cpustate cacheinfo atomictest\n");
         console_write("smpstart|smppark|smpfault [0xAFFINITY]  smpinfo smptest smpstop\n");
         console_write("smpsubmit [rounds]  smpwait smpcancel\n");
+        console_write("smpirq on|off  smpipi [0xAFFINITY]  smptlb [map]\n");
         console_write("platforminfo therminfo powerinfo rtcinfo rtcset <UTC> rtcsync rtcalarm\n");
         console_write("devlist [DT path|alias] | devinfo <DT path|alias> (device tree)\n");
         console_write("mediainfo (device-tree media controllers)\n");

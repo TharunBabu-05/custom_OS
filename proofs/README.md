@@ -1,5 +1,18 @@
 # Real Raspberry Pi 5 proof
 
+Phase 43 verified the targeted and broadcast IPIs, timer delivery
+with zero unexpected IRQs, SGI claim release, and secondary shutdown.
+The Pi returned to two allocated pages and eight resource claims.
+USB reads passed and v5 generations 41 and 40 were valid. Physical
+TLB verification is included in the Phase 44 procedure.
+[Phase 43 capture](pi5-interprocessor-irqs-2026-11-26.txt)
+
+Phase 42 passed same-boot resume after a test exception and an explicit
+park. All six checksum batches matched. Cancellation succeeded and
+all three secondary cores powered down. Allocations returned to two
+pages, USB reads passed, and v5 generations 41 and 40 were valid.
+[Phase 42 capture](pi5-worker-recovery-2026-11-26.txt)
+
 Phase 41 brought up all three secondaries, ran checksum jobs, and isolated
 the breakpoint test. A subsequent firmware restart stayed pending at
 affinity `0x100`, so the kernel retained one stack page. USB reads and both

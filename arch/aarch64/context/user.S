@@ -1,15 +1,5 @@
 .section .text, "ax"
-.global process_arch_enter,process_arch_return,process_arch_root
-.type process_arch_root, %function
-process_arch_root:
-    dsb sy
-    msr ttbr0_el1, x0
-    isb
-    tlbi vmalle1
-    dsb sy
-    isb
-    ret
-.size process_arch_root, .-process_arch_root
+.global process_arch_enter,process_arch_return
 .type process_arch_enter, %function
 process_arch_enter:               /* x0=frame, x1=user SP; IRQs masked */
     stp x19, x20, [sp, #-96]!

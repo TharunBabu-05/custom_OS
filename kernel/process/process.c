@@ -24,7 +24,11 @@
 #include "trust_time.h"
 #include "rng200.h"
 #include "crypto.h"
-static unsigned char copy_bytes[VFS_FILE_MAX];
+/* The boot CPU serializes ELF loads and file copy syscalls. */
+static union {
+    unsigned char elf[APP_ELF_MAX_BYTES];
+    unsigned char file[VFS_FILE_MAX];
+} process_io;
 static unsigned char profile_bytes[APP_PROFILE_BYTES];
 enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,UDP_WAIT,
               IPC_SEND_WAIT,IPC_RECV_WAIT,IPC_ACCEPT_WAIT,SIGNAL_WAIT,EVENT_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
@@ -76,9 +80,11 @@ static unsigned service_cursor;
 static bool service_slice;
 enum { SCHEDULE_LIMIT=PROCESS_LIMIT+SERVICE_LIMIT,
        SERVICE_CONTEXT_PAGES=(sizeof(struct process)+PAGE_SIZE-1)/PAGE_SIZE };
-/* Staging uses an independent PMM-backed root until exec commits. */
-static struct process exec_stage;
-static struct user_tables memory_stage;
+/* Exec and mapping changes stage their data in separate, serialized EL1 calls. */
+static union {
+    struct process image;
+    struct user_tables tables;
+} process_staging;
 struct vm_region {
     uint64_t token,creator,peer,file_offset;
     uint64_t physical[USER_VM_REGION_PAGES];
@@ -87,7 +93,6 @@ struct vm_region {
 };
 static struct vm_region regions[USER_VM_REGIONS];
 static uint64_t region_sequence;
-static unsigned char image[APP_ELF_MAX_BYTES];
 static bool running,last_clean,child_cleanup_failed;
 static unsigned current,total;
 static uint64_t epoch,kernel_root,started,switches,preemptions,yields,idles;
@@ -103,7 +108,6 @@ static struct {
 } channel;
 static uint64_t pipe_runs,pipe_completions,pipe_written,pipe_read,pipe_read_waits,pipe_write_waits;
 static int pipe_left_code,pipe_right_code;
-extern void process_arch_root(uint64_t root);
 extern void process_arch_enter(const struct exception_frame *frame,uint64_t stack);
 extern unsigned char process_arch_return[];
 static void zero(void *p,size_t n) { volatile unsigned char *d=p;while (n--) { *d++=0; } }
@@ -206,22 +210,22 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
     if (r==FS_OK && directory) { r=FS_IS_DIR; }
     if (r==FS_OK) { r=kfile_open(UINT64_MAX-1,"/",absolute,KFILE_READ,&h); }
     if (r==FS_OK) { r=vfs_file_size(absolute,&bytes); }
-    if (r==FS_OK && bytes>sizeof(image)) { r=FS_FILE_TOO_LARGE; }
-    if (r==FS_OK) { r=kfile_read(UINT64_MAX-1,h,image,bytes,&n);if (r==FS_OK && n!=bytes) { r=FS_IO; } }
+    if (r==FS_OK && bytes>sizeof(process_io.elf)) { r=FS_FILE_TOO_LARGE; }
+    if (r==FS_OK) { r=kfile_read(UINT64_MAX-1,h,process_io.elf,bytes,&n);if (r==FS_OK && n!=bytes) { r=FS_IO; } }
     if (h) { (void)kfile_close(UINT64_MAX-1,h); }
     if (r!=FS_OK) {
         console_write("App load failed: ");console_write(ramfs_error(r));console_write(": ");
         for (const unsigned char *s=(const unsigned char *)path;*s;++s) { console_putc(*s>=32 && *s<127 ? (char)*s : '.'); }
         console_write("\n");return false;
     }
-    struct app_image_plan plan;enum app_elf_result er=app_elf_plan(image,bytes,&plan);
+    struct app_image_plan plan;enum app_elf_result er=app_elf_plan(process_io.elf,bytes,&plan);
     if (er!=APP_ELF_OK) { console_write("ELF rejected: ");console_write(app_elf_error(er));console_write("\n");return false; }
     for (unsigned i=0;i<plan.count;++i) {
         const struct app_segment *s=&plan.segments[i];enum user_page_kind kind=s->flags&APP_PF_X ? USER_PAGE_RX : s->flags&APP_PF_W ? USER_PAGE_RW : USER_PAGE_RO;
         for (uint64_t at=0;at<s->memsz;at+=4096) {
             if (!allocate(p,s->vaddr+at,kind)) { return false; }
             size_t bytes_here=at<s->filesz ? (size_t)(s->filesz-at) : 0;if (bytes_here>4096) { bytes_here=4096; }
-            copy((void *)(uintptr_t)p->maps[p->map_count-1].physical,image+s->offset+(bytes_here ? at : 0),bytes_here);
+            copy((void *)(uintptr_t)p->maps[p->map_count-1].physical,process_io.elf+s->offset+(bytes_here ? at : 0),bytes_here);
         }
     }
     for (unsigned i=0;i<USER_STACK_PAGES;++i) { if (!allocate(p,USER_STACK_BASE+(uint64_t)i*4096,USER_PAGE_RW)) { return false; } }
@@ -1106,7 +1110,7 @@ static bool service_load(struct supervised_service *s)
     s->task=(struct process *)(uintptr_t)physical;
     zero(s->task,SERVICE_CONTEXT_PAGES*PAGE_SIZE);
     bool loaded=load(s->task,s->args.bytes,s->cwd,&s->args,NULL);
-    zero(image,sizeof(image));
+    zero(process_io.elf,sizeof(process_io.elf));
     if (loaded) {
         s->task->permissions=s->permissions;
         ++s->launches;
@@ -1245,10 +1249,10 @@ static bool schedule(struct exception_frame *frame,bool timer)
     if (next!=slots) {
         dispatch(next,timer);
         struct process *p=task_at(next);
-        process_arch_root(p->tables->physical);__asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*frame=p->context;return true;
+        mmu_switch_root(p->tables->physical);__asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*frame=p->context;return true;
     }
 kernel:
-    process_arch_root(kernel_root);frame->elr=(uintptr_t)process_arch_return;frame->spsr=0x3c5;return true;
+    mmu_switch_root(kernel_root);frame->elr=(uintptr_t)process_arch_return;frame->spsr=0x3c5;return true;
 }
 static int64_t string_out(struct process *p,uint64_t address,uint64_t capacity,const char *text)
 {
@@ -1305,22 +1309,22 @@ static int64_t file_operation(struct process *p,struct exception_frame *f)
     for (uint32_t at=0;at<bytes;) {
         size_t wanted=bytes-at;if (wanted>sizeof(buffer)) { wanted=sizeof(buffer); }
         if (kfile_read(p->owner,h,buffer,wanted,&n)!=FS_OK || n!=wanted) { goto done; }
-        if (copying) { copy(copy_bytes+at,buffer,n); }else { sha256_update(&hash,buffer,n); }at+=(uint32_t)n;
+        if (copying) { copy(process_io.file+at,buffer,n); }else { sha256_update(&hash,buffer,n); }at+=(uint32_t)n;
     }
     if (!copying) { sha256_final(&hash,digest);user_copy(p,c,digest,32,true);result=0;goto done; }
     /* Kernel calls are serialized with IRQs masked. Existence check, complete
      * source read and destination publication cannot race another process. */
-    if (vfs_write(absolute,copy_bytes,bytes)!=FS_OK || kfile_open(p->owner,"/",absolute,KFILE_READ,&verify)!=FS_OK) { goto done; }
+    if (vfs_write(absolute,process_io.file,bytes)!=FS_OK || kfile_open(p->owner,"/",absolute,KFILE_READ,&verify)!=FS_OK) { goto done; }
     for (uint32_t at=0;at<bytes;) {
         size_t wanted=bytes-at;if (wanted>sizeof(buffer)) { wanted=sizeof(buffer); }
         if (kfile_read(p->owner,verify,buffer,wanted,&n)!=FS_OK || n!=wanted) { goto done; }
-        for (size_t i=0;i<n;++i) { if (buffer[i]!=copy_bytes[at+i]) { goto done; } }at+=(uint32_t)n;
+        for (size_t i=0;i<n;++i) { if (buffer[i]!=process_io.file[at+i]) { goto done; } }at+=(uint32_t)n;
     }
     result=bytes;
 done:
     if (verify && kfile_close(p->owner,verify)!=FS_OK) { result=UOS_ERROR; }
     if (kfile_close(p->owner,h)!=FS_OK) { result=UOS_ERROR; }
-    zero(copy_bytes,sizeof(copy_bytes));zero(buffer,sizeof(buffer));zero(digest,sizeof(digest));zero(&hash,sizeof(hash));return result;
+    zero(process_io.file,sizeof(process_io.file));zero(buffer,sizeof(buffer));zero(digest,sizeof(digest));zero(&hash,sizeof(hash));return result;
 }
 static int64_t environment_call(struct process *p,struct exception_frame *f)
 {
@@ -1653,9 +1657,10 @@ static bool heap_release_page(void *context,uint64_t physical)
 static bool heap_publish(void *context,const struct user_mapping *maps,unsigned count)
 {
     struct process *p=context;
-    enum user_mmu_result r=user_mmu_build(&memory_stage,(uintptr_t)p->tables->entries,(const uint64_t *)(uintptr_t)kernel_root,maps,count);
-    if (r==USER_MMU_OK) { copy(p->tables,&memory_stage,sizeof(*p->tables));__asm__ volatile("dsb sy" ::: "memory"); }
-    zero(&memory_stage,sizeof(memory_stage));return r==USER_MMU_OK;
+    struct user_tables *staged=&process_staging.tables;
+    enum user_mmu_result r=user_mmu_build(staged,(uintptr_t)p->tables->entries,(const uint64_t *)(uintptr_t)kernel_root,maps,count);
+    if (r==USER_MMU_OK) { copy(p->tables,staged,sizeof(*p->tables));__asm__ volatile("dsb sy" ::: "memory"); }
+    zero(staged,sizeof(*staged));return r==USER_MMU_OK;
 }
 static uint64_t region_address(const struct vm_region *region)
 { return USER_VM_BASE+(uint64_t)(region-regions)*USER_VM_REGION_PAGES*4096; }
@@ -1875,38 +1880,39 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     if (!user_range(p,address,sizeof(struct app_args),false)) { return UOS_EFAULT; }
     struct app_args args;user_copy(p,address,&args,sizeof(args),false);
     if (!args_valid(&args) || p->execs==UINT64_MAX) { return UOS_ERROR; }
-    zero(&exec_stage,sizeof(exec_stage));
+    struct process *staged=&process_staging.image;
+    zero(staged,sizeof(*staged));
     /* The kernel root is active. Old pages, handles and frame remain intact
      * until every ELF byte, allocation and new table has been prepared. */
-    bool loaded=load_at(&exec_stage,args.bytes,p->cwd,&args,&p->environment,p->owner);
-    zero(image,sizeof(image));
+    bool loaded=load_at(staged,args.bytes,p->cwd,&args,&p->environment,p->owner);
+    zero(process_io.elf,sizeof(process_io.elf));
     if (!loaded) {
-        if (!release_memory(&exec_stage)) { child_cleanup_failed=true; }
-        zero(&exec_stage,sizeof(exec_stage));return UOS_ERROR;
+        if (!release_memory(staged)) { child_cleanup_failed=true; }
+        zero(staged,sizeof(*staged));return UOS_ERROR;
     }
-    exec_stage.parent=p->parent;exec_stage.deadline=p->deadline;exec_stage.permissions=p->permissions;
+    staged->parent=p->parent;staged->deadline=p->deadline;staged->permissions=p->permissions;
     if (!budget_seconds && p==&tasks[0] && !p->execs) {
-        exec_stage.deadline=timer_ticks()+timer_frequency()*30;
+        staged->deadline=timer_ticks()+timer_frequency()*30;
     }
-    exec_stage.stdin_handle=p->stdin_handle;exec_stage.stdout_handle=p->stdout_handle;exec_stage.io_failed=p->io_failed;
-    exec_stage.pipe_stage=p->pipe_stage;
-    exec_stage.calls=p->calls;exec_stage.dispatches=p->dispatches;
-    exec_stage.quantum_ticks=p->quantum_ticks;exec_stage.slice_left=p->slice_left;
-    exec_stage.user_ticks=p->user_ticks;exec_stage.ready_ticks=p->ready_ticks;
-    exec_stage.sleeps=p->sleeps;exec_stage.wakes=p->wakes;exec_stage.lines=p->lines;exec_stage.execs=p->execs+1;
-    exec_stage.heap.peak=p->heap.peak;exec_stage.heap.allocations=p->heap.allocations;exec_stage.heap.free_calls=p->heap.free_calls;
-    exec_stage.pressure=p->pressure;
+    staged->stdin_handle=p->stdin_handle;staged->stdout_handle=p->stdout_handle;staged->io_failed=p->io_failed;
+    staged->pipe_stage=p->pipe_stage;
+    staged->calls=p->calls;staged->dispatches=p->dispatches;
+    staged->quantum_ticks=p->quantum_ticks;staged->slice_left=p->slice_left;
+    staged->user_ticks=p->user_ticks;staged->ready_ticks=p->ready_ticks;
+    staged->sleeps=p->sleeps;staged->wakes=p->wakes;staged->lines=p->lines;staged->execs=p->execs+1;
+    staged->heap.peak=p->heap.peak;staged->heap.allocations=p->heap.allocations;staged->heap.free_calls=p->heap.free_calls;
+    staged->pressure=p->pressure;
     /* No fallible load operation remains. An allocator corruption during
      * teardown is contained as a process fault, never a return to freed code. */
     if (!release_memory(p)) {
         child_cleanup_failed=true;p->status=FAULTED;p->code=126;
-        (void)release_memory(&exec_stage);zero(&exec_stage,sizeof(exec_stage));return UOS_ERROR;
+        (void)release_memory(staged);zero(staged,sizeof(*staged));return UOS_ERROR;
     }
     close_sockets(p->owner);
     ipc_discard(p);
     if (!release_vm(p)) { child_cleanup_failed=true; }
     (void)kfile_close_on_exec(p->owner);
-    copy(p,&exec_stage,sizeof(*p));zero(&exec_stage,sizeof(exec_stage));
+    copy(p,staged,sizeof(*p));zero(staged,sizeof(*staged));
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     __asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*f=p->context;return 0;
 }
@@ -1950,9 +1956,9 @@ static int64_t spawn(struct process *p,const struct exception_frame *f)
         (io.input[0] && kfile_open(child->owner,p->cwd,io.input,KFILE_READ,&child->stdin_handle)!=FS_OK) ||
         (io.output[0] && kfile_open(child->owner,"/",output,flags,&child->stdout_handle)!=FS_OK)) {
         if (!release(child)) { child_cleanup_failed=true; }zero(child,sizeof(*child));
-        zero(image,sizeof(image));return UOS_ERROR;
+        zero(process_io.elf,sizeof(process_io.elf));return UOS_ERROR;
     }
-    zero(image,sizeof(image));child->parent=current;child->deadline=timer_ticks()+timer_frequency()*seconds;
+    zero(process_io.elf,sizeof(process_io.elf));child->parent=current;child->deadline=timer_ticks()+timer_frequency()*seconds;
     child->quantum_ticks=p->quantum_ticks;child->permissions=(unsigned)permissions;
     if (slot>=total) { total=slot+1; }++children_spawned;
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
@@ -2001,7 +2007,7 @@ static int64_t pipeline_start(struct process *p,struct exception_frame *f)
         stage->quantum_ticks=p->quantum_ticks;stage->permissions=p->permissions;
         if (i+1<count) { byte_pipe_init(&channel.rings[i]); }
     }
-    zero(image,sizeof(image));channel.active=true;channel.parent=current;channel.count=(unsigned)count;p->status=CHILD_WAIT;
+    zero(process_io.elf,sizeof(process_io.elf));channel.active=true;channel.parent=current;channel.count=(unsigned)count;p->status=CHILD_WAIT;
     if (slots[count-1]>=total) { total=slots[count-1]+1; }
     children_spawned+=count;++pipe_runs;input_clear();
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");return 0;
@@ -2011,7 +2017,7 @@ fail:
         if (!release(stage)) { child_cleanup_failed=true; }
         zero(stage,sizeof(*stage));
     }
-    zero(image,sizeof(image));return UOS_ERROR;
+    zero(process_io.elf,sizeof(process_io.elf));return UOS_ERROR;
 }
 static unsigned syscall_permission(const struct process *p,const struct exception_frame *f)
 {
@@ -2155,8 +2161,8 @@ bool process_exception(struct exception_frame *f,bool timer_tick,bool irq_ok)
     /* All lower-EL kernel work uses the verified identity root. This also
      * makes allocator/DMA policy checks valid and keeps active user tables
      * out of the child teardown path. User copies walk explicit private maps. */
-    process_arch_root(kernel_root);bool handled=dispatch_exception(f,timer_tick,irq_ok);
-    if (handled && !(f->spsr&15)) { process_arch_root(task_at(current)->tables->physical); }
+    mmu_switch_root(kernel_root);bool handled=dispatch_exception(f,timer_tick,irq_ok);
+    if (handled && !(f->spsr&15)) { mmu_switch_root(task_at(current)->tables->physical); }
     return handled;
 }
 static bool service_lock(uint64_t *flags)
@@ -2288,7 +2294,7 @@ void process_service_step(void)
         service_cursor=(next-PROCESS_LIMIT+1)%SERVICE_LIMIT;
         p->slice_left=p->quantum_ticks;
         ++p->dispatches;
-        process_arch_root(p->tables->physical);
+        mmu_switch_root(p->tables->physical);
         process_arch_enter(&p->context,p->sp);
         current=foreground;running=false;
     }
@@ -2355,7 +2361,7 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     interactive=terminal;budget_seconds=seconds;
     input_clear();
     for (unsigned i=0;i<count;++i) { if (!paths[i] || !load(&tasks[i],paths[i],filesystem_cwd(),args,NULL)) { loaded=false;break; } }
-    zero(image,sizeof(image));
+    zero(process_io.elf,sizeof(process_io.elf));
     if (loaded) {
         if (interactive && !budget_seconds) {
             console_write("Terminal assigned to EL0; shell stays open until exit.\n");
@@ -2383,7 +2389,7 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
             if (!resume) { dispatch(next,checkpoint); }
             first=false;
             struct process *p=task_at(next);
-            process_arch_root(p->tables->physical);process_arch_enter(&p->context,p->sp);
+            mmu_switch_root(p->tables->physical);process_arch_enter(&p->context,p->sp);
         }
         running=false;
     }

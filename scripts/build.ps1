@@ -126,7 +126,8 @@ try {
                 $optimize=@($optimize)+@('-fno-tree-switch-conversion')
             }
             # Emit Armv8.0 acquire, release and exclusive instructions for both boot diagnostics.
-            $sourceCpu=if ($source -in @('arch/aarch64/boot/cpu_commands.c','arch/aarch64/boot/smp.c')) { 'cortex-a53' } else { $cpu }
+            $sourceCpu=if ($source -in @('arch/aarch64/boot/cpu_commands.c','arch/aarch64/boot/smp.c',
+                'arch/aarch64/mmu/runtime.c')) { 'cortex-a53' } else { $cpu }
             Invoke-Tool gcc ($common + $optimize + @("-mcpu=$sourceCpu",'-c',$source,'-o',$object))
             $objects += $object
         }

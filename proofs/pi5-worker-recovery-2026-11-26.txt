@@ -1,0 +1,213 @@
+Raspberry Pi 5 header UART capture supplied for Phase 42 verification
+2026-11-26, SanDisk Cruzer Blade, USB startup
+The initial commands were entered in the EL0 shell. Acceptance starts at the monitor prompt after exit.
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Starting serial shell from /boot/SHELL.ELF
+Firmware boot source: USB mass storage.
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit checking usb0
+storageinit checking usb1
+storageinit selected usb1 port=1 (USB2 BOT).
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+Recovery rings: clears=0 command_wraps=0 control_wraps=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=41 valid_banks=2
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ meminfo
+shell: unknown command or arguments; type help
+user:/$ smpstart
+shell: unknown command or arguments; type help
+user:/$ smptest
+shell: unknown command or arguments; type help
+user:/$ smpfault 0x100
+shell: unknown command or arguments; type help
+user:/$ smpinfo
+shell: unknown command or arguments; type help
+user:/$ smptest
+shell: unknown command or arguments; type help
+user:/$ smpstart 0x100
+shell: unknown command or arguments; type help
+user:/$ smptest
+shell: unknown command or arguments; type help
+user:/$ smppark 0x200
+shell: unknown command or arguments; type help
+user:/$ smptest
+shell: unknown command or arguments; type help
+user:/$ smpstart 0x200
+shell: unknown command or arguments; type help
+user:/$ smpsubmit 16
+shell: unknown command or arguments; type help
+user:/$ smpinfo
+shell: unknown command or arguments; type help
+user:/$ smpwait
+shell: unknown command or arguments; type help
+user:/$ smpsubmit 1024
+shell: unknown command or arguments; type help
+user:/$ smpcancel
+shell: unknown command or arguments; type help
+user:/$ smptest
+shell: unknown command or arguments; type help
+user:/$ smpstop
+shell: unknown command or arguments; type help
+user:/$ cpustate
+shell: unknown command or arguments; type help
+user:/$ meminfo
+shell: unknown command or arguments; type help
+user:/$ fileinfo
+shell: unknown command or arguments; type help
+user:/$ storagetest
+shell: unknown command or arguments; type help
+user:/$ datacheck^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ ^C
+user:/$ exit
+EL0 processes: limit=8; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=705 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=313 dispatches=55 sleeps=0 wakes=0 input_lines=23 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> meminfo
+Memory: ready
+Reported RAM: 8585.740 MB (8188.000 MiB)
+Managed RAM:  7515.144 MB (7167.000 MiB)
+Free RAM:     7515.136 MB (7166.992 MiB)
+Allocated:    0.008 MB (0.007 MiB)
+Unavailable:  1070.596 MB (1021.000 MiB)
+MB=1,000,000 bytes; MiB=1,048,576 bytes (fractions truncated).
+DTB RAM banks=2 bytes=8585740288 (firmware-described, not free memory)
+page_size=4096 address_limit_bytes=34359738368
+Bitmap arena=0x0000000040000000 bytes=1048576 (reserved outside kernel image)
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+peak_allocated_pages=15 exhausted_allocations=0
+managed_bytes=7515144192 unavailable_bytes=1070596096 (reservations, alignment, address limit)
+usable_ranges=1 reservations=7
+PMM pages include the page-backed kernel heap; use heapinfo. MMU on.
+> smpstart
+Secondary CPU 0x0000000000000100 online at EL1, entered EL2.
+Secondary CPU 0x0000000000000200 online at EL1, entered EL2.
+Secondary CPU 0x0000000000000300 online at EL1, entered EL2.
+Secondary CPUs online=3
+> smptest
+Secondary CPU 0x0000000000000100 job=1 ticks=6757
+Secondary CPU 0x0000000000000200 job=1 ticks=6756
+Secondary CPU 0x0000000000000300 job=1 ticks=6757
+PASS: secondary checksum jobs=3
+> smpfault 0x100
+PASS: secondary fault captured, worker parked.
+Secondary CPU 0x0000000000000100 state=fault-parked launches=1 jobs=1 stack=0x0000000040102000 resumes=0 psci=on ESR=0x00000000f2000041 PC=0x0000000000080284
+Secondary CPU 0x0000000000000200 state=online launches=1 jobs=1 stack=0x0000000040103000 resumes=0 psci=on
+Secondary CPU 0x0000000000000300 state=online launches=1 jobs=1 stack=0x0000000040104000 resumes=0 psci=on
+> smpinfo
+Secondary CPU 0x0000000000000100 state=fault-parked launches=1 jobs=1 stack=0x0000000040102000 resumes=0 psci=on ESR=0x00000000f2000041 PC=0x0000000000080284
+Secondary CPU 0x0000000000000200 state=online launches=1 jobs=1 stack=0x0000000040103000 resumes=0 psci=on
+Secondary CPU 0x0000000000000300 state=online launches=1 jobs=1 stack=0x0000000040104000 resumes=0 psci=on
+> smptest
+Secondary CPU 0x0000000000000200 job=2 ticks=6736
+Secondary CPU 0x0000000000000300 job=2 ticks=6736
+PASS: secondary checksum jobs=2
+> smpstart 0x100
+Secondary CPU 0x0000000000000100 resumed at EL1.
+Secondary CPUs online=3
+> smptest
+Secondary CPU 0x0000000000000100 job=3 ticks=6737
+Secondary CPU 0x0000000000000200 job=3 ticks=6731
+Secondary CPU 0x0000000000000300 job=3 ticks=6731
+PASS: secondary checksum jobs=3
+> smppark 0x200
+Secondary CPUs parked=1
+> smptest
+Secondary CPU 0x0000000000000100 job=4 ticks=6725
+Secondary CPU 0x0000000000000300 job=4 ticks=6726
+PASS: secondary checksum jobs=2
+> smpstart 0x200
+Secondary CPU 0x0000000000000200 resumed at EL1.
+Secondary CPUs online=3
+> smpsubmit 16
+Secondary batch submitted. Use smpwait or smpcancel.
+> smpinfo
+Secondary CPU 0x0000000000000100 state=online launches=1 jobs=3 stack=0x0000000040102000 resumes=1 psci=on
+Secondary CPU 0x0000000000000200 state=online launches=1 jobs=3 stack=0x0000000040103000 resumes=1 psci=on
+Secondary CPU 0x0000000000000300 state=online launches=1 jobs=4 stack=0x0000000040104000 resumes=0 psci=on
+Secondary batch=5 replies=3/3
+> smpwait
+Secondary CPU 0x0000000000000100 job=5 ticks=100142
+Secondary CPU 0x0000000000000200 job=5 ticks=100171
+Secondary CPU 0x0000000000000300 job=5 ticks=100141
+PASS: secondary checksum jobs=3
+> smpsubmit 1024
+Secondary batch submitted. Use smpwait or smpcancel.
+> smpcancel
+Secondary batch cancelled.
+> smptest
+Secondary CPU 0x0000000000000100 job=7 ticks=6745
+Secondary CPU 0x0000000000000200 job=7 ticks=6739
+Secondary CPU 0x0000000000000300 job=7 ticks=6739
+PASS: secondary checksum jobs=3
+> smpstop
+Secondary CPU stacks released.
+> cpustate
+Running CPU affinity=0x0000000000000000
+DT CPUs=4 PSCI=smc
+CPU affinity=0x0000000000000000 dt=enabled current psci=on
+CPU affinity=0x0000000000000100 dt=enabled psci=off
+CPU affinity=0x0000000000000200 dt=enabled psci=off
+CPU affinity=0x0000000000000300 dt=enabled psci=off
+> meminfo
+Memory: ready
+Reported RAM: 8585.740 MB (8188.000 MiB)
+Managed RAM:  7515.144 MB (7167.000 MiB)
+Free RAM:     7515.136 MB (7166.992 MiB)
+Allocated:    0.008 MB (0.007 MiB)
+Unavailable:  1070.596 MB (1021.000 MiB)
+MB=1,000,000 bytes; MiB=1,048,576 bytes (fractions truncated).
+DTB RAM banks=2 bytes=8585740288 (firmware-described, not free memory)
+page_size=4096 address_limit_bytes=34359738368
+Bitmap arena=0x0000000040000000 bytes=1048576 (reserved outside kernel image)
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+peak_allocated_pages=15 exhausted_allocations=0
+managed_bytes=7515144192 unavailable_bytes=1070596096 (reservations, alignment, address limit)
+usable_ranges=1 reservations=7
+PMM pages include the page-backed kernel heap; use heapinfo. MMU on.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=41
+bank=0 status=valid generation=41 matches_mounted=yes
+bank=1 status=valid generation=40
+>

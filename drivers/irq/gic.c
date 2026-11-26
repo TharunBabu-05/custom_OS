@@ -3,11 +3,11 @@
  * References: Arm IHI0048B GICv2; NS EOImodeNS is GICC_CTLR bit 9. */
 #include "gic.h"
 enum { D_CTLR=0,D_TYPER=4,D_ENABLE=0x100,D_DISABLE=0x180,D_PENDING=0x200,D_PENDING_CLEAR=0x280,D_ACTIVE=0x300,
-       D_PRIORITY=0x400,D_TARGET=0x800,D_CONFIG=0xc00,D_PIDR2=0xfe8,
+       D_PRIORITY=0x400,D_TARGET=0x800,D_CONFIG=0xc00,D_SGIR=0xf00,D_CPENDSGIR=0xf10,D_PIDR2=0xfe8,
        C_CTLR=0,C_PMR=4,C_IAR=12,C_EOI=16 };
 static enum gic_result fail(struct gic_state *s,enum gic_result r)
 { s->ready=false;s->result=r;return r; }
-static bool read(struct gic_state *s,bool cpu,unsigned at,uint32_t *v)
+static bool read(const struct gic_state *s,bool cpu,unsigned at,uint32_t *v)
 { return s->io.read32(s->io.context,cpu,at,v); }
 static bool write(struct gic_state *s,bool cpu,unsigned at,uint32_t v)
 { s->changed=true;return s->io.write32(s->io.context,cpu,at,v); }
@@ -174,5 +174,85 @@ enum gic_result gic_spi_enable(struct gic_state *s,const struct gic_spi_route *r
     if (!write(s,false,D_ENABLE+bank,bit) || !read(s,false,D_ENABLE+bank,&enabled)) { return GIC_IO; }
     return enabled&bit ? GIC_OK : GIC_STATE;
 }
+
+enum { SGI_BIT=1u<<GIC_WORK_SGI, SGI_SHIFT=(GIC_WORK_SGI%4)*8,
+       SGI_PRIORITY=D_PRIORITY+4*(GIC_WORK_SGI/4), SGI_CLEAR=D_CPENDSGIR+4*(GIC_WORK_SGI/4),
+       WORK_PRIORITY=0x40, WORK_PMR=0x80 };
+static bool sgi_write(const struct gic_state *s,bool cpu,unsigned at,uint32_t v)
+{ return s->io.write32(s->io.context,cpu,at,v); }
+
+static unsigned cpu_targets(const struct gic_state *s)
+{ return (1u<<(((s->typer>>5)&7)+1))-1; }
+
+uint8_t gic_sgi_target(const struct gic_state *s)
+{
+    uint32_t v;
+    if (!read(s,false,D_TARGET,&v)) { return 0; }
+    uint8_t target=(uint8_t)(v|(v>>8)|(v>>16)|(v>>24));
+    return (target&(target-1)) || (target&~cpu_targets(s)) ? 0 : target;
+}
+
+static bool sgi_priority(const struct gic_state *s,uint8_t byte)
+{
+    uint32_t v;
+    return read(s,false,SGI_PRIORITY,&v) &&
+        sgi_write(s,false,SGI_PRIORITY,(v&~(255u<<SGI_SHIFT))|((uint32_t)byte<<SGI_SHIFT)) &&
+        read(s,false,SGI_PRIORITY,&v) && (uint8_t)(v>>SGI_SHIFT)==byte;
+}
+
+bool gic_sgi_close(const struct gic_state *s,struct gic_sgi_route *r)
+{
+    r->target=0;
+    if (!r->saved) { return true; }
+    bool ok=sgi_write(s,false,SGI_CLEAR,255u<<SGI_SHIFT);
+    if (!r->enabled) { ok=sgi_write(s,false,D_DISABLE,SGI_BIT) && ok; }
+    ok=sgi_priority(s,r->priority) && ok;
+    ok=sgi_write(s,true,C_PMR,r->mask) && ok;
+    ok=sgi_write(s,true,C_CTLR,r->control) && ok;
+    uint32_t enabled,pending,active,ctl,pmr;
+    if (!ok || !read(s,false,D_ENABLE,&enabled) || !read(s,false,D_PENDING,&pending) ||
+        !read(s,false,D_ACTIVE,&active) || !read(s,true,C_CTLR,&ctl) || !read(s,true,C_PMR,&pmr) ||
+        !!(enabled&SGI_BIT)!=r->enabled || ((pending|active)&SGI_BIT) || ctl!=r->control || pmr!=r->mask) {
+        return false;
+    }
+    r->saved=false;
+    return true;
+}
+
+bool gic_sgi_open(const struct gic_state *s,struct gic_sgi_route *r)
+{
+    if (r->saved) { return false; }
+    uint8_t target=gic_sgi_target(s);
+    uint32_t enabled,pending,active,priority,ctl,pmr,dist;
+    if (!target || !read(s,false,D_CTLR,&dist) || !(dist&1) ||
+        !read(s,false,D_PENDING,&pending) || !read(s,false,D_ACTIVE,&active) || ((pending|active)&SGI_BIT) ||
+        !read(s,false,D_ENABLE,&enabled) || !read(s,false,SGI_PRIORITY,&priority) ||
+        !read(s,true,C_CTLR,&ctl) || !read(s,true,C_PMR,&pmr)) { return false; }
+    *r=(struct gic_sgi_route){.control=ctl,.mask=pmr,.priority=priority>>SGI_SHIFT,
+                              .enabled=!!(enabled&SGI_BIT),.saved=true};
+    if (sgi_priority(s,WORK_PRIORITY) &&
+        (r->enabled || sgi_write(s,false,D_ENABLE,SGI_BIT)) &&
+        read(s,false,D_ENABLE,&enabled) && (enabled&SGI_BIT) &&
+        sgi_write(s,true,C_PMR,WORK_PMR) && read(s,true,C_PMR,&pmr) && pmr==WORK_PMR &&
+        sgi_write(s,true,C_CTLR,(ctl&~(1u<<9))|1u) &&
+        read(s,true,C_CTLR,&ctl) && (ctl&0x201u)==1u) {
+        r->target=target;
+        return true;
+    }
+    (void)gic_sgi_close(s,r);
+    return false;
+}
+
+bool gic_sgi_send(const struct gic_state *s,uint8_t targets)
+{
+    return targets && !(targets&~cpu_targets(s)) &&
+        sgi_write(s,false,D_SGIR,((uint32_t)targets<<16)|GIC_WORK_SGI);
+}
+
+bool gic_sgi_take(const struct gic_state *s,uint32_t *token)
+{
+    return read(s,true,C_IAR,token) && ((*token&1023)>=1020 || sgi_write(s,true,C_EOI,*token));
+}
+
 const char *gic_error(enum gic_result r)
 { switch (r) { case GIC_OK:return "ok";case GIC_ARGUMENT:return "invalid GIC argument";case GIC_UNSUPPORTED:return "unsupported GIC/CPU/active timer state";case GIC_IO:return "GIC register I/O error";default:return "GIC not ready or register readback differs"; } }

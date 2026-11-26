@@ -2,7 +2,7 @@
 #define OS_SMP_H
 
 #define SMP_WORKER_LIMIT 3
-#define SMP_WORKER_SIZE 128
+#define SMP_WORKER_SIZE 256
 
 #ifndef __ASSEMBLER__
 #include <stdbool.h>

@@ -84,7 +84,7 @@ to be repeated at every development step.
 | Shell | Pi-verified files/run/runio/pipes/exec/env/profiles/expansion, two jobs, PID selection, command lists, `source`, and `>>`. Phase 29 supports up to four stages with `;`, `&&`, and `||`. [Shell workflows](shell-workflows.md) | Pi acceptance of longer pipelines |
 | Networking | WPA3/SAE, DHCP, ARP, IPv4, ICMP, UDP DNS, local EL0 UDP and outbound TCP. Pi UDP echo and the checksummed 16 KiB TCP file exchange with Windows passed. [Background Wi-Fi](background-networking.md) · [UDP sockets](udp-sockets.md) · [TCP sockets](tcp-sockets.md) | Pi UDP peer timeout and recovery, group key rotation, DHCP rebinding and HTTP/TLS |
 | Security | Reservation-aware allocation, hidden volatile credentials, kernel/user page isolation, RW/NX and checked user copies. The Pi passed pinned certificate, TLS transcript and live TLS 1.3 encrypted echo checks. [Live TLS test](tls-live.md) | Credentials/permissions, broader access control, syscall/driver hardening, secure update/boot design and independent review |
-| Multicore/concurrency | Boot CPU owns scheduling and drivers. Pi-verified secondary startup, private stacks, and checksum dispatch. Phase 42 adds restartable parking, fault recovery, and cancellable work batches. [Secondary CPU workers](secondary-cpus.md) | Pi park/resume and batch acceptance, per-core interrupt routing, SMP locking, concurrent drivers and multicore scheduling |
+| Multicore/concurrency | Boot CPU owns scheduling and drivers. The Pi verified worker recovery, cancellation, and targeted and broadcast SGIs. Phase 44 verifies a temporary kernel mapping remap with acknowledged TLB invalidation and root restoration. [Secondary CPU workers](secondary-cpus.md) | Pi TLB and remap acceptance, IRQ affinity, SMP locking, concurrent drivers and multicore scheduling |
 | Diagnostics/testing | UART logs, self-tests, independent native fixtures, guard/mutation tests, QEMU A53/A76/EL1/EL2 and image checks | Continuous integration, longer hardware soak/failure/recovery tests, coverage and debugging tools |
 | Build/update/install | Windows-native build, FAT packaging, hashes and archived full IMG/ZIP files; boot-file update can retain older data formats; explicit backup conversion | General update policy, on-device installer/rollback, package format/manager and application repository |
 
@@ -106,7 +106,7 @@ different evidence; no individual self-test proves the entire OS.
 | --- | --- |
 | PL011 serial UART | Working on QEMU and the tested Pi 5 RP1 GPIO14/15 header console; firmware setup preserved on Pi |
 | Architectural timer | Counter/frequency and 100 Hz NS physical timer IRQ via PPI30, `timerstart`/`timerstop` and asynchronous register-preservation test verified on Pi |
-| Interrupt controller (GIC) | Bounded GICv2 nonsecure CPU-interface/PPI30 driver for explicit Pi/QEMU DT profiles; raw IAR/EOIR tokens and unexpected-source quarantine; Pi verified, no general peripheral/SMP routing |
+| Interrupt controller (GIC) | Pi-verified GICv2 timer, peripheral SPI, and banked SGI paths for secondary workers. The driver preserves full IAR/EOIR tokens and quarantines unexpected sources. |
 | Device-tree reader | Bounded memory/reservation and selected device/property readers; not a general driver bus |
 | RNG200 | Pi hardware source, conditioning and engineering failure checks implemented; used by SAE/DNS/ping |
 | PCIe/RP1 | Uses validated firmware-selected Pi windows/DMA handoff; no general PCIe reset/enumeration/hotplug driver |

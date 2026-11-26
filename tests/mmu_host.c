@@ -109,6 +109,10 @@ static void task_guards(void)
 }
 int main(void)
 {
+    /* The SMP alias uses the same EL1-only Normal-NC RO/XN leaf as the boot plan. */
+    assert(mmu_page_descriptor(0x48000,MMU_RO)==0x0060000000048787ULL);
+    assert(!mmu_page_descriptor(0x48001,MMU_RO) && !mmu_page_descriptor(1ULL<<48,MMU_RO));
+    assert(!mmu_page_descriptor(0x48000,MMU_NONE));
     SYSTEM_INFO system;GetSystemInfo(&system);size_t rounded=(sizeof(*tables)+4095)&~(size_t)4095;
     unsigned char *allocation=VirtualAlloc(NULL,rounded+4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(allocation && system.dwPageSize==4096);DWORD old;assert(VirtualProtect(allocation+rounded,4096,PAGE_NOACCESS,&old));tables=(struct mmu_tables *)allocation;
     profiles();invalid();controls_and_faults();task_guards();assert(VirtualFree(allocation,0,MEM_RELEASE));return 0;

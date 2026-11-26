@@ -3,6 +3,7 @@
 #include "memory.h"
 #define MMU_VA_LIMIT (1ULL<<39)
 #define MMU_MAIR 0x4400ULL /* index 0 Device-nGnRnE; index 1 Normal NC. */
+#define MMU_OUTPUT_MASK 0x0000fffffffff000ULL
 enum { MMU_MAX_REGIONS=64, MMU_TABLE_PAGES=32 };
 enum mmu_kind { MMU_NONE,MMU_RW,MMU_RX,MMU_RO,MMU_DEVICE };
 enum mmu_profile { MMU_QEMU,MMU_PI5 };
@@ -26,6 +27,7 @@ struct mmu_fault_expect { bool armed,write,execute,translation;uintptr_t pc,addr
 enum mmu_result mmu_plan_make(const struct memory_map *,enum mmu_profile,const struct mmu_layout *,struct mmu_plan *);
 enum mmu_result mmu_tables_build(struct mmu_tables *,uint64_t physical,const struct mmu_plan *);
 bool mmu_lookup(const struct mmu_tables *,uint64_t virtual_address,struct mmu_translation *);
+uint64_t mmu_page_descriptor(uint64_t physical,enum mmu_kind);
 bool mmu_plan_range(const struct mmu_plan *,uint64_t base,size_t bytes,enum mmu_kind);
 bool mmu_cpu_config(uint64_t mmfr0,uint64_t largest_end,uint64_t *tcr);
 bool mmu_fault_matches(const struct mmu_fault_expect *,uint64_t esr,uintptr_t pc,uintptr_t far);
@@ -35,9 +37,19 @@ const char *mmu_kind_text(enum mmu_kind);
 bool mmu_enabled(void);
 bool mmu_ensure_enabled(void);
 bool mmu_enable_secondary(void);
+void mmu_switch_root(uint64_t physical);
 bool mmu_dma_compatible(void);
 bool mmu_dma_buffer(uint64_t physical,size_t bytes);
 void mmu_setup(const char *board,uintptr_t dtb);
 bool mmu_command(const char *line);
 uintptr_t mmu_handle_probe_abort(uint64_t esr,uintptr_t pc,uintptr_t far);
+
+/* The boot CPU owns allocation and PTE writes. Every attached CPU
+ * must acknowledge restoring its root or be off before release. */
+enum mmu_smp_check { MMU_SMP_FIRST,MMU_SMP_UNMAPPED,MMU_SMP_SECOND,MMU_SMP_RESTORE };
+bool mmu_smp_prepare(void);
+void mmu_smp_publish(bool second);
+bool mmu_smp_observe(enum mmu_smp_check);
+bool mmu_smp_restore(void);
+bool mmu_smp_release(void);
 #endif

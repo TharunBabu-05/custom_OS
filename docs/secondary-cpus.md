@@ -3,8 +3,8 @@
 The monitor can use PSCI to start up to three secondary cores from the
 enabled device-tree CPU entries. Each worker enters EL1 with a private
 4 KiB stack, installs the kernel's verified identity mappings, leaves
-its interrupts masked, and waits for work. The boot CPU continues
-to own the EL0 scheduler, device drivers, and physical page allocator.
+its interrupts masked, and waits for work. The boot CPU runs the EL0
+scheduler, device drivers, and physical page allocator.
 
 ## Phase 41 Pi results
 
@@ -54,14 +54,106 @@ while a secondary might still access it. `smpinfo` shows retained
 stacks. Both caches remain off under the existing Normal-NC profile.
 `reboot`, `poweroff`, and `halt` request worker shutdown.
 
-## Run on Pi 5
+## Phase 42 verification
+
+The Pi passed all six checksum batches, resumed both parked workers
+on their original stacks, and acknowledged cancellation. After
+`smpstop`, PSCI reported all three secondaries off. Allocations returned
+to two pages, open handles returned to zero, USB reads passed, and v5
+generations 41 and 40 were valid. The commands ran at the monitor
+after exiting the EL0 shell. [Pi capture](../proofs/pi5-worker-recovery-2026-11-26.txt)
+
+Four-core Cortex-A53/EL1 and Cortex-A76/EL2 QEMU runs also passed
+targeted startup, park and resume, breakpoint recovery, batch result
+verification, repeat cancellation, and poweroff with a batch pending.
+
+## Phase 43 Interprocessor interrupts
+
+After starting the workers, use `smpirq on` to claim GICv2 SGI 15.
+Each worker derives its target from its own banked GIC registers and
+saves the local CPU interface, priority and enable state. The boot CPU
+checks that the resulting targets are distinct. A worker acknowledges
+the IRQ with the full GIC token, including the sender CPU, and publishes
+the reply sequence. [Arm GICv2 specification](https://documentation-service.arm.com/static/5f8ff196f86e16515cdbf969?token=)
+
+| Monitor command | Behavior |
+| --- | --- |
+| `smpirq on` | Opt in to worker interrupt delivery after `irqinit` and `smpstart`. Repeat after starting additional cores. |
+| `smpipi [0xAFFINITY]` | Send an interrupt to the selected worker or to all resident workers. Wait for each selected CPU's acknowledgement. |
+| `smptlb` | Invalidate the boot CPU's EL1 translations and request the same maintenance on every resident worker, including parked cores. Verify all acknowledgements. |
+| `smpinfo` | Show worker SGI state, GIC target, completed IPI and TLB counts, and the last acknowledged GIC token. |
+| `smpirq off` | Mask worker IRQ delivery, clear the owned SGI's pending state, restore each worker interface, and release the claim after verification. |
+
+The basic TLB check exercises IRQ delivery and local invalidation against
+the current kernel mappings. Checksum dispatch uses the event mailbox.
+If an acknowledgement times out, use `smpirq off` to recover the routes.
+Worker shutdown also releases SGI ownership after the cores are off.
+
+### Phase 43 verification
+
+The host GIC tests verified SGI setup rollback, pending-state cleanup,
+full interrupt tokens, and retry after a failed restore. Four-core
+Cortex-A53/EL1 and Cortex-A76/EL2 QEMU runs verified targeted delivery,
+broadcast, all four TLB acknowledgements, and shutdown with SGIs
+enabled. Both profiles restored worker allocations and resource
+claims. The worker lifecycle, periodic timer, peripheral IRQ, exec,
+and file mapping regressions passed.
+
+Both Pi builds fit with 4 KiB before the firmware device tree.
+All 99 update payload hashes matched the v5 image. The updater
+passed installation and rollback on a scratch directory.
+
+The Pi received one targeted reply and three broadcast replies. The
+timer reported zero unexpected interrupts. Shutdown returned to two
+allocated pages and eight resource claims. USB reads and both data
+banks passed. The Phase 44 procedure includes the remaining physical
+`smptlb` check. [Pi capture](../proofs/pi5-interprocessor-irqs-2026-11-26.txt)
+
+## Phase 44 Shared kernel page remapping
+
+`smptlb map` clones the kernel's translation root, shares the existing
+identity mappings, and adds a single test virtual address backed by
+two temporary data pages. Every resident worker with a verified SGI
+route switches to the test root, including parked and fault-parked
+workers. The monitor requires collection or cancellation of any
+outstanding checksum batch before the test starts.
+
+Every participating core reads page A. The monitor invalidates the
+leaf descriptor and waits for each CPU to invalidate the address
+locally and observe a level-3 translation fault. It installs page B
+only after those replies. Each core reads the new contents and
+checks with `AT` that an EL1 write and an EL0 read would fault. The
+test revokes the alias again, then restores every CPU's original
+TTBR0 and releases all five pages. [Arm AArch64 memory management guide](https://documentation-service.arm.com/static/6ac508d3f59e042617c76666)
+
+If a worker misses an acknowledgement, the boot CPU restores its
+root and retains the test pages. `smpirq off` can reclaim the pages
+after each worker confirms restoration. `smpstop` can reclaim them
+once the secondaries are verified off. General multicore mappings
+for applications remain roadmap work.
+
+### Phase 44 verification
+
+Four-core Cortex-A53 and Cortex-A76 QEMU runs passed both remaps,
+including parked and fault-parked workers. The tests verified that
+incomplete SGI setup and a pending batch leave allocation counts
+unchanged. File copying, `exec`, file mappings, MMU protection,
+and timer, USB and v5 data checks passed.
+
+A scratch build suppressed a worker's acknowledgement after it entered
+the test root. The boot CPU returned to its original root and retained
+five pages. Separate runs reclaimed them with `smpirq off` and `smpstop`.
+Both Pi builds fit with 32 KiB before the firmware device tree.
+All 99 package payload hashes matched the v5 image.
+
+### Run Phase 44 on Pi 5
 
 Power off the Pi and connect its boot pendrive to Windows. Run this
-from the project folder in PowerShell. The Phase 42 update replaces
-`OUROS.IMG` when the drive already has Phase 41.
+from the project folder in PowerShell. On a Phase 43 drive the updater
+selects `OUROS.IMG`. Use the existing pendrive.
 
 ```powershell
-$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase42-worker-recovery-boot-update.zip'
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase44-smp-page-remap-boot-update.zip'
 $volumes = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.VolumeLabel -eq 'OUROSBOOT' })
 if ($volumes.Count -ne 1) { throw 'Connect exactly one OUROSBOOT pendrive.' }
 $boot = $volumes[0].Name
@@ -76,53 +168,47 @@ At the monitor `>` prompt, enter one line at a time.
 
 ```text
 meminfo
+resinfo
 smpstart
-smptest
-smpfault 0x100
-smpinfo
-smptest
-smpstart 0x100
-smptest
+smpirq on
+smpipi 0x100
+smpipi
 smppark 0x200
-smptest
-smpstart 0x200
-smpsubmit 16
+smptlb
 smpinfo
-smpwait
-smpsubmit 1024
-smpcancel
+meminfo
+smptlb map
+smpinfo
+meminfo
+smpstart 0x200
+smpfault 0x300
+smptlb map
+smpstart 0x300
 smptest
+mmutest
+timertest
+irqinfo
+smpirq off
+resinfo
 smpstop
 cpustate
 meminfo
+resinfo
 fileinfo
 storagetest
 datacheck
 ```
 
-Expect checksum job counts of 3, 2, 3, 2, 3, and 3, including the
-result from `smpwait`. The faulted worker should show
-`state=fault-parked`, `psci=on`, and ESR `0xf2000041`, then report
-`resumed at EL1`. The cancellation should print
-`Secondary batch cancelled.`. After `smpstop`, `cpustate` should
-report the three secondaries off and `meminfo` should return to its
-first `allocated_pages` count. `fileinfo` should show zero open
-files, `storagetest` should pass, and `datacheck` should show
-`matches_mounted=yes`.
+Expect 1 and 3 acknowledgements from the first two IPI commands.
+`smptlb` should print `PASS: SMP TLB invalidations=4` while
+`0x200` is parked. Each `smptlb map` should print
+`SMP map CPUs A/unmapped/B/revoked/restored=4/4/4/4/4` and the
+remap PASS. The two `meminfo` readings around the first remap
+should report the same allocation count. After `smpirq off`, resource
+claims should match the baseline. After `smpstop`, all three workers
+should be off, allocated pages should match the first `meminfo`,
+`fileinfo` should show zero open files, and storage checks should pass.
 
-## Phase 42 verification
-
-Four-core Cortex-A53/EL1 and Cortex-A76/EL2 QEMU runs passed
-targeted startup, park and resume, breakpoint recovery, batch result
-verification, repeat cancellation, and poweroff with a batch pending.
-The boot CPU continued to run the shell and timer. Both profiles
-verified that cancellations leave the completed-job counts unchanged
-and that final shutdown restores the initial page count. The v5 test
-images matched their original hashes after the worker checks.
-
-The Core OS, process policy, event wait, named IPC, service and storage
-suite regressions passed on both profiles. Both Pi kernel builds fit
-with 4 KiB before the firmware device tree. All 99 ZIP payload hashes
-matched the verified image. The updater verified installation and
-rollback and selected only `OUROS.IMG` from Phase 41. Phase 42 Pi
-verification is pending.
+If a remap reports retained pages, run `smpirq off`, `smpstop`,
+`meminfo`, `resinfo`, `storagetest`, and `datacheck` and save the
+UART output. Phase 44 Pi verification is pending.

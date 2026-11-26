@@ -14,13 +14,20 @@ static struct mmu_tables tables;
 static struct mmu_plan plan;
 static struct mmu_fault_expect expected;
 static struct { const char *board;uintptr_t dtb;bool attempted,active;enum mmu_result result;uint64_t tcr,mmfr0,last_esr;unsigned tests,passed_mask;bool observed; } state;
+enum { SMP_ROOT_SLOT=511, SMP_LEAF=2, SMP_PAGE_A=3, SMP_PAGE_B=4, SMP_PAGES=5 };
+#define SMP_ALIAS_VA ((uint64_t)SMP_ROOT_SLOT<<30)
+#define SMP_PATTERN 0x13579bdf2468ace0ULL
+static uint64_t smp_root;
+static uint64_t smp_allocation;
+static unsigned smp_pages;
 static bool same(const char *a,const char *b) { if (!a || !b) { return false; }while (*a && *a==*b) { ++a;++b; }return *a==*b; }
 static uint64_t sctlr(void) { uint64_t x;__asm__ volatile("mrs %0, sctlr_el1" : "=r"(x));return x; }
+static uint64_t current_root(void) { uint64_t x;__asm__ volatile("mrs %0, ttbr0_el1" : "=r"(x));return x; }
 bool mmu_enabled(void) { return !!(sctlr()&1); }
 static bool readback(void)
 {
-    uint64_t root,other,tcr,mair;__asm__ volatile("mrs %0, ttbr0_el1" : "=r"(root));__asm__ volatile("mrs %0, ttbr1_el1" : "=r"(other));__asm__ volatile("mrs %0, tcr_el1" : "=r"(tcr));__asm__ volatile("mrs %0, mair_el1" : "=r"(mair));
-    return root==tables.physical && !other && tcr==state.tcr && mair==MMU_MAIR && (sctlr()&0x81005)==0x80001;
+    uint64_t other,tcr,mair;__asm__ volatile("mrs %0, ttbr1_el1" : "=r"(other));__asm__ volatile("mrs %0, tcr_el1" : "=r"(tcr));__asm__ volatile("mrs %0, mair_el1" : "=r"(mair));
+    return current_root()==tables.physical && !other && tcr==state.tcr && mair==MMU_MAIR && (sctlr()&0x81005)==0x80001;
 }
 bool mmu_dma_compatible(void)
 { uint64_t control=sctlr();return !(control&0x1004) && (!(control&1) || (state.active && readback())); }
@@ -68,6 +75,83 @@ bool mmu_enable_secondary(void)
     mmu_arch_enable(tables.physical,state.tcr,MMU_MAIR);
     return readback();
 }
+
+bool mmu_smp_prepare(void)
+{
+    if (smp_pages || !state.active || !readback() || tables.entries[0][SMP_ROOT_SLOT] ||
+        !page_alloc_run(SMP_PAGES,&smp_allocation)) { return false; }
+    smp_pages=SMP_PAGES;
+    const size_t words=PAGE_SIZE/sizeof(uint64_t);
+    uint64_t base=smp_allocation;
+    if (!mmu_dma_buffer(base,SMP_PAGES*PAGE_SIZE)) { (void)mmu_smp_release();return false; }
+    uint64_t *scratch=(uint64_t *)(uintptr_t)base;
+    for (size_t i=0;i<words;++i) { scratch[i]=tables.entries[0][i]; }
+    for (size_t i=words;i<SMP_PAGES*words;++i) { scratch[i]=0; }
+    scratch[SMP_ROOT_SLOT]=(base+PAGE_SIZE)|3u;
+    scratch[words]=(base+SMP_LEAF*PAGE_SIZE)|3u;
+    scratch[SMP_LEAF*words]=mmu_page_descriptor(base+SMP_PAGE_A*PAGE_SIZE,MMU_RO);
+    scratch[SMP_PAGE_A*words]=SMP_PATTERN;
+    scratch[SMP_PAGE_B*words]=~SMP_PATTERN;
+    __atomic_store_n(&smp_root,base,__ATOMIC_RELEASE);
+    return true;
+}
+
+void mmu_smp_publish(bool second)
+{
+    uint64_t base=smp_allocation;
+    uint64_t *leaf=(uint64_t *)(uintptr_t)(base+SMP_LEAF*PAGE_SIZE);
+    __atomic_store_n(leaf,second ? mmu_page_descriptor(base+SMP_PAGE_B*PAGE_SIZE,MMU_RO) : 0,__ATOMIC_RELEASE);
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+
+bool mmu_smp_observe(enum mmu_smp_check check)
+{
+    if (check==MMU_SMP_RESTORE) { return mmu_smp_restore(); }
+    uint64_t root=__atomic_load_n(&smp_root,__ATOMIC_ACQUIRE),par;
+    const uint64_t va=SMP_ALIAS_VA;
+    if (!root) { return false; }
+    if (check==MMU_SMP_FIRST && current_root()==tables.physical) { mmu_switch_root(root); }
+    if (current_root()!=root) { return false; }
+    if (check==MMU_SMP_UNMAPPED) {
+        __asm__ volatile("dsb sy; tlbi vaae1, %0; dsb sy; isb" :: "r"(va>>12) : "memory");
+    } else {
+        __asm__ volatile("dsb sy; isb" ::: "memory");
+    }
+    __asm__ volatile("at s1e1r, %1; isb; mrs %0, par_el1" : "=r"(par) : "r"(va) : "memory");
+    if (check==MMU_SMP_UNMAPPED) { return (par&0x7f)==0x0f; } /* L3 translation fault. */
+    bool second=check==MMU_SMP_SECOND;
+    uint64_t page=root+(second ? SMP_PAGE_B : SMP_PAGE_A)*PAGE_SIZE;
+    if ((par&(MMU_OUTPUT_MASK|1))!=page ||
+        *(volatile const uint64_t *)(uintptr_t)va!=(second ? ~SMP_PATTERN : SMP_PATTERN)) { return false; }
+    __asm__ volatile("at s1e1w, %1; isb; mrs %0, par_el1" : "=r"(par) : "r"(va) : "memory");
+    if ((par&0x7f)!=0x1f) { return false; } /* L3 permission fault. */
+    __asm__ volatile("at s1e0r, %1; isb; mrs %0, par_el1" : "=r"(par) : "r"(va) : "memory");
+    return (par&0x7f)==0x1f;
+}
+
+bool mmu_smp_restore(void)
+{
+    uint64_t root=__atomic_load_n(&smp_root,__ATOMIC_ACQUIRE);
+    if (!root) { return true; }
+    if (current_root()!=tables.physical) { mmu_switch_root(tables.physical); }
+    return current_root()==tables.physical;
+}
+
+bool mmu_smp_release(void)
+{
+    if (!mmu_smp_restore()) { return false; }
+    if (__atomic_load_n(&smp_root,__ATOMIC_ACQUIRE)) {
+        uint64_t *scratch=(uint64_t *)(uintptr_t)smp_allocation;
+        for (size_t i=0;i<SMP_PAGES*PAGE_SIZE/sizeof(*scratch);++i) { scratch[i]=0; }
+        __atomic_store_n(&smp_root,0,__ATOMIC_RELEASE);
+    }
+    while (smp_pages) {
+        if (!page_free(smp_allocation+(uint64_t)(smp_pages-1)*PAGE_SIZE)) { return false; }
+        --smp_pages;
+    }
+    return true;
+}
+
 static void information(void)
 {
     console_write("MMU: ");console_write(!mmu_enabled() ? "off (run mmuinit)" : state.active && readback() ? "on; verified identity profile" : "on; UNRECOGNIZED profile");
@@ -76,7 +160,7 @@ static void information(void)
     console_write("Activation=");console_write(mmu_result_text(state.result));console_write(" MMFR0=");console_hex(state.mmfr0);console_write(" TCR_EL1=");console_hex(state.tcr);
     console_write("\nTTBR0=");console_hex(tables.physical);console_write(" MAIR_EL1=");console_hex(MMU_MAIR);console_write(" tables_used=");console_u64(tables.used);console_write(" table_capacity=32 (kernel-reserved)\n");
     for (unsigned i=0;i<plan.count;++i) { console_write("MAP base=");console_hex(plan.regions[i].base);console_write(" bytes=");console_u64(plan.regions[i].size);console_write(" ");console_write(mmu_kind_text(plan.regions[i].kind));console_write("\n"); }
-    console_write("Guard page=");console_hex((uintptr_t)__stack_guard);console_write(" null page=unmapped tests=");console_u64(state.tests);console_write(" last_pass_mask=");console_hex(state.passed_mask);console_write("\nNo EL0 address spaces, remapping, cache acceleration or process isolation yet.\n");
+    console_write("Guard page=");console_hex((uintptr_t)__stack_guard);console_write(" null page=unmapped tests=");console_u64(state.tests);console_write(" last_pass_mask=");console_hex(state.passed_mask);console_write("\n");
 }
 uintptr_t mmu_handle_probe_abort(uint64_t esr,uintptr_t pc,uintptr_t far)
 {

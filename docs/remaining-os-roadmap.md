@@ -3,8 +3,10 @@
 OurOS runs a serial shell, protected EL0 applications, and bounded persistent
 storage on the boot CPU. The MMU, exceptions, GIC/timer IRQs, cooperative
 kernel tasks, preempted user programs, USB writes, ELF loading, and checked
-system calls have Pi evidence. Opt-in secondary CPU workers have QEMU
-coverage. [Phase 41](secondary-cpus.md)
+system calls have Pi evidence. The Pi verified secondary worker startup,
+same-boot recovery, cancellation, shutdown, and interprocessor
+interrupts. Phase 44 adds an acknowledged shared kernel page remap.
+[Secondary CPU workers](secondary-cpus.md)
 
 The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes
 HEAPCHK and HEAPDEMO with exit 0, no remaining private pages and restored
@@ -44,8 +46,11 @@ clients. The Pi passed Phase 39's service dependencies and independent
 restart. The Pi passed Phase 40's inherited and irreversible limits on
 four classes of process operations. Phase 41 brings up secondary CPUs
 as opt-in EL1 workers. The Pi verified initial startup and fault
-isolation. Firmware left a secondary pending on restart. Phase 42
-adds in-kernel worker recovery and cancellable work batches.
+isolation. Firmware left a secondary pending on restart. The Pi
+passed Phase 42's in-kernel worker recovery and cancellable batches.
+The Pi passed Phase 43 targeted and broadcast GICv2 interrupts.
+Phase 44 applies acknowledged TLB invalidation to a temporary shared
+kernel page and includes the Pi TLB acceptance sequence.
 [Process trees](process-control.md#phase-33-process-trees)
 · [EL0 scheduling](process-control.md#phase-34-el0-scheduling) · [Process capacity](process-control.md#phase-35-process-capacity)
 · [File mappings](user-memory.md#phase-36-file-snapshots-and-shared-views)
@@ -67,7 +72,7 @@ passed on Pi using RAMFS. Phase 28 passed its Pi descriptor and exec run.
 | Area | Open tasks |
 | --- | --- |
 | Processes and ABI | Eight foreground slots, four background jobs, a process snapshot with scheduler counters, and Pi-verified named IPC channels. Scheduling across CPUs remains open. |
-| Memory and concurrency | Phase 36 adds eager private file mappings and shared-view revocation. Phase 41 adds private secondary-core stacks and per-core records. Demand paging, out-of-memory policy, shared allocator locking, cache maintenance for DMA, and TLB shootdown remain open. Verify exclusive operations on a cacheable Pi mapping. |
+| Memory and concurrency | Phase 36 adds eager private file mappings and shared-view revocation. Phase 44 exercises acknowledged invalidation and replacement of a shared kernel alias. Pi remap acceptance, demand paging, out-of-memory policy, shared allocator locking, DMA cache maintenance, and shootdown for general mapping updates remain open. Verify exclusive operations on a cacheable Pi mapping. |
 | Data and recovery | The Pi verified Phase 31 file recovery and Phase 32 v5 retention after a cold power cycle. Physical v4-to-v5 migration and interrupted-write recovery on spare media remain open. [Storage and apps](storage-apps.md) |
 | Apps and distribution | The Pi passed named-app install, upgrade, rollback, and uninstall, plus signed multi-file installation and dependency upgrade. [Storage and apps](storage-apps.md) |
 | Networking | Test Wi-Fi DHCP broadcast rebinding, AP group-key rotation, same-boot manual restart after cleanup, and intentional UDP timeout and recovery. Add wired DHCP and route selection across Wi-Fi and Ethernet, and verify link recovery and interface changes. Direct wired ARP, ICMP, UDP, and TCP have passed on the Pi. |
@@ -114,7 +119,7 @@ jobs, process trees and indefinite services are still work.
 | Exceptions | Contained EL0 faults and deadlines, targeted signals, and structured stop records | Debugger integration and extended signal policies |
 | System calls | Checked file, terminal, process, and socket I/O, blocking IPC, local event waits, and Pi-verified inherited process permissions | Asynchronous storage and process credentials |
 | Executables | Static AArch64 ELF subset and compact runtime. The current shell adds command lists and bounded text scripts. [Shell workflows](shell-workflows.md) | Pi broader exec/update validation, stored-shell persistence, larger VM and broader toolchain tests |
-| Concurrency | The boot CPU runs the scheduler and drivers. Up to three EL1 workers use private stacks, work mailboxes, and exception records. Phase 42 adds worker park/resume and asynchronous batches. | Phase 42 Pi acceptance, IRQ routing, SMP locking, TLB shootdown, and multicore scheduling |
+| Concurrency | The boot CPU runs the scheduler and drivers. Three EL1 workers passed recovery, asynchronous batches, and SGIs on the Pi. Phase 44 adds root switching and a page remap test across resident cores. | Phase 44 Pi acceptance, IRQ affinity for drivers, SMP locking, and multicore scheduling |
 
 Acceptance should keep checking resource restoration, failure containment and
 storage integrity while expanding the scheduler. A larger application runtime

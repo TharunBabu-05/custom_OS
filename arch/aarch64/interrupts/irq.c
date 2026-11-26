@@ -21,6 +21,7 @@ static struct irq_work peripheral;
 static volatile bool deferred_ready;
 static struct irq_probe probe;
 static unsigned probe_events;
+static unsigned sgi_ticket;
 extern uint64_t irq_test_registers(uint64_t duration_ticks);
 uint64_t irq_save(void)
 { uint64_t flags;__asm__ volatile("mrs %0, daif; msr daifset, #2; isb" : "=r"(flags) :: "memory");return flags; }
@@ -45,6 +46,21 @@ void irq_setup(const char *name,uintptr_t blob) { board=name;dtb=blob; }
 void irq_fatal_stop(void) { __asm__ volatile("msr daifset, #2; isb" ::: "memory");if (running) { timer_control(0); }running=false; }
 bool irq_timer_running(void) { uint64_t f=irq_save();bool value=running;irq_restore(f);return value; }
 uint64_t irq_timer_delivered(void) { uint64_t f=irq_save(),value=tick.delivered;irq_restore(f);return value; }
+const struct gic_state *irq_claim_sgi(void)
+{
+    if (!controller.ready || failed || !gic_sgi_target(&controller)) { return NULL; }
+    if (!sgi_ticket) {
+        const struct resource_range claim={RESOURCE_IRQ,controller.description.distributor,GIC_WORK_SGI,1};
+        sgi_ticket=resource_acquire("smp-ipi",&claim,1);
+    }
+    return sgi_ticket ? &controller : NULL;
+}
+bool irq_release_sgi(void)
+{
+    if (sgi_ticket && !resource_release(sgi_ticket)) { return false; }
+    sgi_ticket=0;
+    return true;
+}
 static bool initialize(void)
 {
     (void)irq_save();

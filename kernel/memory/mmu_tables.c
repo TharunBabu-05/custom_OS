@@ -2,7 +2,6 @@
  * See docs/mmu.md for Arm descriptor/control-register references. */
 #include "mmu.h"
 #include "task.h"
-#define ADDRESS_MASK 0x0000fffffffff000ULL
 #define AF (1ULL<<10)
 #define PXN (1ULL<<53)
 #define UXN (1ULL<<54)
@@ -15,6 +14,11 @@ static uint64_t attributes(enum mmu_kind k)
     return AF|UXN|(3ULL<<8)|(1ULL<<2)|(k==MMU_RW ? PXN : 1ULL<<7)|(k==MMU_RO ? PXN : 0);
 }
 static bool normal(enum mmu_kind k) { return k==MMU_RW || k==MMU_RO || k==MMU_RX; }
+uint64_t mmu_page_descriptor(uint64_t physical,enum mmu_kind kind)
+{
+    if ((physical&~MMU_OUTPUT_MASK) || (!normal(kind) && kind!=MMU_DEVICE)) { return 0; }
+    return physical|attributes(kind)|3u;
+}
 static enum mmu_result add(struct mmu_plan *p,uint64_t base,uint64_t bytes,enum mmu_kind kind)
 {
     if (!span(base,bytes) || !aligned(base) || !aligned(bytes) || kind<MMU_RW || kind>MMU_DEVICE) { return MMU_ARGUMENT; }
@@ -89,13 +93,13 @@ static uint64_t *child(struct mmu_tables *t,uint64_t *entry)
     if (!*entry) {
         if (t->used==MMU_TABLE_PAGES) { return NULL; }*entry=(t->physical+(uint64_t)t->used*PAGE_SIZE)|3;return t->entries[t->used++];
     }
-    if ((*entry&3)!=3 || (*entry&ADDRESS_MASK)<t->physical) { return NULL; }
-    uint64_t offset=(*entry&ADDRESS_MASK)-t->physical;if (!aligned(offset) || offset/PAGE_SIZE>=t->used) { return NULL; }return t->entries[offset/PAGE_SIZE];
+    if ((*entry&3)!=3 || (*entry&MMU_OUTPUT_MASK)<t->physical) { return NULL; }
+    uint64_t offset=(*entry&MMU_OUTPUT_MASK)-t->physical;if (!aligned(offset) || offset/PAGE_SIZE>=t->used) { return NULL; }return t->entries[offset/PAGE_SIZE];
 }
 enum mmu_result mmu_tables_build(struct mmu_tables *t,uint64_t physical,const struct mmu_plan *p)
 {
     if (!t) { return MMU_ARGUMENT; }t->ready=false;
-    if (!p || !p->count || p->count>MMU_MAX_REGIONS || !physical || !aligned(physical) || physical>ADDRESS_MASK-(MMU_TABLE_PAGES-1)*PAGE_SIZE) { return MMU_ARGUMENT; }
+    if (!p || !p->count || p->count>MMU_MAX_REGIONS || !physical || !aligned(physical) || physical>MMU_OUTPUT_MASK-(MMU_TABLE_PAGES-1)*PAGE_SIZE) { return MMU_ARGUMENT; }
     uint64_t previous=0;
     for (unsigned i=0;i<p->count;++i) { struct mmu_region r=p->regions[i];if (!span(r.base,r.size) || !aligned(r.base) || !aligned(r.size) || (i && r.base<previous) || (!normal(r.kind) && r.kind!=MMU_DEVICE)) { return MMU_ARGUMENT; }previous=r.base+r.size; }
     for (unsigned i=0;i<MMU_TABLE_PAGES;++i) { for (unsigned j=0;j<512;++j) { t->entries[i][j]=0; } }t->physical=physical;t->used=1;
@@ -109,7 +113,7 @@ enum mmu_result mmu_tables_build(struct mmu_tables *t,uint64_t physical,const st
                     uint64_t *l3=child(t,entry);if (!l3) { return MMU_TABLE_FULL; }entry=&l3[(at>>12)&511];bytes=PAGE_SIZE;if (*entry) { return MMU_OVERLAP; }
                 }
             }
-            *entry=at|attributes(r.kind)|(bytes==PAGE_SIZE ? 3u : 1u);at+=bytes;
+            *entry=bytes==PAGE_SIZE ? mmu_page_descriptor(at,r.kind) : at|attributes(r.kind)|1u;at+=bytes;
         }
     }t->ready=true;return MMU_OK;
 }
@@ -121,13 +125,13 @@ bool mmu_lookup(const struct mmu_tables *t,uint64_t va,struct mmu_translation *o
         unsigned shift=level==1 ? 30 : level==2 ? 21 : 12;uint64_t d=t->entries[table][(va>>shift)&511];
         if (!(d&1)) { return false; }
         if ((d&3)==3 && level<3) {
-            uint64_t base=d&ADDRESS_MASK;if (base<t->physical || (base-t->physical)/PAGE_SIZE>=t->used || (d&~(ADDRESS_MASK|3ULL))) { return false; }
+            uint64_t base=d&MMU_OUTPUT_MASK;if (base<t->physical || (base-t->physical)/PAGE_SIZE>=t->used || (d&~(MMU_OUTPUT_MASK|3ULL))) { return false; }
             unsigned next=(unsigned)((base-t->physical)/PAGE_SIZE);if (!next || next==table) { return false; }table=next;continue;
         }
         if ((d&3)!=(level==3 ? 3u : 1u)) { return false; }
-        uint64_t size=1ULL<<shift,base=d&ADDRESS_MASK;if (base&(size-1)) { return false; }
+        uint64_t size=1ULL<<shift,base=d&MMU_OUTPUT_MASK;if (base&(size-1)) { return false; }
         enum mmu_kind kind=MMU_NONE;const enum mmu_kind candidates[]={MMU_RW,MMU_RX,MMU_RO,MMU_DEVICE};
-        for (unsigned i=0;i<4;++i) { if ((d&~ADDRESS_MASK)==(attributes(candidates[i])|(level==3 ? 3u : 1u))) { kind=candidates[i]; } }
+        for (unsigned i=0;i<4;++i) { if ((d&~MMU_OUTPUT_MASK)==(attributes(candidates[i])|(level==3 ? 3u : 1u))) { kind=candidates[i]; } }
         if (kind==MMU_NONE) { return false; }*out=(struct mmu_translation){base+(va&(size-1)),d,kind,level};return true;
     }return false;
 }

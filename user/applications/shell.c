@@ -5,20 +5,28 @@
 /* Keep repeated console setup out of the command dispatcher. */
 static __attribute__((noinline,noclone)) void print(const char *text) { (void)uos_puts(text); }
 static int same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
-static bool monitor_network_command(const char *line)
+static bool monitor_command(const char *line,const char *names)
 {
-    static const char *const commands[]={"netup","netping","netrenew","netinfo","netdown","networktest"};
     while (*line==' ' || *line=='\t') { ++line; }
-    for (unsigned i=0;i<sizeof(commands)/sizeof(commands[0]);++i) {
-        const char *name=commands[i],*word=line;
+    while (*names) {
+        const char *name=names,*word=line;
         while (*name && *name==*word) { ++name;++word; }
         if (!*name && (!*word || *word==' ' || *word=='\t')) { return true; }
+        while (*name++) { }
+        names=name;
     }
     return false;
 }
-static void monitor_network_hint(void)
+static bool monitor_hint(const char *line)
 {
-    print("Type exit, then run this command at the > monitor prompt. For the EL0 test use networktest el0 (lowercase L, digit zero).\n");
+    bool network=monitor_command(line,"netup\0netping\0netrenew\0netinfo\0netdown\0networktest\0");
+    if (!network && !monitor_command(line,"smpstart\0smpinfo\0smptest\0smpfault\0smpstop\0smppark\0"
+        "smpsubmit\0smpwait\0smpcancel\0smpirq\0smpipi\0smptlb\0cpustate\0meminfo\0fileinfo\0storagetest\0datacheck\0")) {
+        return false;
+    }
+    print("Type exit, then run this command at the > monitor prompt.");
+    print(network ? " For the EL0 test use networktest el0 (lowercase L, digit zero).\n" : "\n");
+    return true;
 }
 enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE,CMD_HISTORY,CMD_SCHED,CMD_WAITALL,CMD_STOPALL,CMD_VMSTAT,CMD_POLICY,CMD_RUNLIM };
 static unsigned command_kind(const char *cmd)
@@ -529,8 +537,7 @@ static bool execute_line(struct shell_state *state,char *line)
     struct command_list commands;
     if (!split_commands(line,&commands)) {
         state->status=2;
-        if (monitor_network_command(line)) { monitor_network_hint(); }
-        else { print("shell: invalid quoting, expansion or argument bounds (command list)\n"); }
+        if (!monitor_hint(line)) { print("shell: invalid quoting, expansion or argument bounds (command list)\n"); }
         return false;
     }
     struct stream_command stream;
@@ -694,7 +701,7 @@ static bool execute_line(struct shell_state *state,char *line)
             const char *data=args.bytes+args.offset[2];size_t bytes=uos_length(data);result=uos_replace(p,data,bytes)!=(int64_t)bytes;
         } else if ((kind==CMD_MKDIR) && args.count==2) { result=uos_mkdir(p)!=0; }
         else if (((kind==CMD_RM) || (kind==CMD_RMDIR)) && args.count==2) { result=uos_remove(p,(kind==CMD_RMDIR))!=0; }
-        else if (monitor_network_command(args.bytes)) { state->status=2;monitor_network_hint(); }
+        else if (monitor_hint(args.bytes)) { state->status=2; }
         else {
             if (job_count(state->jobs)==JOB_LIMIT) { state->status=1;print("shell: use fg or stop first\n");continue; }
             if (program(&args)) { state->status=127;print("shell: unknown command or arguments; type help\n");continue; }

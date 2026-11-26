@@ -17,6 +17,12 @@ struct gic_state {
     unsigned acknowledgements,completions,masked_unexpected,last_id;uint32_t last_token;
 };
 struct gic_spi_route { unsigned intid;uint8_t priority,target;bool edge,restore_trigger; };
+enum { GIC_WORK_SGI=15 };
+struct gic_sgi_route {
+    uint32_t control,mask;
+    uint8_t target,priority;
+    bool enabled,saved;
+};
 /* Only the explicitly supported Pi5/QEMU DT profiles, no MMIO. */
 bool gic_discover(const char *board,const void *dtb,size_t bytes,struct gic_description *out);
 /* Caller masks CPU IRQs and disables the architectural timer first. Single CPU.
@@ -36,5 +42,12 @@ enum gic_result gic_spi_test_pending(struct gic_state *,const struct gic_spi_rou
 enum gic_result gic_spi_enable(struct gic_state *,const struct gic_spi_route *);
 enum gic_result gic_spi_release(struct gic_state *,const struct gic_spi_route *);
 enum gic_result gic_mask_line(struct gic_state *,unsigned id);
+/* Banked secondary interface. Call open/close with local IRQs masked.
+ * Only the immutable description, I/O callbacks and TYPER are shared. */
+uint8_t gic_sgi_target(const struct gic_state *);
+bool gic_sgi_open(const struct gic_state *,struct gic_sgi_route *);
+bool gic_sgi_close(const struct gic_state *,struct gic_sgi_route *);
+bool gic_sgi_send(const struct gic_state *,uint8_t targets);
+bool gic_sgi_take(const struct gic_state *,uint32_t *token);
 const char *gic_error(enum gic_result);
 #endif
