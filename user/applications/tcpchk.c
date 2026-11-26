@@ -1,4 +1,4 @@
-#include "user.h"
+#include "tcp_io.h"
 #include "sha256.h"
 
 static int same(const char *a,const char *b)
@@ -23,26 +23,13 @@ static int parse_ip(const char *p,uint8_t ip[4])
     }
     return 1;
 }
-static int64_t wait_result(uint64_t handle,void *buffer,size_t bytes,unsigned operation,unsigned ms)
-{
-    int64_t end=uos_time_ms()+ms;
-    for (;;) {
-        int64_t r=operation==UOS_SYS_TCP_STATUS ? uos_tcp_status(handle) : operation==UOS_SYS_TCP_READ ?
-            uos_tcp_read(handle,buffer,bytes) : uos_tcp_write(handle,buffer,bytes);
-        if (r!=UOS_EAGAIN) { return r; }
-        int64_t left=end-uos_time_ms();
-        if (left<=0) { return UOS_ETIMEDOUT; }
-        r=uos_socket_wait(UOS_EVENT_TCP,handle,
-                         operation==UOS_SYS_TCP_READ ? UOS_EVENT_READ : UOS_EVENT_WRITE,(unsigned)left);
-        if (r<=0) { return r ? r : UOS_ETIMEDOUT; }
-    }
-}
 static int error(int64_t result)
 {
     if (result==UOS_ENETDOWN) { uos_puts("TCP requires an active TCP network session.\n"); }
     else if (result==UOS_EHOSTUNREACH) { uos_puts("TCP peer did not answer ARP or is off-subnet.\n"); }
     else if (result==UOS_ECONNRESET) { uos_puts("TCP peer refused or reset the connection.\n"); }
     else if (result==UOS_ETIMEDOUT) { uos_puts("TCP operation timed out.\n"); }
+    else if (result==UOS_EINTR) { uos_puts("TCP operation interrupted.\n"); }
     else { uos_puts("TCP file echo failed.\n"); }
     return 1;
 }
@@ -53,17 +40,15 @@ static int64_t echo_file(uint64_t socket,uint64_t file)
     for (unsigned total=0;total<16384;) {
         int64_t n=uos_read(file,part,sizeof(part));
         if (n<=0 || (uint64_t)n>16384-total) { return UOS_ERROR; }
-        int64_t sent=wait_result(socket,part,(size_t)n,UOS_SYS_TCP_WRITE,5000);
-        if (sent!=n) { return sent<0 ? sent : UOS_ERROR; }
-        for (size_t done=0;done<(size_t)n;) {
-            int64_t got=wait_result(socket,reply,(size_t)n-done,UOS_SYS_TCP_READ,5000);
-            if (got<=0) { return got<0 ? got : UOS_ERROR; }
-            for (size_t i=0;i<(size_t)got;++i) { if (reply[i]!=part[done+i]) { return UOS_ERROR; } }
-            sha256_update(&hash,reply,(size_t)got);done+=(size_t)got;
-        }
+        int64_t result=tcp_write_all(socket,part,(size_t)n,uos_time_ms()+5000);
+        if (result) { return result; }
+        result=tcp_read_exact(socket,reply,(size_t)n,uos_time_ms()+5000);
+        if (result) { return result; }
+        for (size_t i=0;i<(size_t)n;++i) { if (reply[i]!=part[i]) { return UOS_ERROR; } }
+        sha256_update(&hash,reply,(size_t)n);
         total+=(unsigned)n;
     }
-    int64_t end=wait_result(socket,reply,1,UOS_SYS_TCP_READ,5000);
+    int64_t end=tcp_read_until(socket,reply,1,uos_time_ms()+5000);
     if (end) { return end<0 ? end : UOS_ERROR; }
     sha256_final(&hash,digest);
     const char *digits="0123456789abcdef";char hex[65];
@@ -77,20 +62,26 @@ static int model(void)
     int64_t h=uos_tcp_open(&p);
     if (h<=0) { return 11; }
     uint64_t socket=(uint64_t)h;
-    if (wait_result(socket,NULL,0,UOS_SYS_TCP_STATUS,4000)) { return 12; }
+    if (tcp_wait_connected(socket,uos_time_ms())!=UOS_ETIMEDOUT ||
+        tcp_wait_connected(socket,uos_time_ms()+4000)) { return 12; }
     if (uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_READ|UOS_EVENT_WRITE,0)!=UOS_EVENT_WRITE) { return 17; }
     if (uos_tcp_read(socket,(void *)(uintptr_t)&p,1)!=UOS_EFAULT ||
         uos_tcp_write(socket,(void *)(uintptr_t)1,1)!=UOS_EFAULT) { return 13; }
     unsigned char data[]={1,0,2,3,4},reply[5];
+    int64_t deadline=uos_time_ms()+40;
+    if (tcp_read_until(socket,reply,1,deadline)!=UOS_ETIMEDOUT || uos_time_ms()<deadline) { return 18; }
     if (uos_tcp_write(socket,data,sizeof(data))!=sizeof(data) || uos_tcp_write(socket,data,1)!=UOS_EAGAIN) { return 14; }
     for (size_t at=0;at<sizeof(reply);) {
-        int64_t n=wait_result(socket,reply+at,1,UOS_SYS_TCP_READ,4000);
+        int64_t n=tcp_read_until(socket,reply+at,1,uos_time_ms()+4000);
         if (n!=1 || reply[at]!=data[at]) { return 15; }++at;
     }
     if (uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_READ,1000)!=UOS_EVENT_READ ||
-        uos_tcp_read(socket,reply,1) || uos_tcp_close(socket) || uos_tcp_status(socket)!=UOS_EBADF ||
+        tcp_read_exact(socket,reply,1,uos_time_ms()+1000)!=UOS_EOF ||
+        uos_tcp_close(socket) || uos_tcp_status(socket)!=UOS_EBADF ||
         uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_READ,0)!=UOS_EVENT_HANGUP) { return 16; }
-    uos_puts("PASS: EL0 TCP connect, checked buffers, ordered stream, EOF and close.\n");return 0;
+    uos_puts("PASS: EL0 TCP connect, checked buffers, ordered stream, EOF and close.\n");
+    uos_puts("PASS: TCP runtime rejects expired deadlines and reports short EOF.\n");
+    return 0;
 }
 int app_main(void)
 {
@@ -107,7 +98,7 @@ int app_main(void)
     int64_t file=uos_open("/boot/LARGE.BIN",UOS_READ);if (file<0) { return error(file); }
     int64_t h=uos_tcp_open(&peer),r=h;
     if (h>0) {
-        r=wait_result((uint64_t)h,NULL,0,UOS_SYS_TCP_STATUS,8000);
+        r=tcp_wait_connected((uint64_t)h,uos_time_ms()+8000);
         if (!r) { r=echo_file((uint64_t)h,(uint64_t)file); }
         (void)uos_tcp_close((uint64_t)h);
     }

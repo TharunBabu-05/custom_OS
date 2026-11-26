@@ -1453,7 +1453,7 @@ if ($PackageDownload) {
                 $request,'utc set 2026-11-22T10:17:15Z',$request,
                 @{Text='appterm 20 /boot/PKGGET.ELF check';Delay=2500},
                 'fileinfo','pwd','timerstop','halt'
-            ) @('Usage: PKGGET','Package certificate trust requires UTC.','TLS needs an active background Wi-Fi session.',
+            ) @('Usage: PKGGET','Package certificate trust requires UTC.','TLS needs an active TCP network session.',
                 'Package SHA-256 mismatch.','Package ELF rejected by the OurOS loader rules.',
                 'PASS: package staging preserved the destination, verified readback, and released its files.',
                 'path=/boot/PKGGET.ELF state=exited code=0 ','Open files: 0/16') 4
@@ -1577,9 +1577,11 @@ if ($TcpSockets) {
                 'storageinit','mmuinit','irqinit','timerstart',@{Text='tcpmodeltest';Delay=9500},
                 'appterm 2 /boot/TCPCHK.ELF 192.0.2.2 34002','fileinfo','pwd','timerstop','halt'
             ) @('PASS: EL0 TCP connect, checked buffers, ordered stream, EOF and close.',
+                'PASS: TCP runtime rejects expired deadlines and reports short EOF.',
+                'PASS: TLS transport callbacks exchanged 700 bytes and reported EOF.',
                 'PASS: TCP worker and EL0 file transfer.',
                 "PASS: TCP echoed 16384 bytes. SHA-256 $digest",
-                'TCP requires an active ','Open files: 0/16') 3
+                'TCP requires an active ','Open files: 0/16') 4
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }

@@ -1,0 +1,21 @@
+Phase 51 direct Ethernet acceptance excerpt supplied in chat
+
+Windows Ethernet 3
+192.0.2.1           30    Preferred
+Reply from 192.0.2.2: bytes=32 time=19ms TTL=64
+
+PS> powershell -NoProfile -ExecutionPolicy Bypass -File scripts/udp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4040
+Waiting for 192.0.2.2 on 192.0.2.1:4040
+Echoed 9 bytes to 192.0.2.2:49154
+
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethtcpup
+Ethernet link Mbps=100
+Ethernet TCP and UDP active at 192.0.2.2/30. Use ethdown to stop.
+user:/$ run /boot/UDPCHK.ELF 192.0.2.1 4040 wired-udp
+PASS: UDP echo matched the sent datagram.
+child exit=0
+user:/$ run /boot/UDPCHK.ELF 192.0.2.1 4040 wired-udp
+PASS: UDP echo matched the sent datagram.
+child exit=0

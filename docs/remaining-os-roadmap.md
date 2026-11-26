@@ -11,7 +11,9 @@ parked core. The Pi verified Phase 47 constrained page allocation, trimming
 and cleanup. The Pi passed Phase 48 system statistics and timer sampling.
 The Pi verified Phase 49 process history, ring wraparound, and cleanup.
 The Pi passed Phase 50 process timers and service cleanup. Phase 51 adds
-TCP and UDP readiness to the same EL0 wait set.
+TCP and UDP readiness to the same EL0 wait set. The Pi passed the wired UDP
+test. Phase 52 adds a shared deadline-aware TCP runtime for the echo and
+TLS applications.
 [Secondary CPU workers](secondary-cpus.md) · [System statistics](system-stats.md) · [Process history](process-events.md) · [Process timers](user-timers.md) · [Socket readiness](socket-readiness.md)
 
 The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes

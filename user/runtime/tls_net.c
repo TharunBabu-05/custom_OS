@@ -1,4 +1,5 @@
 #include "tls_net.h"
+#include "tcp_io.h"
 
 static unsigned decimal(const char **at,unsigned limit)
 {
@@ -28,26 +29,19 @@ bool tls_net_peer(const char *address,const char *port,struct uos_tcp_peer *peer
     return true;
 }
 
-static bool transfer(struct tls_net *connection,void *in,const void *out,size_t bytes)
+static bool read_exact(void *context,void *data,size_t bytes)
 {
-    while (bytes && uos_time_ms()<connection->deadline) {
-        size_t n=bytes<UOS_TCP_MAX_BYTES ? bytes : UOS_TCP_MAX_BYTES;
-        int64_t result=in ? uos_tcp_read(connection->socket,in,n) : uos_tcp_write(connection->socket,out,n);
-        if (result==UOS_EAGAIN) { uos_sleep_ms(10);continue; }
-        if (result<=0 || (uint64_t)result>n) { connection->error=result;return false; }
-        if (in) { in=(unsigned char *)in+result; }
-        else { out=(const unsigned char *)out+result; }
-        bytes-=(size_t)result;
-    }
-    if (bytes) { connection->error=UOS_ETIMEDOUT; }
-    return !bytes;
+    struct tls_net *net=context;
+    net->error=tcp_read_exact(net->socket,data,bytes,net->deadline);
+    return !net->error;
 }
 
-static bool read_exact(void *context,void *data,size_t bytes)
-{ return transfer(context,data,NULL,bytes); }
-
 static bool write_all(void *context,const void *data,size_t bytes)
-{ return transfer(context,NULL,data,bytes); }
+{
+    struct tls_net *net=context;
+    net->error=tcp_write_all(net->socket,data,bytes,net->deadline);
+    return !net->error;
+}
 
 static bool fresh_random(void *context,void *out,size_t bytes)
 { (void)context;return uos_random(out,bytes)==0; }
@@ -67,14 +61,9 @@ bool tls_net_open(struct tls_net *net,const struct uos_tcp_peer *peer)
     if (socket<=0) { return false; }
     net->socket=(uint64_t)socket;
     net->deadline=uos_time_ms()+75000;
-    int64_t connect_deadline=uos_time_ms()+8000;
-    do {
-        net->error=uos_tcp_status(net->socket);
-        if (net->error!=UOS_EAGAIN) { return net->error==0; }
-        uos_sleep_ms(10);
-    } while (uos_time_ms()<connect_deadline);
-    net->error=UOS_ETIMEDOUT;
-    return false;
+    net->error=tcp_wait_connected(net->socket,uos_time_ms()+8000);
+    if (net->error) { tls_net_close(net); }
+    return !net->error;
 }
 
 struct tls13_io tls_net_io(struct tls_net *net)
@@ -97,10 +86,11 @@ int tls_net_failure(enum tls13_client_result result,enum tls13_auth_result auth,
     } else if (result==TLS13_CLIENT_ECHO) { uos_puts("TLS encrypted echo did not match.\n"); }
     else if (result==TLS13_CLIENT_RESPONSE) { uos_puts("HTTPS response format, size, or completeness rejected.\n"); }
     else if (result==TLS13_CLIENT_ARGUMENT) { uos_puts("TLS DNS name rejected.\n"); }
-    else if (network==UOS_ENETDOWN) { uos_puts("TLS needs an active background Wi-Fi session.\n"); }
+    else if (network==UOS_ENETDOWN) { uos_puts("TLS needs an active TCP network session.\n"); }
     else if (network==UOS_EHOSTUNREACH) { uos_puts("TLS peer did not answer ARP or is off-subnet.\n"); }
     else if (network==UOS_ECONNRESET) { uos_puts("TLS TCP connection was refused or reset.\n"); }
     else if (network==UOS_ETIMEDOUT) { uos_puts("TLS TCP exchange timed out.\n"); }
+    else if (network==UOS_EINTR) { uos_puts("TLS TCP exchange interrupted.\n"); }
     else { uos_puts("TLS TCP exchange ended early.\n"); }
     return 1;
 }

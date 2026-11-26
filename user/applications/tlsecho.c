@@ -27,11 +27,31 @@ static int rng_check(void)
     return 0;
 }
 
+/* The QEMU test peer echoes 700 bytes, then closes its send side. */
+static int transport_check(void)
+{
+    static const struct uos_tcp_peer peer={{192,0,2,2},34003,0};
+    unsigned char sent[700],received[700],extra;
+    for (unsigned i=0;i<sizeof(sent);++i) { sent[i]=(unsigned char)(i*29); }
+    struct tls_net net={0};
+    if (!tls_net_open(&net,&peer)) { return 3; }
+    struct tls13_io io=tls_net_io(&net);
+    bool ok=io.write_all(io.context,sent,sizeof(sent)) && io.read_exact(io.context,received,sizeof(received)) &&
+        crypto_equal(sent,received,sizeof(sent)) && !io.read_exact(io.context,&extra,1) && net.error==UOS_EOF;
+    tls_net_close(&net);
+    if (!ok) { return 4; }
+    uos_puts("PASS: TLS transport callbacks exchanged 700 bytes and reported EOF.\n");
+    return 0;
+}
+
 int app_main(void)
 {
     char address[24],port[8],name[254];
     int64_t argc=uos_argc();
-    if (argc==2 && uos_arg(1,address,sizeof(address))>0 && same(address,"rng-check")) { return rng_check(); }
+    if (argc==2 && uos_arg(1,address,sizeof(address))>0) {
+        if (same(address,"rng-check")) { return rng_check(); }
+        if (same(address,"transport-check")) { return transport_check(); }
+    }
     struct uos_tcp_peer peer={0};
     if (argc!=4 || uos_arg(1,address,sizeof(address))<=0 || uos_arg(2,port,sizeof(port))<=0 ||
         uos_arg(3,name,sizeof(name))<=0 || !tls_net_peer(address,port,&peer)) {
