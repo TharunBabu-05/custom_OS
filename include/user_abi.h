@@ -33,7 +33,7 @@ enum uos_syscall {
     UOS_SYS_PORT_LISTEN=84,UOS_SYS_PORT_CONNECT=85,UOS_SYS_PORT_ACCEPT=86,UOS_SYS_PORT_CLOSE=87,
     UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91,
     UOS_SYS_POLICY_GET=92,UOS_SYS_POLICY_RESTRICT=93,UOS_SYS_SPAWN_LIMITED=94,
-    UOS_SYS_SYSTEM_STATS=95
+    UOS_SYS_SYSTEM_STATS=95,UOS_SYS_PROCESS_EVENTS=96
 };
 enum {
     UOS_SYSTEM_STATS_VERSION=1,
@@ -161,6 +161,24 @@ struct uos_event { uint64_t object;uint32_t source;uint16_t events,revents; };
 _Static_assert(sizeof(struct uos_event)==16,"event wait ABI size");
 enum { UOS_SIGINT=2,UOS_SIGUSR1=10,UOS_SIGTERM=15 };
 enum { UOS_STOP_EXIT=1,UOS_STOP_FAULT,UOS_STOP_TIMEOUT,UOS_STOP_SIGNAL,UOS_STOP_KERNEL };
+enum { UOS_PROCESS_EVENT_VERSION=1,UOS_PROCESS_EVENT_ROWS=8 };
+enum { UOS_PROCESS_EVENT_START=1,UOS_PROCESS_EVENT_EXEC,UOS_PROCESS_EVENT_STOP,UOS_PROCESS_EVENT_REAP };
+enum { UOS_PROCESS_ROLE_ROOT=1,UOS_PROCESS_ROLE_CHILD,UOS_PROCESS_ROLE_PIPE,UOS_PROCESS_ROLE_SERVICE };
+enum { UOS_PROCESS_EVENT_CLEANUP_FAILED=1 };
+struct uos_process_event {
+    uint64_t sequence,uptime_ms,pid,ppid;
+    uint32_t event,role,reason,code,signal,flags;
+};
+/* 'after' is the last sequence processed. 'cursor' advances through hidden
+ * records as well as returned records. 'expired' counts overwritten
+ * global sequence positions, independent of the current reader's scope. */
+struct uos_process_events {
+    uint64_t cursor,latest,expired;
+    uint32_t version,count;
+    struct uos_process_event rows[UOS_PROCESS_EVENT_ROWS];
+};
+_Static_assert(sizeof(struct uos_process_event)==56,"process event row ABI size");
+_Static_assert(sizeof(struct uos_process_events)==480,"process events ABI size");
 enum { UOS_FAULT_FAR_VALID=1 };
 struct uos_fault_info {
     uint64_t pid,pc,esr,far;

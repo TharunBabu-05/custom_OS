@@ -1,5 +1,12 @@
 # Real Raspberry Pi 5 proof
 
+Phase 48 passed the system statistics ABI check and three piped timer
+samples on the Pi. Each sample delivered 26 timer interrupts. The
+worker report showed two ready and one parked, then zero after shutdown.
+The Pi returned to two allocated pages, eight resource claims, and
+zero open files. USB and both v5 banks passed.
+[Phase 48 capture](pi5-system-stats-2026-11-26.txt)
+
 Phase 47 allocated a five-page run below 4 GiB, trimmed it to two
 pages at the same address, and freed the rest. The physical memory
 layout returned to its starting state. All three SMP workers released

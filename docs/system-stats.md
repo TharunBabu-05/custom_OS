@@ -70,5 +70,6 @@ counts, with zero open files and successful storage checks.
 
 The Cortex-A53 and Cortex-A76 QEMU tests exercise both mount states,
 worker park and fault states, a blocked service, restricted app access,
-output redirection, and timer samples in a pipeline. The Pi 5 run is
-pending.
+output redirection, and timer samples in a pipeline. The Pi 5 passed
+the ABI check, timer sampling, parked-worker reporting and shutdown.
+[Phase 48 Pi capture](../proofs/pi5-system-stats-2026-11-26.txt)

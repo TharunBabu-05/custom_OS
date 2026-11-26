@@ -1,4 +1,6 @@
 #include "process.h"
+#include "process_events.h"
+#include "process_event_names.h"
 #include "package.h"
 #include "vfs.h"
 #include "console.h"
@@ -12,6 +14,29 @@ static int word(const char **p,char *out,size_t capacity)
 }
 static void failure(enum fs_result r)
 { console_write("app: ");console_write(ramfs_error(r));console_write("\n"); }
+static void process_events_report(void)
+{
+    struct uos_process_events page;
+    uint64_t cursor=0;
+    do {
+        process_events_read(cursor,0,0,&page);
+        if (!cursor) {
+            console_write("Process history overwritten=");console_u64(page.expired);
+            console_write(" latest=");console_u64(page.latest);console_write("\n");
+        }
+        for (unsigned i=0;i<page.count;++i) {
+            const struct uos_process_event *e=&page.rows[i];
+            console_u64(e->sequence);console_write(" ");console_u64(e->uptime_ms);
+            console_write(" ");console_write(process_event_name(e->event));console_write(" ");
+            console_write(process_role_name(e->role));console_write(" pid=");console_u64(e->pid);
+            console_write(" ppid=");console_u64(e->ppid);console_write(" reason=");console_write(process_stop_name(e->reason));
+            console_write(" code=");console_u64(e->code);console_write(" signal=");console_u64(e->signal);
+            if (e->event==UOS_PROCESS_EVENT_REAP) { console_write(e->flags ? " cleanup=failed" : " cleanup=ok"); }
+            console_write("\n");
+        }
+        cursor=page.cursor;
+    } while (cursor<page.latest);
+}
 static bool service_option(const char **p,char option)
 {
     space(p);
@@ -65,6 +90,12 @@ bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
     if (same(verb,"svc")) { service_command(p);return true; }
+    if (same(verb,"proclog")) {
+        space(&p);
+        if (*p) { console_write("Usage: proclog\n"); }
+        else { process_events_report(); }
+        return true;
+    }
     if (same(verb,"sha256") || same(verb,"runio") || same(verb,"run") || same(verb,"pipe") || same(verb,"pipeio") || same(verb,"status") || same(verb,"exec") || same(verb,"path") ||
         same(verb,"env") || same(verb,"getenv") || same(verb,"setenv") || same(verb,"unsetenv") || same(verb,"profile") ||
         same(verb,"runlim") || same(verb,"policy")) {

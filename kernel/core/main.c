@@ -201,6 +201,7 @@ static void command(const char *line)
         console_write("excinfo exctest irqinit irqinfo irqtest timerstart timerinfo timertest timerstop\n");
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
         console_write("appinfo apptest apprun <ELF> [up to four more] (EL0; requires MMU/timer)\n");
+        console_write("proclog (recent process lifecycle events)\n");
         console_write("svc | svc list | svc status|stop|restart [NAME]\n");
         console_write("svc start [-n NAME [-d DEPENDENCY]] [-m MASK] ELF [arguments]\n");
         console_write("pkgtrust pkginstall pkglist pkgstart pkgpath pkgremove\n");

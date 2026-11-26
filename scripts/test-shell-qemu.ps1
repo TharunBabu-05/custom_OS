@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[switch]$PagePlacement,[switch]$SystemStats,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[switch]$PagePlacement,[switch]$SystemStats,[switch]$ProcessEvents,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -61,6 +61,50 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($ProcessEvents) {
+    foreach ($cpu in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="process-events-$($cpu[0])"
+        $disk=Join-Path $ProjectRoot "build/usb-tests/$name-$([guid]::NewGuid().ToString('N')).img"
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $cpu[0] $cpu[1] @(
+                'proclog','storageinit','datainit','mmuinit','irqinit','timerstart',
+                'svc start -n logdemo /boot/IPCECHO.ELF serve logdemo','appshell',
+                'run /boot/EXEC.ELF /boot/HELLO.ELF','run /boot/FAULT.ELF',
+                'bg 10 /boot/SPIN.ELF','stopall','bg 1 /boot/SPIN.ELF',
+                @{Text='waitall';Delay=1300},'echo event-pipe | cat','procevt since 0','procevt since 17','procevt check',
+                @{Text='bg 2 /boot/SPIN.ELF';Delay=120},@{Text='procevt watch 8';Delay=3200},
+                'waitall',@{Text='procevt watch 2 | cat';Delay=1500},'procevt since 18446744073709551615',
+                'exit','svc stop logdemo','proclog','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('Process history overwritten=0 latest=0','PASS: process event ABI, checked destination and cursor.',
+                ' reason=fault code=125 signal=0',' reason=timeout code=124 signal=0',
+                ' reason=signal code=130 signal=2',' reason=exit code=0 signal=0 cleanup=ok',
+                'sample=1','sample=8','procevt: history unavailable or cursor ahead of this boot',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 1 '' $false $false $false 1 $false 12
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $events=[regex]::Matches($log,'(?m)^seq=(\d+) ms=\d+ (\w+) (\w+) pid=(\d+) ppid=(\d+)')
+            $roles=@($events | ForEach-Object { $_.Groups[3].Value })
+            $replaced=@($events | Where-Object { $_.Groups[2].Value -eq 'exec' })
+            $samePid=if ($replaced.Count -eq 1) {
+                (@($events | Where-Object { $_.Groups[4].Value -eq $replaced[0].Groups[4].Value } |
+                    ForEach-Object { $_.Groups[2].Value })) -join ','
+            }
+            $since=[regex]::Match($log,'(?s)user:/\$ procevt since 17\r?\n(.*?)child exit=0').Groups[1].Value
+            $watch=[regex]::Match($log,'(?s)procevt watch 8\r?\n(.*?)child exit=0').Groups[1].Value
+            if ('service' -in $roles -or
+                $samePid -cne 'start,exec,stop,reap' -or
+                $since -notmatch '^seq=18 ' -or $since -match '(?m)^seq=(?:[0-9]|1[0-7]) ' -or
+                $watch -notmatch '(?m)^seq=\d+ ms=\d+ stop child .*reason=timeout code=124' -or
+                $log -notmatch '(?m)^\d+ \d+ reap service pid=\d+ ppid=0 reason=signal code=143 signal=15 cleanup=ok' -or
+                $log -notmatch '(?m)^seq=\d+ ms=\d+ exec child pid=\d+ ppid=[1-9]\d* ' -or
+                $log -notmatch '(?m)^seq=\d+ ms=\d+ reap pipe pid=\d+ ppid=[1-9]\d* ' -or
+                $log -notmatch 'Process history overwritten=[1-9]\d* latest=' -or
+                [regex]::Matches($log,'(?m)^\d+ \d+ (?:start|exec|stop|reap) ').Count -ne 32 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name event lifecycle, visibility or disk differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    return
 }
 if ($SystemStats) {
     foreach ($cpu in @(@('cortex-a53','off'),@('cortex-a76','on'))) {

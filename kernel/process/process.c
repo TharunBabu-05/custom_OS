@@ -1,6 +1,7 @@
 /* Original bounded single-CPU EL0 batches. Only lower-EL exception frames
  * switch; the kernel/driver stack is never preempted. */
 #include "process.h"
+#include "process_events.h"
 #include "package.h"
 #include "elf_app.h"
 #include "user_mmu.h"
@@ -404,6 +405,47 @@ static struct uos_fault_info stop_info(const struct process *p)
     }
     return out;
 }
+static struct uos_process_event describe_event(const struct process *p,unsigned event)
+{
+    bool service=foreground_slot(p)==PROCESS_LIMIT;
+    uint64_t parent=p->parent<total ? process_pid(&tasks[p->parent]) : 0;
+    unsigned role=service ? UOS_PROCESS_ROLE_SERVICE : p->pipe_stage ? UOS_PROCESS_ROLE_PIPE :
+                  parent ? UOS_PROCESS_ROLE_CHILD : UOS_PROCESS_ROLE_ROOT;
+    struct uos_fault_info stop=stop_info(p);
+    return (struct uos_process_event){
+        .uptime_ms=ticks_ms(cpu_uptime_ticks(),timer_frequency()),.pid=stop.pid,.ppid=parent,
+        .event=event,.role=role,.reason=stop.reason,.code=stop.code,.signal=stop.signal
+    };
+}
+static void record_event(const struct process *p,unsigned kind,unsigned flags)
+{
+    struct uos_process_event event=describe_event(p,kind);
+    event.flags=flags;
+    process_event_append(event.role==UOS_PROCESS_ROLE_SERVICE ? 0 : epoch,event);
+}
+static void stop_process(struct process *p,enum status status,int code,unsigned signal)
+{
+    p->status=status;
+    p->code=code;
+    p->stop_signal=signal;
+    record_event(p,UOS_PROCESS_EVENT_STOP,0);
+}
+static bool reap_process(struct process *p)
+{
+    bool clean=release(p);
+    record_event(p,UOS_PROCESS_EVENT_REAP,clean ? 0 : UOS_PROCESS_EVENT_CLEANUP_FAILED);
+    return clean;
+}
+static int64_t events_call(const struct process *p,uint64_t output,uint64_t bytes,uint64_t after)
+{
+    struct uos_process_events events;
+    if (bytes!=sizeof(events)) { return UOS_ERROR; }
+    if (!user_range(p,output,sizeof(events),true)) { return UOS_EFAULT; }
+    process_events_read(after,current<PROCESS_LIMIT ? epoch : 0,process_pid(p),&events);
+    if (after>events.latest) { return UOS_ERROR; }
+    user_copy(p,output,&events,sizeof(events),true);
+    return 0;
+}
 static int64_t process_snapshot(struct process *p,uint64_t address,uint64_t bytes)
 {
     bool legacy=bytes==sizeof(struct uos_process_table),all=bytes==sizeof(struct uos_process_table_v4);
@@ -464,7 +506,7 @@ static int64_t process_control(struct process *p,struct exception_frame *f)
     if (f->x[8]==UOS_SYS_CHILD_CANCEL) {
         /* Preserve completed outcomes. Reaping remains explicit: retaining the
          * slot keeps poll idempotent and old PIDs cannot name a reused slot. */
-        if (live(child)) { child->status=CANCELLED;child->code=130;child->stop_signal=UOS_SIGINT;close_sockets(child->owner); }return 0;
+        if (live(child)) { stop_process(child,CANCELLED,130,UOS_SIGINT);close_sockets(child->owner); }return 0;
     }
     if (!user_range(p,f->x[1],sizeof(struct uos_child_info),true)) { return UOS_EFAULT; }
     struct uos_child_info result={0};result.pid=process_pid(child);result.state=public_state(child);result.finished=!live(child);
@@ -510,7 +552,7 @@ static void pipeline_cancel(void)
 {
     for (unsigned i=0;i<channel.count;++i) {
         struct process *p=&tasks[channel.slots[i]];
-        if (live(p)) { p->status=CANCELLED;p->code=130;p->stop_signal=UOS_SIGINT; }
+        if (live(p)) { stop_process(p,CANCELLED,130,UOS_SIGINT); }
     }
 }
 /* All pipe progress/collection runs under the canonical kernel root. */
@@ -539,7 +581,7 @@ static void pipeline_refresh(void)
     for (unsigned i=0;i<channel.count;++i) {
         struct process *stage=&tasks[channel.slots[i]];
         if (stage->code) { result=stage->code; }
-        if (!release(stage)) { clean=false; }
+        if (!reap_process(stage)) { clean=false; }
         stage->status=UNUSED;
     }
     if (channel.cancelled) { result=130; }
@@ -550,7 +592,7 @@ static void pipeline_refresh(void)
 }
 static int collect_child(struct process *child)
 {
-    if (live(child)) { child->status=CANCELLED;child->code=130;child->stop_signal=UOS_SIGINT; }
+    if (live(child)) { stop_process(child,CANCELLED,130,UOS_SIGINT); }
     unsigned slot=(unsigned)(child-tasks);
     /* Reclaim descendants before releasing their parent's slot. Spawn only
      * links unused slots, so this tree is acyclic and bounded by the table. */
@@ -558,7 +600,7 @@ static int collect_child(struct process *child)
         if (is_child(slot,&tasks[i])) { (void)collect_child(&tasks[i]); }
     }
     int code=child->code;
-    if (!release(child)) { child_cleanup_failed=true;code=126; }
+    if (!reap_process(child)) { child_cleanup_failed=true;code=126; }
     child->status=UNUSED;++children_reaped;child_last_code=code;return code;
 }
 /* Called only with the kernel root active. Never clear/free active user tables. */
@@ -581,7 +623,8 @@ static void children_refresh(void)
 }
 static void terminal_cancel(struct process *p,int code)
 {
-    p->status=CANCELLED;p->code=code;p->stop_signal=code==130 ? UOS_SIGINT : 0;input_clear();
+    stop_process(p,CANCELLED,code,code==130 ? UOS_SIGINT : 0);
+    input_clear();
     console_write(code==130 ? "^C\n" : "\nTerminal queue overflow; application cancelled.\n");
 }
 static void terminal_interrupt(struct process *p)
@@ -1093,7 +1136,7 @@ static int64_t signal_call(struct process *p,struct exception_frame *f)
     struct process *child=owned_child(f->x[0]);
     if (!child || !live(child)) { return UOS_ECHILD; }
     if (signal!=UOS_SIGUSR1) {
-        child->status=CANCELLED;child->code=128+(int)signal;child->stop_signal=signal;
+        stop_process(child,CANCELLED,128+(int)signal,signal);
     } else if (child->status==SIGNAL_WAIT) {
         wait_complete(child,signal);
     } else {
@@ -1153,13 +1196,16 @@ static void service_return_pages(struct supervised_service *s,uint64_t physical)
 {
     if (!page_free_run(physical,SERVICE_CONTEXT_PAGES)) { s->cleanup_failed=true; }
 }
-static void service_release(struct supervised_service *s)
+static void service_release(struct supervised_service *s,bool published)
 {
     struct process *p=s->task;
-    if (!release(p)) { s->cleanup_failed=true; }
+    struct uos_process_event event=describe_event(p,UOS_PROCESS_EVENT_REAP);
+    bool clean=release(p);
     s->task=NULL;
     zero(p,SERVICE_CONTEXT_PAGES*PAGE_SIZE);
-    service_return_pages(s,(uintptr_t)p);
+    clean=page_free_run((uintptr_t)p,SERVICE_CONTEXT_PAGES) && clean;
+    if (!clean) { s->cleanup_failed=true;event.flags=UOS_PROCESS_EVENT_CLEANUP_FAILED; }
+    if (published) { process_event_append(0,event); }
 }
 static bool service_load(struct supervised_service *s)
 {
@@ -1176,10 +1222,11 @@ static bool service_load(struct supervised_service *s)
     if (loaded) {
         s->task->permissions=s->permissions;
         ++s->launches;
+        record_event(s->task,UOS_PROCESS_EVENT_START,0);
         __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
         return true;
     }
-    service_release(s);
+    service_release(s,false);
 failed:
     s->last=(struct uos_fault_info){.reason=UOS_STOP_KERNEL,.code=126};
     return false;
@@ -1187,7 +1234,7 @@ failed:
 static void service_collect(struct supervised_service *s)
 {
     s->last=stop_info(s->task);
-    service_release(s);
+    service_release(s,true);
 }
 static void service_disable(struct supervised_service *s);
 static void service_stop_dependents(const struct supervised_service *s)
@@ -1205,9 +1252,7 @@ static void service_disable(struct supervised_service *s)
     service_stop_dependents(s);
     if (s->task) {
         if (live(s->task)) {
-            s->task->status=CANCELLED;
-            s->task->code=143;
-            s->task->stop_signal=UOS_SIGTERM;
+            stop_process(s->task,CANCELLED,143,UOS_SIGTERM);
         }
         service_collect(s);
     }
@@ -1218,7 +1263,7 @@ static void service_refresh(uint64_t now)
         struct supervised_service *s=&services[i];
         if (!s->enabled) { continue; }
         if (!irq_timer_running()) {
-            if (live(s->task)) { s->task->status=FAULTED;s->task->code=126; }
+            if (live(s->task)) { stop_process(s->task,FAULTED,126,0); }
             if (s->task) { service_collect(s); }
             s->enabled=false;
             continue;
@@ -1244,8 +1289,10 @@ static void refresh(void)
     unsigned first=service_slice ? PROCESS_LIMIT : 0,slots=scheduled_slots();
     for (unsigned i=first;i<slots;++i) {
         struct process *p=task_at(i);if (!live(p)) { continue; }
-        if (!irq_timer_running()) { p->status=FAULTED;p->code=126; }
-        else if ((i<PROCESS_LIMIT && expired) || (p->deadline && (int64_t)(now-p->deadline)>=0)) { p->status=TIMED_OUT;p->code=124; }
+        if (!irq_timer_running()) { stop_process(p,FAULTED,126,0); }
+        else if ((i<PROCESS_LIMIT && expired) || (p->deadline && (int64_t)(now-p->deadline)>=0)) {
+            stop_process(p,TIMED_OUT,124,0);
+        }
         else if (p->status==SLEEPING && (int64_t)(now-p->wake)>=0) { p->status=READY;++p->wakes; }
         else if (p->status==UDP_WAIT) { udp_wait_ready(p,now); }
     }
@@ -1589,6 +1636,7 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
     }
     case UOS_SYS_GETPID:return (int64_t)process_pid(p);
     case UOS_SYS_SYSTEM_STATS:return system_stats(p,a,b);
+    case UOS_SYS_PROCESS_EVENTS:return events_call(p,a,b,c);
     case UOS_SYS_STAT:case UOS_SYS_READDIR:case UOS_SYS_CHDIR:return path_call(p,f);
     case UOS_SYS_MKDIR:case UOS_SYS_REMOVE:case UOS_SYS_REPLACE: {
         if (!b || b>=RAMFS_PATH_MAX || (f->x[8]==UOS_SYS_REMOVE && c>1) || (f->x[8]==UOS_SYS_REPLACE && f->x[3]>512)) { return UOS_ERROR; }
@@ -1902,7 +1950,7 @@ static int64_t vm_call(struct process *p,struct exception_frame *f)
     }
     if (!vm_change(p,region,true,USER_PAGE_RO)) { return UOS_ERROR; }
     if (vm_release(region,p->owner)) { return 0; }
-    child_cleanup_failed=true;p->status=FAULTED;p->code=126;
+    child_cleanup_failed=true;stop_process(p,FAULTED,126,0);
     return UOS_ERROR;
 }
 static int64_t memory_call(struct process *p,struct exception_frame *f)
@@ -1927,7 +1975,7 @@ static int64_t memory_call(struct process *p,struct exception_frame *f)
         if (!f->x[1] || f->x[1]>USER_HEAP_PAGES) { return UOS_ERROR; }
         r=user_heap_resize(&p->heap,p->maps,&p->map_count,f->x[0],(unsigned)f->x[1],&ops);
     } else { r=user_heap_free(&p->heap,p->maps,&p->map_count,f->x[0],&ops); }
-    if (r==USER_HEAP_CORRUPT) { child_cleanup_failed=true;p->status=FAULTED;p->code=126; }
+    if (r==USER_HEAP_CORRUPT) { child_cleanup_failed=true;stop_process(p,FAULTED,126,0); }
     switch (r) {
     case USER_HEAP_QUOTA:++p->pressure.quota_failures;return UOS_ENOMEM;
     case USER_HEAP_FRAGMENTED:++p->pressure.fragmentation_failures;return UOS_ENOMEM;
@@ -1968,7 +2016,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     /* No fallible load operation remains. An allocator corruption during
      * teardown is contained as a process fault, never a return to freed code. */
     if (!release_memory(p)) {
-        child_cleanup_failed=true;p->status=FAULTED;p->code=126;
+        child_cleanup_failed=true;stop_process(p,FAULTED,126,0);
         (void)release_memory(staged);zero(staged,sizeof(*staged));return UOS_ERROR;
     }
     close_sockets(p->owner);
@@ -1976,6 +2024,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     if (!release_vm(p)) { child_cleanup_failed=true; }
     (void)kfile_close_on_exec(p->owner);
     copy(p,staged,sizeof(*p));zero(staged,sizeof(*staged));
+    record_event(p,UOS_PROCESS_EVENT_EXEC,0);
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     __asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*f=p->context;return 0;
 }
@@ -2024,6 +2073,7 @@ static int64_t spawn(struct process *p,const struct exception_frame *f)
     zero(process_io.elf,sizeof(process_io.elf));child->parent=current;child->deadline=timer_ticks()+timer_frequency()*seconds;
     child->quantum_ticks=p->quantum_ticks;child->permissions=(unsigned)permissions;
     if (slot>=total) { total=slot+1; }++children_spawned;
+    record_event(child,UOS_PROCESS_EVENT_START,0);
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     return (int64_t)(child->owner&~(1ULL<<63))+1;
 }
@@ -2068,6 +2118,7 @@ static int64_t pipeline_start(struct process *p,struct exception_frame *f)
         struct process *stage=&tasks[slots[i]];
         stage->parent=current;stage->deadline=deadline;stage->pipe_stage=i+1;channel.slots[i]=slots[i];
         stage->quantum_ticks=p->quantum_ticks;stage->permissions=p->permissions;
+        record_event(stage,UOS_PROCESS_EVENT_START,0);
         if (i+1<count) { byte_pipe_init(&channel.rings[i]); }
     }
     zero(process_io.elf,sizeof(process_io.elf));channel.active=true;channel.parent=current;channel.count=(unsigned)count;p->status=CHILD_WAIT;
@@ -2110,7 +2161,7 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         if (!irq_ok) {
             for (unsigned i=0;i<scheduled_slots();++i) {
                 struct process *peer=task_at(i);
-                if (live(peer)) { peer->status=FAULTED;peer->code=126; }
+                if (live(peer)) { stop_process(peer,FAULTED,126,0); }
             }
             return schedule(f,false);
         }
@@ -2193,7 +2244,13 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             }
             return schedule(f,false);
         }
-        if (f->x[8]==UOS_SYS_EXIT) { p->status=EXITED;p->code=(int)(f->x[0]&255);if (!p->code && p->io_failed) { p->code=74; }(void)kfile_close_owner(p->owner);return schedule(f,false); }
+        if (f->x[8]==UOS_SYS_EXIT) {
+            int code=(int)(f->x[0]&255);
+            if (!code && p->io_failed) { code=74; }
+            stop_process(p,EXITED,code,0);
+            (void)kfile_close_owner(p->owner);
+            return schedule(f,false);
+        }
         if (f->x[8]==UOS_SYS_YIELD) { ++yields;f->x[0]=0;return schedule(f,false); }
         if (f->x[8]==UOS_SYS_READLINE) {
             uint64_t address=f->x[0],capacity=f->x[1];
@@ -2214,7 +2271,8 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         }
         f->x[0]=(uint64_t)syscall(p,f);return true;
     }
-    p->status=FAULTED;p->code=125;p->has_exception=true;p->esr=f->esr;p->far=f->far;p->pc=f->elr;
+    p->has_exception=true;p->esr=f->esr;p->far=f->far;p->pc=f->elr;
+    stop_process(p,FAULTED,125,0);
     (void)kfile_close_owner(p->owner);return schedule(f,false);
 }
 bool process_exception(struct exception_frame *f,bool timer_tick,bool irq_ok)
@@ -2426,6 +2484,7 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     for (unsigned i=0;i<count;++i) { if (!paths[i] || !load(&tasks[i],paths[i],filesystem_cwd(),args,NULL)) { loaded=false;break; } }
     zero(process_io.elf,sizeof(process_io.elf));
     if (loaded) {
+        for (unsigned i=0;i<count;++i) { record_event(&tasks[i],UOS_PROCESS_EVENT_START,0); }
         if (interactive && !budget_seconds) {
             console_write("Terminal assigned to EL0; shell stays open until exit.\n");
         } else if (interactive) {
@@ -2458,7 +2517,11 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     }
     input_clear();
     bool success=loaded;
-    for (unsigned i=0;i<total;++i) { if (tasks[i].status!=UNUSED && (tasks[i].status!=EXITED || tasks[i].code)) { success=false; }if (!release(&tasks[i])) { clean=false; } }
+    for (unsigned i=0;i<total;++i) {
+        struct process *p=&tasks[i];
+        if (p->status!=UNUSED && (p->status!=EXITED || p->code)) { success=false; }
+        if (!(loaded && p->status!=UNUSED ? reap_process(p) : release(p))) { clean=false; }
+    }
     struct page_stats after=pages_stats();struct heap_stats final=heap_get_stats();
     /* RAM files created by applications legitimately retain heap storage.
      * Account for that ownership; private process pages must all be freed. */
