@@ -35,6 +35,7 @@
 static struct board_info board;
 static bool console_ready;
 static uint64_t boot_ticks;
+uint64_t cpu_uptime_ticks(void) { return timer_ticks()-boot_ticks; }
 static unsigned long entry_el;
 static uintptr_t firmware_dtb;
 void kernel_main(uintptr_t dtb, unsigned long boot_el);
@@ -278,7 +279,7 @@ static void command(const char *line)
     } else if (equal(line,"uptime")) {
         uint64_t hz=timer_frequency();
         console_write("uptime_seconds=");
-        console_u64(hz ? (timer_ticks()-boot_ticks)/hz : 0); console_write("\n");
+        console_u64(hz ? cpu_uptime_ticks()/hz : 0); console_write("\n");
     } else if (equal(line,"echo")) {
         console_write("\n");
     } else if (line[0]=='e' && line[1]=='c' && line[2]=='h' && line[3]=='o' && line[4]==' ') {

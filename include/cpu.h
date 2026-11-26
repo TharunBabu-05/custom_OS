@@ -13,4 +13,5 @@ static inline void cpu_halt(void)
 }
 uint64_t timer_ticks(void);
 uint64_t timer_frequency(void);
+uint64_t cpu_uptime_ticks(void);
 #endif

@@ -32,8 +32,28 @@ enum uos_syscall {
     UOS_SYS_VM_FILE=80,UOS_SYS_VM_PROTECT=81,UOS_SYS_VM_REVOKE=82,UOS_SYS_VM_INFO=83,
     UOS_SYS_PORT_LISTEN=84,UOS_SYS_PORT_CONNECT=85,UOS_SYS_PORT_ACCEPT=86,UOS_SYS_PORT_CLOSE=87,
     UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91,
-    UOS_SYS_POLICY_GET=92,UOS_SYS_POLICY_RESTRICT=93,UOS_SYS_SPAWN_LIMITED=94
+    UOS_SYS_POLICY_GET=92,UOS_SYS_POLICY_RESTRICT=93,UOS_SYS_SPAWN_LIMITED=94,
+    UOS_SYS_SYSTEM_STATS=95
 };
+enum {
+    UOS_SYSTEM_STATS_VERSION=1,
+    UOS_SYSTEM_TIMER=1, UOS_SYSTEM_PMM=2, UOS_SYSTEM_HEAP=4, UOS_SYSTEM_HEAP_FAILED=8,
+    UOS_SYSTEM_BOOT=16, UOS_SYSTEM_DATA=32, UOS_SYSTEM_DATA_FAILED=64
+};
+/* Aggregate boot-CPU counters and worker state. No kernel addresses or
+ * per-process data. x0 is the destination and x1 is its exact byte size. */
+struct uos_system_stats {
+    uint32_t version,flags;
+    uint64_t uptime_ms,timer_delivered,timer_skipped,unexpected_irqs;
+    uint64_t ram_bytes,managed_pages,free_pages,allocated_pages,peak_pages,allocation_failures;
+    uint64_t heap_bytes,heap_failures;
+    uint32_t workers_ready,workers_parked,workers_faulted,workers_transitioning;
+    uint32_t foreground,foreground_limit,services,service_limit;
+    uint32_t runnable,sleeping,blocked;
+    uint32_t files,file_limit,claims,claim_limit;
+    uint32_t heap_pages,heap_objects,reserved;
+};
+_Static_assert(sizeof(struct uos_system_stats)==176,"system statistics ABI size");
 enum uos_permission {
     UOS_ALLOW_FILE_WRITE=1,UOS_ALLOW_NETWORK=2,UOS_ALLOW_SPAWN=4,UOS_ALLOW_FD_PASS=8,
     UOS_POLICY_ALL=UOS_ALLOW_FILE_WRITE|UOS_ALLOW_NETWORK|UOS_ALLOW_SPAWN|UOS_ALLOW_FD_PASS

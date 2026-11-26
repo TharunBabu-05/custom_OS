@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[switch]$PagePlacement,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[switch]$PagePlacement,[switch]$SystemStats,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -61,6 +61,44 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($SystemStats) {
+    foreach ($cpu in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="system-stats-$($cpu[0])"
+        $disk=Join-Path $ProjectRoot "build/usb-tests/$name-$([guid]::NewGuid().ToString('N')).img"
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $cpu[0] $cpu[1] @(
+                'storageinit','mmuinit','irqinit','timerstart','appexec /boot/SYSSTAT.ELF','datainit',
+                'smpstart','smppark 0x2','smpfault 0x3','svc start -n stats /boot/IPCECHO.ELF serve stats',
+                'appshell','sysstat','sysstat check','runlim 0 sysstat check',
+                'sysstat > /tmp/system.txt','grep boot=mounted /tmp/system.txt','rm /tmp/system.txt',
+                @{Text='sysstat watch 2 | cat';Delay=1600},'sysstat watch 0 || echo bad-watch=$?',
+                'exit','svc stop stats','smpstop','appexec /boot/SYSSTAT.ELF',
+                'fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('PASS: system statistics ABI, destination checks and accounting.',
+                'boot=mounted data=unmounted','boot=mounted data=mounted',
+                'workers_ready=1 parked=1 faulted=1 transitioning=0',
+                'workers_ready=0 parked=0 faulted=0 transitioning=0',
+                'Usage: sysstat [check | watch <1..10>]','bad-watch=2',
+                'Secondary CPU stacks released.','Open files: 0/16',
+                'PASS: read-only storage','matches_mounted=yes') 3 '' $false $false $false 4 $false 12
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $samples=[regex]::Matches($log,'(?m)^sample=([12]) elapsed_ms=(\d+) timer_delta=(\d+)')
+            if ($samples.Count -ne 2 -or $samples[0].Groups[1].Value -ne '1' -or
+                $samples[1].Groups[1].Value -ne '2' -or
+                $log -notmatch '(?m)^foreground=2/8 services=1/3 runnable=1 sleeping=0 blocked=2\r?$' -or
+                $log -notmatch '(?m)^files=1/16 claims=\d+/16 boot=mounted data=mounted\r?$' -or
+                [regex]::Matches($log,'PASS: system statistics ABI').Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name system counters, policy or disk differs" }
+            foreach ($sample in $samples) {
+                if ([int]$sample.Groups[2].Value -lt 250 -or [int]$sample.Groups[3].Value -le 0) {
+                    throw "$name invalid timer sample"
+                }
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    return
 }
 if ($PagePlacement) {
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {

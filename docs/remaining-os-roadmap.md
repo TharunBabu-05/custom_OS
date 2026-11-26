@@ -6,8 +6,10 @@ kernel tasks, preempted user programs, USB writes, ELF loading, and checked
 system calls have Pi evidence. The Pi verified secondary worker startup,
 same-boot recovery, cancellation, shutdown, and interprocessor
 interrupts. The Pi passed shared work queues and remaps with parked
-workers. The Pi passed Phase 46 worker leases with three workers and one parked core. Phase 47 adds constrained physical page placement and monitor run management.
-[Secondary CPU workers](secondary-cpus.md)
+workers. The Pi passed Phase 46 worker leases with three workers and one
+parked core. The Pi verified Phase 47 constrained page allocation, trimming
+and cleanup. Phase 48 exposes aggregate system statistics to EL0.
+[Secondary CPU workers](secondary-cpus.md) · [System statistics](system-stats.md)
 
 The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes
 HEAPCHK and HEAPDEMO with exit 0, no remaining private pages and restored

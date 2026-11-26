@@ -41,6 +41,8 @@ static inline size_t uos_length(const char *p) { size_t n=0;while (p[n]) { ++n; 
 static inline int64_t uos_puts(const char *p) { return uos_write(p,uos_length(p)); }
 static inline int64_t uos_yield(void) { return uos_call2(UOS_SYS_YIELD,0,0); }
 static inline int64_t uos_time_ms(void) { return uos_call2(UOS_SYS_TIME_MS,0,0); }
+static inline int64_t uos_system_stats(struct uos_system_stats *out)
+{ return uos_call2(UOS_SYS_SYSTEM_STATS,(uintptr_t)out,sizeof(*out)); }
 static inline int64_t uos_utc_time(struct uos_utc_time *out)
 { return uos_call2(UOS_SYS_UTC_TIME,(uintptr_t)out,0); }
 static inline int64_t uos_trust_check(const unsigned char digest[32],uint64_t not_before,uint64_t not_after)

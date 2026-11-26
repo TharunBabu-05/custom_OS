@@ -484,8 +484,10 @@ datacheck
 The run should show 20480 bytes initially and 8192 after trimming.
 The second low32 report should match the first, with zero monitor slots in
 use. Check for three secondary CPUs off and the original allocated page
-and resource counts after shutdown. Hardware acceptance of the allocator
-and the RP1 USB accessory path are separate. To exercise the latter with
+and resource counts after shutdown. The Pi capture confirms this
+sequence, including both storage checks. [Phase 47 Pi capture](../proofs/pi5-page-placement-2026-11-26.txt)
+
+To exercise the RP1 USB accessory allocation with
 a keyboard, run `usbports` before and after plugging the keyboard into
 the other controller. For a new device on usb0 port 2, run
 `usbidentify usb0 2`, then `usbkeytest usb0 2` and press A when prompted.

@@ -46,6 +46,13 @@ void irq_setup(const char *name,uintptr_t blob) { board=name;dtb=blob; }
 void irq_fatal_stop(void) { __asm__ volatile("msr daifset, #2; isb" ::: "memory");if (running) { timer_control(0); }running=false; }
 bool irq_timer_running(void) { uint64_t f=irq_save();bool value=running;irq_restore(f);return value; }
 uint64_t irq_timer_delivered(void) { uint64_t f=irq_save(),value=tick.delivered;irq_restore(f);return value; }
+struct irq_counters irq_read_counters(void)
+{
+    uint64_t saved=irq_save();
+    struct irq_counters snapshot={tick.delivered,tick.late,unexpected,running};
+    irq_restore(saved);
+    return snapshot;
+}
 const struct gic_state *irq_claim_sgi(void)
 {
     if (!controller.ready || failed || !gic_sgi_target(&controller)) { return NULL; }

@@ -318,6 +318,25 @@ static unsigned online_mask(void)
 static bool parked(uint64_t phase)
 { return phase==PARKED || phase==FAULT_PARKED; }
 
+struct smp_worker_counts smp_count_workers(void)
+{
+    struct smp_worker_counts counts={0};
+    for (unsigned i=0;i<worker_count;++i) {
+        const struct smp_worker *worker=&smp_workers[i];
+        if (!worker->stack_top) { continue; }
+        switch (acquire(&worker->phase)) {
+        case READY:
+            if (worker->retained) { ++counts.transitioning; }
+            else { ++counts.ready; }
+            break;
+        case PARKED: ++counts.parked; break;
+        case FAULTED: case FAULT_PARKED: case BAD_MMU: case OFF_RETURNED: ++counts.faulted; break;
+        default: ++counts.transitioning; break;
+        }
+    }
+    return counts;
+}
+
 static bool await_phase(const struct smp_worker *w,uint64_t phase,uint64_t next)
 {
     uint64_t start=timer_ticks(),hz=timer_frequency();

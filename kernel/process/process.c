@@ -11,6 +11,8 @@
 #include "vfs.h"
 #include "heap.h"
 #include "irq.h"
+#include "smp.h"
+#include "resources.h"
 #include "cpu.h"
 #include "console.h"
 #include "terminal.h"
@@ -262,6 +264,68 @@ static unsigned scheduled_slots(void)
 {
     for (unsigned i=SERVICE_LIMIT;i>0;--i) { if (services[i-1].task) { return PROCESS_LIMIT+i; } }
     return total;
+}
+static int64_t system_stats(const struct process *caller,uint64_t output,uint64_t bytes)
+{
+    struct uos_system_stats snapshot={0};
+    if (bytes!=sizeof(snapshot)) { return UOS_ERROR; }
+    if (!user_range(caller,output,sizeof(snapshot),true)) { return UOS_EFAULT; }
+
+    snapshot.version=UOS_SYSTEM_STATS_VERSION;
+    snapshot.uptime_ms=ticks_ms(cpu_uptime_ticks(),timer_frequency());
+    struct irq_counters irqs=irq_read_counters();
+    snapshot.timer_delivered=irqs.delivered;
+    snapshot.timer_skipped=irqs.skipped;
+    snapshot.unexpected_irqs=irqs.unexpected;
+    if (irqs.timer_running) { snapshot.flags|=UOS_SYSTEM_TIMER; }
+
+    struct page_stats pages=pages_stats();
+    snapshot.ram_bytes=pages.ram_bytes;
+    snapshot.managed_pages=pages.managed_pages;
+    snapshot.free_pages=pages.free_pages;
+    snapshot.allocated_pages=pages.allocated_pages;
+    snapshot.peak_pages=pages.peak_allocated_pages;
+    snapshot.allocation_failures=pages.exhausted_allocations;
+    if (pages.ready) { snapshot.flags|=UOS_SYSTEM_PMM; }
+    struct heap_stats heap=heap_get_stats();
+    snapshot.heap_pages=heap.pages;
+    snapshot.heap_objects=heap.objects;
+    snapshot.heap_bytes=heap.capacity_bytes;
+    snapshot.heap_failures=heap.failures;
+    if (heap.ready) { snapshot.flags|=UOS_SYSTEM_HEAP; }
+    if (heap.poisoned) { snapshot.flags|=UOS_SYSTEM_HEAP_FAILED; }
+
+    struct smp_worker_counts workers=smp_count_workers();
+    snapshot.workers_ready=workers.ready;
+    snapshot.workers_parked=workers.parked;
+    snapshot.workers_faulted=workers.faulted;
+    snapshot.workers_transitioning=workers.transitioning;
+    snapshot.foreground_limit=PROCESS_LIMIT;
+    snapshot.service_limit=SERVICE_LIMIT;
+    for (unsigned i=0;i<scheduled_slots();++i) {
+        const struct process *task=task_at(i);
+        if (!live(task)) { continue; }
+        if (i<PROCESS_LIMIT) { ++snapshot.foreground; }
+        else { ++snapshot.services; }
+        switch (task->status) {
+        case READY: ++snapshot.runnable; break;
+        case SLEEPING: ++snapshot.sleeping; break;
+        default: ++snapshot.blocked; break;
+        }
+    }
+
+    snapshot.files=kfile_count();
+    snapshot.file_limit=KFILE_LIMIT;
+    snapshot.claim_limit=RESOURCE_SLOTS;
+    struct resource_claim claim;
+    for (unsigned i=0;i<RESOURCE_SLOTS;++i) {
+        if (resource_get(i,&claim)) { ++snapshot.claims; }
+    }
+    if (vfs_boot_mounted()) { snapshot.flags|=UOS_SYSTEM_BOOT; }
+    if (vfs_data_mounted()) { snapshot.flags|=UOS_SYSTEM_DATA; }
+    if (vfs_data_failed()) { snapshot.flags|=UOS_SYSTEM_DATA_FAILED; }
+    user_copy(caller,output,&snapshot,sizeof(snapshot),true);
+    return 0;
 }
 _Static_assert(PROCESS_LIMIT+1==UOS_PROCESS_MAX_V3,"snapshot includes the service slot");
 _Static_assert((unsigned)SCHEDULE_LIMIT==(unsigned)UOS_PROCESS_MAX_V4,"snapshot includes all service slots");
@@ -1524,6 +1588,7 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
         return r==FS_OK ? string_out(p,c,f->x[3],path) : r==FS_NOT_FOUND ? UOS_ENOENT : UOS_ERROR;
     }
     case UOS_SYS_GETPID:return (int64_t)process_pid(p);
+    case UOS_SYS_SYSTEM_STATS:return system_stats(p,a,b);
     case UOS_SYS_STAT:case UOS_SYS_READDIR:case UOS_SYS_CHDIR:return path_call(p,f);
     case UOS_SYS_MKDIR:case UOS_SYS_REMOVE:case UOS_SYS_REPLACE: {
         if (!b || b>=RAMFS_PATH_MAX || (f->x[8]==UOS_SYS_REMOVE && c>1) || (f->x[8]==UOS_SYS_REPLACE && f->x[3]>512)) { return UOS_ERROR; }

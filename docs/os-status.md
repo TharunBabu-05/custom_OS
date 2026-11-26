@@ -71,7 +71,7 @@ to be repeated at every development step.
 | Boot/firmware handoff | AArch64 entry, BSS/stack, primary-core selection, EL2 to EL1; Pi 5 UART boot observed | Pi Zero 2 W bring-up, other boot protocols/architectures |
 | CPU/platform discovery | MIDR, current/entry EL, architectural timer frequency, selected DT properties | Broader DT bus/device discovery and feature handling |
 | Exceptions | Common 288-byte frame; EL1 return and contained EL0 faults/syscalls/IRQ switching Pi verified | Richer signal/fault policy and emergency stack |
-| Physical memory | Pi-verified 4 KiB bitmap allocator and worker page leases. Phase 47 adds allocation windows, boundary constraints and per-zone fragmentation reports. | Pi placement acceptance and ownership beyond worker leases |
+| Physical memory | Pi-verified 4 KiB bitmap allocator, worker page leases, allocation windows, boundary constraints and per-zone fragmentation reports. | Pi USB accessory DMA placement and ownership beyond worker leases |
 | Kernel heap | Zeroed 16..4096-byte buffers, calloc/realloc/free, page sharing/reclamation; Pi self-tests verified | Large allocations, IRQ/SMP synchronization and additional consumers |
 | Virtual memory/protection | Pi verified identity/private pages and single-process dynamic RW/NX allocation; guarded arena and checked copies | Broader Pi dynamic lifecycle/concurrent checks, larger VM, shared/file mappings and cache acceleration |
 | Interrupts | Pi-verified GICv2/PPI30, IRQ return and BCM compare channel 3 through the bounded SPI dispatcher and deferred callbacks. [Peripheral IRQs](peripheral-irqs.md) | Additional interrupt-driven drivers, IRQ-safe locks and SMP |

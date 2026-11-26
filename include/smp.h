@@ -20,5 +20,7 @@ static inline struct smp_worker *smp_current_worker(void)
 void smp_worker_exception(struct smp_worker *,struct exception_frame *);
 bool smp_command(const char *line,const void *dtb);
 bool smp_shutdown(void);
+struct smp_worker_counts { unsigned ready,parked,faulted,transitioning; };
+struct smp_worker_counts smp_count_workers(void);
 #endif
 #endif

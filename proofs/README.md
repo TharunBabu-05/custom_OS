@@ -1,5 +1,12 @@
 # Real Raspberry Pi 5 proof
 
+Phase 47 allocated a five-page run below 4 GiB, trimmed it to two
+pages at the same address, and freed the rest. The physical memory
+layout returned to its starting state. All three SMP workers released
+their leases and shut down. The Pi returned to two allocated pages and
+eight resource claims. USB storage and both v5 banks passed.
+[Phase 47 capture](pi5-page-placement-2026-11-26.txt)
+
 Phase 46 passed four rounds with three workers and two rounds with one
 worker parked. Workers released all 64 grants. The 32-job queue, timer,
 USB read test and both v5 banks passed. A UART receive error interrupted
