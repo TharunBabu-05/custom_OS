@@ -115,6 +115,20 @@ static inline int64_t uos_channel_recv(uint64_t token,struct uos_message *messag
  * Returned readiness is a snapshot. Read, write or accept separately. */
 static inline int64_t uos_event_wait(struct uos_event *entries,unsigned count,unsigned wait_ms)
 { return uos_call4(UOS_SYS_EVENT_WAIT,(uintptr_t)entries,count,wait_ms,0); }
+static inline int64_t uos_timer_open(void)
+{ return uos_call2(UOS_SYS_TIMER,UOS_TIMER_OPEN,0); }
+static inline int64_t uos_timer_arm(uint64_t timer,uint64_t delay_ms,uint64_t interval_ms)
+{ return uos_call4(UOS_SYS_TIMER,UOS_TIMER_ARM_REL,timer,delay_ms,interval_ms); }
+static inline int64_t uos_timer_arm_at(uint64_t timer,uint64_t deadline_ms,uint64_t interval_ms)
+{ return uos_call4(UOS_SYS_TIMER,UOS_TIMER_ARM_ABS,timer,deadline_ms,interval_ms); }
+static inline int64_t uos_timer_disarm(uint64_t timer)
+{ return uos_call2(UOS_SYS_TIMER,UOS_TIMER_DISARM,timer); }
+static inline int64_t uos_timer_info(uint64_t timer,struct uos_timer_info *out)
+{ return uos_call4(UOS_SYS_TIMER,UOS_TIMER_INFO,timer,(uintptr_t)out,0); }
+static inline int64_t uos_timer_read(uint64_t timer,uint64_t *pending)
+{ return uos_call4(UOS_SYS_TIMER,UOS_TIMER_READ,timer,(uintptr_t)pending,0); }
+static inline int64_t uos_timer_close(uint64_t timer)
+{ return uos_call2(UOS_SYS_TIMER,UOS_TIMER_CLOSE,timer); }
 static inline int64_t uos_signal_send(uint64_t child,unsigned signal)
 { return uos_call2(UOS_SYS_SIGNAL_SEND,child,signal); }
 static inline int64_t uos_signal_wait(unsigned wait_ms)

@@ -1,6 +1,7 @@
 #include "process.h"
 #include "process_events.h"
 #include "process_event_names.h"
+#include "user_timers.h"
 #include "package.h"
 #include "vfs.h"
 #include "console.h"
@@ -90,6 +91,13 @@ bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
     if (same(verb,"svc")) { service_command(p);return true; }
+    if (same(verb,"timerobjects")) {
+        space(&p);
+        if (*p) { console_write("Usage: timerobjects\n");return true; }
+        console_write("Timer objects: ");console_u64(user_timers_count());
+        console_write("/");console_u64(UOS_TIMER_MAX);console_write("\n");
+        return true;
+    }
     if (same(verb,"proclog")) {
         space(&p);
         if (*p) { console_write("Usage: proclog\n"); }

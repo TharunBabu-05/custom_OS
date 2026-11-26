@@ -9,8 +9,9 @@ interrupts. The Pi passed shared work queues and remaps with parked
 workers. The Pi passed Phase 46 worker leases with three workers and one
 parked core. The Pi verified Phase 47 constrained page allocation, trimming
 and cleanup. The Pi passed Phase 48 system statistics and timer sampling.
-Phase 49 records recent process lifecycle events.
-[Secondary CPU workers](secondary-cpus.md) · [System statistics](system-stats.md) · [Process history](process-events.md)
+The Pi verified Phase 49 process history, ring wraparound, and cleanup.
+Phase 50 adds process-owned timers that integrate with event waits.
+[Secondary CPU workers](secondary-cpus.md) · [System statistics](system-stats.md) · [Process history](process-events.md) · [Process timers](user-timers.md)
 
 The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes
 HEAPCHK and HEAPDEMO with exit 0, no remaining private pages and restored

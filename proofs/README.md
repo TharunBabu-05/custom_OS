@@ -1,5 +1,12 @@
 # Real Raspberry Pi 5 proof
 
+Phase 49 passed the process-history ABI check and kept the PID across
+an image replacement. The capture shows exit, fault, cancellation,
+timeout, and successful reaping. The monitor kept 32 of 34 records.
+The Pi returned to two allocated pages, eight resource claims, and zero
+open files. USB storage and both data banks passed.
+[Phase 49 capture](pi5-process-events-2026-11-26.txt)
+
 Phase 48 passed the system statistics ABI check and three piped timer
 samples on the Pi. Each sample delivered 26 timer interrupts. The
 worker report showed two ready and one parked, then zero after shutdown.

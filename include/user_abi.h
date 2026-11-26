@@ -33,7 +33,7 @@ enum uos_syscall {
     UOS_SYS_PORT_LISTEN=84,UOS_SYS_PORT_CONNECT=85,UOS_SYS_PORT_ACCEPT=86,UOS_SYS_PORT_CLOSE=87,
     UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91,
     UOS_SYS_POLICY_GET=92,UOS_SYS_POLICY_RESTRICT=93,UOS_SYS_SPAWN_LIMITED=94,
-    UOS_SYS_SYSTEM_STATS=95,UOS_SYS_PROCESS_EVENTS=96
+    UOS_SYS_SYSTEM_STATS=95,UOS_SYS_PROCESS_EVENTS=96,UOS_SYS_TIMER=97
 };
 enum {
     UOS_SYSTEM_STATS_VERSION=1,
@@ -151,14 +151,24 @@ struct uos_port_table { uint32_t count,reserved;struct uos_port_entry entries[UO
 _Static_assert(sizeof(struct uos_port_table)==136,"IPC port inventory ABI size");
 enum { UOS_EVENT_MAX=UOS_CHANNEL_MAX+1 };
 enum uos_event_source {
-    UOS_EVENT_LISTENER=1,UOS_EVENT_CHANNEL,UOS_EVENT_MAILBOX,UOS_EVENT_CHILD,UOS_EVENT_SIGNAL
+    UOS_EVENT_LISTENER=1,UOS_EVENT_CHANNEL,UOS_EVENT_MAILBOX,UOS_EVENT_CHILD,UOS_EVENT_SIGNAL,
+    UOS_EVENT_TIMER
 };
 enum { UOS_EVENT_READ=1,UOS_EVENT_WRITE=2,UOS_EVENT_HANGUP=4 };
-/* READ covers accept, receive, child status and a pending SIGUSR1. Only a
+/* READ covers accept, receive, child status, a timer expiration and SIGUSR1. Only a
  * channel accepts WRITE. HANGUP is returned for a closed or inaccessible
  * source. Mailbox object zero watches any direct message. Signal uses zero. */
 struct uos_event { uint64_t object;uint32_t source;uint16_t events,revents; };
 _Static_assert(sizeof(struct uos_event)==16,"event wait ABI size");
+enum {
+    UOS_TIMER_OPEN=1,UOS_TIMER_ARM_REL,UOS_TIMER_ARM_ABS,UOS_TIMER_DISARM,
+    UOS_TIMER_INFO,UOS_TIMER_READ,UOS_TIMER_CLOSE
+};
+enum { UOS_TIMER_MAX=16,UOS_TIMER_OWNER_MAX=4,UOS_TIMER_MAX_MS=3600000 };
+/* Times are milliseconds in the UOS_SYS_TIME_MS clock domain. A zero
+ * deadline means disarmed. An interval of zero selects a one-shot. */
+struct uos_timer_info { uint64_t deadline_ms,interval_ms,pending; };
+_Static_assert(sizeof(struct uos_timer_info)==24,"timer object ABI size");
 enum { UOS_SIGINT=2,UOS_SIGUSR1=10,UOS_SIGTERM=15 };
 enum { UOS_STOP_EXIT=1,UOS_STOP_FAULT,UOS_STOP_TIMEOUT,UOS_STOP_SIGNAL,UOS_STOP_KERNEL };
 enum { UOS_PROCESS_EVENT_VERSION=1,UOS_PROCESS_EVENT_ROWS=8 };

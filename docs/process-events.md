@@ -30,6 +30,9 @@ Use `uos_process_events` from the user runtime.
 Native tests cover wraparound, pagination, and reader visibility. Both
 QEMU profiles verified stable PIDs through exec, a timeout arriving
 during watch, successful cleanup, and a full 32-record monitor history.
+The Pi verified all four stop outcomes, the piped watch, and the monitor
+ring wrapping after 34 events. All ten shell children were reaped.
+[Phase 49 Pi capture](../proofs/pi5-process-events-2026-11-26.txt)
 
 ## Pi 5 acceptance
 

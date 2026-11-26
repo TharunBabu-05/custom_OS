@@ -2,6 +2,7 @@
  * switch; the kernel/driver stack is never preempted. */
 #include "process.h"
 #include "process_events.h"
+#include "user_timers.h"
 #include "package.h"
 #include "elf_app.h"
 #include "user_mmu.h"
@@ -428,6 +429,7 @@ static void stop_process(struct process *p,enum status status,int code,unsigned 
     p->status=status;
     p->code=code;
     p->stop_signal=signal;
+    user_timers_close_owner(p->owner);
     record_event(p,UOS_PROCESS_EVENT_STOP,0);
 }
 static bool reap_process(struct process *p)
@@ -1043,7 +1045,7 @@ static int64_t port_call(struct process *p,const struct exception_frame *f)
     default:return UOS_ERROR;
     }
 }
-static unsigned event_ready(struct process *p,const struct uos_event *event)
+static unsigned event_ready(struct process *p,const struct uos_event *event,uint64_t now)
 {
     uint64_t object=event->object;
     switch (event->source) {
@@ -1071,17 +1073,24 @@ static unsigned event_ready(struct process *p,const struct uos_event *event)
         return live(child) ? 0 : UOS_EVENT_READ;
     }
     case UOS_EVENT_SIGNAL:return p->signal_pending ? UOS_EVENT_READ : 0;
+    case UOS_EVENT_TIMER: {
+        struct uos_timer_info timer;
+        if (user_timer_info(p->owner,object,ticks_ms(now,timer_frequency()),&timer)) {
+            return UOS_EVENT_HANGUP;
+        }
+        return timer.pending ? UOS_EVENT_READ : 0;
+    }
     default:return 0;
     }
 }
-static int64_t event_probe(struct process *p,struct uos_event *events,unsigned count)
+static int64_t event_probe(struct process *p,struct uos_event *events,unsigned count,uint64_t now)
 {
     unsigned ready=0;
     bool watches_signal=false;
     for (unsigned i=0;i<count;++i) {
         struct uos_event *event=&events[i];
         watches_signal|=event->source==UOS_EVENT_SIGNAL;
-        event->revents=(uint16_t)(event_ready(p,event)&(event->events|UOS_EVENT_HANGUP));
+        event->revents=(uint16_t)(event_ready(p,event,now)&(event->events|UOS_EVENT_HANGUP));
         ready+=event->revents!=0;
     }
     return p->signal_pending && !watches_signal ? UOS_EINTR : (int64_t)ready;
@@ -1097,11 +1106,11 @@ static int64_t event_call(struct process *p,const struct exception_frame *f)
     for (unsigned i=0;i<count;++i) {
         const struct uos_event *event=&events[i];
         unsigned allowed=UOS_EVENT_READ|(event->source==UOS_EVENT_CHANNEL ? UOS_EVENT_WRITE : 0);
-        if (event->source<UOS_EVENT_LISTENER || event->source>UOS_EVENT_SIGNAL ||
+        if (event->source<UOS_EVENT_LISTENER || event->source>UOS_EVENT_TIMER ||
             !event->events || (event->events&~allowed) ||
             (event->source==UOS_EVENT_SIGNAL && event->object)) { return UOS_ERROR; }
     }
-    int64_t ready=event_probe(p,events,(unsigned)count);
+    int64_t ready=event_probe(p,events,(unsigned)count,timer_ticks());
     if (ready || !ms) {
         if (ready>=0) { user_copy(p,address,events,bytes,true); }
         return ready;
@@ -1118,7 +1127,7 @@ static void event_refresh(struct process *p,uint64_t now)
 {
     size_t bytes=p->event_count*sizeof(struct uos_event);
     if (!user_range(p,p->wait_address,bytes,true)) { wait_complete(p,UOS_EFAULT);return; }
-    int64_t ready=event_probe(p,p->wait_data.events,p->event_count);
+    int64_t ready=event_probe(p,p->wait_data.events,p->event_count,now);
     if (!ready && (int64_t)(now-p->wake)<0) { return; }
     if (ready>=0) { user_copy(p,p->wait_address,p->wait_data.events,bytes,true); }
     wait_complete(p,ready);
@@ -1583,6 +1592,33 @@ static int64_t descriptor_call(struct process *p,struct exception_frame *f)
                                          kfile_set_append(p->owner,handle,value!=0);
     return r==FS_OK ? 0 : file_error(r,true);
 }
+static int64_t timer_call(const struct process *p,const struct exception_frame *f)
+{
+    uint64_t operation=f->x[0],token=f->x[1],argument=f->x[2];
+    switch (operation) {
+    case UOS_TIMER_OPEN:return user_timer_open(p->owner);
+    case UOS_TIMER_CLOSE:return user_timer_close(p->owner,token);
+    case UOS_TIMER_DISARM:return user_timer_disarm(p->owner,token);
+    case UOS_TIMER_ARM_REL:case UOS_TIMER_ARM_ABS:
+        return user_timer_arm(p->owner,token,ticks_ms(timer_ticks(),timer_frequency()),
+                              argument,f->x[3],operation==UOS_TIMER_ARM_ABS);
+    case UOS_TIMER_INFO: {
+        struct uos_timer_info info;
+        if (!user_range(p,argument,sizeof(info),true)) { return UOS_EFAULT; }
+        int64_t status=user_timer_info(p->owner,token,ticks_ms(timer_ticks(),timer_frequency()),&info);
+        if (!status) { user_copy(p,argument,&info,sizeof(info),true); }
+        return status;
+    }
+    case UOS_TIMER_READ: {
+        uint64_t count;
+        if (!user_range(p,argument,sizeof(count),true)) { return UOS_EFAULT; }
+        int64_t status=user_timer_read(p->owner,token,ticks_ms(timer_ticks(),timer_frequency()),&count);
+        if (!status) { user_copy(p,argument,&count,sizeof(count),true); }
+        return status;
+    }
+    default:return UOS_ERROR;
+    }
+}
 static int64_t syscall(struct process *p,struct exception_frame *f)
 {
     uint64_t a=f->x[0],b=f->x[1],c=f->x[2];unsigned char buffer[512];size_t count=0;enum fs_result r;
@@ -1637,6 +1673,7 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
     case UOS_SYS_GETPID:return (int64_t)process_pid(p);
     case UOS_SYS_SYSTEM_STATS:return system_stats(p,a,b);
     case UOS_SYS_PROCESS_EVENTS:return events_call(p,a,b,c);
+    case UOS_SYS_TIMER:return timer_call(p,f);
     case UOS_SYS_STAT:case UOS_SYS_READDIR:case UOS_SYS_CHDIR:return path_call(p,f);
     case UOS_SYS_MKDIR:case UOS_SYS_REMOVE:case UOS_SYS_REPLACE: {
         if (!b || b>=RAMFS_PATH_MAX || (f->x[8]==UOS_SYS_REMOVE && c>1) || (f->x[8]==UOS_SYS_REPLACE && f->x[3]>512)) { return UOS_ERROR; }
@@ -2023,6 +2060,7 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     ipc_discard(p);
     if (!release_vm(p)) { child_cleanup_failed=true; }
     (void)kfile_close_on_exec(p->owner);
+    user_timers_close_owner(p->owner);
     copy(p,staged,sizeof(*p));zero(staged,sizeof(*staged));
     record_event(p,UOS_PROCESS_EVENT_EXEC,0);
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");

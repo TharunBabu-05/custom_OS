@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[switch]$PagePlacement,[switch]$SystemStats,[switch]$ProcessEvents,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[switch]$PagePlacement,[switch]$SystemStats,[switch]$ProcessEvents,[switch]$UserTimers,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -61,6 +61,33 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($UserTimers) {
+    foreach ($cpu in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="user-timers-$($cpu[0])"
+        $disk=Join-Path $ProjectRoot "build/usb-tests/$name-$([guid]::NewGuid().ToString('N')).img"
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $cpu[0] $cpu[1] @(
+                'storageinit','datainit','mmuinit','irqinit','timerstart','timerobjects','appshell',
+                @{Text='tmrchk';Delay=1500},'tmrchk once 75 | cat','tmrchk fault','bg 1 /boot/TMRCHK.ELF hold',
+                @{Text='waitall';Delay=1500},'exit','timerobjects',
+                'svc start -n timers /boot/TMRCHK.ELF hold','timerobjects',
+                'svc restart timers','timerobjects','svc stop timers','timerobjects',
+                'proclog','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('PASS: user timers, event waits, ownership and exec cleanup.',
+                'timer fired elapsed_ms=','pipeline exit=0','child exit=125','exit=124',
+                'Service started.','Service restarted.','reason=fault code=125',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 1 '' $false $false $false 1 $false 12
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $counts=@([regex]::Matches($log,'(?m)^Timer objects: (\d+)/16\r?$') |
+                ForEach-Object { $_.Groups[1].Value }) -join ','
+            $once=[regex]::Match($log,'(?m)^timer fired elapsed_ms=(\d+)')
+            if ($counts -cne '0,0,1,1,0' -or !$once.Success -or [int]$once.Groups[1].Value -lt 75 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name timer timing, cleanup or disk differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    return
 }
 if ($ProcessEvents) {
     foreach ($cpu in @(@('cortex-a53','off'),@('cortex-a76','on'))) {

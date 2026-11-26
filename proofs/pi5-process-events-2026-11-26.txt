@@ -1,0 +1,166 @@
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Starting serial shell from /boot/SHELL.ELF
+Firmware boot source: USB mass storage.
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit checking usb0
+storageinit checking usb1
+storageinit selected usb1 port=1 (USB2 BOT).
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+Recovery rings: clears=0 command_wraps=0 control_wraps=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=41 valid_banks=2
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ procevt check
+PASS: process event ABI, checked destination and cursor.
+child exit=0
+user:/$ run /boot/EXEC.ELF /boot/HELLO.ELF
+Hello from an OurOS EL0 application.
+child exit=0
+user:/$ run /boot/FAULT.ELF
+EL0 fault test: reading unmapped address zero.
+child exit=125
+user:/$ bg 15 /boot/SPIN.ELF
+job pid=6
+user:/$ EL0 timeout test: infinite user loop.
+stopall
+job pid=6 exit=130
+user:/$ bg 1 /boot/SPIN.ELF
+job pid=7
+user:/$ EL0 timeout test: infinite user loop.
+waitall
+job pid=7 exit=124
+user:/$ echo event-pipe | cat
+event-pipe
+pipeline exit=0
+user:/$ procevt since 0
+seq=1 ms=3140 start root pid=2 ppid=0 reason=none code=0 signal=0
+seq=2 ms=29638 start child pid=3 ppid=2 reason=none code=0 signal=0
+seq=3 ms=29641 stop child pid=3 ppid=2 reason=exit code=0 signal=0
+seq=4 ms=29650 reap child pid=3 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+seq=5 ms=34096 start child pid=4 ppid=2 reason=none code=0 signal=0
+seq=6 ms=34165 exec child pid=4 ppid=2 reason=none code=0 signal=0
+seq=7 ms=34166 stop child pid=4 ppid=2 reason=exit code=0 signal=0
+seq=8 ms=34175 reap child pid=4 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+seq=9 ms=37496 start child pid=5 ppid=2 reason=none code=0 signal=0
+seq=10 ms=37497 stop child pid=5 ppid=2 reason=fault code=125 signal=0
+seq=11 ms=37506 reap child pid=5 ppid=2 reason=fault code=125 signal=0 cleanup=ok
+seq=12 ms=40935 start child pid=6 ppid=2 reason=none code=0 signal=0
+seq=13 ms=43948 stop child pid=6 ppid=2 reason=signal code=130 signal=2
+seq=14 ms=43957 reap child pid=6 ppid=2 reason=signal code=130 signal=2 cleanup=ok
+seq=15 ms=48126 start child pid=7 ppid=2 reason=none code=0 signal=0
+seq=16 ms=49127 stop child pid=7 ppid=2 reason=timeout code=124 signal=0
+seq=17 ms=50976 reap child pid=7 ppid=2 reason=timeout code=124 signal=0 cleanup=ok
+seq=18 ms=54937 start pipe pid=8 ppid=2 reason=none code=0 signal=0
+seq=19 ms=54937 start pipe pid=9 ppid=2 reason=none code=0 signal=0
+seq=20 ms=54952 stop pipe pid=8 ppid=2 reason=exit code=0 signal=0
+seq=21 ms=54953 stop pipe pid=9 ppid=2 reason=exit code=0 signal=0
+seq=22 ms=54962 reap pipe pid=8 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+seq=23 ms=54970 reap pipe pid=9 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+seq=24 ms=58059 start child pid=10 ppid=2 reason=none code=0 signal=0
+cursor=24
+child exit=0
+user:/$ procevt watch 2 | cat
+sample=1
+cursor=28
+sample=2
+cursor=28
+pipeline exit=0
+user:/$ exit
+EL0 processes: limit=8; private pages; timer preempts users only; runs=1 switches=22 preemptions=2 yields=0 idle_waits=5636 terminal=yes budget_seconds=unlimited children_started=10 children_reaped=10 last_child_code=0 cleanup=restored
+Pipelines: started=2 completed=2 written=49 read=49 reader_waits=2 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=146 dispatches=23 sleeps=0 wakes=0 input_lines=11 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> proclog
+Process history overwritten=2 latest=34
+3 29641 stop child pid=3 ppid=2 reason=exit code=0 signal=0
+4 29650 reap child pid=3 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+5 34096 start child pid=4 ppid=2 reason=none code=0 signal=0
+6 34165 exec child pid=4 ppid=2 reason=none code=0 signal=0
+7 34166 stop child pid=4 ppid=2 reason=exit code=0 signal=0
+8 34175 reap child pid=4 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+9 37496 start child pid=5 ppid=2 reason=none code=0 signal=0
+10 37497 stop child pid=5 ppid=2 reason=fault code=125 signal=0
+11 37506 reap child pid=5 ppid=2 reason=fault code=125 signal=0 cleanup=ok
+12 40935 start child pid=6 ppid=2 reason=none code=0 signal=0
+13 43948 stop child pid=6 ppid=2 reason=signal code=130 signal=2
+14 43957 reap child pid=6 ppid=2 reason=signal code=130 signal=2 cleanup=ok
+15 48126 start child pid=7 ppid=2 reason=none code=0 signal=0
+16 49127 stop child pid=7 ppid=2 reason=timeout code=124 signal=0
+17 50976 reap child pid=7 ppid=2 reason=timeout code=124 signal=0 cleanup=ok
+18 54937 start pipe pid=8 ppid=2 reason=none code=0 signal=0
+19 54937 start pipe pid=9 ppid=2 reason=none code=0 signal=0
+20 54952 stop pipe pid=8 ppid=2 reason=exit code=0 signal=0
+21 54953 stop pipe pid=9 ppid=2 reason=exit code=0 signal=0
+22 54962 reap pipe pid=8 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+23 54970 reap pipe pid=9 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+24 58059 start child pid=10 ppid=2 reason=none code=0 signal=0
+25 58210 stop child pid=10 ppid=2 reason=exit code=0 signal=0
+26 58218 reap child pid=10 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+27 61369 start pipe pid=11 ppid=2 reason=none code=0 signal=0
+28 61369 start pipe pid=12 ppid=2 reason=none code=0 signal=0
+29 61909 stop pipe pid=11 ppid=2 reason=exit code=0 signal=0
+30 61909 stop pipe pid=12 ppid=2 reason=exit code=0 signal=0
+31 61920 reap pipe pid=11 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+32 61930 reap pipe pid=12 ppid=2 reason=exit code=0 signal=0 cleanup=ok
+33 64820 stop root pid=2 ppid=0 reason=exit code=0 signal=0
+34 64834 reap root pid=2 ppid=0 reason=exit code=0 signal=0 cleanup=ok
+> meminfo
+Memory: ready
+Reported RAM: 8585.740 MB (8188.000 MiB)
+Managed RAM:  7515.144 MB (7167.000 MiB)
+Free RAM:     7515.136 MB (7166.992 MiB)
+Allocated:    0.008 MB (0.007 MiB)
+Unavailable:  1070.596 MB (1021.000 MiB)
+MB=1,000,000 bytes; MiB=1,048,576 bytes (fractions truncated).
+DTB RAM banks=2 bytes=8585740288 (firmware-described, not free memory)
+page_size=4096 address_limit_bytes=34359738368
+Bitmap arena=0x0000000040000000 bytes=1048576 (reserved outside kernel image)
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+peak_allocated_pages=33 exhausted_allocations=0
+managed_bytes=7515144192 unavailable_bytes=1070596096 (reservations, alignment, address limit)
+usable_ranges=1 reservations=7
+PMM pages include the page-backed kernel heap; use heapinfo. MMU on.
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000146000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=41
+bank=0 status=valid generation=41 matches_mounted=yes
+bank=1 status=valid generation=40
+>
