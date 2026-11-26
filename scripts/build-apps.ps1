@@ -30,7 +30,7 @@ try {
     foreach ($source in @('crypto','p256','ecdsa','trust_time','pinned_cert','tls13_auth','tls13_keys','aes','aes_gcm','tls13_client','http_download')) {
         Invoke-Tool gcc ($flags+@('-c',"lib/$source.c",'-o',"$out/$source.o"))
     }
-    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw','stream','hash','pipechk','datacap','datagen','mvchk','dirchk','replchk','exec','execchk','env','envchk','envrace','profchk','memchk','memdemo','heapchk','heapdemo','ps','v4chk','bigapp','df','udpchk','tcpchk','utccheck','certchk','tlschk','tlsecho','pkgget','grep','wc','head','find','du','cmp','hexdump','wavinfo','wavtone','wavedit','tail','cut','sort','uniq','tr','tar','fdchk','fddup','corechk','pkg32','treechk','schedchk','mapcat','vmchk','ports','ipcecho','chanchk','eventchk','limchk','sysstat','procevt','tmrchk')) {
+    foreach ($app in @('hello','counter','fault','badptr','files','leak','spin','busy','kern','text','xstack','echo','pwd','cat','ls','sleep','sleeper','dozer','toolchk','shell','ttychk','ttydeny','mutate','copychk','spawnchk','childchk','orphan','capchk','ttypar','iochk','ioraw','stream','hash','pipechk','datacap','datagen','mvchk','dirchk','replchk','exec','execchk','env','envchk','envrace','profchk','memchk','memdemo','heapchk','heapdemo','ps','v4chk','bigapp','df','udpchk','tcpchk','utccheck','certchk','tlschk','tlsecho','pkgget','grep','wc','head','find','du','cmp','hexdump','wavinfo','wavtone','wavedit','tail','cut','sort','uniq','tr','tar','fdchk','fddup','corechk','pkg32','treechk','schedchk','mapcat','vmchk','ports','ipcecho','chanchk','eventchk','limchk','sysstat','procevt','tmrchk','netstat')) {
         $name=$app.ToUpperInvariant()
         $appFlags=if ($app -eq 'shell') { $flags+@('-fomit-frame-pointer','-flto') } else { $flags }
         Invoke-Tool gcc ($appFlags+@('-c',"user/applications/$app.c",'-o',"$out/$app.o"))
@@ -44,11 +44,11 @@ try {
         if ($app -in @('tlsecho','pkgget')) { $extra+=@("$out/tls_net.o","$out/tls13_client.o","$out/aes.o","$out/aes_gcm.o") }
         if ($app -eq 'pkgget') { $extra+=@("$out/http_download.o","$out/elf_app.o") }
         if ($app -in @('wavinfo','wavtone','wavedit')) { $extra+=@("$out/wave.o") }
-        if ($app -in @('tail','cut','sort','uniq','tr','sysstat','procevt','tmrchk')) { $extra+=@("$out/text_io.o") }
+        if ($app -in @('tail','cut','sort','uniq','tr','sysstat','procevt','tmrchk','netstat')) { $extra+=@("$out/text_io.o") }
         if ($app -eq 'tar') { $extra+=@("$out/ustar.o","$out/text_io.o","$out/dir_walk.o") }
         if ($app -in @('find','du')) { $extra+=@("$out/dir_walk.o") }
         if ($app -in @('heapchk','heapdemo')) { $extra+=@("$out/allocator.o","$out/allocator-svc.o") }
-        $limit=if ($app -in @('tlsecho','pkgget')) { 32768 } elseif ($app -in @('shell','heapchk','bigapp','certchk','tlschk')) { 16384 } elseif ($app -in @('envchk','memchk','heapdemo','ps','v4chk','tcpchk','tar','corechk','vmchk','chanchk','eventchk','limchk')) { 8192 } else { 4096 }
+        $limit=if ($app -in @('tlsecho','pkgget')) { 32768 } elseif ($app -in @('shell','heapchk','bigapp','certchk','tlschk')) { 16384 } elseif ($app -in @('envchk','memchk','heapdemo','ps','v4chk','udpchk','tcpchk','tar','corechk','vmchk','chanchk','eventchk','limchk')) { 8192 } else { 4096 }
         if ($app -eq 'shell') {
             Invoke-Tool gcc (@('-flto','-Os','-fomit-frame-pointer','-nostdlib','-fno-pie','-Wl,--build-id=none','-Wl,--no-undefined','-Wl,--gc-sections',
                 '-Wl,-z,max-page-size=4096',"-Wl,--defsym=__app_max_bytes=$limit",'-T','user/runtime/user.ld',

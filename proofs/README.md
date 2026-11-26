@@ -1,5 +1,10 @@
 # Real Raspberry Pi 5 proof
 
+Phase 53 passed the wired TCP half-close test. Windows received the
+client FIN and sent a final reply. The Pi read the reply before EOF,
+and both sides reported the same SHA-256 for 16,384 bytes.
+[Phase 53 wired TCP half-close capture](pi5-tcp-half-close-2026-11-26.txt)
+
 Phase 52 passed the direct Ethernet TCP echo. The Pi and Windows
 reported the same SHA-256 for 16,384 bytes, and the Pi app exited cleanly.
 [Phase 52 wired TCP capture](pi5-tcp-deadlines-2026-11-26.txt)

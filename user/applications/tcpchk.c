@@ -55,6 +55,12 @@ static int64_t receive_after_finish(uint64_t socket)
         int64_t status=uos_tcp_status(socket);
         return status ? status : UOS_ERROR;
     }
+    struct uos_socket_info info;
+    if (uos_socket_info(UOS_EVENT_TCP,socket,&info) || info.version!=UOS_SOCKET_INFO_VERSION ||
+        info.state!=UOS_SOCKET_ESTABLISHED || info.tx_bytes || info.error ||
+        (info.ready&(UOS_EVENT_FIN_ACK|UOS_EVENT_WRITE_CLOSED))!=(UOS_EVENT_FIN_ACK|UOS_EVENT_WRITE_CLOSED)) {
+        return UOS_ERROR;
+    }
     result=tcp_read_exact(socket,trailer,sizeof(trailer),uos_time_ms()+5000);
     if (result) { return result; }
     for (size_t i=0;i<sizeof(trailer);++i) { if (trailer[i]!=expected[i]) { return UOS_ERROR; } }
@@ -90,7 +96,10 @@ static int64_t echo_file(uint64_t socket,uint64_t file,bool half_close)
     const char *digits="0123456789abcdef";char hex[65];
     for (unsigned i=0;i<32;++i) { hex[2*i]=digits[digest[i]>>4];hex[2*i+1]=digits[digest[i]&15]; }hex[64]='\n';
     uos_puts("PASS: TCP echoed 16384 bytes. SHA-256 ");uos_write(hex,sizeof(hex));
-    if (half_close) { uos_puts("PASS: TCP write half-close acknowledged and final reply received before EOF.\n"); }
+    if (half_close) {
+        uos_puts("PASS: TCP write half-close acknowledged and final reply received before EOF.\n");
+        uos_puts("PASS: owned TCP socket snapshot confirmed FIN acknowledgment and drained send queue.\n");
+    }
     return 0;
 }
 static int model(void)

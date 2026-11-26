@@ -1567,6 +1567,26 @@ static int64_t tcp_call(struct process *p,struct exception_frame *f)
     if (reading && r>0) { user_copy(p,address,data,(size_t)r,true); }
     zero(data,reading ? (r>0 ? (size_t)r : 0) : (size_t)bytes);return r;
 }
+static int64_t net_stats(const struct process *p,uint64_t output,uint64_t bytes)
+{
+    struct uos_net_stats snapshot={.version=UOS_NET_STATS_VERSION};
+    if (bytes!=sizeof(snapshot)) { return UOS_ERROR; }
+    if (!user_range(p,output,sizeof(snapshot),true)) { return UOS_EFAULT; }
+    tcp_stats(&snapshot.tcp);
+    udp_stats(&snapshot.udp);
+    user_copy(p,output,&snapshot,sizeof(snapshot),true);
+    return 0;
+}
+static int64_t socket_info(const struct process *p,uint64_t source,uint64_t handle,uint64_t output,uint64_t bytes)
+{
+    struct uos_socket_info snapshot;
+    if ((source!=UOS_EVENT_TCP && source!=UOS_EVENT_UDP) || bytes!=sizeof(snapshot)) { return UOS_ERROR; }
+    if (!user_range(p,output,sizeof(snapshot),true)) { return UOS_EFAULT; }
+    int64_t result=source==UOS_EVENT_TCP ? tcp_socket_info(p->owner,handle,&snapshot) :
+                                        udp_socket_info(p->owner,handle,&snapshot);
+    if (!result) { user_copy(p,output,&snapshot,sizeof(snapshot),true); }
+    return result;
+}
 static int64_t file_error(enum fs_result result,bool extended)
 { return extended && result==FS_BAD_HANDLE ? UOS_EBADF : UOS_ERROR; }
 
@@ -1680,6 +1700,8 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
     }
     case UOS_SYS_GETPID:return (int64_t)process_pid(p);
     case UOS_SYS_SYSTEM_STATS:return system_stats(p,a,b);
+    case UOS_SYS_NET_STATS:return net_stats(p,a,b);
+    case UOS_SYS_SOCKET_INFO:return socket_info(p,a,b,c,f->x[3]);
     case UOS_SYS_PROCESS_EVENTS:return events_call(p,a,b,c);
     case UOS_SYS_TIMER:return timer_call(p,f);
     case UOS_SYS_STAT:case UOS_SYS_READDIR:case UOS_SYS_CHDIR:return path_call(p,f);
@@ -2186,6 +2208,7 @@ static unsigned syscall_permission(const struct process *p,const struct exceptio
         return UOS_ALLOW_NETWORK;
     }
     switch (call) {
+    case UOS_SYS_NET_STATS:case UOS_SYS_SOCKET_INFO:return UOS_ALLOW_NETWORK;
     case UOS_SYS_SPAWN:case UOS_SYS_SPAWN_IO:case UOS_SYS_SPAWN_APPEND:
     case UOS_SYS_SPAWN_EX:case UOS_SYS_SPAWN_LIMITED:
     case UOS_SYS_PIPE_RUN:case UOS_SYS_PIPE_APPEND:case UOS_SYS_PIPE_CHAIN:

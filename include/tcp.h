@@ -29,4 +29,6 @@ unsigned tcp_ready(uint64_t owner,uint64_t handle);
 int64_t tcp_close(uint64_t owner,uint64_t handle,uint64_t now);
 void tcp_close_owner(uint64_t owner,uint64_t now);
 unsigned tcp_open_count(void);
+void tcp_stats(struct uos_tcp_stats *);
+int64_t tcp_socket_info(uint64_t owner,uint64_t handle,struct uos_socket_info *);
 #endif

@@ -33,7 +33,8 @@ enum uos_syscall {
     UOS_SYS_PORT_LISTEN=84,UOS_SYS_PORT_CONNECT=85,UOS_SYS_PORT_ACCEPT=86,UOS_SYS_PORT_CLOSE=87,
     UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91,
     UOS_SYS_POLICY_GET=92,UOS_SYS_POLICY_RESTRICT=93,UOS_SYS_SPAWN_LIMITED=94,
-    UOS_SYS_SYSTEM_STATS=95,UOS_SYS_PROCESS_EVENTS=96,UOS_SYS_TIMER=97,UOS_SYS_TCP_SHUTDOWN=98
+    UOS_SYS_SYSTEM_STATS=95,UOS_SYS_PROCESS_EVENTS=96,UOS_SYS_TIMER=97,UOS_SYS_TCP_SHUTDOWN=98,
+    UOS_SYS_NET_STATS=99,UOS_SYS_SOCKET_INFO=100
 };
 enum {
     UOS_SYSTEM_STATS_VERSION=1,
@@ -164,6 +165,42 @@ enum {
  * Mailbox object zero watches any direct message. Signal uses zero. */
 struct uos_event { uint64_t object;uint32_t source;uint16_t events,revents; };
 _Static_assert(sizeof(struct uos_event)==16,"event wait ABI size");
+enum { UOS_NET_STATS_VERSION=1,UOS_SOCKET_INFO_VERSION=1 };
+/* Session counters reset on a successful start and remain readable after
+ * shutdown. Address and slot counts describe the current state. */
+struct uos_net_session {
+    uint64_t generation;
+    uint32_t used,limit;
+    uint8_t ipv4[4],prefix,online;
+    uint16_t reserved;
+};
+struct uos_tcp_stats {
+    struct uos_net_session session;
+    uint32_t connecting,established,failed,closing,time_wait,reserved;
+    uint64_t arp_requests,arp_failures,segments_tx,retransmissions,bytes_tx,bytes_rx,fin_acked,resets,timeouts;
+};
+struct uos_udp_stats {
+    struct uos_net_session session;
+    uint64_t arp_requests,arp_failures,datagrams_tx,datagrams_rx,bytes_tx,bytes_rx,full_drops,timeouts;
+};
+struct uos_net_stats {
+    uint32_t version,reserved;
+    struct uos_tcp_stats tcp;
+    struct uos_udp_stats udp;
+};
+enum { UOS_SOCKET_DATAGRAM=1,UOS_SOCKET_CONNECTING,UOS_SOCKET_ESTABLISHED,UOS_SOCKET_FAILED };
+enum { UOS_SOCKET_TX_PENDING=1,UOS_SOCKET_RX_PENDING=2,UOS_SOCKET_PEER_FIN=4 };
+/* Only the owning process can query a handle. This copies no payloads,
+ * peer hardware addresses, sequence numbers or kernel addresses. */
+struct uos_socket_info {
+    uint32_t version,state,ready,flags;
+    int64_t error;
+    uint32_t tx_bytes,rx_bytes;
+    uint8_t peer_ip[4];
+    uint16_t local_port,peer_port;
+};
+_Static_assert(sizeof(struct uos_net_stats)==216,"network statistics ABI size");
+_Static_assert(sizeof(struct uos_socket_info)==40,"socket information ABI size");
 enum {
     UOS_TIMER_OPEN=1,UOS_TIMER_ARM_REL,UOS_TIMER_ARM_ABS,UOS_TIMER_DISARM,
     UOS_TIMER_INFO,UOS_TIMER_READ,UOS_TIMER_CLOSE

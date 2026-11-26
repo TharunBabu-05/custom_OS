@@ -25,6 +25,7 @@ static struct {
     uint32_t mask;
     unsigned next;
 } link;
+static struct uos_tcp_stats counters;
 static uint64_t generation;
 static uint16_t local_port=49152;
 
@@ -73,7 +74,10 @@ bool tcp_link_up(const unsigned char mac[6],const unsigned char ip[4],const unsi
     uint32_t m=net_be32(mask),inverse=~m;
     if (!m || !inverse || (inverse&(inverse+1))) { return false; }
     memcpy(link.mac,mac,6);memcpy(link.ip,ip,4);memcpy(link.secret,secret,32);link.mask=m;
-    link.online=local_peer(ip);return link.online;
+    if (!local_peer(ip)) { return false; }
+    counters=(struct uos_tcp_stats){.session.generation=counters.session.generation+1};
+    link.online=true;
+    return true;
 }
 bool tcp_packet_pending(const struct tcp_packet *p)
 {
@@ -198,8 +202,49 @@ unsigned tcp_open_count(void)
     for (unsigned i=0;i<SLOT_COUNT;++i) { n+=sockets[i].owner!=0; }
     return n;
 }
+void tcp_stats(struct uos_tcp_stats *out)
+{
+    *out=counters;
+    out->session.limit=SLOT_COUNT;
+    out->session.online=link.online;
+    if (link.online) {
+        memcpy(out->session.ipv4,link.ip,4);
+        out->session.prefix=net_ipv4_prefix(link.mask);
+    }
+    for (unsigned i=0;i<SLOT_COUNT;++i) {
+        const struct connection *s=&sockets[i];
+        if (s->phase==FREE) { continue; }
+        ++out->session.used;
+        switch (s->phase) {
+        case ARP:case SYN:++out->connecting;break;
+        case OPEN:
+            if (s->owner) { ++out->established; } else { ++out->closing; }
+            break;
+        case TIME_WAIT:++out->time_wait;break;
+        case FAILED:++out->failed;break;
+        default:break;
+        }
+    }
+}
+int64_t tcp_socket_info(uint64_t owner,uint64_t handle,struct uos_socket_info *out)
+{
+    const struct connection *s=lookup(owner,handle);
+    if (!s) { return UOS_EBADF; }
+    *out=(struct uos_socket_info){.version=UOS_SOCKET_INFO_VERSION,
+        .state=s->phase==OPEN ? UOS_SOCKET_ESTABLISHED : s->phase==FAILED ? UOS_SOCKET_FAILED : UOS_SOCKET_CONNECTING,
+        .ready=tcp_ready(owner,handle),.error=s->error,.tx_bytes=s->tx_bytes,.rx_bytes=s->rx_bytes,
+        .local_port=s->port,.peer_port=s->peer.port};
+    if (s->tx_bytes) { out->flags|=UOS_SOCKET_TX_PENDING; }
+    if (s->rx_bytes) { out->flags|=UOS_SOCKET_RX_PENDING; }
+    if (s->peer_fin) { out->flags|=UOS_SOCKET_PEER_FIN; }
+    memcpy(out->peer_ip,s->peer.ipv4,4);
+    return 0;
+}
 static void fail(struct connection *s,int64_t error)
 {
+    if (error==UOS_EHOSTUNREACH) { ++counters.arp_failures; }
+    if (error==UOS_ECONNRESET) { ++counters.resets; }
+    if (error==UOS_ETIMEDOUT) { ++counters.timeouts; }
     memset(s->tx,0,sizeof(s->tx));memset(s->rx,0,sizeof(s->rx));
     s->phase=s->owner ? FAILED : FREE;s->error=error;s->tx_bytes=s->rx_bytes=0;
     if (!s->owner) { memset(s,0,sizeof(*s)); }
@@ -234,7 +279,7 @@ static unsigned peer_mss(const unsigned char *t,unsigned header)
 static void acknowledge(struct connection *s,uint32_t ack)
 {
     unsigned count=ack-s->una;s->una=ack;s->tries=0;s->due=0;
-    if (s->fin_sent) { s->fin_acked=true;return; }
+    if (s->fin_sent) { s->fin_acked=true;++counters.fin_acked;return; }
     for (unsigned i=count;i<s->tx_bytes;++i) { s->tx[i-count]=s->tx[i]; }
     memset(s->tx+s->tx_bytes-count,0,count);s->tx_bytes-=count;s->inflight-=count;
 }
@@ -276,6 +321,7 @@ static void receive_segment(struct connection *s,const unsigned char *t,unsigned
     if (s->owner) {
         for (unsigned i=0;i<accepted;++i) { s->rx[(s->rx_head+s->rx_bytes+i)%RX_BYTES]=t[header+skip+i]; }
         s->rx_bytes+=accepted;
+        counters.bytes_rx+=accepted;
     }
     s->expect+=accepted;
     if ((flags&TCP_FIN) && accepted==bytes-skip && s->rx_bytes<RX_BYTES) { ++s->expect;s->peer_fin=true; }
@@ -344,8 +390,16 @@ enum block_result tcp_service(tcp_transmit tx,void *context,uint64_t now)
         link.next=(index+1)%SLOT_COUNT;
         enum block_result r=tx(context,&packet);
         if (r==BLOCK_NOT_READY) { return BLOCK_OK; }if (r!=BLOCK_OK) { return r; }
-        if (s->phase==ARP) { s->due=now+1000;++s->tries; }
-        else if (s->phase==SYN) { s->next=s->una+1;retry(s,now); }
+        if (s->phase==ARP) { ++counters.arp_requests;s->due=now+1000;++s->tries; }
+        else {
+            ++counters.segments_tx;
+            counters.bytes_tx+=packet.bytes;
+            if (((packet.flags&TCP_SYN) && s->next!=s->una) ||
+                ((packet.flags&TCP_FIN) && s->fin_sent) || (packet.bytes && s->inflight)) {
+                ++counters.retransmissions;
+            }
+        }
+        if (s->phase==SYN) { s->next=s->una+1;retry(s,now); }
         else if (s->phase==OPEN && (packet.bytes || (packet.flags&TCP_FIN))) {
             if (packet.flags&TCP_FIN) { s->fin_sent=true;s->next=packet.seq+1; }
             else if (!s->inflight) { s->inflight=(unsigned)packet.bytes;s->next=packet.seq+s->inflight; }

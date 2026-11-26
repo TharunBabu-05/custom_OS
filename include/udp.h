@@ -27,4 +27,6 @@ unsigned udp_ready(uint64_t owner,uint64_t handle);
 int64_t udp_close(uint64_t owner,uint64_t handle);
 void udp_close_owner(uint64_t owner);
 unsigned udp_open_count(void);
+void udp_stats(struct uos_udp_stats *);
+int64_t udp_socket_info(uint64_t owner,uint64_t handle,struct uos_socket_info *);
 #endif

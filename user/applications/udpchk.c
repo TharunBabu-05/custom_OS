@@ -40,14 +40,26 @@ static int echo(const struct uos_udp_peer *peer,const char *message)
     if (result>=0) {
         result=uos_socket_wait(UOS_EVENT_UDP,(uint64_t)h,UOS_EVENT_READ,5000);
         if (!result) { result=UOS_ETIMEDOUT; }
-        else if (result>0) { result=uos_udp_recv((uint64_t)h,reply,sizeof(reply),0); }
+        else if (result>0) {
+            if (result&UOS_EVENT_READ) {
+                struct uos_socket_info info;
+                result=uos_socket_info(UOS_EVENT_UDP,(uint64_t)h,&info);
+                if (!result && (info.version!=UOS_SOCKET_INFO_VERSION || info.state!=UOS_SOCKET_DATAGRAM ||
+                    !(info.ready&UOS_EVENT_READ) || !(info.flags&UOS_SOCKET_RX_PENDING) || info.rx_bytes!=bytes)) {
+                    result=UOS_ERROR;
+                }
+            }
+            if (result>=0) { result=uos_udp_recv((uint64_t)h,reply,sizeof(reply),0); }
+        }
     }
     if (uos_udp_close((uint64_t)h) && result>=0) { return report(UOS_EBADF); }
     if (result!=(int64_t)bytes) { return report(result); }
     for (size_t i=0;i<bytes;++i) {
         if (reply[i]!=(unsigned char)message[i]) { return report(UOS_ERROR); }
     }
-    uos_puts("PASS: UDP echo matched the sent datagram.\n");return 0;
+    uos_puts("PASS: UDP echo matched the sent datagram.\n");
+    uos_puts("PASS: owned UDP socket snapshot confirmed receive queue length.\n");
+    return 0;
 }
 
 /* QEMU's worker supplies this test-only peer. The same calls pass through the
@@ -70,9 +82,11 @@ static int foreign(void)
     char text[24];
     if (uos_arg(2,text,sizeof(text))<=0) { return 2; }
     const char *p=text;uint64_t stolen=decimal(&p,INT64_MAX);
+    struct uos_socket_info info={.version=UINT32_MAX};
     if (*p || !stolen || stolen>INT64_MAX || uos_udp_send(stolen,NULL,0)!=UOS_EBADF ||
         uos_udp_recv(stolen,NULL,0,0)!=UOS_EBADF || uos_udp_close(stolen)!=UOS_EBADF ||
         uos_socket_wait(UOS_EVENT_UDP,stolen,UOS_EVENT_READ,0)!=UOS_EVENT_HANGUP ||
+        uos_socket_info(UOS_EVENT_UDP,stolen,&info)!=UOS_EBADF || info.version!=UINT32_MAX ||
         uos_udp_open(&model_peer)!=UOS_EBUSY) { return 3; }
     struct uos_udp_peer own=model_peer;own.local_port=55002;
     int64_t handle=uos_udp_open(&own);
@@ -117,13 +131,17 @@ static int model(void)
         uos_socket_wait(UOS_EVENT_UDP,handle,UOS_EVENT_READ,0)!=UOS_EVENT_READ ||
         uos_udp_recv(handle,buffer,sizeof(buffer),0)!=(int64_t)sizeof(payload)) { return 15; }
     for (unsigned i=0;i<sizeof(payload);++i) { if (buffer[i]!=payload[i]) { return 16; } }
+    struct uos_socket_info info;
     if (uos_udp_send(handle,NULL,0)!=0 || uos_socket_wait(UOS_EVENT_UDP,handle,UOS_EVENT_READ,1000)!=UOS_EVENT_READ ||
+        uos_socket_info(UOS_EVENT_UDP,handle,&info) || info.version!=UOS_SOCKET_INFO_VERSION ||
+        info.state!=UOS_SOCKET_DATAGRAM || !(info.flags&UOS_SOCKET_RX_PENDING) || info.rx_bytes ||
         uos_udp_recv(handle,NULL,0,0)!=0 || uos_timer_arm((uint64_t)timer,70,0) ||
         uos_event_wait(events,2,1000)!=1 || events[0].revents || events[1].revents!=UOS_EVENT_READ ||
         uos_timer_close((uint64_t)timer) ||
         uos_udp_recv(handle,buffer,sizeof(buffer),100)!=UOS_ETIMEDOUT) { return 17; }
     uos_puts("PASS: EL0 UDP ownership, datagrams, checked buffers and receive timeout.\n");
     uos_puts("PASS: UDP readiness, timer race and restricted wait.\n");
+    uos_puts("PASS: UDP socket snapshot preserves empty datagram and ownership semantics.\n");
     return 0; /* The parent handle also exercises process cleanup. */
 }
 static int loss(bool readiness)

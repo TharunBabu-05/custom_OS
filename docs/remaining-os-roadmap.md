@@ -13,8 +13,9 @@ The Pi verified Phase 49 process history, ring wraparound, and cleanup.
 The Pi passed Phase 50 process timers and service cleanup. Phase 51 adds
 TCP and UDP readiness to the same EL0 wait set. The Pi passed the wired UDP
 test. Phase 52 adds a shared deadline-aware TCP runtime, verified on the
-Pi with the wired TCP echo. Phase 53 adds TCP write half-close and a FIN
-acknowledgment event.
+Pi with the wired TCP echo. The Pi passed Phase 53 TCP write half-close
+and the final reply after FIN. Phase 54 adds transport session statistics,
+owned socket snapshots and the `netstat` command.
 [Secondary CPU workers](secondary-cpus.md) · [System statistics](system-stats.md) · [Process history](process-events.md) · [Process timers](user-timers.md) · [Socket readiness](socket-readiness.md)
 
 The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes

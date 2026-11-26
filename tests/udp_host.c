@@ -89,6 +89,10 @@ int main(void)
     assert(udp_ready(1,handle)==UOS_EVENT_WRITE);
     assert(udp_recv(1,handle,buffer,sizeof(buffer))==UOS_EAGAIN);
     n=reply(frame,target.port,NULL,0);udp_receive(frame,n,5);
+    struct uos_socket_info info={.version=UINT32_MAX};
+    assert(udp_socket_info(2,handle,&info)==UOS_EBADF && info.version==UINT32_MAX);
+    assert(!udp_socket_info(1,handle,&info) && info.state==UOS_SOCKET_DATAGRAM && !info.rx_bytes &&
+           (info.flags&UOS_SOCKET_RX_PENDING) && info.local_port==target.local_port && info.peer_port==target.port);
     assert((udp_ready(1,handle)&UOS_EVENT_READ) && udp_recv(1,handle,NULL,0)==0);
     n=reply(frame,target.port,message,sizeof(message));frame[40]=frame[41]=0;udp_receive(frame,n,5);
     assert(udp_recv(1,handle,buffer,sizeof(buffer))==sizeof(message));
@@ -96,6 +100,7 @@ int main(void)
     const uint64_t expired=31000;
     assert(udp_send(1,handle,NULL,0,expired)==0);
     step(expired);step(expired+999);step(expired+1000);step(expired+2000);step(expired+3000);
+    assert(!udp_socket_info(1,handle,&info) && info.error==UOS_EHOSTUNREACH && info.ready==UOS_EVENT_ERROR);
     assert(udp_ready(1,handle)==UOS_EVENT_ERROR && udp_ready(1,handle)==UOS_EVENT_ERROR);
     assert(wire.arp==5 && wire.udp==1 && udp_recv(1,handle,NULL,0)==UOS_EHOSTUNREACH);
     assert(udp_ready(1,handle)==UOS_EVENT_WRITE);
@@ -103,11 +108,21 @@ int main(void)
     assert(udp_send(1,handle,NULL,0,expired+3000)==0);step(expired+3000);
     arp(frame);udp_receive(frame,60,expired+3001);step(expired+3001);
     assert(wire.udp==2);
+    struct uos_udp_stats stats;
+    udp_stats(&stats);
+    assert(stats.session.online && stats.session.used==2 && stats.session.limit==4 && stats.session.prefix==24 &&
+           !memcmp(stats.session.ipv4,local_ip,4) && stats.arp_requests==5 && stats.arp_failures==1 &&
+           stats.datagrams_tx==2 && stats.datagrams_rx==3 && stats.bytes_tx==3 && stats.bytes_rx==6 && stats.full_drops==1);
+    uint64_t session=stats.session.generation;
 
     assert(udp_send(1,handle,message,sizeof(message),expired+3002)==sizeof(message));
     udp_link_down();assert(!udp_open_count() && udp_recv(1,handle,NULL,0)==UOS_ENETDOWN && udp_service(transmit,&wire,0)==BLOCK_NOT_READY);
     assert(udp_ready(1,handle)==UOS_EVENT_HANGUP);
+    udp_stats(&stats);
+    assert(!stats.session.online && !stats.session.used && !stats.session.prefix && stats.full_drops==1);
     assert(udp_link_up(local_mac,local_ip,mask));
+    udp_stats(&stats);
+    assert(stats.session.generation==session+1 && !stats.full_drops && !stats.datagrams_tx);
     int64_t next=udp_open(1,&target);assert(next>handle && udp_close(1,handle)==UOS_EBADF && udp_close(1,next)==0);
     assert(!udp_open_count());udp_link_down();
     puts("PASS: UDP packet bytes, checksum and peer filtering, queue and handle bounds, ARP timeout/recovery and link cleanup.");

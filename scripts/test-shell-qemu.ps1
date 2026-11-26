@@ -1575,14 +1575,21 @@ if ($TcpSockets) {
         try {
             Session $disk $name $case[0] $case[1] @(
                 'storageinit','mmuinit','irqinit','timerstart',@{Text='tcpmodeltest';Delay=20000},
-                'appterm 2 /boot/TCPCHK.ELF 192.0.2.2 34002','fileinfo','pwd','timerstop','halt'
+                'appterm 2 /boot/TCPCHK.ELF 192.0.2.2 34002','appshell','netstat check','runlim 0 netstat check',
+                'netstat > /tmp/net54','cat /tmp/net54','rm /tmp/net54','exit','fileinfo','pwd','timerstop','halt'
             ) @('PASS: EL0 TCP connect, checked buffers, ordered stream, EOF and close.',
                 'PASS: TCP runtime rejects expired deadlines and reports short EOF.',
                 'PASS: TLS transport callbacks exchanged 700 bytes and reported EOF.',
                 'PASS: TCP write half-close acknowledged and final reply received before EOF.',
+                'PASS: owned TCP socket snapshot confirmed FIN acknowledgment and drained send queue.',
                 'PASS: TCP worker and EL0 file transfer.',
+                'PASS: network snapshot ABI, checked output and socket lookup.',
+                'PASS: network diagnostics honor process permissions.',
+                'TCP session=down generation=4 slots=0/3',
+                'retransmissions=1 bytes_tx=16384 bytes_rx=16396',
+                'fin_acked=1 resets=0 timeouts=0 arp_requests=1 arp_failures=0',
                 "PASS: TCP echoed 16384 bytes. SHA-256 $digest",
-                'TCP requires an active ','Open files: 0/16') 5
+                'TCP requires an active ','Open files: 0/16') 6
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
@@ -1599,6 +1606,7 @@ if ($UdpSockets) {
                 'appterm 2 /boot/UDPCHK.ELF 192.0.2.2 32001','fileinfo','pwd','timerstop','halt'
             ) @('PASS: EL0 UDP ownership, datagrams, checked buffers and receive timeout.',
                 'PASS: UDP readiness, timer race and restricted wait.',
+                'PASS: UDP socket snapshot preserves empty datagram and ownership semantics.',
                 'PASS: UDP link loss woke the blocked receive and invalidated its handle.',
                 'PASS: UDP link loss woke the socket wait.',
                 'PASS: UDP worker and EL0 socket integration.',

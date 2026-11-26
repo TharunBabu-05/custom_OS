@@ -49,6 +49,11 @@ static void half_close(void)
     assert(tcp_write(1,h,"abc",3)==3);
     assert(!tcp_shutdown_write(1,h) && !tcp_shutdown_write(1,h));
     assert(tcp_ready(1,h)==UOS_EVENT_WRITE_CLOSED && tcp_write(1,h,"x",1)==UOS_EPIPE);
+    struct uos_socket_info info={.version=UINT32_MAX};
+    assert(tcp_socket_info(2,h,&info)==UOS_EBADF && info.version==UINT32_MAX);
+    assert(!tcp_socket_info(1,h,&info) && info.state==UOS_SOCKET_ESTABLISHED && info.ready==UOS_EVENT_WRITE_CLOSED &&
+           info.flags==UOS_SOCKET_TX_PENDING && info.tx_bytes==3 && info.peer_port==4041 && info.local_port==port &&
+           !memcmp(info.peer_ip,remote_ip,4));
     tick(2);
     assert(last.bytes==3 && !(last.flags&TCP_FIN));
     segment(TCP_ACK,peer,local+1,512,NULL,0,false);
@@ -65,6 +70,8 @@ static void half_close(void)
     segment(TCP_ACK,peer,local+1,512,NULL,0,false);
     assert(tcp_ready(1,h)==(UOS_EVENT_WRITE_CLOSED|UOS_EVENT_FIN_ACK));
     segment(TCP_ACK|TCP_FIN,peer,local+1,512,"reply",5,false);
+    assert(!tcp_socket_info(1,h,&info) && info.rx_bytes==5 && info.tx_bytes==0 &&
+           info.flags==(UOS_SOCKET_RX_PENDING|UOS_SOCKET_PEER_FIN) && (info.ready&UOS_EVENT_FIN_ACK));
     peer+=6;
     tick(1005);
     assert(last.flags==TCP_ACK && last.ack==peer);
@@ -73,10 +80,25 @@ static void half_close(void)
     assert(tcp_status(1,h)==0 && tcp_read(1,h,buffer,sizeof(buffer))==5 && !memcmp(buffer,"reply",5));
     assert(tcp_read(1,h,buffer,sizeof(buffer))==0 && (tcp_ready(1,h)&UOS_EVENT_READ));
     assert(!tcp_close(1,h,1006) && tcp_ready(1,h)==UOS_EVENT_HANGUP);
+    struct uos_tcp_stats stats;
+    tcp_stats(&stats);
+    assert(stats.session.online && stats.session.used==1 && stats.closing==1 && !stats.established);
     tick(1006);tick(1007);
     segment(TCP_ACK|TCP_FIN,peer-1,local+1,512,NULL,0,false);
     tick(1008);
     assert(last.flags==TCP_ACK && last.ack==peer && !tcp_open_count());
+    tcp_stats(&stats);
+    assert(stats.time_wait==1 && !stats.closing && stats.bytes_tx==5 && stats.bytes_rx==5 &&
+           stats.arp_requests==1 && stats.retransmissions==2 && stats.fin_acked==1);
+    uint64_t session=stats.session.generation;
+    tcp_link_down();
+    tcp_stats(&stats);
+    assert(!stats.session.online && !stats.session.used && !stats.session.prefix && !stats.time_wait &&
+           stats.session.generation==session && stats.fin_acked==1 && stats.bytes_rx==5);
+    assert(tcp_link_up(local_mac,local_ip,mask,secret));
+    tcp_stats(&stats);
+    assert(stats.session.generation==session+1 && stats.session.prefix==24 && !memcmp(stats.session.ipv4,local_ip,4) &&
+           !stats.arp_requests && !stats.fin_acked && !stats.bytes_rx);
     tcp_link_down();
 }
 int main(void)
@@ -136,6 +158,9 @@ int main(void)
     assert(tcp_status(1,h)==UOS_EHOSTUNREACH && tcp_close(1,h,7000)==0);
     h=tcp_open(1,&ep,8000);assert(h>0);tick(8000);arp();tick(8001);tick(9001);tick(11001);tick(15001);tick(23001);
     assert(tcp_status(1,h)==UOS_ETIMEDOUT);tcp_close_owner(1,23001);assert(!tcp_open_count());
+    struct uos_tcp_stats stats;
+    tcp_stats(&stats);
+    assert(stats.arp_failures==1 && stats.resets==1 && stats.timeouts==1);
     h=tcp_open(1,&ep,24000);assert(h>0);tcp_link_down();assert(!tcp_open_count() && tcp_status(1,h)==UOS_ENETDOWN);
     assert(tcp_ready(1,h)==UOS_EVENT_HANGUP);
     assert(tcp_link_up(local_mac,local_ip,mask,secret) && tcp_status(1,h)==UOS_EBADF);tcp_link_down();

@@ -238,7 +238,8 @@ An app closes the handle after finishing reads.
 
 The native TCP test covers partial acknowledgments, FIN retransmission,
 post-FIN data and EOF. The QEMU TCP suite runs the EL0 half-close check
-on Cortex-A53 and Cortex-A76. Pi 5 acceptance is pending.
+on Cortex-A53 and Cortex-A76. The Pi passed the client-first wired echo.
+[Phase 53 Pi capture](../proofs/pi5-tcp-half-close-2026-11-26.txt)
 
 ### Pi 5 acceptance for Phase 53
 
@@ -284,4 +285,109 @@ storagetest
 datacheck
 ```
 
+[Clean up Windows test settings](#clean-up-windows-test-settings)
+
+## Phase 54 network diagnostics
+
+`netstat` shows the current TCP and UDP transport sessions. An active
+session reports its IPv4 address, prefix, and slot usage. TCP splits
+occupied slots into connecting, established, failed, closing, and
+TIME-WAIT. A session can remain active while the Ethernet cable is unplugged.
+
+TCP reports transmitted segments, retransmissions, acknowledged FINs,
+resets and transport timeouts. TCP `bytes_tx` counts payload sent to
+the driver, including retries. TCP `bytes_rx` counts bytes accepted into
+an owned socket's receive buffer. UDP reports submitted and received
+datagrams, payload bytes, receive queue drops and transport timeouts.
+UDP `full_drops` counts valid peer datagrams rejected because the receive
+slot already held a datagram. Both protocols report ARP requests and
+resolution failures. These counters describe each transport session.
+Counters remain visible after `ethdown` and reset when that transport
+starts a new session with an incremented generation. Automatic driver
+teardown and link shutdown clear the address and free all socket slots.
+
+The sized `uos_net_stats` and `uos_socket_info` calls require network
+permission. A socket snapshot requires ownership of the given TCP or UDP
+handle. It reports readiness, peer IPv4 and ports, pending bytes, state
+and any socket error. A UDP pending flag distinguishes an empty datagram
+from an empty queue. TCP flags report peer FIN and write shutdown progress.
+The queries copy metadata and leave the queues and pending errors intact.
+
+Native TCP and UDP tests verify session resets, retained counters, slot
+cleanup and ownership. The Cortex-A53 and Cortex-A76 QEMU runs also
+passed the EL0 queries, network permission checks and redirection.
+The Pi 5 test below verifies the new diagnostics on the direct link.
+
+### Pi 5 acceptance for Phase 54
+
+Power off the Pi and connect its boot pendrive. Run from the project
+directory in Windows PowerShell.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase54-network-diagnostics-boot-update.zip'
+$volume = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.VolumeLabel -eq 'OUROSBOOT' })
+if ($volume.Count -ne 1) { throw 'Connect exactly one OUROSBOOT pendrive.' }
+$boot = $volume[0].Name
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg
+if ($LASTEXITCODE -eq 0) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg -Apply
+}
+```
+
+Safely eject the drive and boot the Pi. In its shell, check the initial
+session state and query permissions.
+
+```text
+netstat
+netstat check
+runlim 0 netstat check
+```
+
+Expect both sessions down, all slots free, and both checks to pass. Use
+the direct Ethernet setup through `appshell` and the Windows firewall
+commands. [Direct Ethernet setup](#set-up-the-direct-ethernet-link)
+
+Start the UDP responder in Windows PowerShell. When it prints `Waiting`,
+run the UDP command at the Pi `user:/$` prompt.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/udp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4040
+```
+
+```text
+run /boot/UDPCHK.ELF 192.0.2.1 4040 wired-udp
+```
+
+Start the TCP responder in Windows PowerShell. When it prints `Waiting`,
+run the TCP command followed by `netstat` at the Pi prompt.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4041 -WaitForClientFin
+```
+
+```text
+run /boot/TCPCHK.ELF 192.0.2.1 4041 half
+netstat
+exit
+```
+
+Expect both echo tools to pass their owned socket checks. `netstat`
+should report both sessions up at `192.0.2.2/30`, one UDP send and
+receive, one acknowledged TCP FIN, and the TCP payload byte counts.
+TCP may retain a slot in TIME-WAIT after the app exits.
+
+At the monitor `>` prompt, stop Ethernet and check the retained counters
+and resource cleanup.
+
+```text
+ethdown
+appterm 5 /boot/NETSTAT.ELF
+fileinfo
+resinfo
+storagetest
+datacheck
+```
+
+Expect both sessions down and zero occupied slots. The finished traffic
+counters should still be readable.
 [Clean up Windows test settings](#clean-up-windows-test-settings)

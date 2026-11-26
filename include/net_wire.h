@@ -8,6 +8,13 @@ static inline unsigned net_be16(const unsigned char *p)
 { return (unsigned)p[0]<<8|p[1]; }
 static inline uint32_t net_be32(const unsigned char *p)
 { return (uint32_t)net_be16(p)<<16|net_be16(p+2); }
+/* Convert an already validated contiguous IPv4 mask. */
+static inline uint8_t net_ipv4_prefix(uint32_t mask)
+{
+    uint8_t prefix=0;
+    while (mask) { ++prefix;mask<<=1; }
+    return prefix;
+}
 static inline void net_put16(unsigned char *p,unsigned v)
 { p[0]=(unsigned char)(v>>8);p[1]=(unsigned char)v; }
 static inline void net_put32(unsigned char *p,uint32_t v)

@@ -21,6 +21,7 @@ static struct {
     uint32_t mask;
     unsigned next;
 } link;
+static struct uos_udp_stats counters;
 static uint64_t next_handle;
 static uint16_t next_port=49152;
 
@@ -78,7 +79,10 @@ bool udp_link_up(const unsigned char mac[6],const unsigned char ip[4],const unsi
     uint32_t bits=address(mask),inverse=~bits;
     if (!bits || !inverse || (inverse&(inverse+1))) { return false; }
     memcpy(link.mac,mac,6);memcpy(link.ip,ip,4);link.mask=bits;
-    link.online=on_link(ip);return link.online;
+    if (!on_link(ip)) { return false; }
+    counters=(struct uos_udp_stats){.session.generation=counters.session.generation+1};
+    link.online=true;
+    return true;
 }
 void udp_link_down(void)
 { memset(sockets,0,sizeof(sockets));memset(&link,0,sizeof(link)); }
@@ -172,6 +176,30 @@ unsigned udp_open_count(void)
     for (unsigned i=0;i<UDP_SOCKET_LIMIT;++i) { count+=sockets[i].owner!=0; }
     return count;
 }
+void udp_stats(struct uos_udp_stats *out)
+{
+    *out=counters;
+    out->session.limit=UDP_SOCKET_LIMIT;
+    out->session.used=udp_open_count();
+    out->session.online=link.online;
+    if (link.online) {
+        memcpy(out->session.ipv4,link.ip,4);
+        out->session.prefix=net_ipv4_prefix(link.mask);
+    }
+}
+int64_t udp_socket_info(uint64_t owner,uint64_t handle,struct uos_socket_info *out)
+{
+    const struct udp_socket *s=find(owner,handle);
+    if (!s) { return UOS_EBADF; }
+    *out=(struct uos_socket_info){.version=UOS_SOCKET_INFO_VERSION,.state=UOS_SOCKET_DATAGRAM,
+        .ready=udp_ready(owner,handle),.error=s->send_error,
+        .tx_bytes=(uint32_t)s->tx_bytes,.rx_bytes=(uint32_t)s->rx_bytes,
+        .local_port=s->peer.local_port,.peer_port=s->peer.port};
+    if (s->sending) { out->flags|=UOS_SOCKET_TX_PENDING; }
+    if (s->received) { out->flags|=UOS_SOCKET_RX_PENDING; }
+    memcpy(out->peer_ip,s->peer.ipv4,4);
+    return 0;
+}
 
 static void receive_arp(const unsigned char *p,uint64_t now)
 {
@@ -199,9 +227,10 @@ void udp_receive(const void *frame,size_t bytes,uint64_t now)
     for (unsigned i=0;i<UDP_SOCKET_LIMIT;++i) {
         struct udp_socket *s=&sockets[i];
         if (!s->owner || s->peer.local_port!=dest || s->peer.port!=source || !net_equal(s->peer.ipv4,ip+12,4)) { continue; }
-        if (!s->received && (!neighbor_valid(s,now) || net_equal(s->neighbor,p+6,6))) {
-            s->rx_bytes=total-28;memcpy(s->rx,u+8,s->rx_bytes);s->received=true;
-        }
+        if (neighbor_valid(s,now) && !net_equal(s->neighbor,p+6,6)) { return; }
+        if (s->received) { ++counters.full_drops;return; }
+        s->rx_bytes=total-28;memcpy(s->rx,u+8,s->rx_bytes);s->received=true;
+        ++counters.datagrams_rx;counters.bytes_rx+=s->rx_bytes;
         return;
     }
 }
@@ -217,7 +246,11 @@ enum block_result udp_service(udp_transmit transmit,void *context,uint64_t now)
         struct udp_socket *s=&sockets[index];
         if (!s->sending) { continue; }
         bool known=neighbor_valid(s,now);
-        if ((int64_t)(now-s->deadline)>=0) { sent(s,known ? UOS_ETIMEDOUT : UOS_EHOSTUNREACH);continue; }
+        if ((int64_t)(now-s->deadline)>=0) {
+            if (known) { ++counters.timeouts; } else { ++counters.arp_failures; }
+            sent(s,known ? UOS_ETIMEDOUT : UOS_EHOSTUNREACH);
+            continue;
+        }
         if (!known && (s->arp_sent>=3 || (int64_t)(now-s->next_arp)<0)) { continue; }
         const struct udp_packet packet={link.mac,link.ip,known ? s->neighbor : NULL,s->peer.ipv4,
             s->peer.local_port,s->peer.port,s->tx,s->tx_bytes};
@@ -225,7 +258,11 @@ enum block_result udp_service(udp_transmit transmit,void *context,uint64_t now)
         enum block_result r=transmit(context,&packet);
         if (r==BLOCK_NOT_READY) { return BLOCK_OK; }
         if (r!=BLOCK_OK) { return r; }
-        if (known) { sent(s,0); }else { ++s->arp_sent;s->next_arp=now+UDP_ARP_MS; }
+        if (known) {
+            ++counters.datagrams_tx;counters.bytes_tx+=s->tx_bytes;sent(s,0);
+        } else {
+            ++counters.arp_requests;++s->arp_sent;s->next_arp=now+UDP_ARP_MS;
+        }
         return BLOCK_OK;
     }
     return BLOCK_OK;

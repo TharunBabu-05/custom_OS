@@ -43,6 +43,10 @@ static inline int64_t uos_yield(void) { return uos_call2(UOS_SYS_YIELD,0,0); }
 static inline int64_t uos_time_ms(void) { return uos_call2(UOS_SYS_TIME_MS,0,0); }
 static inline int64_t uos_system_stats(struct uos_system_stats *out)
 { return uos_call2(UOS_SYS_SYSTEM_STATS,(uintptr_t)out,sizeof(*out)); }
+static inline int64_t uos_net_stats(struct uos_net_stats *out)
+{ return uos_call2(UOS_SYS_NET_STATS,(uintptr_t)out,sizeof(*out)); }
+static inline int64_t uos_socket_info(unsigned source,uint64_t handle,struct uos_socket_info *out)
+{ return uos_call4(UOS_SYS_SOCKET_INFO,source,handle,(uintptr_t)out,sizeof(*out)); }
 static inline int64_t uos_process_events(uint64_t after,struct uos_process_events *out)
 { return uos_call4(UOS_SYS_PROCESS_EVENTS,(uintptr_t)out,sizeof(*out),after,0); }
 static inline int64_t uos_utc_time(struct uos_utc_time *out)
