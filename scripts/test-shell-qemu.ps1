@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -61,6 +61,54 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($SecondaryQueue) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="secondary-queue-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'smpqueue','smplock','storageinit','datainit','mmuinit','irqinit','timerstart','meminfo','resinfo',
+                'smpstart 0X1','smplock','smpqueue 1','smpwait','smpstart','smpqueue 0','smpqueue 257',
+                'smplock','smpirq on','resinfo','smpqueue 256','smpinfo','smpipi 0X2','smptlb map','smpwait',
+                'smppark 0X2','smptlb','smptlb map','smplock','smpqueue','smpinfo','smpcancel','smpwait',
+                'smpqueue 23','smpwait','smptest','smpstart 0X2','smplock','smpqueue 32','smpwait',
+                'appshell','smpqueue 1','smplock','echo queue-shell-ok','exit',
+                @{Text='timertest';Delay=1000},'smpirq off','resinfo','smpqueue 256','smpstop',
+                'cpustate','meminfo','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('Start secondary CPUs with smpstart.','Secondary queue submitted. Use smpwait or smpcancel.',
+                'Secondary batch pending. Use smpwait or smpcancel.','PASS: SMP IPI replies=1',
+                'PASS: SMP TLB invalidations=4','SMP map CPUs A/unmapped/B/revoked/restored=4/4/4/4/4',
+                'Secondary CPUs parked=1','resumed at EL1.','Secondary queue cancelled.','No secondary batch.',
+                'PASS: secondary checksum jobs=2','queue-shell-ok','PASS: periodic timer IRQs delivered;',
+                'Secondary SGI routes released.','Secondary CPU stacks released.','Open files: 0/16',
+                'PASS: read-only storage','matches_mounted=yes'
+            ) 1 '' $false $false $false 4
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $timeouts=@([regex]::Matches($log,'(?m)^PASS: SMP lock timed out and was reacquired\. Worker timeouts=(\d+)\r?$') |
+                ForEach-Object { $_.Groups[1].Value }) -join ','
+            $verified=@([regex]::Matches($log,'(?m)^PASS: SMP queue verified jobs=(\d+) workers=(\d+)\r?$') |
+                ForEach-Object { "$($_.Groups[1].Value)/$($_.Groups[2].Value)" }) -join ','
+            $pages=@([regex]::Matches($log,'(?m)^managed_pages=\d+ free_pages=\d+ allocated_pages=(\d+)\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            $claims=@([regex]::Matches($log,'(?m)^Resource claims: (\d+)/16\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            if ($timeouts -cne '1,3,2,3' -or $verified -cne '1/1,256/3,23/2,32/3' -or
+                $pages.Count -ne 2 -or $pages[0] -ne $pages[1] -or
+                $claims.Count -ne 3 -or $claims[1] -ne ($claims[0]+1) -or $claims[2] -ne $claims[0] -or
+                [regex]::Matches($log,'(?m)^Invalid SMP arguments\.').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^Type exit, then run this command at the > monitor prompt\.\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^CPU affinity=0x[0-9a-f]+ dt=enabled psci=off\r?$').Count -ne 3 -or
+                $log -notmatch '(?m)^Secondary queue jobs=256 completed=\d+ replies=[0-3]/3\r?$' -or
+                $log -notmatch '(?m)^Secondary queue jobs=64 completed=\d+ replies=[0-2]/2\r?$' -or
+                $log.Contains('requires smpstop before reuse') -or (Get-FileHash -LiteralPath $disk).Hash -ne $original) {
+                throw "$name lock, queue, cleanup or disk differs"
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($SecondaryMap) {
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {

@@ -65,7 +65,7 @@ try {
         }
         New-Item -ItemType Directory -Force -Path $out | Out-Null
         $sources = @($entrySource,'arch/aarch64/interrupts/vectors.S','arch/aarch64/interrupts/test_context.S','arch/aarch64/interrupts/test_irq_context.S','arch/aarch64/interrupts/irq.c','kernel/interrupts/exception.c','kernel/interrupts/tick.c','kernel/interrupts/irq_work.c','drivers/irq/gic.c','drivers/irq/gic_dt.c','drivers/irq/irq_probe.c','arch/aarch64/mmu/control.S','arch/aarch64/mmu/runtime.c','kernel/memory/mmu_tables.c',
-            $boardSource,'drivers/uart/pl011.c','drivers/timer/arch_timer.c','arch/aarch64/context/switch.S','arch/aarch64/context/test_switch.S','kernel/scheduler/policy.c','kernel/scheduler/tasks.c',
+            $boardSource,'drivers/uart/pl011.c','drivers/timer/arch_timer.c','arch/aarch64/context/switch.S','arch/aarch64/context/test_switch.S','kernel/scheduler/policy.c','kernel/scheduler/tasks.c','kernel/scheduler/smp_lock.c',
             'kernel/core/console.c','kernel/core/terminal.c','kernel/core/console_input.c','kernel/core/main.c','kernel/core/trust_time_commands.c','kernel/core/reboot.c','kernel/scheduler/network_worker.c','arch/aarch64/boot/reset.c','drivers/reset/reset_dt.c','lib/memory.c',
             'arch/aarch64/boot/cpu_commands.c','kernel/core/cpu_topology.c','arch/aarch64/boot/secondary.S','arch/aarch64/boot/smp.c',
             'kernel/memory/map.c','kernel/memory/fdt_memory.c','kernel/memory/pages.c',
@@ -100,7 +100,7 @@ try {
                 'arch/aarch64/interrupts/irq.c','drivers/irq/gic.c','drivers/irq/gic_dt.c',
                 'drivers/platform/rp1_msix.c','drivers/usb/pi5_usb_dt.c','kernel/core/usb_commands.c',
                 'drivers/usb/xhci_observe.c','drivers/usb/xhci_test_report.c','drivers/usb/pi5_xhci_test.c','drivers/usb/usb_descriptors.c',
-                'kernel/scheduler/tasks.c','kernel/scheduler/network_worker.c','kernel/memory/pages.c','drivers/storage/usb_bot.c','network/session.c',
+                'kernel/scheduler/tasks.c','kernel/scheduler/network_worker.c','kernel/scheduler/smp_lock.c','kernel/memory/pages.c','drivers/storage/usb_bot.c','network/session.c',
                 'kernel/memory/map.c','drivers/storage/sdhci.c','drivers/storage/pi5_sd.c','drivers/storage/pi5_sd_probe.c',
                 'kernel/core/process_commands.c','kernel/process/user_heap.c','kernel/process/elf_app.c',
                 'kernel/memory/mmu_tables.c','kernel/memory/heap.c',
@@ -125,9 +125,9 @@ try {
             if ($Target -eq 'rpi5' -and $source -eq 'kernel/interrupts/exception.c') {
                 $optimize=@($optimize)+@('-fno-tree-switch-conversion')
             }
-            # Emit Armv8.0 acquire, release and exclusive instructions for both boot diagnostics.
+            # Keep shared CPU paths on the Armv8.0 baseline for the A53 and A76 profiles.
             $sourceCpu=if ($source -in @('arch/aarch64/boot/cpu_commands.c','arch/aarch64/boot/smp.c',
-                'arch/aarch64/mmu/runtime.c')) { 'cortex-a53' } else { $cpu }
+                'arch/aarch64/mmu/runtime.c','kernel/scheduler/smp_lock.c')) { 'cortex-a53' } else { $cpu }
             Invoke-Tool gcc ($common + $optimize + @("-mcpu=$sourceCpu",'-c',$source,'-o',$object))
             $objects += $object
         }

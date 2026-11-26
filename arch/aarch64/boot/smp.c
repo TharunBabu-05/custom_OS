@@ -7,9 +7,10 @@
 #include "irq.h"
 #include "mmu.h"
 #include "smp.h"
+#include "smp_lock.h"
 
 enum worker_phase { STARTING,READY,PARKED,FAULT_PARKED,STOPPING,FAULTED,BAD_MMU,OFF_RETURNED };
-enum { PSCI_ON=0, PSCI_OFF=1, PSCI_PENDING=2, MAX_ROUNDS=1024 };
+enum { PSCI_ON=0, PSCI_OFF=1, PSCI_PENDING=2, MAX_ROUNDS=1024, QUEUE_LIMIT=256, QUEUE_DEFAULT=64 };
 enum { IPI_PING, IPI_TLB, IPI_MAP, IPI_SHIFT=3 };
 _Static_assert(IPI_MAP+MMU_SMP_RESTORE<(1u<<IPI_SHIFT),"IPI operation fits in request");
 #define STOP_REQUEST UINT64_MAX
@@ -18,7 +19,8 @@ _Static_assert(IPI_MAP+MMU_SMP_RESTORE<(1u<<IPI_SHIFT),"IPI operation fits in re
 #define RESUME_REQUEST (UINT64_MAX-3)
 #define CANCEL_BIT (1ULL<<63)
 #define ROUTE_BIT (1ULL<<62)
-#define MAX_SEQUENCE ((ROUTE_BIT>>1)-1)
+#define QUEUE_BIT (1ULL<<61)
+#define MAX_SEQUENCE ((QUEUE_BIT>>1)-1)
 #define STACK_CANARY 0x6f75726f73736d70ULL
 #define CPU_LIFECYCLE_CODE __attribute__((section(".text.cpu_lifecycle")))
 
@@ -28,6 +30,7 @@ struct smp_worker {
     uint64_t request,reply,seed,result,job_ticks;
     uint64_t esr,pc;
     uint64_t launches,verified,resumes;
+    uint64_t queue_jobs;
     uint64_t irq_state,ipi_request,ipi_reply,ipi_count,tlb_count,ipi_token,ipi_verified;
     struct gic_sgi_route route;
     int32_t off_status;
@@ -43,6 +46,13 @@ static unsigned worker_count;
 static enum psci_conduit conduit;
 static uint64_t sequence;
 static unsigned batch_mask;
+static bool batch_queue,queue_unverified;
+static struct {
+    struct smp_lock lock;
+    unsigned total,next;
+    uint8_t owners[QUEUE_LIMIT];
+    uint64_t results[QUEUE_LIMIT];
+} queue;
 static const struct gic_state *ipi_controller;
 static uint8_t ipi_source;
 static uint64_t ipi_sequence;
@@ -163,6 +173,41 @@ static void execute_checksum(struct smp_worker *w,uint64_t request)
     publish(&w->reply,request);
 }
 
+static bool lock_wait_test(unsigned slot)
+{
+    uint64_t start=timer_ticks(),budget=timer_frequency()/50+1;
+    if (!smp_lock_acquire(&queue.lock,slot,start,budget)) { return timer_ticks()-start>=budget; }
+    smp_lock_release(&queue.lock,slot);
+    return false;
+}
+
+static bool queue_consume(struct smp_worker *w,uint64_t request,unsigned slot)
+{
+    uint64_t budget=timer_frequency()/4+1;
+    unsigned completed=0;
+    while (acquire(&w->request)==request) {
+        if (!smp_lock_acquire(&queue.lock,slot,timer_ticks(),budget)) { return false; }
+        unsigned job=queue.next;
+        bool claimed=job<queue.total && acquire(&w->request)==request;
+        if (claimed) {
+            queue.next=job+1;
+            queue.owners[job]=(uint8_t)(slot+1);
+        }
+        smp_lock_release(&queue.lock,slot);
+        if (!claimed) { break; }
+        queue.results[job]=checksum(request+job);
+        publish(&w->queue_jobs,++completed);
+    }
+    return true;
+}
+
+static void execute_queue(struct smp_worker *w,uint64_t request)
+{
+    unsigned slot=(unsigned)(w-smp_workers);
+    w->result=queue.total ? queue_consume(w,request,slot) : lock_wait_test(slot);
+    publish(&w->reply,request);
+}
+
 _Noreturn CPU_LIFECYCLE_CODE void smp_worker_main(struct smp_worker *w,uint64_t entry_el)
 {
     w->entry_el=entry_el;
@@ -184,6 +229,7 @@ _Noreturn CPU_LIFECYCLE_CODE void smp_worker_main(struct smp_worker *w,uint64_t 
             worker_irq_config(w,request&1);
             publish(&w->reply,request);
         }
+        else if (request&QUEUE_BIT) { execute_queue(w,request); }
         else { execute_checksum(w,request); }
     }
 }
@@ -365,8 +411,8 @@ bool smp_shutdown(void)
         if (w->stack_top) { publish(&w->request,STOP_REQUEST);active=true; }
     }
     batch_mask=0;
-    if (!active) { return release_ipi(); }
-    wake_workers();
+    batch_queue=false;
+    if (active) { wake_workers(); }
     for (unsigned i=0;i<worker_count;++i) {
         struct smp_worker *w=&smp_workers[i];
         if (w->stack_top && !reap_offline(w)) {
@@ -374,7 +420,10 @@ bool smp_shutdown(void)
             retained|=w->stack_top!=0;
         }
     }
-    return !retained && release_ipi() && clean;
+    if (retained) { return false; }
+    queue.lock=(struct smp_lock){0};
+    queue_unverified=false;
+    return release_ipi() && clean;
 }
 
 static void park_workers(unsigned mask)
@@ -426,15 +475,23 @@ static void information(void)
         console_write("\n");
     }
     if (batch_mask) {
-        unsigned ready=0,count=0;
+        unsigned ready=0,count=0,completed=0;
+        uint64_t request=sequence|(batch_queue ? QUEUE_BIT : 0);
         for (unsigned i=0;i<worker_count;++i) {
             if (!(batch_mask&(1u<<i))) { continue; }
             ++count;
-            ready+=acquire(&smp_workers[i].reply)==sequence;
+            ready+=acquire(&smp_workers[i].reply)==request;
+            if (batch_queue) { completed+=(unsigned)acquire(&smp_workers[i].queue_jobs); }
         }
-        console_write("Secondary batch=");console_u64(sequence);
+        if (batch_queue) {
+            console_write("Secondary queue jobs=");console_u64(queue.total);
+            console_write(" completed=");console_u64(completed);
+        } else {
+            console_write("Secondary batch=");console_u64(sequence);
+        }
         console_write(" replies=");console_u64(ready);console_write("/");console_u64(count);console_write("\n");
     }
+    if (queue_unverified) { console_write("Secondary queue requires smpstop before reuse.\n"); }
 }
 
 static unsigned resident_mask(void)
@@ -588,21 +645,33 @@ static void ipi_test(unsigned mask,unsigned op)
     console_u64(replies);console_write("\n");
 }
 
-static bool submit_batch(unsigned rounds)
+static bool submit_batch(unsigned rounds,bool shared)
 {
     if (sequence==MAX_SEQUENCE) { console_write("Secondary CPU sequence exhausted.\n");return false; }
+    if (shared && (queue_unverified || !smp_lock_idle(&queue.lock))) {
+        console_write("Secondary queue requires smpstop before reuse.\n");return false;
+    }
     unsigned mask=0;
     for (unsigned i=0;i<worker_count;++i) {
         if (online(&smp_workers[i])) { mask|=1u<<i; }
     }
     if (!mask) { console_write("Start secondary CPUs with smpstart.\n");return false; }
-    uint64_t request=++sequence;
+    if (shared) {
+        queue.total=rounds;
+        queue.next=0;
+        for (unsigned i=0;i<rounds;++i) { queue.owners[i]=0;queue.results[i]=0; }
+        if (!rounds && !smp_lock_acquire(&queue.lock,SMP_LOCK_BOOT,timer_ticks(),timer_frequency())) {
+            console_write("Secondary queue lock unavailable.\n");return false;
+        }
+    }
+    uint64_t request=++sequence|(shared ? QUEUE_BIT : 0);
     batch_mask=mask;
+    batch_queue=shared;
     for (unsigned i=0;i<worker_count;++i) {
         if (!(mask&(1u<<i))) { continue; }
         struct smp_worker *w=&smp_workers[i];
-        w->seed=(request<<16)^w->affinity^STACK_CANARY;
-        w->rounds=rounds;
+        if (shared) { publish(&w->queue_jobs,0); }
+        else { w->seed=(request<<16)^w->affinity^STACK_CANARY;w->rounds=rounds; }
         publish(&w->request,request);
     }
     wake_workers();
@@ -619,10 +688,53 @@ static bool await_reply(struct smp_worker *w,uint64_t request,uint64_t start,uin
     return false;
 }
 
+static bool verify_queue(unsigned mask,uint64_t request)
+{
+    if (queue.next!=queue.total) { return false; }
+    unsigned jobs[SMP_WORKER_LIMIT]={0};
+    for (unsigned i=0;i<queue.total;++i) {
+        unsigned slot=(unsigned)queue.owners[i]-1;
+        if (slot>=worker_count || !(mask&(1u<<slot)) || queue.results[i]!=checksum(request+i)) { return false; }
+        ++jobs[slot];
+    }
+    for (unsigned i=0;i<worker_count;++i) {
+        if ((mask&(1u<<i)) && jobs[i]!=acquire(&smp_workers[i].queue_jobs)) { return false; }
+    }
+    for (unsigned i=0;i<worker_count;++i) {
+        if (!(mask&(1u<<i))) { continue; }
+        struct smp_worker *w=&smp_workers[i];
+        w->verified+=jobs[i];
+        cpu_label(w);console_write("queue_jobs=");console_u64(jobs[i]);console_write("\n");
+    }
+    return true;
+}
+
+static void collect_queue(unsigned mask,uint64_t request,unsigned workers,bool cancel,bool pass)
+{
+    bool lock_test=!queue.total;
+    if (lock_test) { smp_lock_release(&queue.lock,SMP_LOCK_BOOT); }
+    if (!smp_lock_idle(&queue.lock)) { queue_unverified=true; }
+    pass=pass && !queue_unverified;
+    if (lock_test) {
+        bool acquired=pass && smp_lock_acquire(&queue.lock,SMP_LOCK_BOOT,timer_ticks(),timer_frequency());
+        if (acquired) { smp_lock_release(&queue.lock,SMP_LOCK_BOOT); }
+        console_write(acquired ? "PASS: SMP lock timed out and was reacquired. Worker timeouts=" :
+                                 "FAIL: SMP lock timeout or reuse. Verified worker timeouts=");
+        console_u64(workers);console_write("\n");
+    } else if (cancel) {
+        console_write(pass ? "Secondary queue cancelled.\n" : "FAIL: secondary queue cancellation.\n");
+    } else if (pass && verify_queue(mask,request)) {
+        console_write("PASS: SMP queue verified jobs=");console_u64(queue.total);
+        console_write(" workers=");console_u64(workers);console_write("\n");
+    } else {
+        console_write("FAIL: SMP queue results or cleanup differ.\n");
+    }
+}
+
 static void collect_batch(bool cancel)
 {
     if (!batch_mask) { console_write("No secondary batch.\n");return; }
-    uint64_t request=sequence;
+    uint64_t request=sequence|(batch_queue ? QUEUE_BIT : 0);
     if (cancel) {
         /* A unique acknowledgement prevents an earlier cancel satisfying this one. */
         request|=CANCEL_BIT;
@@ -637,30 +749,37 @@ static void collect_batch(bool cancel)
         if (!(batch_mask&(1u<<i))) { continue; }
         ++count;
         struct smp_worker *w=&smp_workers[i];
-        bool good=await_reply(w,request,start,hz);
+        bool acknowledged=await_reply(w,request,start,hz);
+        bool good=acknowledged;
         if (good && !cancel) {
-            uint64_t expected=w->seed;
-            for (unsigned round=0;round<w->rounds;++round) { expected=checksum(expected); }
-            good=w->result==expected;
+            if (batch_queue) { good=w->result==1; }
+            else {
+                uint64_t expected=w->seed;
+                for (unsigned round=0;round<w->rounds;++round) { expected=checksum(expected); }
+                good=w->result==expected;
+            }
         }
         if (!good) {
             cpu_label(w);console_write("work or stack verification failed.\n");
-            w->retained=true;
+            if (!batch_queue || !acknowledged) { w->retained=true; }
+            if (batch_queue && !acknowledged) { queue_unverified=true; }
             continue;
         }
         ++verified;
-        if (cancel) { continue; }
+        if (cancel || batch_queue) { continue; }
         ++w->verified;
         cpu_label(w);console_write("job=");console_u64(request);
         console_write(" ticks=");console_u64(w->job_ticks);console_write("\n");
     }
-    batch_mask=0;
     bool pass=verified==count;
-    if (cancel) { console_write(pass ? "Secondary batch cancelled.\n" : "FAIL: secondary batch cancellation.\n"); }
+    if (batch_queue) { collect_queue(batch_mask,request,verified,cancel,pass); }
+    else if (cancel) { console_write(pass ? "Secondary batch cancelled.\n" : "FAIL: secondary batch cancellation.\n"); }
     else {
         console_write(pass ? "PASS: secondary checksum jobs=" : "FAIL: secondary checksum jobs=");
         console_u64(count);console_write("\n");
     }
+    batch_mask=0;
+    batch_queue=false;
 }
 
 static void test_fault(unsigned mask)
@@ -681,7 +800,7 @@ static void test_fault(unsigned mask)
 static unsigned select_workers(const char *arg)
 {
     if (!*arg) { return (1u<<worker_count)-1; }
-    if (arg[0]!='0' || arg[1]!='x' || !arg[2]) { return 0; }
+    if (arg[0]!='0' || (arg[1]!='x' && arg[1]!='X') || !arg[2]) { return 0; }
     uint64_t affinity=0;
     for (arg+=2;*arg;++arg) {
         unsigned digit=(unsigned)(*arg-'0');
@@ -697,10 +816,10 @@ static unsigned select_workers(const char *arg)
 
 bool smp_command(const char *line,const void *dtb)
 {
-    enum { START,INFO,TEST,FAULT,STOP,PARK,SUBMIT,WAIT,CANCEL,IRQ,IPI,TLB,COMMAND_COUNT };
+    enum { START,INFO,TEST,FAULT,STOP,PARK,SUBMIT,WAIT,CANCEL,IRQ,IPI,TLB,QUEUE,LOCK,COMMAND_COUNT };
     static const char *const commands[COMMAND_COUNT]={
         "smpstart","smpinfo","smptest","smpfault","smpstop","smppark","smpsubmit","smpwait","smpcancel",
-        "smpirq","smpipi","smptlb"
+        "smpirq","smpipi","smptlb","smpqueue","smplock"
     };
     unsigned cmd=0;
     const char *arg=line;
@@ -718,9 +837,10 @@ bool smp_command(const char *line,const void *dtb)
     bool map=cmd==TLB && arg[0]=='m' && arg[1]=='a' && arg[2]=='p' && !arg[3];
     if (cmd==IRQ && !(enable || disable)) { console_write("Usage: smpirq on|off\n");return true; }
     if (cmd==TLB && *arg && !map) { console_write("Usage: smptlb [map]\n");return true; }
-    unsigned rounds=1;
-    if (*arg && !targeted && cmd!=IRQ && !map && (cmd!=SUBMIT || !app_args_uint(arg,MAX_ROUNDS,&rounds) || !rounds)) {
-        console_write("Invalid SMP arguments. smpsubmit accepts 1..1024 rounds.\n");return true;
+    unsigned rounds=cmd==QUEUE ? QUEUE_DEFAULT : 1;
+    if (*arg && !targeted && cmd!=IRQ && !map &&
+        ((cmd!=SUBMIT && cmd!=QUEUE) || !app_args_uint(arg,cmd==QUEUE ? QUEUE_LIMIT : MAX_ROUNDS,&rounds) || !rounds)) {
+        console_write("Invalid SMP arguments. smpsubmit accepts 1..1024 rounds, smpqueue accepts 1..256 jobs.\n");return true;
     }
     if (cmd==STOP) {
         console_write(smp_shutdown() ? "Secondary CPU stacks released.\n" : "Some secondary CPU stacks are retained.\n");
@@ -736,7 +856,7 @@ bool smp_command(const char *line,const void *dtb)
     if (!discover(dtb)) { return true; }
     unsigned mask=targeted ? select_workers(arg) : 0;
     if (targeted && !mask) {
-        console_write("Unknown secondary CPU affinity. Use smpinfo and a 0x value.\n");return true;
+        console_write("Unknown secondary CPU affinity. Use smpinfo and a hexadecimal value.\n");return true;
     }
     if (cmd==START) {
         unsigned count=0;
@@ -753,8 +873,9 @@ bool smp_command(const char *line,const void *dtb)
     else if (cmd==IPI || cmd==TLB) {
         ipi_test(cmd==IPI && *arg ? mask : resident_mask(),cmd==IPI ? IPI_PING : map ? IPI_MAP : IPI_TLB);
     }
-    else if (submit_batch(rounds)) {
-        if (cmd==TEST) { collect_batch(false); }
+    else if (submit_batch(cmd==LOCK ? 0 : rounds,cmd==QUEUE || cmd==LOCK)) {
+        if (cmd==TEST || cmd==LOCK) { collect_batch(false); }
+        else if (cmd==QUEUE) { console_write("Secondary queue submitted. Use smpwait or smpcancel.\n"); }
         else { console_write("Secondary batch submitted. Use smpwait or smpcancel.\n"); }
     }
     return true;

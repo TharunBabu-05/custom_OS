@@ -146,6 +146,11 @@ five pages. Separate runs reclaimed them with `smpirq off` and `smpstop`.
 Both Pi builds fit with 32 KiB before the firmware device tree.
 All 99 package payload hashes matched the v5 image.
 
+The Pi passed `smptlb` and all five `smptlb map` stages with three
+online workers. Both attempts to park a worker were rejected. The
+Phase 45 test includes the parked and fault-parked cases and final
+resource and storage checks. [Pi capture](../proofs/pi5-smp-page-remap-2026-11-26.txt)
+
 ### Run Phase 44 on Pi 5
 
 Power off the Pi and connect its boot pendrive to Windows. Run this
@@ -211,4 +216,104 @@ should be off, allocated pages should match the first `meminfo`,
 
 If a remap reports retained pages, run `smpirq off`, `smpstop`,
 `meminfo`, `resinfo`, `storagetest`, and `datacheck` and save the
-UART output. Phase 44 Pi verification is pending.
+UART output.
+
+## Phase 45 Shared worker queue
+
+The workers draw jobs from one shared queue. A bounded lock protects
+job claims, and each worker computes its own results outside the lock.
+The lock uses Lamport's bakery algorithm with one aligned atomic word
+per CPU and a wait deadline. It uses ordered loads and stores in the
+Normal-NC memory profile. [Lamport's paper](https://lamport.azurewebsites.net/pubs/bakery.pdf)
+
+| Monitor command | Behavior |
+| --- | --- |
+| `smplock` | Hold the lock on the boot CPU, wait for every online worker to time out, then verify that the lock can be acquired again. |
+| `smpqueue [JOBS]` | Submit 1 to 256 checksum jobs to the online workers and return to the monitor. Defaults to 64. |
+| `smpinfo` | Show completed queue jobs and worker replies while a batch is outstanding. |
+| `smpwait` | Verify the checksum and owner of every queue entry, then report each worker's contributions. |
+| `smpcancel` | Discard the queue and wait for workers to acknowledge cancellation. |
+
+If a worker fails to acknowledge completion or cancellation, the monitor
+reserves the queue state until `smpstop` verifies worker shutdown. Affinity
+arguments now accept both `0x` and `0X`. The boot CPU owns EL0 scheduling.
+The `workers=` count reports workers that acknowledged the batch. Each
+`queue_jobs=` line reports that worker's actual contribution.
+
+### Phase 45 verification
+
+Four-core Cortex-A53 and Cortex-A76 QEMU runs passed lock timeouts,
+queue bounds, exact result verification, parked-worker exclusion,
+cancellation, and shutdown. The worker lifecycle, remap, Core OS,
+timer, and storage checks also passed. The lock object uses Armv8.0
+`LDAR` and `STLR` for the tickets.
+
+A scratch build paused a worker inside a claim to test cancellation
+while a queue was unfinished. A second fault stopped a worker while
+it held the lock. Queue submission was refused until `smpstop`
+verified shutdown, and a new queue passed after restart in QEMU.
+Both Pi builds fit with 28 KiB before the firmware device tree.
+All 99 package payload hashes matched the verified image.
+
+### Run Phase 45 on Pi 5
+
+Power off the Pi and connect its boot pendrive to Windows. From the
+project folder, run this in PowerShell. The preview selects `OUROS.IMG`
+and `SHELL.ELF` on a Phase 44 boot volume.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase45-smp-work-queue-boot-update.zip'
+$volumes = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.VolumeLabel -eq 'OUROSBOOT' })
+if ($volumes.Count -ne 1) { throw 'Connect exactly one OUROSBOOT pendrive.' }
+$boot = $volumes[0].Name
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg
+if ($LASTEXITCODE -eq 0) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg -Apply
+}
+```
+
+Safely eject the pendrive and boot the Pi. Type `exit` at `user:/$`.
+Enter the following commands at the monitor `>` prompt, one line at a time.
+
+```text
+meminfo
+resinfo
+smpstart
+smplock
+smpqueue 256
+smpinfo
+smpwait
+smpirq on
+smppark 0X200
+smptlb
+smptlb map
+smpinfo
+smplock
+smpqueue 23
+smpwait
+smpfault 0x300
+smptlb map
+smpstart 0X200
+smpstart 0x300
+smpqueue 64
+smpcancel
+smpqueue 32
+smpwait
+timertest
+smpirq off
+smpstop
+cpustate
+meminfo
+resinfo
+fileinfo
+storagetest
+datacheck
+```
+
+The lock check should report three timeouts before parking and two
+after parking. The queues should verify `256 workers=3`,
+`23 workers=2`, and `32 workers=3`. The parked core should appear in
+`smpinfo` and both remaps should report `4/4/4/4/4`. After cancellation,
+the next queue should pass. After `smpstop`, all three workers should
+be off, page allocations and resource claims should match the baseline,
+and the storage checks should pass. Phase 45 Pi verification is pending.

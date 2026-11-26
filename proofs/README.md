@@ -1,5 +1,11 @@
 # Real Raspberry Pi 5 proof
 
+Phase 44 passed all four TLB acknowledgements and all five remap
+stages on the Pi. The three workers were online. The park command
+with an uppercase `0X` prefix was rejected, so Phase 45 includes the
+parked and fault-parked cases and the final cleanup checks.
+[Phase 44 capture](pi5-smp-page-remap-2026-11-26.txt)
+
 Phase 43 verified the targeted and broadcast IPIs, timer delivery
 with zero unexpected IRQs, SGI claim release, and secondary shutdown.
 The Pi returned to two allocated pages and eight resource claims.

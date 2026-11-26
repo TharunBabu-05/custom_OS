@@ -1,0 +1,21 @@
+Raspberry Pi 5 Phase 44 UART excerpt supplied by the user
+2026-11-26, rpi5-header, SanDisk Cruzer Blade, v5 generation 41
+The three secondaries were online for both TLB checks. The attempted park used an unsupported 0X prefix in this build.
+
+> smpstart
+Secondary CPU 0x0000000000000100 online at EL1, entered EL2.
+Secondary CPU 0x0000000000000200 online at EL1, entered EL2.
+Secondary CPU 0x0000000000000300 online at EL1, entered EL2.
+Secondary CPUs online=3
+> smpirq on
+Secondary SGI routes ready.
+> smpark 0x200
+Unknown command. Type help.
+> smppark 0X200
+Unknown secondary CPU affinity. Use smpinfo and a 0x value.
+> smptlb
+PASS: SMP TLB invalidations=4
+> smptlb map
+SMP map CPUs A/unmapped/B/revoked/restored=4/4/4/4/4
+PASS: SMP remap, EL1 read-only and EL0 denial, roots and pages restored.
+>
