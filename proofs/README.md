@@ -1,5 +1,25 @@
 # Real Raspberry Pi 5 proof
 
+Phase 41 brought up all three secondaries, ran checksum jobs, and isolated
+the breakpoint test. A subsequent firmware restart stayed pending at
+affinity `0x100`, so the kernel retained one stack page. USB reads and both
+v5 banks passed. [Phase 41 capture](pi5-secondary-cores-2026-11-26.txt)
+
+Phase 40 passed irreversible process restrictions, inheritance through
+spawn and exec, and restricted pipeline output. The service rejected
+descriptor transfers and answered plain IPC before and after restart.
+Final checks showed no listeners or open files and valid v5 generations
+41 and 40. [Phase 40 capture](pi5-process-permissions-2026-11-26.txt)
+
+Phase 39 passed all eleven process rows, three service echoes, dependent
+shutdown, and an independent service restart with a new PID. Final checks
+showed zero listeners and open files, and verified v5 generation 41.
+[Phase 39 capture](pi5-services-2026-11-26.txt)
+
+Phase 38 passed the event-wait and concurrent echo checks. Each shell
+collected every child. Shutdown released the listener and all handles,
+and the Pi confirmed v5 generation 41. [Phase 38 capture](pi5-event-wait-2026-11-26.txt)
+
 Phase 37 passed the named IPC tests with all seven children reaped.
 The supervised echo service answered from the shell and again from the
 monitor. Shutdown left zero listeners and file handles, and the Pi

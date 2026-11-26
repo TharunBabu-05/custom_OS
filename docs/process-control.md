@@ -478,3 +478,282 @@ Phase 36 VM suites also passed using the Phase 36 disk. The Windows updater
 passed installation and rollback checks. The Pi passed CHANCHK and both
 echo calls. Service shutdown left zero listeners and open files, and the
 storage checks matched v5 generation 41. [Pi capture](../proofs/pi5-named-ipc-2026-11-26.txt)
+
+## Phase 38 Event waits
+
+`uos_event_wait(entries, count, wait_ms)` watches up to nine sources in
+one syscall. Each `struct uos_event` describes a source, an object ID and
+requested flags. The syscall fills `revents` and returns the number of
+ready rows. A zero timeout samples immediately. A positive timeout waits
+up to 10,000 ms and returns zero if the deadline expires.
+
+| Source | Object | Readiness |
+| --- | --- | --- |
+| `UOS_EVENT_LISTENER` | Owned listener token | `READ` when a connection request can be accepted. |
+| `UOS_EVENT_CHANNEL` | Owned channel token | `READ` for a queued message and `WRITE` for free space in the admitted peer's inbox. |
+| `UOS_EVENT_MAILBOX` | Parent or child PID, or zero for any direct message | `READ` for a matching direct message. |
+| `UOS_EVENT_CHILD` | Direct child PID | `READ` when a stop outcome is ready to collect. |
+| `UOS_EVENT_SIGNAL` | Zero | `READ` while `SIGUSR1` is pending. |
+
+Closed and inaccessible sources return `HANGUP`, including when the row
+requested only `READ` or `WRITE`. An unadmitted channel becomes readable
+or writable after the server accepts it and the corresponding condition
+is true. Each event is a snapshot. Use the existing accept, receive, wait
+or signal call to act on it. A pending `SIGUSR1` returns `UOS_EINTR` when
+the wait set has no signal row.
+
+The scheduler copies the wait set before blocking and validates the output
+pages again on wake. Revoking a shared output mapping returns `UOS_EFAULT`.
+`ps` shows blocked event waits as `ipc-recv`.
+
+`IPCECHO.ELF` now waits for its listener and all active channels together.
+It accepts new clients while established channels are idle or waiting for
+inbox space. Each channel has its own three-second idle deadline and reply.
+
+### Try the Phase 38 update on Pi
+
+With the Pi powered off and the boot pendrive mounted as `D:\`, run the
+following in Windows PowerShell from the project folder.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase38-event-wait-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject and boot the Pi. At `user:/$`, run each command separately.
+Wait for the event-wait PASS and `child exit=0` before entering `exit`.
+
+```text
+run /boot/EVENTCHK.ELF
+exit
+```
+
+At the monitor `>` prompt, start the echo server and reopen the shell.
+
+```text
+svc start /boot/IPCECHO.ELF serve eventdemo
+appshell
+```
+
+At `user:/$`, run the two-client check. The first client holds its
+connection open while a second process connects and exchanges a message.
+Expect `PASS: echo multiplexed two independent clients.`
+
+```text
+run /boot/EVENTCHK.ELF echo eventdemo
+ports
+exit
+```
+
+At `>`, stop the service and verify cleanup.
+
+```text
+svc stop
+appexec /boot/PORTS.ELF
+fileinfo
+storagetest
+datacheck
+```
+
+Expect `No listening ports.`, zero open files, a read-only storage PASS
+and `matches_mounted=yes`.
+
+Both QEMU profiles passed the event-wait and two-client checks. They
+also passed the Core OS, named IPC and file-mapping suites. The event
+tests reaped all child processes, released all handles and listeners,
+and matched the original disk hash. The Windows updater passed install,
+readback and rollback. The Pi passed both checks, restored all process
+resources, and confirmed the mounted v5 generation 41.
+[Pi capture](../proofs/pi5-event-wait-2026-11-26.txt)
+
+## Phase 39 Named services
+
+The monitor supervises up to three named EL0 services. The scheduler
+runs them alongside foreground jobs and rotates running services when
+the monitor is idle. A service's kernel process record uses pages
+allocated at launch and released on shutdown.
+
+| Monitor command | Result |
+| --- | --- |
+| `svc start -n NAME ELF [arguments]` | Registers and starts a service. Names accept up to 15 lowercase letters, digits, dots, underscores or hyphens. |
+| `svc start -n NAME -d PROVIDER ELF [arguments]` | Starts a service with a running prerequisite. When the provider stops or exits, its dependent services stop in dependency order. |
+| `svc list` | Lists configured names, dependencies, state, PIDs, launch and restart counts, and last stop details. |
+| `svc status NAME` | Displays one service. |
+| `svc stop NAME` | Stops a service and its dependents. |
+| `svc restart NAME` | Loads the saved command and working directory with a fresh PID and retry budget. Its dependents can restart after the provider is running again. |
+
+`svc start ELF [arguments]`, `svc` and `svc stop` address the default
+service and use one of the three slots. Each service retries an
+unsuccessful exit up to twice, with a 250 ms delay. A dependency tracks
+its provider's process lifetime. An application can use `ports` to see
+when a program has published its IPC listener. Stopped entries retain
+their configuration and outcome until the slot is reused.
+
+`ps -l` uses the 3712-byte version 4 process snapshot. It can show all
+eight foreground slots and three services in one read. Version 1
+through 3 process snapshot callers retain their original sizes. A
+service reading a snapshot sees its own row.
+
+### Try the Phase 39 update on Pi
+
+With the Pi powered off and the boot pendrive mounted as `D:\`, run
+these commands from the project folder in Windows PowerShell.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase39-services-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject and boot the Pi. Enter `exit` at `user:/$`. Run each line
+separately at the monitor `>` prompt.
+
+```text
+svc start -n alpha /boot/IPCECHO.ELF serve alpha
+svc start -n beta -d alpha /boot/IPCECHO.ELF serve beta
+svc start -n gamma /boot/IPCECHO.ELF serve gamma
+svc list
+appshell
+```
+
+Expect three active services. At `user:/$`, the pipeline should show
+eleven process rows, including three marked `service`. Then exchange
+one message with each service.
+
+```text
+ps -l | cat | cat | cat | cat | cat | cat
+ipcecho call alpha one
+ipcecho call beta two
+ipcecho call gamma three
+exit
+```
+
+At `>`, stop `alpha` and verify its dependent `beta` stopped.
+Restart the independent `gamma`, then query it and check cleanup.
+
+```text
+svc stop alpha
+svc status beta
+svc restart gamma
+svc status gamma
+appexec /boot/IPCECHO.ELF call gamma restarted
+svc stop gamma
+appexec /boot/PORTS.ELF
+fileinfo
+storagetest
+datacheck
+```
+
+Expect `beta` to show `enabled=no active=no`, `gamma` to show
+`launches=2 restarts=1` with a new PID, and `IPC echo matched: restarted`.
+After shutdown, expect `No listening ports.`, zero file handles, a storage
+PASS and `matches_mounted=yes`.
+
+The service suite passed on Cortex-A53/EL1 and Cortex-A76/EL2. It saw
+all eleven process rows during a seven-stage pipeline, verified
+independent and dependency-controlled restarts, and returned to the
+initial page and handle counts. Both profiles also passed the Core OS,
+event-wait, process capacity and process-tree regressions. The
+Windows updater passed installation and rollback. Its Phase 38
+preview lists `OUROS.IMG` and `PS.ELF`. The Pi showed all eleven process
+rows, collected all ten foreground children, stopped `beta` with `alpha`,
+and restarted `gamma` from PID 5 to PID 17. The restarted service replied
+over IPC. The final checks showed zero listeners and open files, a
+read-only storage PASS, and both v5 banks valid at generations 41 and 40.
+[Pi capture](../proofs/pi5-services-2026-11-26.txt)
+
+## Phase 40 Process permissions
+
+An EL0 process carries a permission mask. Its children and pipeline
+stages inherit the mask. `exec` retains it, and the supervisor uses the
+configured mask on launch, retry, and restart. Ordinary launches use all
+four permissions unless a restricted parent or explicit launch mask
+sets fewer. Add the values of the permissions the process needs.
+
+| Value | Permission |
+| --- | --- |
+| `1` | Change files or directories, including redirected file output. |
+| `2` | Open and use UDP and TCP sockets. |
+| `4` | Launch children or pipelines, subject to process limits. |
+| `8` | Send and receive file descriptors through IPC. Writable descriptors also require `1` at both ends. |
+
+With mask `0`, an app can read files, use the terminal and pass plain
+IPC messages. A process can inspect its own mask or a direct child's
+mask. It can permanently drop its own permissions with
+`uos_policy_restrict()`. The kernel then closes any revoked writable
+handles or sockets and discards queued attachments the recipient can
+no longer accept. Other processes keep descriptors they already received.
+A denied operation returns `UOS_EACCES`.
+
+`policy [PID]` shows the mask at the EL0 shell. `runlim MASK PROGRAM
+[args]` runs a child with a subset of the shell's permissions. At the
+monitor, `svc start -n NAME [-d PROVIDER] -m MASK ELF [args]` configures a
+restricted supervised service. `svc status` shows its configured launch
+mask as `permissions=`.
+
+### Try the Phase 40 update on Pi
+
+Power off the Pi and connect its boot pendrive to Windows. Run these
+lines from the project folder. They find the `OUROSBOOT` volume, preview
+the update, and apply it after the preview succeeds.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase40-process-policy-boot-update.zip'
+$volumes = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.VolumeLabel -eq 'OUROSBOOT' })
+if ($volumes.Count -ne 1) { throw 'Connect exactly one OUROSBOOT pendrive.' }
+$boot = $volumes[0].Name
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg
+if ($LASTEXITCODE -eq 0) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg -Apply
+}
+```
+
+Safely eject the pendrive, boot the Pi, and enter each line separately at
+`user:/$`.
+
+```text
+policy
+run /boot/LIMCHK.ELF
+runlim 0 /boot/LIMCHK.ELF locked
+policy
+exit
+```
+
+Both `policy` calls should show `policy mask=15`. The two app runs should
+print PASS lines and return `child exit=0`.
+
+At the monitor `>` prompt, check inherited pipeline permissions, start a
+restricted echo service, and check it again after a restart.
+
+```text
+appexec /boot/LIMCHK.ELF pipeline
+svc start -n limited -m 0 /boot/LIMCHK.ELF service limited
+svc status limited
+appexec /boot/LIMCHK.ELF client limited
+svc restart limited
+svc status limited
+appexec /boot/LIMCHK.ELF client limited
+svc stop limited
+appexec /boot/PORTS.ELF
+fileinfo
+storagetest
+datacheck
+```
+
+Expect a pipeline PASS and two echo PASS lines. Both service status lines
+should show `permissions=0`. The second should show a new PID and
+`launches=2 restarts=1`. The final checks should show no listening ports,
+zero open files, a read-only storage PASS, and `matches_mounted=yes`.
+
+The permission suite passed on Cortex-A53/EL1 and Cortex-A76/EL2, with
+zero open files or listeners after shutdown and matching disk hashes.
+Both profiles passed the Core OS, descriptor, named IPC, event-wait,
+service, UDP, and TCP regression suites. All 99 ZIP payload hashes matched
+the tested image. The Windows updater passed preview, write verification,
+and rollback. The Phase 39 preview adds `LIMCHK.ELF` and replaces
+`OUROS.IMG` and `SHELL.ELF`. The Pi passed all permission checks. The
+shell reaped all six children and kept mask 15. The restricted service
+kept mask 0 across a restart from PID 12 to PID 14. Shutdown released
+all listeners and handles, and both data banks passed validation.
+[Pi capture](../proofs/pi5-process-permissions-2026-11-26.txt)

@@ -62,6 +62,12 @@ bool mmu_ensure_enabled(void)
     if (!mmu_enabled()) { initialize(); }
     return state.active && readback();
 }
+bool mmu_enable_secondary(void)
+{
+    if (!state.active) { return false; }
+    mmu_arch_enable(tables.physical,state.tcr,MMU_MAIR);
+    return readback();
+}
 static void information(void)
 {
     console_write("MMU: ");console_write(!mmu_enabled() ? "off (run mmuinit)" : state.active && readback() ? "on; verified identity profile" : "on; UNRECOGNIZED profile");

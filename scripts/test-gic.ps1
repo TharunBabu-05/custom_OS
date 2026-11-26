@@ -10,6 +10,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'QEMU EL1 GIC/timer DT generation failed' }
     & $QemuExe -machine virt-9.2,virtualization=on,secure=off,dumpdtb=build/irq-tests/virt-el2.dtb -cpu cortex-a76 -smp 1 -m 128 -display none
     if ($LASTEXITCODE -ne 0) { throw 'QEMU EL2 GIC/timer DT generation failed' }
-    & ./build/irq-tests/test-gic.exe .dist/rpi5-firmware/bcm2712-rpi-5-b.dtb build/irq-tests/virt-el1.dtb build/irq-tests/virt-el2.dtb
+    & $QemuExe -machine virt-9.2,virtualization=on,secure=off,dumpdtb=build/irq-tests/virt-el2-smp.dtb -cpu cortex-a76 -smp 4 -m 128 -display none
+    if ($LASTEXITCODE -ne 0) { throw 'QEMU four-core EL2 GIC/timer DT generation failed' }
+    & ./build/irq-tests/test-gic.exe .dist/rpi5-firmware/bcm2712-rpi-5-b.dtb build/irq-tests/virt-el1.dtb build/irq-tests/virt-el2.dtb build/irq-tests/virt-el2-smp.dtb
     if ($LASTEXITCODE -ne 0) { throw 'GIC host tests failed' }
 } finally { Pop-Location }

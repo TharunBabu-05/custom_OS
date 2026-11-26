@@ -2,8 +2,7 @@
 #include "console.h"
 #include "irq.h"
 #include "mmu.h"
-
-#define PSCI_AFFINITY_INFO 0xc4000004u
+#include "smp.h"
 
 static bool equal(const char *a,const char *b)
 {
@@ -14,9 +13,7 @@ static bool equal(const char *a,const char *b)
 static void topology(const void *dtb,bool query)
 {
     struct arm_topology discovered;
-    uint64_t boot;
-    __asm__ volatile("mrs %0, mpidr_el1" : "=r"(boot));
-    boot&=ARM_AFFINITY_MASK;
+    uint64_t boot=arm_cpu_affinity();
     console_write("Running CPU affinity="); console_hex(boot); console_write("\n");
     if (!arm_topology_read(dtb,0x200000,&discovered)) {
         console_write("CPU topology unavailable.\n");
@@ -123,5 +120,5 @@ bool arm_platform_command(const char *line,const void *dtb)
     if (equal(line,"cpulist") || equal(line,"cpustate")) { topology(dtb,line[3]=='s'); return true; }
     if (equal(line,"cacheinfo")) { cache_info(); return true; }
     if (equal(line,"atomictest")) { atomic_test(); return true; }
-    return false;
+    return smp_command(line,dtb);
 }

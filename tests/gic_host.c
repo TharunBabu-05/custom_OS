@@ -195,7 +195,12 @@ static void dt(const char *path,bool pi)
     struct gic_description sentinel;memset(&sentinel,0xa5,sizeof(sentinel));
     for (size_t bytes=0;bytes<n;++bytes) { d=sentinel;assert(!gic_discover(board,data,bytes,&d) && !memcmp(&d,&sentinel,sizeof(d))); }
     const unsigned char *p;uint32_t bytes;assert(dt_property(data,n,"/timer","interrupts",&p,&bytes) && (bytes==48 || (!pi && bytes==60)));size_t offset=(size_t)(p-data);unsigned char old=data[offset+19];data[offset+19]=13;d=sentinel;assert(!gic_discover(board,data,n,&d) && !memcmp(&d,&sentinel,sizeof(d)));data[offset+19]=old;
-    if (bytes==60) { old=data[offset+55];data[offset+55]^=1;d=sentinel;assert(!gic_discover(board,data,n,&d) && !memcmp(&d,&sentinel,sizeof(d)));data[offset+55]=old; }
+    if (bytes==60) {
+        old=data[offset+55];data[offset+55]^=1;d=sentinel;
+        assert(!gic_discover(board,data,n,&d) && !memcmp(&d,&sentinel,sizeof(d)));data[offset+55]=old;
+        data[offset+58]^=2;d=sentinel;
+        assert(!gic_discover(board,data,n,&d) && !memcmp(&d,&sentinel,sizeof(d)));data[offset+58]^=2;
+    }
     if (!pi) {
         assert(dt_property(data,n,"/intc@8000000","reg",&p,&bytes));
         if (bytes==64) { size_t extra=(size_t)(p-data)+39;old=data[extra];data[extra]^=1;d=sentinel;assert(!gic_discover(board,data,n,&d) && !memcmp(&d,&sentinel,sizeof(d)));data[extra]=old; }
@@ -205,4 +210,10 @@ static void dt(const char *path,bool pi)
     free(mutated);free(data);printf("PASS: %s GIC/timer DT binding/translation/CPU mask discovery, every truncation, altered timer rejection, 2000 mutations and unchanged output on failure\n",board);
 }
 int main(int argc,char **argv)
-{ assert(argc==4);driver();failures();spi_routes();deferred_work();dt(argv[1],true);dt(argv[2],false);dt(argv[3],false);return 0; }
+{
+    assert(argc==5);
+    driver();failures();spi_routes();deferred_work();
+    dt(argv[1],true);
+    for (int i=2;i<argc;++i) { dt(argv[i],false); }
+    return 0;
+}

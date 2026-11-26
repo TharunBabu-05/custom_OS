@@ -1,5 +1,17 @@
 #include "app_args.h"
 #include "app_env.h"
+bool app_args_uint(const char *text,unsigned limit,unsigned *out)
+{
+    if (!*text) { return false; }
+    unsigned n=0;
+    for (;*text;++text) {
+        unsigned digit=(unsigned)(*text-'0');
+        if (digit>9 || digit>limit || n>(limit-digit)/10) { return false; }
+        n=n*10+digit;
+    }
+    *out=n;
+    return true;
+}
 static void clear(struct app_args *a)
 { unsigned char *p=(unsigned char *)a;for (size_t i=0;i<sizeof(*a);++i) { p[i]=0; } }
 static bool identifier(char c,bool first)

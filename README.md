@@ -32,9 +32,11 @@ The Windows updater previews and copies changed boot files to an existing drive,
 with verified backups for rollback. [Boot update guide](docs/boot-updates-tharun_verified.md)
 · [Pi capture](proofs/pi5-startup-v4chk-2026-11-21.txt)
 
-Project state: an early single-core OS with protected user applications, a
-serial shell and bounded persistent storage. MMU protection, GIC/timer IRQs,
-EL0 multitasking, USB writes and WPA3/DNS/Internet ping have Pi evidence.
+OurOS runs protected user applications, a serial shell, and bounded
+persistent storage on the boot core. MMU protection, GIC/timer IRQs,
+EL0 multitasking, USB writes, and WPA3/DNS/Internet ping have Pi evidence.
+Opt-in secondary CPU workers passed four-core QEMU tests.
+[Secondary CPU workers](docs/secondary-cpus.md)
 See the [current status and driver checklist](docs/os-status.md) and
 [remaining implementation order](docs/remaining-os-roadmap.md).
 

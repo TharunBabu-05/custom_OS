@@ -31,7 +31,12 @@ enum uos_syscall {
     UOS_SYS_PACKAGE_PATH=76,UOS_SYS_SCHED_GET=77,UOS_SYS_SCHED_SET=78,UOS_SYS_SPAWN_EX=79,
     UOS_SYS_VM_FILE=80,UOS_SYS_VM_PROTECT=81,UOS_SYS_VM_REVOKE=82,UOS_SYS_VM_INFO=83,
     UOS_SYS_PORT_LISTEN=84,UOS_SYS_PORT_CONNECT=85,UOS_SYS_PORT_ACCEPT=86,UOS_SYS_PORT_CLOSE=87,
-    UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91
+    UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91,
+    UOS_SYS_POLICY_GET=92,UOS_SYS_POLICY_RESTRICT=93,UOS_SYS_SPAWN_LIMITED=94
+};
+enum uos_permission {
+    UOS_ALLOW_FILE_WRITE=1,UOS_ALLOW_NETWORK=2,UOS_ALLOW_SPAWN=4,UOS_ALLOW_FD_PASS=8,
+    UOS_POLICY_ALL=UOS_ALLOW_FILE_WRITE|UOS_ALLOW_NETWORK|UOS_ALLOW_SPAWN|UOS_ALLOW_FD_PASS
 };
 enum { UOS_RANDOM_MAX=64 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
@@ -58,6 +63,7 @@ _Static_assert(sizeof(struct uos_memory_pressure)==48,"memory pressure ABI size"
 enum { UOS_PROCESS_MAX=3,UOS_PROCESS_VERSION=1,UOS_PROCESS_SELF=1,UOS_PROCESS_CHILD=2 };
 enum { UOS_PROCESS_MAX_V2=5,UOS_PROCESS_VERSION_V2=2 };
 enum { UOS_PROCESS_MAX_V3=9,UOS_PROCESS_VERSION_V3=3,UOS_PROCESS_SERVICE=4 };
+enum { UOS_PROCESS_MAX_V4=11,UOS_PROCESS_VERSION_V4=4 };
 enum { UOS_PIPE_STAGES=7,UOS_PIPE_APPEND=1 };
 enum uos_process_state {
     UOS_PROCESS_RUNNING=1,UOS_PROCESS_READY,UOS_PROCESS_SLEEPING,UOS_PROCESS_INPUT,
@@ -89,12 +95,18 @@ struct uos_process_table_v3 {
     uint32_t version,count;uint64_t caller_pid;
     struct uos_process_entry_v3 entries[UOS_PROCESS_MAX_V3];
 };
+/* Eight foreground slots and all three service slots. */
+struct uos_process_table_v4 {
+    uint32_t version,count;uint64_t caller_pid;
+    struct uos_process_entry_v3 entries[UOS_PROCESS_MAX_V4];
+};
 struct uos_child_info { uint64_t pid;uint32_t state,finished;int32_t exit_code;uint32_t reserved; };
 _Static_assert(sizeof(struct uos_process_entry)==312,"process entry ABI size");
 _Static_assert(sizeof(struct uos_process_table)==952,"process table ABI size");
 _Static_assert(sizeof(struct uos_process_table_v2)==1576,"process table v2 ABI size");
 _Static_assert(sizeof(struct uos_process_entry_v3)==336,"process entry v3 ABI size");
 _Static_assert(sizeof(struct uos_process_table_v3)==3040,"process table v3 ABI size");
+_Static_assert(sizeof(struct uos_process_table_v4)==3712,"process table v4 ABI size");
 _Static_assert(sizeof(struct uos_child_info)==24,"child info ABI size");
 enum { UOS_SCHED_LOW=1,UOS_SCHED_NORMAL=2,UOS_SCHED_HIGH=4 };
 /* Tick samples taken while EL0 is executing. Ready ticks count samples

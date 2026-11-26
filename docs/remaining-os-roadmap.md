@@ -1,9 +1,10 @@
 # Remaining operating-system work
 
-Current state: **an early single-core OS with protected EL0 applications, a
-serial shell and bounded persistent storage**. The MMU, exceptions, GIC/timer
-IRQs, cooperative kernel tasks, preempted user programs, USB writes, ELF loading
-and checked system calls are implemented and have Pi evidence.
+OurOS runs a serial shell, protected EL0 applications, and bounded persistent
+storage on the boot CPU. The MMU, exceptions, GIC/timer IRQs, cooperative
+kernel tasks, preempted user programs, USB writes, ELF loading, and checked
+system calls have Pi evidence. Opt-in secondary CPU workers have QEMU
+coverage. [Phase 41](secondary-cpus.md)
 
 The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes
 HEAPCHK and HEAPDEMO with exit 0, no remaining private pages and restored
@@ -38,10 +39,21 @@ terminal input. The Pi passed Phase 35's seven-stage pipeline and four-job
 run and Phase 36's private file snapshots, protection, revocation, and mapped
 binary transfer. The Pi passed Phase 37's named IPC, including connections
 across process trees, descriptor transfer, and echo before and after a shell
-exit. [Process trees](process-control.md#phase-33-process-trees)
+exit. The Pi passed Phase 38's multi-source waits and concurrent echo
+clients. The Pi passed Phase 39's service dependencies and independent
+restart. The Pi passed Phase 40's inherited and irreversible limits on
+four classes of process operations. Phase 41 brings up secondary CPUs
+as opt-in EL1 workers. The Pi verified initial startup and fault
+isolation. Firmware left a secondary pending on restart. Phase 42
+adds in-kernel worker recovery and cancellable work batches.
+[Process trees](process-control.md#phase-33-process-trees)
 · [EL0 scheduling](process-control.md#phase-34-el0-scheduling) · [Process capacity](process-control.md#phase-35-process-capacity)
 · [File mappings](user-memory.md#phase-36-file-snapshots-and-shared-views)
 · [Named IPC](process-control.md#phase-37-named-ipc)
+· [Event waits](process-control.md#phase-38-event-waits)
+· [Named services](process-control.md#phase-39-named-services)
+· [Process permissions](process-control.md#phase-40-process-permissions)
+· [Secondary CPU workers](secondary-cpus.md)
 
 ## Other open work
 
@@ -55,7 +67,7 @@ passed on Pi using RAMFS. Phase 28 passed its Pi descriptor and exec run.
 | Area | Open tasks |
 | --- | --- |
 | Processes and ABI | Eight foreground slots, four background jobs, a process snapshot with scheduler counters, and Pi-verified named IPC channels. Scheduling across CPUs remains open. |
-| Memory and concurrency | Phase 36 adds eager private file mappings and shared-view revocation. Broader lifecycle checks, demand paging, out-of-memory policy, IRQ-safe locking, cache maintenance for DMA, and per-core memory state remain open. Verify the exclusive atomic operations on a cacheable Pi mapping. |
+| Memory and concurrency | Phase 36 adds eager private file mappings and shared-view revocation. Phase 41 adds private secondary-core stacks and per-core records. Demand paging, out-of-memory policy, shared allocator locking, cache maintenance for DMA, and TLB shootdown remain open. Verify exclusive operations on a cacheable Pi mapping. |
 | Data and recovery | The Pi verified Phase 31 file recovery and Phase 32 v5 retention after a cold power cycle. Physical v4-to-v5 migration and interrupted-write recovery on spare media remain open. [Storage and apps](storage-apps.md) |
 | Apps and distribution | The Pi passed named-app install, upgrade, rollback, and uninstall, plus signed multi-file installation and dependency upgrade. [Storage and apps](storage-apps.md) |
 | Networking | Test Wi-Fi DHCP broadcast rebinding, AP group-key rotation, same-boot manual restart after cleanup, and intentional UDP timeout and recovery. Add wired DHCP and route selection across Wi-Fi and Ethernet, and verify link recovery and interface changes. Direct wired ARP, ICMP, UDP, and TCP have passed on the Pi. |
@@ -97,12 +109,12 @@ jobs, process trees and indefinite services are still work.
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Scheduling | Cooperative EL1 tasks, eight foreground EL0 slots, and one Pi-verified supervised service slot. Phase 35's pipeline and job controls passed on the Pi. | Service dependencies and multicore scheduling |
+| Scheduling | Cooperative EL1 tasks, eight foreground EL0 slots, and three supervised service slots with startup dependencies. The Pi verified named services, pipelines, and job controls. | Multicore scheduling |
 | Process memory | Private image, stack and heap pages, shared regions and private file snapshots, plus Pi-verified mapping controls | Broader lifecycle checks, copy-on-write and OOM policy |
 | Exceptions | Contained EL0 faults and deadlines, targeted signals, and structured stop records | Debugger integration and extended signal policies |
-| System calls | Checked file, terminal, process, and socket I/O, bounded blocking IPC, and rights-reducing file transfers over direct mail and named channels | Asynchronous storage and process credentials |
+| System calls | Checked file, terminal, process, and socket I/O, blocking IPC, local event waits, and Pi-verified inherited process permissions | Asynchronous storage and process credentials |
 | Executables | Static AArch64 ELF subset and compact runtime. The current shell adds command lists and bounded text scripts. [Shell workflows](shell-workflows.md) | Pi broader exec/update validation, stored-shell persistence, larger VM and broader toolchain tests |
-| Concurrency | Single active CPU; syscalls/drivers complete synchronously | Preemptive kernel synchronization, IRQ-safe driver queues, SMP startup/locking and multicore scheduling |
+| Concurrency | The boot CPU runs the scheduler and drivers. Up to three EL1 workers use private stacks, work mailboxes, and exception records. Phase 42 adds worker park/resume and asynchronous batches. | Phase 42 Pi acceptance, IRQ routing, SMP locking, TLB shootdown, and multicore scheduling |
 
 Acceptance should keep checking resource restoration, failure containment and
 storage integrity while expanding the scheduler. A larger application runtime

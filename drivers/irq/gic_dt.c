@@ -39,9 +39,10 @@ bool gic_discover(const char *board,const void *dtb,size_t bytes,struct gic_desc
     }
     if (!dt_property(dtb,bytes,"/timer","compatible",&p,&n) || !string_list(p,n,"arm,armv8-timer") ||
         !dt_property(dtb,bytes,"/timer","interrupts",&p,&n) || (n!=48 && (pi || n!=60)) || be32(p+12)!=1 || be32(p+16)!=14) { return false; }
-    if (n==60 && (be32(p+48)!=1 || be32(p+52)!=12 || be32(p+56)!=0x104)) { return false; }
     uint32_t flags=be32(p+20);if ((flags&15)!=4 && (flags&15)!=8) { return false; }if (flags&~0xff0fu) { return false; }
     if (!(flags&0x100)) { return false; } /* CPU0 wired according to DT PPI mask. */
+    /* QEMU uses the same CPU target mask for the optional EL2 virtual PPI. */
+    if (n==60 && (be32(p+48)!=1 || be32(p+52)!=12 || be32(p+56)!=((flags&0xff00u)|4u))) { return false; }
     if (dt_property(dtb,bytes,"/timer","status",&p,&n) && !((n==3 && same((const char *)p,"ok")) || (n==5 && same((const char *)p,"okay")))) { return false; }
     *out=result;return true;
 }

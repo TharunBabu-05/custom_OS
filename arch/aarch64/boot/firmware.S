@@ -1,3 +1,5 @@
+#include "el2.inc"
+
 /* AArch64 Image ABI used by Pi 5 firmware. See docs/rpi5-boot.md.
  * MMU and data cache must be off on entry; EL1 or EL2, little endian.
  * x0 (DTB) is preserved. EL3 is deliberately unsupported. */
@@ -36,18 +38,7 @@ firmware_entry:
     mrs x1, sctlr_el2
     tbnz x1, #0, .Lpark
     tbnz x1, #2, .Lpark
-    mov x1, #0x80000000           /* HCR_EL2.RW: EL1 uses AArch64; no stage 2. */
-    msr hcr_el2, x1
-    isb
-    mov x1, #3                   /* Allow EL1 physical counter/timer access. */
-    msr cnthctl_el2, x1
-    msr cntvoff_el2, xzr
-    msr vttbr_el2, xzr
-    msr hstr_el2, xzr
-    mov x1, #0x33ff              /* CPTR_EL2 RES1, no FP/sysreg traps. */
-    msr cptr_el2, x1
-    ldr x1, =0x30d00800          /* SCTLR_EL1 RES1; M/C/I clear. */
-    msr sctlr_el1, x1
+    prepare_el1 x1
     ldr x1, =__stack_top
     msr sp_el1, x1
     adr x1, .Lel1
@@ -75,6 +66,7 @@ firmware_entry:
     str xzr, [x1], #8
     b .Lzero
 .Lready:
+    msr tpidr_el1, xzr
     ldr x1, =exception_vectors
     msr vbar_el1, x1
     isb

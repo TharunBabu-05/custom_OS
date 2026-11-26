@@ -81,6 +81,11 @@ static inline int64_t uos_stat(const char *p,struct uos_entry *e) { return uos_c
 static inline int64_t uos_readdir(const char *p,unsigned index,struct uos_entry *e) { return uos_call4(UOS_SYS_READDIR,(uintptr_t)p,uos_length(p),index,(uintptr_t)e); }
 static inline int64_t uos_sleep_ms(unsigned ms) { return uos_call2(UOS_SYS_SLEEP_MS,ms,0); }
 static inline int64_t uos_getpid(void) { return uos_call2(UOS_SYS_GETPID,0,0); }
+/* Query self with PID zero, or query a direct child before reaping it. */
+static inline int64_t uos_policy_get(uint64_t pid) { return uos_call2(UOS_SYS_POLICY_GET,pid,0); }
+/* Remove permissions from this process. Exec and new children inherit them. */
+static inline int64_t uos_policy_restrict(unsigned permissions)
+{ return uos_call2(UOS_SYS_POLICY_RESTRICT,permissions,0); }
 static inline int64_t uos_ipc_send(const struct uos_message *message,unsigned wait_ms)
 { return uos_call2(UOS_SYS_IPC_SEND,(uintptr_t)message,wait_ms); }
 static inline int64_t uos_ipc_recv(uint64_t peer,struct uos_message *message,unsigned wait_ms)
@@ -174,6 +179,8 @@ static inline int64_t uos_processes_v2(struct uos_process_table_v2 *out)
 { return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
 static inline int64_t uos_processes_v3(struct uos_process_table_v3 *out)
 { return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
+static inline int64_t uos_processes_v4(struct uos_process_table_v4 *out)
+{ return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
 /* Poll/cancel never reap. Only a live direct-child relation grants authority;
  * finished children remain queryable until ordinary wait collects them. */
 static inline int64_t uos_child_poll(uint64_t pid,struct uos_child_info *out)
@@ -207,6 +214,9 @@ static inline int64_t uos_spawn_append(const struct app_args *args,unsigned seco
 /* Allows four outstanding ordinary children. io may be null. */
 static inline int64_t uos_spawn_ex(const struct app_args *args,unsigned seconds,const struct uos_stdio *io,unsigned flags)
 { return uos_call4(UOS_SYS_SPAWN_EX,(uintptr_t)args,seconds,(uintptr_t)io,flags); }
+static inline int64_t uos_spawn_limited(const struct app_args *args,unsigned seconds,const struct uos_stdio *io,
+                                       unsigned flags,unsigned permissions)
+{ return uos_call(UOS_SYS_SPAWN_LIMITED,(uintptr_t)args,seconds,(uintptr_t)io,flags,permissions,0); }
 /* Binary file stdin only; terminal input uses readline. Up to 512 bytes/call. */
 static inline int64_t uos_stdin(void *buffer,size_t capacity) { return uos_call2(UOS_SYS_STDIN,(uintptr_t)buffer,capacity); }
 /* Start two children concurrently, connect stdout -> stdin, wait for both.

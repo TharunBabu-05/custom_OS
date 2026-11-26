@@ -6,7 +6,13 @@ SECTIONS
     . = DEFINED(BOOT_TEST_BASE) ? BOOT_TEST_BASE : 0x80000;
     __kernel_start = .;
     __text_start = .;
-    .text : { KEEP(*(.text.boot)) *(.text .text.*) . = ALIGN(4096); } :code
+    .text : {
+        KEEP(*(.text.boot))
+        /* Fit CPU entry and lifecycle code into exception-vector alignment padding. */
+        *(.text.cpu_lifecycle)
+        *(.text .text.*)
+        . = ALIGN(4096);
+    } :code
     __text_end = .;
     .rodata : { *(.rodata .rodata.*) . = ALIGN(4096); } :code
     __rodata_end = .;

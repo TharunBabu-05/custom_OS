@@ -3,6 +3,7 @@
 #include "irq.h"
 #include "console.h"
 #include "process.h"
+#include "smp.h"
 static bool dispatching,testing,observed;
 static uint64_t sync_count,irq_count;
 extern unsigned char exception_test_trap[],exception_test_resume[];
@@ -17,6 +18,8 @@ const char *exception_class(uint64_t esr)
 }
 void exception_dispatch(struct exception_frame *f)
 {
+    struct smp_worker *worker=smp_current_worker();
+    if (worker) { smp_worker_exception(worker,f);return; }
     if (!f || dispatching) { if (f) { exception_frame_fatal(f); }for (;;) { __asm__ volatile("wfi"); } }
     dispatching=true;
     if (f->vector==9) {

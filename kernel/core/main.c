@@ -18,6 +18,7 @@
 #include "process.h"
 #include "ramfs.h"
 #include "reboot.h"
+#include "smp.h"
 #include "block.h"
 #include "usb.h"
 #include "crypto.h"
@@ -177,6 +178,8 @@ static void command(const char *line)
     if (equal(line,"help")) {
         console_write("help info uartinfo cpuinfo meminfo uptime echo <text> clear reboot poweroff halt fault\n");
         console_write("cpulist cpustate cacheinfo atomictest\n");
+        console_write("smpstart|smppark|smpfault [0xAFFINITY]  smpinfo smptest smpstop\n");
+        console_write("smpsubmit [rounds]  smpwait smpcancel\n");
         console_write("platforminfo therminfo powerinfo rtcinfo rtcset <UTC> rtcsync rtcalarm\n");
         console_write("devlist [DT path|alias] | devinfo <DT path|alias> (device tree)\n");
         console_write("mediainfo (device-tree media controllers)\n");
@@ -196,7 +199,8 @@ static void command(const char *line)
         console_write("excinfo exctest irqinit irqinfo irqtest timerstart timerinfo timertest timerstop\n");
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
         console_write("appinfo apptest apprun <ELF> [up to four more] (EL0; requires MMU/timer)\n");
-        console_write("svc | svc start <ELF> [arguments] | svc stop\n");
+        console_write("svc | svc list | svc status|stop|restart [NAME]\n");
+        console_write("svc start [-n NAME [-d DEPENDENCY]] [-m MASK] ELF [arguments]\n");
         console_write("pkgtrust pkginstall pkglist pkgstart pkgpath pkgremove\n");
         console_write("appexec <ELF> [arguments] tooltest (EL0 utilities and sleeping processes)\n");
         console_write("appshell | appterm <1..300 seconds> <ELF> [arguments] (interactive EL0 serial session)\n");
@@ -308,6 +312,7 @@ static void command(const char *line)
         else { console_write("Power transition refused: network worker active.\n"); }
     } else if (equal(line,"halt")) {
         if (!network_worker_stop()) { console_write("Halt refused: Wi-Fi worker still running.\n");return; }
+        (void)smp_shutdown();
         irq_fatal_stop();
         console_write("CPU halted. Reset the board or close the emulator.\n"); cpu_halt();
     } else if (equal(line,"fault")) {

@@ -20,10 +20,10 @@ static void monitor_network_hint(void)
 {
     print("Type exit, then run this command at the > monitor prompt. For the EL0 test use networktest el0 (lowercase L, digit zero).\n");
 }
-enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE,CMD_HISTORY,CMD_SCHED,CMD_WAITALL,CMD_STOPALL,CMD_VMSTAT };
+enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE,CMD_HISTORY,CMD_SCHED,CMD_WAITALL,CMD_STOPALL,CMD_VMSTAT,CMD_POLICY,CMD_RUNLIM };
 static unsigned command_kind(const char *cmd)
 {
-    const char *name="jobs\0""stop\0""status\0""exit\0""help\0""fg\0""path\0""getenv\0""env\0""setenv\0""unsetenv\0""profile\0""exec\0""run\0""runio\0""pipe\0""pipeio\0""bg\0""bgio\0""cp\0""mv\0""replace\0""stat\0""sync\0""sha256\0""pwd\0""cd\0""ls\0""cat\0""echo\0""write\0""mkdir\0""rm\0""rmdir\0""source\0""history\0""sched\0""waitall\0""stopall\0""vmstat\0";unsigned kind=1;
+    const char *name="jobs\0""stop\0""status\0""exit\0""help\0""fg\0""path\0""getenv\0""env\0""setenv\0""unsetenv\0""profile\0""exec\0""run\0""runio\0""pipe\0""pipeio\0""bg\0""bgio\0""cp\0""mv\0""replace\0""stat\0""sync\0""sha256\0""pwd\0""cd\0""ls\0""cat\0""echo\0""write\0""mkdir\0""rm\0""rmdir\0""source\0""history\0""sched\0""waitall\0""stopall\0""vmstat\0""policy\0""runlim\0";unsigned kind=1;
     while (*name) { if (same(cmd,name)) { return kind; }while (*name++) { }++kind; }return CMD_OTHER;
 }
 static void number(uint64_t n)
@@ -126,6 +126,29 @@ static __attribute__((noinline)) unsigned vmstat_command(const struct app_args *
         print(e->ceiling&UOS_WRITE ? " ceiling=rw\n" : " ceiling=r\n");
     }
     return 0;
+}
+static unsigned policy_command(const struct app_args *args)
+{
+    uint64_t pid=0;
+    if (args->count>2 || (args->count==2 && !(pid=job_pid(args->bytes+args->offset[1])))) {
+        print("Usage: policy [PID]\n");return 2;
+    }
+    int64_t mask=uos_policy_get(pid);
+    if (mask<0) { print("policy: process unavailable\n");return 1; }
+    print("policy mask=");number((uint64_t)mask);print("\n");return 0;
+}
+static __attribute__((noinline)) void run_limited(const struct app_args *args,uint64_t *status)
+{
+    unsigned mask;
+    if (args->count<3 || !app_args_uint(args->bytes+args->offset[1],UOS_POLICY_ALL,&mask)) {
+        *status=2;print("Usage: runlim MASK PROGRAM [args]\n");return;
+    }
+    struct app_args command;
+    words(&command,args,2,args->count);
+    if (program(&command)) { *status=127;print("shell: program not found\n");return; }
+    int64_t pid=uos_spawn_limited(&command,30,0,0,mask);
+    if (pid==UOS_EACCES) { *status=1;print("runlim: launch refused by policy\n");return; }
+    job_result(pid<0 ? pid : uos_wait((uint64_t)pid),0,status);
 }
 static unsigned scheduling_command(const struct app_args *args)
 {
@@ -542,10 +565,13 @@ static bool execute_line(struct shell_state *state,char *line)
             print("history [-c] | !! repeats last | !N repeats entry N\n");
             print("sched [PID [low|normal|high]] | vmstat [PID]\n");
             print("ports | ipcecho call NAME MESSAGE\n");
+            print("policy [PID] | runlim MASK PROGRAM [args]\n");
         } else if ((kind==CMD_STATUS) && args.count==1) { number(state->status);print("\n"); }
         else if (kind==CMD_HISTORY) { history_command(state,&args); }
         else if (kind==CMD_SCHED) { state->status=scheduling_command(&args); }
         else if (kind==CMD_VMSTAT) { state->status=vmstat_command(&args); }
+        else if (kind==CMD_POLICY) { state->status=policy_command(&args); }
+        else if (kind==CMD_RUNLIM) { run_limited(&args,&state->status); }
         else if (kind==CMD_SOURCE) {
             bool stop_on_error=args.count==3 && same(p,"-e");
             if (state->sourcing) { state->status=2;print("shell: nested source refused\n"); }

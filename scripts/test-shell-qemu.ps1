@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -61,6 +61,79 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($SecondaryCores) {
+    foreach ($case in @(@('cortex-a53','off','HVC',1),@('cortex-a76','on','SMC',2))) {
+        $name="secondary-cores-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'smpstart','smptest','storageinit','datainit','mmuinit','irqinit','timerstart','meminfo',
+                'smpstart 0x0','smpstart 0x2','smptest',
+                'smpstart','smpstart','smpinfo','cpustate','meminfo','smptest','smptest',
+                'smppark 0x2','smpinfo','smptest','smpstart 0x2',
+                'smpfault 0x1','cpustate','smptest','exctest',@{Text='timertest';Delay=1000},'meminfo','smpstart 0x1',
+                'smppark','smpinfo','smptest','smpstart','smpsubmit 0','smpsubmit 1025',
+                'smpsubmit 1024','smpsubmit','smpfault 0x3','smpinfo',
+                'appshell','echo smp-shell-ok',@{Text='run /boot/LIMCHK.ELF';Delay=4000},'exit',
+                'smpwait','smpwait','smpsubmit 1024','smpcancel','smpsubmit 2','smpcancel',
+                'smpsubmit 2','smpwait','smpinfo','smpstop','cpustate','meminfo',
+                'smpstart 0x2','smptest','smpstop','cpustate','smpinfo','meminfo','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('Run mmuinit before smpstart.','Start secondary CPUs with smpstart.',
+                "DT CPUs=4 PSCI=$($case[2].ToLowerInvariant())",'Unknown secondary CPU affinity.',
+                'PASS: secondary checksum jobs=1','PASS: secondary checksum jobs=3','PASS: secondary checksum jobs=2',
+                'PASS: secondary fault captured, worker parked.','ESR=0x00000000f2000041',
+                'Secondary CPUs parked=1','Secondary CPUs parked=3','Secondary batch pending.',
+                'Secondary batch cancelled.','No secondary batch.','Invalid SMP arguments.',
+                'PASS: synchronous exception returned with all 31 GPRs, SP and NZCV preserved.',
+                'PASS: periodic timer IRQs delivered;',
+                'smp-shell-ok','PASS: irreversible permissions, inheritance, exec and handle cleanup.',
+                'Secondary CPU stacks released.','Open files: 0/16','PASS: read-only storage','matches_mounted=yes'
+            ) 1 '' $false $false $false 4
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $affinities=[regex]::Matches($log,'(?m)^CPU affinity=0x[0-9a-f]+ dt=enabled psci=(on|off)\r?$')
+            $states=@($affinities | ForEach-Object { $_.Groups[1].Value }) -join ' '
+            $pages=@([regex]::Matches($log,'(?m)^managed_pages=\d+ free_pages=\d+ allocated_pages=(\d+)\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            $stacks=@([regex]::Matches($log,'(?m)state=online launches=1 jobs=\d+ stack=(0x[0-9a-f]+) resumes=0 psci=on\r?$') |
+                ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+            if ($states -ne 'on on on on on on off off off off off off' -or $stacks.Count -ne 3 -or
+                $pages.Count -ne 5 -or $pages[1]-$pages[0] -ne 3 -or $pages[2] -ne $pages[1] -or
+                $pages[3] -ne $pages[0] -or $pages[4] -ne $pages[0] -or
+                [regex]::Matches($log,"(?m) online at EL1, entered EL$($case[3])\.\r?$").Count -ne 4 -or
+                [regex]::Matches($log,'(?m) resumed at EL1\.\r?$').Count -ne 5 -or
+                [regex]::Matches($log,'(?m)^PASS: secondary checksum jobs=3\r?$').Count -ne 4 -or
+                [regex]::Matches($log,'(?m)^PASS: secondary checksum jobs=2\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^PASS: secondary checksum jobs=1\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^Secondary batch cancelled\.\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^Secondary batch pending\.').Count -ne 2 -or
+                $log -notmatch '(?m)CPU 0x0+1 state=fault-parked .* psci=on ESR=0x00000000f2000041' -or
+                $log -notmatch '(?m)CPU 0x0+2 state=parked .* psci=on' -or
+                $log -notmatch '(?m)^Secondary batch=\d+ replies=[0-3]/3\r?$' -or
+                $log -notmatch '(?m)CPU 0x0+1 state=off launches=1 jobs=5 resumes=2 psci=off\r?$' -or
+                $log -notmatch '(?m)CPU 0x0+2 state=off launches=2 jobs=7 resumes=2 psci=off\r?$' -or
+                $log -notmatch '(?m)CPU 0x0+3 state=off launches=1 jobs=6 resumes=1 psci=off\r?$' -or
+                $log.Contains('stack retained.') -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name lifecycle, allocation or disk differs" }
+
+            $powerName="$name-poweroff"
+            Session $disk $powerName $case[0] $case[1] @(
+                'storageinit','datainit','mmuinit','smpstart','smptest','pwd','smpsubmit 1024',
+                @{Text="poweroff`n";Delay=1800;Raw=$true}
+            ) @('PASS: secondary checksum jobs=3','Secondary batch submitted.',"Poweroff: storage synchronized and idle. Halt via PSCI $($case[2])."
+            ) 0 '' $false $false $true 4
+            $powerLog=Get-Content -Raw -LiteralPath (Join-Path $out "$powerName.log")
+            if ($powerLog.Contains('stack retained.') -or (Get-FileHash -LiteralPath $disk).Hash -ne $original) {
+                throw "$powerName worker shutdown or disk differs"
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    Session $source 'secondary-cores-single' 'cortex-a53' 'off' @('mmuinit','smpstart','smpstop','pwd','halt') @(
+        'No PSCI secondary CPUs in the device tree.','Secondary CPU stacks released.'
+    ) 0 '' $false $true $false
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($CpuPlatform) {
     foreach ($case in @(@('cortex-a53','off','hvc'),@('cortex-a76','on','smc'))) {
@@ -357,14 +430,132 @@ if ($NamedIpc) {
                 'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 4 'ouros.startup=shell'
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             $ports=[regex]::Matches($log,'(?m)^demo37 (\d+) 0 0\r?$')
-            $services=[regex]::Matches($log,'(?m)^Service enabled=yes active=yes .* pid=(\d+) path=/boot/IPCECHO\.ELF\r?$')
-            if ($ports.Count -ne 2 -or $services.Count -ne 2 -or
+            $serviceRows=[regex]::Matches($log,'(?m)^Service enabled=yes active=yes .* pid=(\d+) path=/boot/IPCECHO\.ELF\r?$')
+            if ($ports.Count -ne 2 -or $serviceRows.Count -ne 2 -or
                 $ports[0].Groups[1].Value -ne $ports[1].Groups[1].Value -or
-                $ports[0].Groups[1].Value -ne $services[0].Groups[1].Value -or
-                $ports[0].Groups[1].Value -ne $services[1].Groups[1].Value -or
+                $ports[0].Groups[1].Value -ne $serviceRows[0].Groups[1].Value -or
+                $ports[0].Groups[1].Value -ne $serviceRows[1].Groups[1].Value -or
                 [regex]::Matches($log,'(?m)^No listening ports\.\r?$').Count -ne 2 -or
                 [regex]::Matches($log,'(?m)^Open files: 0/16;').Count -ne 2 -or
                 (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name port, service or storage results differ" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($EventWait) {
+    $pass='PASS: event waits, channel readiness, child status, signals and checked snapshots.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="event-wait-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                @{Text='run /boot/EVENTCHK.ELF';Delay=3600},'ports','exit','fileinfo',
+                'svc start /boot/IPCECHO.ELF serve eventdemo','appshell',
+                @{Text='run /boot/EVENTCHK.ELF echo eventdemo';Delay=3600},'ports','exit',
+                'svc stop','appexec /boot/PORTS.ELF','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($pass,'Service started.','PASS: echo multiplexed two independent clients.',
+                'children_started=5 children_reaped=5 last_child_code=0 cleanup=restored',
+                'children_started=3 children_reaped=3 last_child_code=0 cleanup=restored',
+                'Service enabled=no active=no launches=1 restarts=0 last_reason=4 last_code=143 cleanup=ok',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 3 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ($log -notmatch '(?m)^eventdemo \d+ 0 0\r?$' -or
+                [regex]::Matches($log,'(?m)^No listening ports\.\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^Open files: 0/16;').Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name port, cleanup or storage results differ" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($Services) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="services-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'exit','meminfo','svc list',
+                'svc start -n leaf -d ghost /boot/IPCECHO.ELF serve leaf',
+                'svc start -n broken /boot/NONE.ELF','svc status broken',
+                'svc start -n hub /boot/IPCECHO.ELF serve hub',
+                'svc start -n leaf -d hub /boot/IPCECHO.ELF serve leaf',
+                'svc start -n side /boot/IPCECHO.ELF serve side',
+                'svc start -n hub /boot/SPIN.ELF','svc start -n overflow /boot/SPIN.ELF',
+                'svc list','svc status side',
+                'appshell','ps -l | cat | cat | cat | cat | cat | cat',
+                'ipcecho call hub first','ipcecho call leaf second','ipcecho call side third','exit',
+                'svc restart side','svc status side','svc stop hub','svc status leaf','svc restart leaf',
+                'appexec /boot/IPCECHO.ELF call side still-running',
+                'svc restart hub','svc restart leaf','appshell','ipcecho call leaf resumed','exit',
+                'svc stop hub','svc stop side','cd /boot',
+                # Leave time for the paced serial command within the provider's one-second lifetime.
+                @{Text='svc start -n pulse SLEEP.ELF 1000';Delay=40},
+                @{Text='svc start -n follow -d pulse DOZER.ELF';Delay=1500},
+                'svc status pulse','svc status follow','cd /',
+                'svc start -n anchor /boot/IPCECHO.ELF serve anchor',
+                @{Text='svc start -n retry /boot/CORECHK.ELF service';Delay=1550},
+                'svc status retry','appexec /boot/IPCECHO.ELF call anchor independent',
+                'svc stop retry','svc stop anchor','rm /tmp/core30-started','rm /tmp/core30-beat',
+                'appexec /boot/PORTS.ELF','fileinfo','meminfo','storagetest','datacheck','pwd','halt'
+            ) @('No configured services.','App load failed: path not found: /boot/NONE.ELF',
+                'Service name=broken depends=- enabled=no active=no launches=0 restarts=0 last_reason=5 last_code=126 cleanup=ok',
+                'Service name=leaf depends=hub enabled=yes active=yes launches=1 restarts=0',
+                'Service name=leaf depends=hub enabled=no active=no launches=1 restarts=0 last_reason=4 last_code=143 cleanup=ok',
+                'Service name=side depends=- enabled=yes active=yes launches=2 restarts=1 last_reason=4 last_code=143 cleanup=ok',
+                'Service name=pulse depends=- enabled=no active=no launches=1 restarts=0 last_reason=1 last_code=0 cleanup=ok',
+                'Service name=follow depends=pulse enabled=no active=no launches=1 restarts=0 last_reason=4 last_code=143 cleanup=ok',
+                'Service name=retry depends=- enabled=yes active=yes launches=2 restarts=1 last_reason=1 last_code=31 cleanup=ok',
+                'IPC echo matched: first','IPC echo matched: second','IPC echo matched: third',
+                'IPC echo matched: still-running','IPC echo matched: resumed','IPC echo matched: independent',
+                'pipeline exit=0','No listening ports.','Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 6 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $table=[regex]::Match($log,'(?m)^PID PPID STATE PAGES QUANTUM USER_TICKS READY_TICKS ROLE PATH\r?\n((?:\d+ [^\r\n]+\r?\n)+)')
+            $snapshot=$table.Groups[1].Value
+            $side=[regex]::Matches($log,'> svc status side\r?\nService name=side [^\r\n]+ pid=(\d+) ')
+            $pages=[regex]::Matches($log,'(?m)^managed_pages=\d+ free_pages=\d+ allocated_pages=\d+\r?$')
+            if ([regex]::Matches($snapshot,'(?m)^\d+ ').Count -ne 11 -or
+                [regex]::Matches($snapshot,'(?m) service /boot/IPCECHO\.ELF\r?$').Count -ne 3 -or
+                [regex]::Matches($log,'(?m)^Service start refused\.\r?$').Count -ne 4 -or
+                [regex]::Matches($log,'(?m)^Service restart refused\.\r?$').Count -ne 1 -or
+                $side.Count -ne 2 -or $side[0].Groups[1].Value -eq $side[1].Groups[1].Value -or
+                $pages.Count -ne 2 -or $pages[0].Value -cne $pages[1].Value -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name supervisor, allocation or storage results differ" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($ProcessPolicy) {
+    $echoPass='PASS: restricted service rejected a descriptor and echoed a message.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="process-policy-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'policy',@{Text='run /boot/LIMCHK.ELF';Delay=4300},
+                'runlim 0 /boot/LIMCHK.ELF locked','policy','exit',
+                'appexec /boot/LIMCHK.ELF pipeline',
+                'svc start -n limited -m 0 /boot/LIMCHK.ELF service limited','svc status limited',
+                'appexec /boot/LIMCHK.ELF client limited','svc restart limited','svc status limited',
+                'appexec /boot/LIMCHK.ELF client limited','svc stop limited',
+                'appexec /boot/PORTS.ELF','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('PASS: irreversible permissions, inheritance, exec and handle cleanup.',
+                'PASS: mask 0 denies file mutations, sockets and child creation.',
+                'PASS: pipeline inheritance permits pipe output and refuses file redirection.',
+                $echoPass,'No listening ports.','Open files: 0/16','PASS: read-only storage','matches_mounted=yes'
+            ) 5 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $serviceRows=[regex]::Matches($log,'> svc status limited\r?\nService name=limited depends=- enabled=yes active=yes launches=(\d+) restarts=(\d+) [^\r\n]+ pid=(\d+) path=/boot/IPCECHO\.ELF permissions=0\r?\n')
+            if ([regex]::Matches($log,'(?m)^policy mask=15\r?$').Count -ne 2 -or
+                [regex]::Matches($log,[regex]::Escape($echoPass)).Count -ne 2 -or
+                $serviceRows.Count -ne 2 -or $serviceRows[0].Groups[1].Value -ne '1' -or
+                $serviceRows[1].Groups[1].Value -ne '2' -or $serviceRows[1].Groups[2].Value -ne '1' -or
+                $serviceRows[0].Groups[3].Value -eq $serviceRows[1].Groups[3].Value -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name permission, supervisor or storage results differ" }
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
@@ -1472,14 +1663,16 @@ if ($PeripheralIrq) {
         try {
             Session $disk $name $case[0] $case[1] @('exit','irqinfo',
                 @{Text='irqtest';Delay=4500},'irqinfo',@{Text='irqtest';Delay=4500},'irqinfo',
-                @{Text='timertest';Delay=800},'cat /boot/CONFIG.TXT','datacheck',
+                @{Text='timertest';Delay=800},@{Text='apprun /boot/SPIN.ELF /boot/SPIN.ELF';Delay=3000},
+                'cat /boot/CONFIG.TXT','datacheck',
                 'appshell',@{Text='run /boot/BUSY.ELF';Delay=2500},'run /boot/DF.ELF','exit','pwd','halt') @(
                 $pass,$alarm,'peripheral_received=0 deferred=0 overflow=0 stuck=0',
                 'peripheral_received=1 deferred=1 overflow=0 stuck=0',
                 'peripheral_received=2 deferred=2 overflow=0 stuck=0',
                 'Timer: running CPU_IRQ=unmasked INTID=30','PASS: periodic timer IRQs delivered',
                 'kernel=OUROS.IMG','matches_mounted=yes','PASS: EL0 busy loop completed under timer preemption.',
-                '/boot fat32','/data snapshot v4','child exit=0') 2 'ouros.startup=shell'
+                'process=1 path=/boot/SPIN.ELF state=timeout code=124',
+                '/boot fat32','/data snapshot v4','child exit=0') 3 'ouros.startup=shell'
             $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             if ([regex]::Matches($capture,[regex]::Escape($pass)).Count -ne 2 -or
                 [regex]::Matches($capture,[regex]::Escape($alarm)+'[1-9]\d*').Count -ne 2 -or

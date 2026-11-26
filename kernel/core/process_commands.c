@@ -2,6 +2,7 @@
 #include "package.h"
 #include "vfs.h"
 #include "console.h"
+#include "user_abi.h"
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
 static void space(const char **p) { while (**p==' ') { ++*p; } }
 static int word(const char **p,char *out,size_t capacity)
@@ -11,29 +12,62 @@ static int word(const char **p,char *out,size_t capacity)
 }
 static void failure(enum fs_result r)
 { console_write("app: ");console_write(ramfs_error(r));console_write("\n"); }
+static bool service_option(const char **p,char option)
+{
+    space(p);
+    if ((*p)[0]!='-' || (*p)[1]!=option || ((*p)[2] && (*p)[2]!=' ')) { return false; }
+    *p+=2;
+    return true;
+}
+static void service_command(const char *p)
+{
+    char action[8],name[SERVICE_NAME_MAX+1];
+    space(&p);
+    if (!*p) { process_service_info(NULL);return; }
+    if (word(&p,action,sizeof(action))!=1) { goto usage; }
+    if (same(action,"start")) {
+        const char *label=NULL,*requires=NULL;
+        char dependency[SERVICE_NAME_MAX+1];
+        unsigned permissions=UOS_POLICY_ALL;
+        if (service_option(&p,'n')) {
+            if (word(&p,name,sizeof(name))!=1) { goto usage; }
+            label=name;
+            if (service_option(&p,'d')) {
+                if (word(&p,dependency,sizeof(dependency))!=1) { goto usage; }
+                requires=dependency;
+            }
+        }
+        if (service_option(&p,'m')) {
+            char mask[3];
+            if (word(&p,mask,sizeof(mask))!=1 || !app_args_uint(mask,UOS_POLICY_ALL,&permissions)) { goto usage; }
+        }
+        struct app_args args;
+        if (!app_args_parse(p,&args)) { goto usage; }
+        console_write(process_service_start(&args,label,requires,permissions) ? "Service started.\n" : "Service start refused.\n");
+        return;
+    }
+    int have_name=word(&p,name,sizeof(name));
+    space(&p);
+    if (*p || have_name<0) { goto usage; }
+    const char *target=have_name ? name : NULL;
+    if (same(action,"list") && !target) { process_service_list();return; }
+    if (same(action,"status")) { process_service_info(target);return; }
+    if (same(action,"stop")) { process_service_stop(target);process_service_info(target);return; }
+    if (same(action,"restart")) {
+        console_write(process_service_restart(target) ? "Service restarted.\n" : "Service restart refused.\n");
+        return;
+    }
+usage:
+    console_write("Usage: svc | svc list | svc status|stop|restart [NAME]\n"
+                  "       svc start [-n NAME [-d DEPENDENCY]] [-m MASK] ELF [arguments]\n");
+}
 bool process_command(const char *line)
 {
     const char *p=line;char verb[16];if (word(&p,verb,sizeof(verb))!=1) { return false; }
-    if (same(verb,"svc")) {
-        char action[8];space(&p);
-        if (!*p) { process_service_info();return true; }
-        if (word(&p,action,sizeof(action))==1) {
-            space(&p);
-            if (same(action,"start")) {
-                struct app_args args;
-                if (app_args_parse(p,&args)) {
-                    console_write(process_service_start(&args) ? "Service started.\n" : "Service start refused.\n");
-                    return true;
-                }
-            } else if (same(action,"stop") && !*p) {
-                process_service_stop();process_service_info();return true;
-            }
-        }
-        console_write("Usage: svc | svc start <ELF> [arguments] | svc stop\n");
-        return true;
-    }
+    if (same(verb,"svc")) { service_command(p);return true; }
     if (same(verb,"sha256") || same(verb,"runio") || same(verb,"run") || same(verb,"pipe") || same(verb,"pipeio") || same(verb,"status") || same(verb,"exec") || same(verb,"path") ||
-        same(verb,"env") || same(verb,"getenv") || same(verb,"setenv") || same(verb,"unsetenv") || same(verb,"profile")) {
+        same(verb,"env") || same(verb,"getenv") || same(verb,"setenv") || same(verb,"unsetenv") || same(verb,"profile") ||
+        same(verb,"runlim") || same(verb,"policy")) {
         console_write("Shell command: use appshell and wait for user:/$ (timerstart first if stopped).\n");return true;
     }
     if (same(verb,"appshell")) {
@@ -42,9 +76,8 @@ bool process_command(const char *line)
     }
     if (same(verb,"appterm")) {
         char number[4];unsigned seconds=0;struct app_args args;
-        if (word(&p,number,sizeof(number))!=1) { goto term_usage; }
-        for (unsigned i=0;number[i];++i) { if (number[i]<'0' || number[i]>'9') { goto term_usage; }seconds=seconds*10+(unsigned)(number[i]-'0'); }
-        if (!seconds || seconds>300 || !app_args_parse(p,&args)) { goto term_usage; }
+        if (word(&p,number,sizeof(number))!=1 || !app_args_uint(number,300,&seconds) || !seconds ||
+            !app_args_parse(p,&args)) { goto term_usage; }
         (void)process_terminal(&args,seconds);return true;
 term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");return true;
     }

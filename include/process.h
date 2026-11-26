@@ -2,7 +2,7 @@
 #define OS_PROCESS_H
 #include "exception.h"
 #include "app_args.h"
-enum { PROCESS_LIMIT=8 };
+enum { PROCESS_LIMIT=8, SERVICE_LIMIT=3, SERVICE_NAME_MAX=15 };
 /* Foreground EL0 batch; timer IRQs preempt users, never kernel drivers.
  * 0 = all exited successfully, 1 = contained process failure, 2 = refused. */
 int process_run(const char *const *paths,unsigned count);
@@ -12,9 +12,12 @@ int process_terminal(const struct app_args *args,unsigned seconds);
 int process_shell(void);
 bool process_tools_test(void);
 void process_info(void);
-bool process_service_start(const struct app_args *args);
-void process_service_stop(void);
-void process_service_info(void);
+/* A null name selects the default monitor service. */
+bool process_service_start(const struct app_args *args,const char *name,const char *dependency,unsigned permissions);
+bool process_service_restart(const char *name);
+void process_service_stop(const char *name);
+void process_service_info(const char *name);
+void process_service_list(void);
 void process_service_step(void);
 bool process_test(void);
 bool process_command(const char *line);

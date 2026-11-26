@@ -2,6 +2,7 @@
 #include "console.h"
 #include "irq.h"
 #include "reboot.h"
+#include "smp.h"
 #include "vfs.h"
 
 void system_power_transition(const char *board,uintptr_t dtb,bool poweroff)
@@ -29,6 +30,7 @@ void system_power_transition(const char *board,uintptr_t dtb,bool poweroff)
         console_write(block_error(stopped));console_write("\n");
         return;
     }
+    (void)smp_shutdown();
     console_write(name); console_write(": storage synchronized and idle. ");
     console_write(poweroff ? "Halt via " : "Reset via ");
     console_write(target.method==RESET_BCM2712 ? "BCM2712 watchdog.\n" :

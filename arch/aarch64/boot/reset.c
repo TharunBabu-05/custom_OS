@@ -23,12 +23,12 @@ static void watchdog_reset(uintptr_t base,bool poweroff)
     console_write("Watchdog reset did not complete. Power-cycle the board.\n");
     cpu_halt();
 }
-int32_t psci_call(enum psci_conduit method,uint32_t function,uint64_t arg0)
+int32_t psci_call_args(enum psci_conduit method,uint32_t function,uint64_t arg0,uint64_t arg1,uint64_t arg2)
 {
     register uint64_t x0 __asm__("x0")=function;
     register uint64_t x1 __asm__("x1")=arg0;
-    register uint64_t x2 __asm__("x2")=0;
-    register uint64_t x3 __asm__("x3")=0;
+    register uint64_t x2 __asm__("x2")=arg1;
+    register uint64_t x3 __asm__("x3")=arg2;
     if (method==PSCI_HVC) {
         __asm__ volatile("hvc #0" : "+r"(x0),"+r"(x1),"+r"(x2),"+r"(x3) ::
                          "x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16","x17","cc","memory");

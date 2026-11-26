@@ -67,7 +67,7 @@ try {
         $sources = @($entrySource,'arch/aarch64/interrupts/vectors.S','arch/aarch64/interrupts/test_context.S','arch/aarch64/interrupts/test_irq_context.S','arch/aarch64/interrupts/irq.c','kernel/interrupts/exception.c','kernel/interrupts/tick.c','kernel/interrupts/irq_work.c','drivers/irq/gic.c','drivers/irq/gic_dt.c','drivers/irq/irq_probe.c','arch/aarch64/mmu/control.S','arch/aarch64/mmu/runtime.c','kernel/memory/mmu_tables.c',
             $boardSource,'drivers/uart/pl011.c','drivers/timer/arch_timer.c','arch/aarch64/context/switch.S','arch/aarch64/context/test_switch.S','kernel/scheduler/policy.c','kernel/scheduler/tasks.c',
             'kernel/core/console.c','kernel/core/terminal.c','kernel/core/console_input.c','kernel/core/main.c','kernel/core/trust_time_commands.c','kernel/core/reboot.c','kernel/scheduler/network_worker.c','arch/aarch64/boot/reset.c','drivers/reset/reset_dt.c','lib/memory.c',
-            'arch/aarch64/boot/cpu_commands.c','kernel/core/cpu_topology.c',
+            'arch/aarch64/boot/cpu_commands.c','kernel/core/cpu_topology.c','arch/aarch64/boot/secondary.S','arch/aarch64/boot/smp.c',
             'kernel/memory/map.c','kernel/memory/fdt_memory.c','kernel/memory/pages.c',
             'kernel/memory/boot_memory.c','kernel/memory/heap.c','kernel/memory/heap_commands.c','filesystem/ramfs.c','kernel/core/fs_commands.c',
             'drivers/storage/block.c','filesystem/fat32.c','filesystem/persist.c','filesystem/vfs.c','filesystem/kfile.c','kernel/core/file_commands.c','kernel/core/storage_commands.c',
@@ -113,19 +113,20 @@ try {
                 'lib/sae_h2e_selftest.c','lib/wpa_retry_selftest.c','lib/wpa_keys_selftest.c','drivers/storage/block.c','kernel/interrupts/exception.c',
                 'kernel/core/fs_commands.c','kernel/core/file_commands.c','kernel/memory/fdt_memory.c','network/dhcp.c',
                 'filesystem/persist.c','kernel/process/process.c','drivers/usb/xhci_enumerate.c','drivers/usb/xhci_test.c',
-                'arch/aarch64/boot/cpu_commands.c','kernel/core/cpu_topology.c') -or
+                'arch/aarch64/boot/cpu_commands.c','kernel/core/cpu_topology.c','arch/aarch64/boot/smp.c') -or
                 ($Target -eq 'rpi5' -and $source -in @(
                 'network/ethernet_ipv4.c','drivers/platform/pi5_pcie.c','kernel/core/pcie_commands.c',
                 'drivers/storage/brcm_prepare.c','drivers/storage/brcm_start.c',
                 'drivers/storage/brcm_keys.c','drivers/random/rng200.c','kernel/core/console_input.c',
                 'kernel/core/wifi_files.c','kernel/process/app_args.c','network/netprobe_selftest.c',
                 'kernel/core/reboot.c','drivers/usb/pi5_dma.c','kernel/scheduler/policy.c','kernel/process/user_mmu.c',
-                'network/dhcp_selftest.c','lib/crypto.c','kernel/interrupts/irq_work.c','lib/aes.c','lib/sha256.c'))) { @('-Os') } else { @() }
+                'network/dhcp_selftest.c','lib/crypto.c','kernel/interrupts/irq_work.c','lib/aes.c','lib/sha256.c',
+                'kernel/core/package.c','lib/ecdsa.c'))) { @('-Os') } else { @() }
             if ($Target -eq 'rpi5' -and $source -eq 'kernel/interrupts/exception.c') {
                 $optimize=@($optimize)+@('-fno-tree-switch-conversion')
             }
-            # Keep the diagnostic atomics valid on the Cortex-A53 handoff test.
-            $sourceCpu=if ($source -eq 'arch/aarch64/boot/cpu_commands.c') { 'cortex-a53' } else { $cpu }
+            # Emit Armv8.0 acquire, release and exclusive instructions for both boot diagnostics.
+            $sourceCpu=if ($source -in @('arch/aarch64/boot/cpu_commands.c','arch/aarch64/boot/smp.c')) { 'cortex-a53' } else { $cpu }
             Invoke-Tool gcc ($common + $optimize + @("-mcpu=$sourceCpu",'-c',$source,'-o',$object))
             $objects += $object
         }

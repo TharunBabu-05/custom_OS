@@ -34,6 +34,7 @@ const char *mmu_kind_text(enum mmu_kind);
 /* AArch64 runtime with explicit activation via startup or the monitor. */
 bool mmu_enabled(void);
 bool mmu_ensure_enabled(void);
+bool mmu_enable_secondary(void);
 bool mmu_dma_compatible(void);
 bool mmu_dma_buffer(uint64_t physical,size_t bytes);
 void mmu_setup(const char *board,uintptr_t dtb);

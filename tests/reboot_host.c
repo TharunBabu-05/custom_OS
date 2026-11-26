@@ -6,6 +6,7 @@
 #include "dt_property.h"
 #include "irq.h"
 #include "reboot.h"
+#include "smp.h"
 #include "vfs.h"
 
 static char calls[16],message[256];
@@ -22,6 +23,7 @@ static void record(char step)
 bool vfs_data_mounted(void) { record('m');return mounted; }
 enum fs_result vfs_data_sync(void) { record('f');return flush_result; }
 enum block_result platform_storage_quiesce(void) { record('q');return stop_result; }
+bool smp_shutdown(void) { record('s');return true; }
 const char *ramfs_error(enum fs_result result) { return result==FS_BUSY ? "busy" : "I/O error"; }
 const char *block_error(enum block_result result) { assert(result==BLOCK_TIMEOUT);return "timeout"; }
 void console_write(const char *text)
@@ -57,9 +59,9 @@ static void target(const char *file,const char *board,enum reset_method method)
     assert(found.registers==(method==RESET_BCM2712 ? 0x107d200000ULL : 0));
     assert(!reset_discover(board,dtb,32,&found));
     for (unsigned off=0;off<2;++off) {
-        run(board,dtb,off,true,FS_OK,BLOCK_OK,"mfqdiru",off ? "Halt via " : "Reset via ");
+        run(board,dtb,off,true,FS_OK,BLOCK_OK,"mfqsdiru",off ? "Halt via " : "Reset via ");
         assert(requested.method==method && requested.registers==found.registers && requested_poweroff==(bool)off);
-        run(board,dtb,off,false,FS_IO,BLOCK_OK,"mqdiru","reset request returned");
+        run(board,dtb,off,false,FS_IO,BLOCK_OK,"mqsdiru","reset request returned");
         run(board,dtb,off,true,FS_IO,BLOCK_OK,"mf","/data flush failed: I/O error");
         run(board,dtb,off,true,FS_BUSY,BLOCK_OK,"mf","/data flush failed: busy");
         run(board,dtb,off,true,FS_OK,BLOCK_TIMEOUT,"mfq","storage quiesce failed: timeout");

@@ -43,9 +43,9 @@ static const struct uos_process_entry *find(const struct uos_process_table *t,ui
 static int snapshot(struct uos_process_table *t) { return !uos_processes(t) && valid(t); }
 static int show(bool detail)
 {
-    struct uos_process_table_v3 t;
-    if (uos_processes_v3(&t) || t.version!=UOS_PROCESS_VERSION_V3 || !t.count ||
-        t.count>UOS_PROCESS_MAX_V3 || t.caller_pid!=(uint64_t)uos_getpid()) {
+    struct uos_process_table_v4 t;
+    if (uos_processes_v4(&t) || t.version!=UOS_PROCESS_VERSION_V4 || !t.count ||
+        t.count>UOS_PROCESS_MAX_V4 || t.caller_pid!=(uint64_t)uos_getpid()) {
         uos_puts("ps: snapshot failed\n");return 1;
     }
     uos_puts(detail ? "PID PPID STATE PAGES QUANTUM USER_TICKS READY_TICKS ROLE PATH\n" : "PID PPID STATE PAGES PATH\n");

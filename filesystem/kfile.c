@@ -274,17 +274,18 @@ size_t kfile_list_owner(uint64_t owner,uint64_t input,uint64_t output,struct kfi
     }
     return n;
 }
-static unsigned close_owner(uint64_t owner,bool exec_only)
+static unsigned close_owner(uint64_t owner,unsigned required_flags)
 {
     if (!owner || operating) { return 0; }unsigned n=0;
     for (unsigned i=0;i<KFILE_LIMIT;++i) {
         struct descriptor *fd=&handles[i];
-        if (fd->token && fd->owner==owner && (!exec_only || (fd->flags&KFILE_CLOEXEC))) { close_descriptor(fd);++n; }
+        if (fd->token && fd->owner==owner && (fd->flags&required_flags)==required_flags) { close_descriptor(fd);++n; }
     }
     return n;
 }
-unsigned kfile_close_owner(uint64_t owner) { return close_owner(owner,false); }
-unsigned kfile_close_on_exec(uint64_t owner) { return close_owner(owner,true); }
+unsigned kfile_close_owner(uint64_t owner) { return close_owner(owner,0); }
+unsigned kfile_close_on_exec(uint64_t owner) { return close_owner(owner,KFILE_CLOEXEC); }
+unsigned kfile_close_writers(uint64_t owner) { return close_owner(owner,KFILE_WRITE); }
 unsigned kfile_count(void)
 { unsigned n=0;for (unsigned i=0;i<KFILE_LIMIT;++i) { if (handles[i].token) { ++n; } }return n; }
 void kfile_info(void)

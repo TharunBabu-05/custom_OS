@@ -25,6 +25,7 @@ enum fs_result kfile_truncate(uint64_t owner,uint64_t handle,uint64_t bytes);
 enum fs_result kfile_seek(uint64_t owner,uint64_t handle,int64_t displacement,enum kfile_whence whence,uint32_t *position);
 enum fs_result kfile_close(uint64_t owner,uint64_t handle);
 unsigned kfile_close_owner(uint64_t owner);
+unsigned kfile_close_writers(uint64_t owner);
 /* Zero access keeps the source rights. Duplicates share the cursor. */
 enum fs_result kfile_dup(uint64_t owner,uint64_t handle,unsigned access,unsigned flags,uint64_t *duplicate);
 enum fs_result kfile_dup_to(uint64_t owner,uint64_t handle,uint64_t recipient,unsigned access,unsigned flags,uint64_t *duplicate);
