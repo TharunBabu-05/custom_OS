@@ -1574,14 +1574,15 @@ if ($TcpSockets) {
         Copy-Item -LiteralPath $source -Destination $disk
         try {
             Session $disk $name $case[0] $case[1] @(
-                'storageinit','mmuinit','irqinit','timerstart',@{Text='tcpmodeltest';Delay=9500},
+                'storageinit','mmuinit','irqinit','timerstart',@{Text='tcpmodeltest';Delay=20000},
                 'appterm 2 /boot/TCPCHK.ELF 192.0.2.2 34002','fileinfo','pwd','timerstop','halt'
             ) @('PASS: EL0 TCP connect, checked buffers, ordered stream, EOF and close.',
                 'PASS: TCP runtime rejects expired deadlines and reports short EOF.',
                 'PASS: TLS transport callbacks exchanged 700 bytes and reported EOF.',
+                'PASS: TCP write half-close acknowledged and final reply received before EOF.',
                 'PASS: TCP worker and EL0 file transfer.',
                 "PASS: TCP echoed 16384 bytes. SHA-256 $digest",
-                'TCP requires an active ','Open files: 0/16') 4
+                'TCP requires an active ','Open files: 0/16') 5
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }

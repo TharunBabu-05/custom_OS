@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][ipaddress]$BindAddress,
     [Parameter(Mandatory)][ipaddress]$PeerAddress,
     [ValidateRange(1024,65535)][int]$Port=4041,
-    [ValidateRange(1,300)][int]$TimeoutSeconds=120
+    [ValidateRange(1,300)][int]$TimeoutSeconds=120,
+    [switch]$WaitForClientFin
 )
 $ErrorActionPreference='Stop'
 foreach ($address in @($BindAddress,$PeerAddress)) {
@@ -40,8 +41,14 @@ try {
             $total+=$count
         }
         $null=$hash.TransformFinalBlock([byte[]]@(),0,0)
-        $client.Client.Shutdown([Net.Sockets.SocketShutdown]::Send)
+        if (!$WaitForClientFin) { $client.Client.Shutdown([Net.Sockets.SocketShutdown]::Send) }
         if ($stream.Read($buffer,0,1)) { throw 'The Pi sent more than 16384 bytes.' }
+        if ($WaitForClientFin) {
+            $trailer=[Text.Encoding]::ASCII.GetBytes('ouros-fin-ok')
+            $stream.Write($trailer,0,$trailer.Length)
+            $client.Client.Shutdown([Net.Sockets.SocketShutdown]::Send)
+            Write-Output 'Client FIN received. Sent final reply and closed the server send side.'
+        }
         $hex=([BitConverter]::ToString($hash.Hash)).Replace('-','').ToLowerInvariant()
         Write-Output "Echoed 16384 bytes. SHA-256 $hex"
     } finally { $hash.Dispose() }

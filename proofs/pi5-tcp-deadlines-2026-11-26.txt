@@ -1,0 +1,19 @@
+Phase 52 direct Ethernet acceptance excerpt supplied in chat
+
+> ethaddr 192.0.2.2/30
+Ethernet IPv4 192.0.2.2/30
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethtcpup
+Ethernet link Mbps=100
+Ethernet TCP and UDP active at 192.0.2.2/30. Use ethdown to stop.
+> appshell
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ run /boot/TCPCHK.ELF 192.0.2.1 4041
+PASS: TCP echoed 16384 bytes. SHA-256 a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3
+child exit=0
+
+PS> powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4041
+Waiting for 192.0.2.2 on 192.0.2.1:4041
+Echoed 16384 bytes. SHA-256 a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3

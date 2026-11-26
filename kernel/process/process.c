@@ -1092,7 +1092,9 @@ static int64_t event_probe(struct process *p,struct uos_event *events,unsigned c
     for (unsigned i=0;i<count;++i) {
         struct uos_event *event=&events[i];
         watches_signal|=event->source==UOS_EVENT_SIGNAL;
-        event->revents=(uint16_t)(event_ready(p,event,now)&(event->events|UOS_EVENT_HANGUP|UOS_EVENT_ERROR));
+        unsigned mask=event->events|UOS_EVENT_HANGUP|UOS_EVENT_ERROR;
+        if (event->events&UOS_EVENT_WRITE) { mask|=UOS_EVENT_WRITE_CLOSED; }
+        event->revents=(uint16_t)(event_ready(p,event,now)&mask);
         ready+=event->revents!=0;
     }
     return p->signal_pending && !watches_signal ? UOS_EINTR : (int64_t)ready;
@@ -1109,6 +1111,7 @@ static int64_t event_call(struct process *p,const struct exception_frame *f)
         const struct uos_event *event=&events[i];
         bool network=event->source==UOS_EVENT_UDP || event->source==UOS_EVENT_TCP;
         unsigned allowed=UOS_EVENT_READ|((network || event->source==UOS_EVENT_CHANNEL) ? UOS_EVENT_WRITE : 0);
+        if (event->source==UOS_EVENT_TCP) { allowed|=UOS_EVENT_FIN_ACK; }
         if (event->source<UOS_EVENT_LISTENER || event->source>UOS_EVENT_TCP ||
             !event->events || (event->events&~allowed) ||
             (event->source==UOS_EVENT_SIGNAL && event->object)) { return UOS_ERROR; }
@@ -1548,6 +1551,7 @@ static int64_t tcp_call(struct process *p,struct exception_frame *f)
 {
     uint64_t handle=f->x[0],address=f->x[1],bytes=f->x[2],call=f->x[8];
     if (call==UOS_SYS_TCP_STATUS) { return tcp_status(p->owner,handle); }
+    if (call==UOS_SYS_TCP_SHUTDOWN) { return tcp_shutdown_write(p->owner,handle); }
     if (call==UOS_SYS_TCP_OPEN) {
         struct uos_tcp_peer peer;
         if (!user_range(p,handle,sizeof(peer),false)) { return UOS_EFAULT; }
@@ -2178,7 +2182,9 @@ fail:
 static unsigned syscall_permission(const struct process *p,const struct exception_frame *f)
 {
     uint64_t call=f->x[8];
-    if (call>=UOS_SYS_UDP_OPEN && call<=UOS_SYS_TCP_CLOSE) { return UOS_ALLOW_NETWORK; }
+    if ((call>=UOS_SYS_UDP_OPEN && call<=UOS_SYS_TCP_CLOSE) || call==UOS_SYS_TCP_SHUTDOWN) {
+        return UOS_ALLOW_NETWORK;
+    }
     switch (call) {
     case UOS_SYS_SPAWN:case UOS_SYS_SPAWN_IO:case UOS_SYS_SPAWN_APPEND:
     case UOS_SYS_SPAWN_EX:case UOS_SYS_SPAWN_LIMITED:
@@ -2233,7 +2239,9 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         if (f->x[8]>=UOS_SYS_UDP_OPEN && f->x[8]<=UOS_SYS_UDP_CLOSE) {
             f->x[0]=(uint64_t)udp_call(p,f);return p->status!=UDP_WAIT || schedule(f,false);
         }
-        if (f->x[8]>=UOS_SYS_TCP_OPEN && f->x[8]<=UOS_SYS_TCP_CLOSE) { f->x[0]=(uint64_t)tcp_call(p,f);return true; }
+        if ((f->x[8]>=UOS_SYS_TCP_OPEN && f->x[8]<=UOS_SYS_TCP_CLOSE) || f->x[8]==UOS_SYS_TCP_SHUTDOWN) {
+            f->x[0]=(uint64_t)tcp_call(p,f);return true;
+        }
         if (f->x[8]==UOS_SYS_IPC_SEND || f->x[8]==UOS_SYS_IPC_RECV ||
             f->x[8]==UOS_SYS_CHANNEL_SEND || f->x[8]==UOS_SYS_CHANNEL_RECV) {
             f->x[0]=(uint64_t)ipc_call(p,f);

@@ -1,5 +1,9 @@
 # Real Raspberry Pi 5 proof
 
+Phase 52 passed the direct Ethernet TCP echo. The Pi and Windows
+reported the same SHA-256 for 16,384 bytes, and the Pi app exited cleanly.
+[Phase 52 wired TCP capture](pi5-tcp-deadlines-2026-11-26.txt)
+
 Phase 51 passed the direct Ethernet UDP echo twice on the Pi.
 Windows sent a nine-byte reply and OurOS matched the datagram.
 [Phase 51 wired UDP capture](pi5-socket-readiness-udp-2026-11-26.txt)

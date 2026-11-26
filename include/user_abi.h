@@ -33,7 +33,7 @@ enum uos_syscall {
     UOS_SYS_PORT_LISTEN=84,UOS_SYS_PORT_CONNECT=85,UOS_SYS_PORT_ACCEPT=86,UOS_SYS_PORT_CLOSE=87,
     UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91,
     UOS_SYS_POLICY_GET=92,UOS_SYS_POLICY_RESTRICT=93,UOS_SYS_SPAWN_LIMITED=94,
-    UOS_SYS_SYSTEM_STATS=95,UOS_SYS_PROCESS_EVENTS=96,UOS_SYS_TIMER=97
+    UOS_SYS_SYSTEM_STATS=95,UOS_SYS_PROCESS_EVENTS=96,UOS_SYS_TIMER=97,UOS_SYS_TCP_SHUTDOWN=98
 };
 enum {
     UOS_SYSTEM_STATS_VERSION=1,
@@ -154,9 +154,13 @@ enum uos_event_source {
     UOS_EVENT_LISTENER=1,UOS_EVENT_CHANNEL,UOS_EVENT_MAILBOX,UOS_EVENT_CHILD,UOS_EVENT_SIGNAL,
     UOS_EVENT_TIMER,UOS_EVENT_UDP,UOS_EVENT_TCP
 };
-enum { UOS_EVENT_READ=1,UOS_EVENT_WRITE=2,UOS_EVENT_HANGUP=4,UOS_EVENT_ERROR=8 };
+enum {
+    UOS_EVENT_READ=1,UOS_EVENT_WRITE=2,UOS_EVENT_HANGUP=4,UOS_EVENT_ERROR=8,
+    UOS_EVENT_FIN_ACK=16,UOS_EVENT_WRITE_CLOSED=32
+};
 /* READ includes TCP data or EOF. WRITE applies to channels and sockets.
- * HANGUP and socket ERROR are output flags and wake either interest.
+ * HANGUP and socket ERROR are output flags and wake any interest.
+ * TCP accepts FIN_ACK as an interest and reports WRITE_CLOSED for WRITE.
  * Mailbox object zero watches any direct message. Signal uses zero. */
 struct uos_event { uint64_t object;uint32_t source;uint16_t events,revents; };
 _Static_assert(sizeof(struct uos_event)==16,"event wait ABI size");

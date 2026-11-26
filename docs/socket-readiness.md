@@ -94,7 +94,7 @@ ping.exe -n 1 -w 1000 -S 192.0.2.1 192.0.2.2
 ```
 
 After a reply from `192.0.2.2`, create or repair the two scoped firewall
-rules and start the UDP server in the same PowerShell window.
+rules in the same PowerShell window.
 
 ```powershell
 foreach ($test in @(@('UDP', 4040), @('TCP', 4041))) {
@@ -116,6 +116,13 @@ foreach ($test in @(@('UDP', 4040), @('TCP', 4041))) {
         New-NetFirewallRule @rule -DisplayName $label -ErrorAction Stop
     }
 }
+```
+
+### Run the UDP and TCP echo checks
+
+Start the UDP echo server in Windows PowerShell.
+
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/udp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4040
 ```
 
@@ -151,6 +158,8 @@ resinfo
 storagetest
 datacheck
 ```
+
+### Clean up Windows test settings
 
 Remove the temporary rules in administrator PowerShell. If you added the
 test address in this window, remove it and restore its prior DHCP setting.
@@ -210,3 +219,69 @@ run /boot/TCPCHK.ELF 192.0.2.1 4041
 Expect both ends to report 16,384 bytes with the same SHA-256. Use the
 existing TLS echo and package download procedures to verify an
 authenticated exchange and a verified package install. [TLS echo](tls-live.md) · [Package download](package-download.md)
+
+The Pi passed the Phase 52 wired TCP echo. Both endpoints reported
+16,384 bytes and the same SHA-256. [Phase 52 wired TCP capture](../proofs/pi5-tcp-deadlines-2026-11-26.txt)
+
+## Phase 53 TCP write half-close
+
+`uos_tcp_shutdown_write` ends the send side of an established socket.
+The stack acknowledges pending receive data and waits for queued sends
+to be acknowledged before sending FIN. The handle continues to accept
+reads and reports EOF after the peer closes its send side and the
+receive buffer drains. [TCP half-close specification](https://www.rfc-editor.org/rfc/rfc9293.html#section-3.6.1)
+
+Repeated write shutdown succeeds. Further nonempty writes return
+`UOS_EPIPE`. WRITE waiters receive `UOS_EVENT_WRITE_CLOSED`. Select
+`UOS_EVENT_FIN_ACK` to wait for acknowledgment of the local FIN.
+An app closes the handle after finishing reads.
+
+The native TCP test covers partial acknowledgments, FIN retransmission,
+post-FIN data and EOF. The QEMU TCP suite runs the EL0 half-close check
+on Cortex-A53 and Cortex-A76. Pi 5 acceptance is pending.
+
+### Pi 5 acceptance for Phase 53
+
+Power off the Pi and connect its boot pendrive. In Windows PowerShell
+from the project directory, preview and apply the update.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase53-tcp-half-close-boot-update.zip'
+$volume = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.VolumeLabel -eq 'OUROSBOOT' })
+if ($volume.Count -ne 1) { throw 'Connect exactly one OUROSBOOT pendrive.' }
+$boot = $volume[0].Name
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg
+if ($LASTEXITCODE -eq 0) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg -Apply
+}
+```
+
+Safely eject and boot. Follow the direct Ethernet setup through the
+Windows firewall rules, then run the TCP listener below.
+[Direct Ethernet setup](#set-up-the-direct-ethernet-link)
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4041 -WaitForClientFin
+```
+
+Once Windows prints `Waiting`, run at `user:/$`.
+
+```text
+run /boot/TCPCHK.ELF 192.0.2.1 4041 half
+exit
+```
+
+Both sides should match the SHA-256 for 16,384 bytes. Windows should
+report that it received the client FIN. The Pi should report that the
+write half-close was acknowledged and the final reply arrived before EOF.
+Run the cleanup checks at the monitor.
+
+```text
+ethdown
+fileinfo
+resinfo
+storagetest
+datacheck
+```
+
+[Clean up Windows test settings](#clean-up-windows-test-settings)

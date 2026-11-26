@@ -57,7 +57,7 @@ bool udp_worker_test(void)
 
 struct tcp_test_peer {
     unsigned char frame[TCP_FRAME_MAX];size_t bytes;
-    uint32_t seq,expect;unsigned target,echoed,syns;bool fin;
+    uint32_t seq,expect;unsigned target,echoed,syns;bool fin,client_first;
 };
 static enum block_result tcp_echo_tx(void *context,const struct tcp_packet *p)
 {
@@ -76,10 +76,15 @@ static enum block_result tcp_echo_tx(void *context,const struct tcp_packet *p)
         if (p->seq!=peer->expect || p->ack!=peer->seq || peer->fin) { return BLOCK_IO; }
         peer->expect+=(uint32_t)p->bytes;peer->seq+=(uint32_t)p->bytes;peer->echoed+=(unsigned)p->bytes;
         reply.ack=peer->expect;reply.payload=p->payload;reply.bytes=p->bytes;reply.flags|=TCP_PSH;
-        if (peer->echoed==peer->target) { reply.flags|=TCP_FIN;++peer->seq;peer->fin=true; }
+        if (peer->echoed==peer->target && !peer->client_first) { reply.flags|=TCP_FIN;++peer->seq;peer->fin=true; }
     } else if (p->flags&TCP_FIN) {
-        if (!peer->fin || p->seq!=peer->expect || p->ack!=peer->seq) { return BLOCK_IO; }
+        if (peer->echoed!=peer->target || p->seq!=peer->expect || p->ack!=peer->seq) { return BLOCK_IO; }
         reply.ack=++peer->expect;
+        if (peer->client_first) {
+            static const char trailer[]="ouros-fin-ok";
+            reply.payload=trailer;reply.bytes=sizeof(trailer)-1;reply.flags|=TCP_PSH|TCP_FIN;
+            peer->seq+=(uint32_t)reply.bytes+1;peer->fin=true;
+        } else if (!peer->fin) { return BLOCK_IO; }
     } else { return BLOCK_OK; }
     return tcp_encode(&reply,peer->frame,sizeof(peer->frame),&peer->bytes) ? BLOCK_OK : BLOCK_IO;
 }
@@ -94,16 +99,17 @@ static void tcp_test_link(void *context)
     }
     tcp_link_down();
 }
-static bool test_tcp_app(const char *command,unsigned bytes)
+static bool test_tcp_app(const char *command,unsigned bytes,bool client_first)
 {
-    struct tcp_test_peer peer={.target=bytes};struct app_args args;
+    struct tcp_test_peer peer={.target=bytes,.client_first=client_first};struct app_args args;
     if (!app_args_parse(command,&args) || !network_worker_start(tcp_test_link,&peer)) { return false; }
     bool ok=process_terminal(&args,8)==0 && peer.fin && peer.echoed==bytes && peer.syns==2 && !tcp_open_count();
     return network_worker_stop() && ok;
 }
 bool tcp_worker_test(void)
 {
-    return test_tcp_app("/boot/TCPCHK.ELF model",5) &&
-           test_tcp_app("/boot/TCPCHK.ELF 192.0.2.2 34002",16384) &&
-           test_tcp_app("/boot/TLSECHO.ELF transport-check",700);
+    return test_tcp_app("/boot/TCPCHK.ELF model",5,false) &&
+           test_tcp_app("/boot/TCPCHK.ELF 192.0.2.2 34002",16384,false) &&
+           test_tcp_app("/boot/TLSECHO.ELF transport-check",700,false) &&
+           test_tcp_app("/boot/TCPCHK.ELF 192.0.2.2 34004 half",16384,true);
 }

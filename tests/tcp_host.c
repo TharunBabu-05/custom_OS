@@ -37,6 +37,48 @@ static void segment(unsigned flags,uint32_t seq,uint32_t ack,unsigned window,con
     if (corrupt) { p[50]^=1; }
     tcp_receive(p,bytes);
 }
+static void half_close(void)
+{
+    assert(tcp_shutdown_write(1,1)==UOS_ENETDOWN);
+    assert(tcp_link_up(local_mac,local_ip,mask,secret));
+    int64_t h=tcp_open(1,&ep,0);
+    assert(h>0 && tcp_shutdown_write(1,h)==UOS_EAGAIN && tcp_shutdown_write(2,h)==UOS_EBADF);
+    tick(0);arp();tick(1);
+    uint32_t local=last.seq+1,peer=401;
+    segment(TCP_SYN|TCP_ACK,peer-1,local,512,NULL,0,false);
+    assert(tcp_write(1,h,"abc",3)==3);
+    assert(!tcp_shutdown_write(1,h) && !tcp_shutdown_write(1,h));
+    assert(tcp_ready(1,h)==UOS_EVENT_WRITE_CLOSED && tcp_write(1,h,"x",1)==UOS_EPIPE);
+    tick(2);
+    assert(last.bytes==3 && !(last.flags&TCP_FIN));
+    segment(TCP_ACK,peer,local+1,512,NULL,0,false);
+    tick(3);
+    assert(last.seq==local+1 && last.bytes==2 && !(last.flags&TCP_FIN));
+    local+=3;
+    segment(TCP_ACK,peer,local,512,NULL,0,false);
+    tick(4);
+    assert(last.flags==(TCP_FIN|TCP_ACK) && last.seq==local);
+    tick(1004);
+    assert(last.flags==(TCP_FIN|TCP_ACK) && last.seq==local);
+    assert(!(tcp_ready(1,h)&UOS_EVENT_FIN_ACK));
+
+    segment(TCP_ACK,peer,local+1,512,NULL,0,false);
+    assert(tcp_ready(1,h)==(UOS_EVENT_WRITE_CLOSED|UOS_EVENT_FIN_ACK));
+    segment(TCP_ACK|TCP_FIN,peer,local+1,512,"reply",5,false);
+    peer+=6;
+    tick(1005);
+    assert(last.flags==TCP_ACK && last.ack==peer);
+    segment(TCP_RST,peer,0,0,NULL,0,false);
+    char buffer[8];
+    assert(tcp_status(1,h)==0 && tcp_read(1,h,buffer,sizeof(buffer))==5 && !memcmp(buffer,"reply",5));
+    assert(tcp_read(1,h,buffer,sizeof(buffer))==0 && (tcp_ready(1,h)&UOS_EVENT_READ));
+    assert(!tcp_close(1,h,1006) && tcp_ready(1,h)==UOS_EVENT_HANGUP);
+    tick(1006);tick(1007);
+    segment(TCP_ACK|TCP_FIN,peer-1,local+1,512,NULL,0,false);
+    tick(1008);
+    assert(last.flags==TCP_ACK && last.ack==peer && !tcp_open_count());
+    tcp_link_down();
+}
 int main(void)
 {
     assert(tcp_open(1,&ep,0)==UOS_ENETDOWN && tcp_link_up(local_mac,local_ip,mask,secret));
@@ -97,5 +139,6 @@ int main(void)
     h=tcp_open(1,&ep,24000);assert(h>0);tcp_link_down();assert(!tcp_open_count() && tcp_status(1,h)==UOS_ENETDOWN);
     assert(tcp_ready(1,h)==UOS_EVENT_HANGUP);
     assert(tcp_link_up(local_mac,local_ip,mask,secret) && tcp_status(1,h)==UOS_EBADF);tcp_link_down();
+    half_close();
     puts("PASS: TCP handshake, lost SYN/data, partial ACK, reordering, duplicate/overlap, sequence wrap, FIN, reset, timeout and ownership.");return 0;
 }

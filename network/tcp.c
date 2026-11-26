@@ -16,7 +16,7 @@ static struct connection {
     uint16_t port,window,mss;
     uint32_t una,next,expect,window_seq,window_ack;
     unsigned tries,tx_bytes,inflight,rx_head,rx_bytes;
-    bool ack,peer_fin,fin_sent,fin_acked;
+    bool ack,peer_fin,write_closed,fin_sent,fin_acked;
     unsigned char tx[UOS_TCP_MAX_BYTES],rx[RX_BYTES];
 } sockets[SLOT_COUNT];
 static struct {
@@ -137,7 +137,9 @@ int64_t tcp_write(uint64_t owner,uint64_t handle,const void *data,size_t n)
     struct connection *s=lookup(owner,handle);
     if (!s) { return UOS_EBADF; }if (result(s)) { return result(s); }
     if (n>UOS_TCP_MAX_BYTES || (n && !data)) { return UOS_EMSGSIZE; }
-    if (!n) { return 0; }if (s->tx_bytes) { return UOS_EAGAIN; }
+    if (!n) { return 0; }
+    if (s->write_closed) { return UOS_EPIPE; }
+    if (s->tx_bytes) { return UOS_EAGAIN; }
     memcpy(s->tx,data,n);s->tx_bytes=(unsigned)n;return (int64_t)n;
 }
 int64_t tcp_read(uint64_t owner,uint64_t handle,void *data,size_t n)
@@ -160,11 +162,24 @@ unsigned tcp_ready(uint64_t owner,uint64_t handle)
     if (s->phase==FAILED) { return UOS_EVENT_ERROR; }
     if (s->phase!=OPEN) { return 0; }
     unsigned ready=s->rx_bytes || s->peer_fin ? UOS_EVENT_READ : 0;
+    if (s->fin_acked) { ready|=UOS_EVENT_FIN_ACK; }
+    if (s->write_closed) { return ready|UOS_EVENT_WRITE_CLOSED; }
     return !s->tx_bytes ? ready|UOS_EVENT_WRITE : ready;
+}
+int64_t tcp_shutdown_write(uint64_t owner,uint64_t handle)
+{
+    if (!link.online) { return UOS_ENETDOWN; }
+    struct connection *s=lookup(owner,handle);
+    if (!s) { return UOS_EBADF; }
+    int64_t status=result(s);
+    if (status) { return status; }
+    s->write_closed=true;
+    return 0;
 }
 static void detach(struct connection *s,uint64_t now)
 {
     if (s->phase!=OPEN) { memset(s,0,sizeof(*s));return; }
+    s->write_closed=true;
     s->owner=0;s->close_by=now+CLOSE_MS;s->rx_bytes=0;s->ack=true;memset(s->rx,0,sizeof(s->rx));
 }
 int64_t tcp_close(uint64_t owner,uint64_t handle,uint64_t now)
@@ -234,7 +249,7 @@ static void receive_segment(struct connection *s,const unsigned char *t,unsigned
         s->phase=OPEN;s->una=ack;s->expect=seq+1;s->tries=0;s->due=0;s->mss=(uint16_t)mss;
         s->window=(uint16_t)net_be16(t+14);s->window_seq=seq;s->window_ack=ack;s->ack=true;return;
     }
-    if (s->phase==TIME_WAIT) {
+    if (s->phase==TIME_WAIT || (s->fin_acked && s->peer_fin)) {
         if ((flags&(TCP_SYN|TCP_RST|TCP_FIN))==TCP_FIN && seq+bytes+1==s->expect) { s->ack=true; }
         return;
     }
@@ -302,10 +317,10 @@ static bool plan(struct connection *s,struct tcp_packet *packet,uint64_t now)
         if (s->phase==ARP) { packet->peer_mac=NULL; }
         packet->flags=TCP_SYN;packet->seq=s->una;return true;
     }
-    if (s->phase==OPEN && s->fin_acked && s->peer_fin && !s->ack) {
+    if (s->phase==OPEN && !s->owner && s->fin_acked && s->peer_fin && !s->ack) {
         s->phase=TIME_WAIT;s->close_by=now+TIME_WAIT_MS;return false;
     }
-    if (s->phase==OPEN && now>=s->due && (s->tx_bytes || (!s->owner && !s->fin_acked))) {
+    if (s->phase==OPEN && now>=s->due && (s->tx_bytes || (s->write_closed && !s->fin_acked))) {
         if (s->tries>=4) { fail(s,UOS_ETIMEDOUT);return false; }
         packet->seq=s->una;
         if (s->tx_bytes) {

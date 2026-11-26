@@ -33,7 +33,35 @@ static int error(int64_t result)
     else { uos_puts("TCP file echo failed.\n"); }
     return 1;
 }
-static int64_t echo_file(uint64_t socket,uint64_t file)
+static int64_t finish_send(uint64_t socket)
+{
+    int64_t result=uos_tcp_shutdown_write(socket);
+    if (result) { return result; }
+    if (uos_tcp_write(socket,"x",1)!=UOS_EPIPE ||
+        uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_WRITE,0)!=UOS_EVENT_WRITE_CLOSED) {
+        return UOS_ERROR;
+    }
+    return 0;
+}
+
+static int64_t receive_after_finish(uint64_t socket)
+{
+    static const char expected[]="ouros-fin-ok";
+    char trailer[sizeof(expected)-1];
+    int64_t result=uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_FIN_ACK,5000);
+    if (result<0) { return result; }
+    if (!result) { return UOS_ETIMEDOUT; }
+    if (result!=UOS_EVENT_FIN_ACK) {
+        int64_t status=uos_tcp_status(socket);
+        return status ? status : UOS_ERROR;
+    }
+    result=tcp_read_exact(socket,trailer,sizeof(trailer),uos_time_ms()+5000);
+    if (result) { return result; }
+    for (size_t i=0;i<sizeof(trailer);++i) { if (trailer[i]!=expected[i]) { return UOS_ERROR; } }
+    return 0;
+}
+
+static int64_t echo_file(uint64_t socket,uint64_t file,bool half_close)
 {
     struct sha256 hash;sha256_init(&hash);
     unsigned char part[256],reply[256],digest[32];
@@ -42,18 +70,28 @@ static int64_t echo_file(uint64_t socket,uint64_t file)
         if (n<=0 || (uint64_t)n>16384-total) { return UOS_ERROR; }
         int64_t result=tcp_write_all(socket,part,(size_t)n,uos_time_ms()+5000);
         if (result) { return result; }
+        if (half_close && total+(size_t)n==16384) {
+            result=finish_send(socket);
+            if (result) { return result; }
+        }
         result=tcp_read_exact(socket,reply,(size_t)n,uos_time_ms()+5000);
         if (result) { return result; }
         for (size_t i=0;i<(size_t)n;++i) { if (reply[i]!=part[i]) { return UOS_ERROR; } }
         sha256_update(&hash,reply,(size_t)n);
         total+=(unsigned)n;
     }
+    if (half_close) {
+        int64_t result=receive_after_finish(socket);
+        if (result) { return result; }
+    }
     int64_t end=tcp_read_until(socket,reply,1,uos_time_ms()+5000);
     if (end) { return end<0 ? end : UOS_ERROR; }
     sha256_final(&hash,digest);
     const char *digits="0123456789abcdef";char hex[65];
     for (unsigned i=0;i<32;++i) { hex[2*i]=digits[digest[i]>>4];hex[2*i+1]=digits[digest[i]&15]; }hex[64]='\n';
-    uos_puts("PASS: TCP echoed 16384 bytes. SHA-256 ");uos_write(hex,sizeof(hex));return 0;
+    uos_puts("PASS: TCP echoed 16384 bytes. SHA-256 ");uos_write(hex,sizeof(hex));
+    if (half_close) { uos_puts("PASS: TCP write half-close acknowledged and final reply received before EOF.\n"); }
+    return 0;
 }
 static int model(void)
 {
@@ -85,11 +123,13 @@ static int model(void)
 }
 int app_main(void)
 {
-    char address[24],port[8];int64_t argc=uos_argc();
+    char address[24],port[8],mode[8];int64_t argc=uos_argc();
     if (argc>=2 && uos_arg(1,address,sizeof(address))>0 && argc==2 && same(address,"model")) { return model(); }
     struct uos_tcp_peer peer={0};
-    if (argc!=3 || uos_arg(1,address,sizeof(address))<=0 || !parse_ip(address,peer.ipv4) || uos_arg(2,port,sizeof(port))<=0) {
-        uos_puts("Usage: TCPCHK <LAN IPv4> <TCP port>\n");return 2;
+    bool half_close=argc==4 && uos_arg(3,mode,sizeof(mode))>0 && same(mode,"half");
+    if ((argc!=3 && !half_close) || uos_arg(1,address,sizeof(address))<=0 || !parse_ip(address,peer.ipv4) ||
+        uos_arg(2,port,sizeof(port))<=0) {
+        uos_puts("Usage: TCPCHK <LAN IPv4> <TCP port> [half]\n");return 2;
     }
     const char *p=port;unsigned value=number(&p,65535);
     if (!value || value>65535 || *p) { return error(UOS_ERROR); }peer.port=(uint16_t)value;
@@ -99,7 +139,7 @@ int app_main(void)
     int64_t h=uos_tcp_open(&peer),r=h;
     if (h>0) {
         r=tcp_wait_connected((uint64_t)h,uos_time_ms()+8000);
-        if (!r) { r=echo_file((uint64_t)h,(uint64_t)file); }
+        if (!r) { r=echo_file((uint64_t)h,(uint64_t)file,half_close); }
         (void)uos_tcp_close((uint64_t)h);
     }
     (void)uos_close((uint64_t)file);return r ? error(r) : 0;

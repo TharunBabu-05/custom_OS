@@ -233,6 +233,8 @@ static inline int64_t uos_tcp_read(uint64_t handle,void *data,size_t bytes)
 { return uos_call4(UOS_SYS_TCP_READ,handle,(uintptr_t)data,bytes,0); }
 static inline int64_t uos_tcp_close(uint64_t handle)
 { return uos_call2(UOS_SYS_TCP_CLOSE,handle,0); }
+static inline int64_t uos_tcp_shutdown_write(uint64_t handle)
+{ return uos_call2(UOS_SYS_TCP_SHUTDOWN,handle,0); }
 static inline int64_t uos_spawn_io(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
 { return uos_call4(UOS_SYS_SPAWN_IO,(uintptr_t)args,seconds,(uintptr_t)io,0); }
 static inline int64_t uos_spawn_append(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
