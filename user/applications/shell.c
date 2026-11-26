@@ -20,10 +20,10 @@ static void monitor_network_hint(void)
 {
     print("Type exit, then run this command at the > monitor prompt. For the EL0 test use networktest el0 (lowercase L, digit zero).\n");
 }
-enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE,CMD_HISTORY };
+enum shell_command { CMD_OTHER=0,CMD_JOBS,CMD_STOP,CMD_STATUS,CMD_EXIT,CMD_HELP,CMD_FG,CMD_PATH,CMD_GETENV,CMD_ENV,CMD_SETENV,CMD_UNSETENV,CMD_PROFILE,CMD_EXEC,CMD_RUN,CMD_RUNIO,CMD_PIPE,CMD_PIPEIO,CMD_BG,CMD_BGIO,CMD_CP,CMD_MV,CMD_REPLACE,CMD_STAT,CMD_SYNC,CMD_SHA256,CMD_PWD,CMD_CD,CMD_LS,CMD_CAT,CMD_ECHO,CMD_WRITE,CMD_MKDIR,CMD_RM,CMD_RMDIR,CMD_SOURCE,CMD_HISTORY,CMD_SCHED,CMD_WAITALL,CMD_STOPALL,CMD_VMSTAT };
 static unsigned command_kind(const char *cmd)
 {
-    const char *name="jobs\0""stop\0""status\0""exit\0""help\0""fg\0""path\0""getenv\0""env\0""setenv\0""unsetenv\0""profile\0""exec\0""run\0""runio\0""pipe\0""pipeio\0""bg\0""bgio\0""cp\0""mv\0""replace\0""stat\0""sync\0""sha256\0""pwd\0""cd\0""ls\0""cat\0""echo\0""write\0""mkdir\0""rm\0""rmdir\0""source\0""history\0";unsigned kind=1;
+    const char *name="jobs\0""stop\0""status\0""exit\0""help\0""fg\0""path\0""getenv\0""env\0""setenv\0""unsetenv\0""profile\0""exec\0""run\0""runio\0""pipe\0""pipeio\0""bg\0""bgio\0""cp\0""mv\0""replace\0""stat\0""sync\0""sha256\0""pwd\0""cd\0""ls\0""cat\0""echo\0""write\0""mkdir\0""rm\0""rmdir\0""source\0""history\0""sched\0""waitall\0""stopall\0""vmstat\0";unsigned kind=1;
     while (*name) { if (same(cmd,name)) { return kind; }while (*name++) { }++kind; }return CMD_OTHER;
 }
 static void number(uint64_t n)
@@ -84,7 +84,19 @@ static unsigned timeout(const char *s)
     unsigned n=0;for (unsigned i=0;s[i];++i) { if (s[i]<'0' || s[i]>'9' || n>30) { return 0; }n=n*10+(unsigned)(s[i]-'0'); }
     return n<=30 ? n : 0;
 }
-enum { JOB_LIMIT=2 };
+enum { JOB_LIMIT=UOS_JOB_MAX };
+static unsigned job_count(const uint64_t jobs[JOB_LIMIT])
+{
+    unsigned count=0;
+    for (unsigned i=0;i<JOB_LIMIT;++i) { count+=jobs[i]!=0; }
+    return count;
+}
+static unsigned job_slot(const uint64_t jobs[JOB_LIMIT],uint64_t pid)
+{
+    unsigned slot=0;
+    while (slot<JOB_LIMIT && jobs[slot]!=pid) { ++slot; }
+    return slot;
+}
 static uint64_t job_pid(const char *text)
 {
     uint64_t n=0;
@@ -95,9 +107,78 @@ static uint64_t job_pid(const char *text)
     }
     return n;
 }
+static __attribute__((noinline)) unsigned vmstat_command(const struct app_args *args)
+{
+    uint64_t pid=0;
+    if (args->count>2 || (args->count==2 && !(pid=job_pid(args->bytes+args->offset[1])))) {
+        print("Usage: vmstat [PID]\n");return 2;
+    }
+    struct uos_vm_info info;
+    if (uos_vm_info(pid,&info) || info.count>UOS_VM_MAX_REGIONS) { print("vmstat: process unavailable\n");return 1; }
+    print("vm pid=");number(info.pid);print(" pages=");number(info.pages);print("/");number(info.page_limit);
+    print(" regions=");number(info.count);print("\n");
+    for (unsigned i=0;i<info.count;++i) {
+        const struct uos_vm_entry *e=&info.entries[i];
+        print(e->flags&UOS_VM_FILE_BACKED ? "file" : "anonymous");
+        print(e->flags&UOS_VM_PEER ? " peer" : e->flags&UOS_VM_SHARED ? " shared" : " private");
+        print(" bytes=");number(e->bytes);print(" pages=");number(e->pages);
+        print(e->rights&UOS_WRITE ? " rights=rw" : " rights=r");
+        print(e->ceiling&UOS_WRITE ? " ceiling=rw\n" : " ceiling=r\n");
+    }
+    return 0;
+}
+static unsigned scheduling_command(const struct app_args *args)
+{
+    uint64_t pid=0;
+    if (args->count>3 || (args->count>1 && !(pid=job_pid(args->bytes+args->offset[1])))) { goto usage; }
+    if (args->count==3) {
+        const char *priority=args->bytes+args->offset[2];
+        unsigned quantum=same(priority,"low") ? UOS_SCHED_LOW : same(priority,"normal") ? UOS_SCHED_NORMAL :
+                         same(priority,"high") ? UOS_SCHED_HIGH : 0;
+        if (!quantum) { goto usage; }
+        if (uos_sched_set(pid,quantum)) { print("sched: priority change refused\n");return 1; }
+    }
+    struct uos_sched_info info;
+    if (uos_sched_get(pid,&info)) { print("sched: process unavailable\n");return 1; }
+    const char *level=info.quantum_ticks==UOS_SCHED_LOW ? "low" : info.quantum_ticks==UOS_SCHED_HIGH ? "high" : "normal";
+    print("pid=");number(info.pid);print(" priority=");print(level);
+    print(" quantum_ticks=");number(info.quantum_ticks);
+    print(" user_ticks=");number(info.user_ticks);print(" ready_ticks=");number(info.ready_ticks);print("\n");
+    return 0;
+usage:
+    print("Usage: sched [PID [low|normal|high]]\n");
+    return 2;
+}
+static int64_t collect_job(uint64_t *pid)
+{
+    int64_t result=uos_wait(*pid);
+    if (result>=0) { *pid=0; }
+    return result;
+}
+static unsigned collect_jobs(uint64_t jobs[JOB_LIMIT],bool cancel)
+{
+    bool failed=false;
+    if (cancel) {
+        for (unsigned i=0;i<JOB_LIMIT;++i) {
+            if (jobs[i] && uos_child_cancel(jobs[i])) { failed=true; }
+        }
+    }
+    unsigned status=0;
+    for (unsigned i=0;i<JOB_LIMIT;++i) {
+        uint64_t pid=jobs[i];if (!pid) { continue; }
+        int64_t result=collect_job(&jobs[i]);
+        if (result<0) { failed=true;continue; }
+        print("job pid=");number(pid);print(" exit=");number((uint64_t)result);print("\n");
+        if (!cancel && !status) { status=(unsigned)result; }
+    }
+    if (failed) { print("shell: job collection failed\n");return 1; }
+    return status;
+}
 static void job_command(unsigned kind,uint64_t jobs[JOB_LIMIT],const char *selector,uint64_t *status)
 {
-    if (!jobs[0] && !jobs[1]) { print("No background job.\n");*status=(kind==CMD_JOBS) ? 0 : 1;return; }
+    unsigned count=job_count(jobs);
+    if (!count) { print("No background job.\n");*status=(kind==CMD_FG || kind==CMD_STOP);return; }
+    if (kind==CMD_WAITALL || kind==CMD_STOPALL) { *status=collect_jobs(jobs,kind==CMD_STOPALL);return; }
     if (kind==CMD_JOBS) {
         for (unsigned i=0;i<JOB_LIMIT;++i) {
             if (!jobs[i]) { continue; }
@@ -107,14 +188,20 @@ static void job_command(unsigned kind,uint64_t jobs[JOB_LIMIT],const char *selec
         }
         return;
     }
-    if (!selector && jobs[0] && jobs[1]) { *status=2;print("shell: specify a job PID\n");return; }
-    uint64_t id=selector ? job_pid(selector) : jobs[0] ? jobs[0] : jobs[1];
-    if (!id || (id!=jobs[0] && id!=jobs[1])) { *status=1;print("shell: unknown job PID\n");return; }
-    uint64_t *pid=&jobs[id==jobs[0] ? 0 : 1];
+    if (!selector && count>1) { *status=2;print("shell: specify a job PID\n");return; }
+    unsigned slot=0;
+    if (selector) {
+        uint64_t id=job_pid(selector);
+        slot=id ? job_slot(jobs,id) : JOB_LIMIT;
+    } else {
+        while (!jobs[slot]) { ++slot; }
+    }
+    if (slot==JOB_LIMIT) { *status=1;print("shell: unknown job PID\n");return; }
+    uint64_t *pid=&jobs[slot];
     if (kind==CMD_STOP && uos_child_cancel(*pid)) {
         *status=1;print("shell: job error\n");return;
     }
-    int64_t result=uos_wait(*pid);if (result>=0) { *pid=0; }job_result(result,0,status);
+    job_result(collect_job(pid),0,status);
 }
 static int list(const char *path)
 {
@@ -314,7 +401,8 @@ static void execute_stream(struct shell_state *state,const struct stream_command
     struct app_args args[UOS_PIPE_STAGES];
     struct uos_stdio io={0};
     bool piping=command->count>1;
-    if ((piping && (state->jobs[0] || state->jobs[1])) || (state->jobs[0] && state->jobs[1])) {
+    unsigned jobs=job_count(state->jobs);
+    if ((piping && jobs) || jobs==JOB_LIMIT) {
         state->status=1;print("shell: use fg or stop first\n");return;
     }
     if (!stream_path(command->input,io.input,sizeof(io.input),&state->status) ||
@@ -334,7 +422,7 @@ static void execute_stream(struct shell_state *state,const struct stream_command
     if (piping) {
         code=uos_pipe_chain(args,command->count,30,&io,command->append ? UOS_PIPE_APPEND : 0);
     } else {
-        int64_t pid=command->append ? uos_spawn_append(args,30,&io) : uos_spawn_io(args,30,&io);
+        int64_t pid=uos_spawn_ex(args,30,&io,command->append ? UOS_SPAWN_STDOUT_APPEND : 0);
         code=pid<0 ? pid : uos_wait((uint64_t)pid);
     }
     job_result(code,piping,&state->status);
@@ -448,12 +536,16 @@ static bool execute_line(struct shell_state *state,char *line)
         if (kind==CMD_EXIT && args.count==1) { state->exiting=true;return true; }
         if ((kind==CMD_HELP) && args.count==1) {
             print("help pwd cd ls stat cat echo write mkdir rm rmdir cp mv replace sha256 sync status path exit\nrun|exec PROGRAM [args]\nrunio IN|- OUT|- PROGRAM [args]\npipe PROGRAM [args] -- PROGRAM [args]\npipeio IN|- OUT|- PROGRAM [args] -- PROGRAM [args]\n");
-            print("bg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg [PID] | stop [PID] (two jobs, 1..30 seconds)\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\nsource [-e] PATH | lists with ; && ||\nsha256 PATH [expected-hex]\n$NAME ${NAME} $?; single quotes keep literals\n");
+            print("bg SECONDS PROGRAM [args]\nbgio SECONDS IN|- OUT|- PROGRAM [args]\njobs | fg [PID] | stop [PID] (four jobs, 1..30 seconds)\nwaitall | stopall\nenv | getenv NAME | setenv NAME VALUE | unsetenv NAME\nprofile save|load [path]\nsource [-e] PATH | lists with ; && ||\nsha256 PATH [expected-hex]\n$NAME ${NAME} $?; single quotes keep literals\n");
             print("Use exit for the kernel monitor (Wi-Fi commands and networktest).\n");
-            print("PROGRAM < IN > NEWOUT | PROGRAM >> OUT | up to four pipeline stages\n");
+            print("PROGRAM < IN > NEWOUT | PROGRAM >> OUT | up to seven pipeline stages\n");
             print("history [-c] | !! repeats last | !N repeats entry N\n");
+            print("sched [PID [low|normal|high]] | vmstat [PID]\n");
+            print("ports | ipcecho call NAME MESSAGE\n");
         } else if ((kind==CMD_STATUS) && args.count==1) { number(state->status);print("\n"); }
         else if (kind==CMD_HISTORY) { history_command(state,&args); }
+        else if (kind==CMD_SCHED) { state->status=scheduling_command(&args); }
+        else if (kind==CMD_VMSTAT) { state->status=vmstat_command(&args); }
         else if (kind==CMD_SOURCE) {
             bool stop_on_error=args.count==3 && same(p,"-e");
             if (state->sourcing) { state->status=2;print("shell: nested source refused\n"); }
@@ -461,7 +553,8 @@ static bool execute_line(struct shell_state *state,char *line)
                 source_file(state,stop_on_error ? args.bytes+args.offset[2] : p,stop_on_error);
             } else { state->status=2;print("Usage: source [-e] PATH\n"); }
         }
-        else if ((kind==CMD_JOBS && args.count==1) || ((kind==CMD_FG || kind==CMD_STOP) && args.count<=2)) {
+        else if (((kind==CMD_JOBS || kind==CMD_WAITALL || kind==CMD_STOPALL) && args.count==1) ||
+                 ((kind==CMD_FG || kind==CMD_STOP) && args.count<=2)) {
             job_command(kind,state->jobs,args.count==2 ? p : 0,&state->status);
         }
         else if (((kind==CMD_PATH) && args.count==1) || ((kind==CMD_GETENV) && args.count==2) || ((kind==CMD_ENV) && args.count==1)) {
@@ -478,7 +571,7 @@ static bool execute_line(struct shell_state *state,char *line)
             else { print(save ? "Profile saved: " : "Profile loaded: ");print(path);print("\n"); }
         }
         else if ((kind==CMD_EXEC) && args.count>=2) {
-            if (state->jobs[0] || state->jobs[1]) { state->status=1;print("shell: use fg or stop first\n");continue; }
+            if (job_count(state->jobs)) { state->status=1;print("shell: use fg or stop first\n");continue; }
             struct app_args next;words(&next,&args,1,args.count);
             int64_t r=program(&next);if (!r) { r=uos_exec(&next); }
             state->status=127;print(r==UOS_ENOENT ? "shell: program not found\n" : "shell: exec failed; current shell retained\n");
@@ -488,7 +581,8 @@ static bool execute_line(struct shell_state *state,char *line)
                  ((kind==CMD_BG) && args.count>=3) || ((kind==CMD_BGIO) && args.count>=5)) {
             struct app_args child,right;struct uos_stdio io={0};
             bool piping=(kind==CMD_PIPE) || (kind==CMD_PIPEIO),background=(kind==CMD_BG) || (kind==CMD_BGIO);
-            if ((piping && (state->jobs[0] || state->jobs[1])) || (state->jobs[0] && state->jobs[1])) {
+            unsigned slot=job_slot(state->jobs,0);
+            if ((piping && job_count(state->jobs)) || slot==JOB_LIMIT) {
                 state->status=1;print("shell: use fg or stop first\n");continue;
             }
             bool redirected=(kind==CMD_RUNIO) || (kind==CMD_PIPEIO) || (kind==CMD_BGIO);
@@ -514,8 +608,8 @@ static bool execute_line(struct shell_state *state,char *line)
                 code=uos_pipeline(&child,&right,seconds,redirected ? &io : 0);
             }
             else {
-                int64_t pid=redirected ? uos_spawn_io(&child,seconds,&io) : uos_spawn(&child,seconds);
-                if (background && pid>=0) { state->jobs[state->jobs[0]!=0]=(uint64_t)pid;print("job pid=");number((uint64_t)pid);print("\n");continue; }
+                int64_t pid=uos_spawn_ex(&child,seconds,redirected ? &io : 0,0);
+                if (background && pid>=0) { state->jobs[slot]=(uint64_t)pid;print("job pid=");number((uint64_t)pid);print("\n");continue; }
                 code=pid<0 ? UOS_ERROR : uos_wait((uint64_t)pid);
             }
             job_result(code,piping,&state->status);
@@ -576,9 +670,9 @@ static bool execute_line(struct shell_state *state,char *line)
         else if (((kind==CMD_RM) || (kind==CMD_RMDIR)) && args.count==2) { result=uos_remove(p,(kind==CMD_RMDIR))!=0; }
         else if (monitor_network_command(args.bytes)) { state->status=2;monitor_network_hint(); }
         else {
-            if (state->jobs[0] && state->jobs[1]) { state->status=1;print("shell: use fg or stop first\n");continue; }
+            if (job_count(state->jobs)==JOB_LIMIT) { state->status=1;print("shell: use fg or stop first\n");continue; }
             if (program(&args)) { state->status=127;print("shell: unknown command or arguments; type help\n");continue; }
-            int64_t pid=uos_spawn(&args,10);job_result(pid<0 ? UOS_ERROR : uos_wait((uint64_t)pid),0,&state->status);
+            int64_t pid=uos_spawn_ex(&args,10,0,0);job_result(pid<0 ? UOS_ERROR : uos_wait((uint64_t)pid),0,&state->status);
         }
         if (result) { state->status=1;print("shell: operation failed\n"); }
     }

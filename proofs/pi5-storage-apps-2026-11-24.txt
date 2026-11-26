@@ -1,0 +1,87 @@
+Raspberry Pi 5 header UART excerpts from the Phase 32 acceptance run
+2026-11-24, SanDisk Cruzer Blade
+
+user:/$ cat /data/p31-demo/live.txt
+current
+user:/$ cat /data/p31-demo/recovered.txt
+older
+> datacheck
+Mounted /data bank=0 generation=7
+bank=0 status=valid generation=7 matches_mounted=yes
+bank=1 status=valid generation=6
+
+> appadd ph32-0f6774e8 1 /boot/ECHO.ELF
+ph32-0f6774e8 active=1 previous=none
+> appstart ph32-0f6774e8 managed-one
+managed-one
+> appupgrade ph32-0f6774e8 2 /boot/HELLO.ELF
+ph32-0f6774e8 active=2 previous=1
+> appstart ph32-0f6774e8
+Hello from an OurOS EL0 application.
+> approllback ph32-0f6774e8
+ph32-0f6774e8 active=1 previous=2
+> appstart ph32-0f6774e8 managed-rollback
+managed-rollback
+
+Package signing key pinned.
+> pkginstall /boot/REPO.OPR pkgdemo 1
+Package ready pkgdemo 1
+> pkgstart pkgdemo
+Package asset demo revision one
+Dependency asset base revision one
+PASS: package executable, bundled asset, dependency asset and protected writes.
+> pkgremove pkgbase
+Package operation failed: root or current directory is busy
+> pkginstall /boot/REPO.OPR pkgdemo 2
+Package ready pkgdemo 2
+> pkgstart pkgdemo
+Package asset demo revision two
+Dependency asset base revision two
+PASS: package executable, bundled asset, dependency asset and protected writes.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> datacheck
+Mounted /data bank=1 generation=26
+bank=0 status=valid generation=25
+bank=1 status=valid generation=26 matches_mounted=yes
+> poweroff
+Poweroff: storage synchronized and idle. Halt via BCM2712 watchdog.
+
+RP1_UART 0000001c00030000
+Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+OurOS: AArch64 kernel booted
+Board=rpi5-header entered EL2 running EL1
+
+user:/$ cat /data/p31-demo/live.txt
+current
+user:/$ cat /data/p31-demo/recovered.txt
+older
+> datacheck
+Mounted /data bank=1 generation=26
+bank=0 status=valid generation=25
+bank=1 status=valid generation=26 matches_mounted=yes
+> appstart ph32-0f6774e8 managed-after-power
+managed-after-power
+App resources restored; monitor ready.
+> pkgstart pkgdemo
+Package asset demo revision two
+Dependency asset base revision two
+PASS: package executable, bundled asset, dependency asset and protected writes.
+App resources restored; monitor ready.
+> appuninstall ph32-0f6774e8
+Uninstalled ph32-0f6774e8
+> stat /data/.apps/ph32-0f6774e8.app
+fs: path not found
+> pkgremove pkgdemo
+Package removed pkgdemo
+> pkgremove pkgbase
+Package removed pkgbase
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> datacheck
+Mounted /data bank=0 generation=41
+bank=0 status=valid generation=41 matches_mounted=yes
+bank=1 status=valid generation=40
+> appshell
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$

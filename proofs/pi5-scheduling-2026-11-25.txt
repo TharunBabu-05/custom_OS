@@ -1,0 +1,24 @@
+Raspberry Pi 5 header UART excerpt supplied for Phase 34 verification
+2026-11-25, SanDisk Cruzer Blade, USB startup
+
+Board=rpi5-header entered EL2 running EL1
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=41 valid_banks=2
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+user:/$ sched
+pid=2 priority=normal quantum_ticks=2 user_ticks=2 ready_ticks=0
+user:/$ run /boot/SCHEDCHK.ELF
+EL0 timeout test: infinite user loop.
+EL0 timeout test: infinite user loop.
+User ticks low=30 high=120
+User ticks low=30 high=120
+PASS: weighted EL0 scheduling, bounded progress, priority ownership, inheritance and exec accounting.
+child exit=0
+user:/$ runio - - /boot/TTYPAR.ELF manual
+TTYCHK ready: enter terminal-ok
+Parent now waits for the early terminal reader.
+terminal-ok
+PASS: terminal pointer/capacity checks and blocking line delivery.
+PASS: child readline before parent wait blocks until terminal handoff.
+child exit=0
+user:/$

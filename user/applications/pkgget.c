@@ -6,10 +6,16 @@
 #include "tls13_keys.h"
 #include <string.h>
 
+static bool repository_name(const char *name)
+{
+    size_t bytes=uos_length(name);
+    return bytes>=5 && (crypto_equal(name+bytes-4,".OPR",4) || crypto_equal(name+bytes-4,".opr",4));
+}
 static bool destination(const char *name,char path[38])
 {
     size_t bytes=uos_length(name);
-    if (bytes<5 || bytes>31 || (!crypto_equal(name+bytes-4,".ELF",4) && !crypto_equal(name+bytes-4,".elf",4))) { return false; }
+    if (bytes<5 || bytes>31 || (!repository_name(name) && !crypto_equal(name+bytes-4,".ELF",4) &&
+        !crypto_equal(name+bytes-4,".elf",4))) { return false; }
     for (size_t i=0;i<bytes-4;++i) {
         unsigned char c=(unsigned char)name[i];
         if (!((c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9') ||
@@ -65,8 +71,12 @@ static int verify_and_publish(const char *path,const unsigned char *body,size_t 
         uos_puts("Package SHA-256 mismatch.\n");
         return 1;
     }
+    bool repository=repository_name(path);
     struct app_image_plan plan;
-    if (app_elf_plan(body,bytes,&plan)!=APP_ELF_OK) {
+    if (repository && (bytes<144 || !crypto_equal(body,"OUROSRP1",8))) {
+        uos_puts("Repository header rejected.\n");return 1;
+    }
+    if (!repository && app_elf_plan(body,bytes,&plan)!=APP_ELF_OK) {
         uos_puts("Package ELF rejected by the OurOS loader rules.\n");
         return 1;
     }
@@ -74,7 +84,8 @@ static int verify_and_publish(const char *path,const unsigned char *body,size_t 
     if (result==STORE_EXISTS) { uos_puts("Package destination already exists.\n");return 1; }
     if (result==STORE_IO) { uos_puts("Package staging or publication failed. Check /data.\n");return 1; }
     if (result==STORE_CLEANUP) { uos_puts("Package saved. The empty staging directory could not be removed.\n"); }
-    uos_puts("PASS: HTTPS package SHA-256 and ELF verified. Saved ");
+    uos_puts(repository ? "PASS: HTTPS repository SHA-256 verified. Saved " :
+        "PASS: HTTPS package SHA-256 and ELF verified. Saved ");
     uos_puts(path);
     uos_puts("\n");
     return 0;
@@ -124,7 +135,7 @@ int app_main(void)
     if (uos_argc()!=5 || uos_arg(1,address,sizeof(address))<=0 || uos_arg(2,port,sizeof(port))<=0 ||
         uos_arg(3,hash,sizeof(hash))!=64 || uos_arg(4,name,sizeof(name))<=0 ||
         !tls_net_peer(address,port,&peer) || !destination(name,path) || !trust_parse_digest(hash,expected)) {
-        uos_puts("Usage: PKGGET <LAN IPv4> <TCP port> <SHA-256> <new-name.ELF>\n");
+        uos_puts("Usage: PKGGET <LAN IPv4> <TCP port> <SHA-256> <new-name.ELF|new-name.OPR>\n");
         return 2;
     }
     struct uos_fs_info fs;

@@ -295,4 +295,18 @@ static void backups(void)
     value(&volume,"/nested/file",fixture,16384);
     puts("PASS: explicit v4 archive migration, no writes for malformed archive, v5 previous export/reimport, and changed archive refusal before publish");
 }
-int main(void) { crashes();metadata();capacity();backups();path_history();recovery_crashes();return 0; }
+static void spare_stop(void)
+{
+    blank();
+    assert(persist_interruption_test(&volume)==FS_NOT_FOUND && !writes);
+    assert(persist_write(&volume,"/cut32.txt","older-cut",9,false)==FS_OK);
+    assert(persist_write(&volume,"/cut32.txt","before-cut",10,false)==FS_OK);
+    unsigned generation=(unsigned)volume.generation,before=writes;
+    assert(persist_interruption_test(&volume)==FS_OK && volume.failed && writes==before+2);
+    assert(volume.generation==generation && volume.valid_banks==1);
+    assert(persist_mount(&reopened,&device)==FS_OK && reopened.generation==generation && reopened.valid_banks==1);
+    value(&reopened,"/cut32.txt","before-cut",10);
+    assert(persist_write(&reopened,"/cut32.txt","after-boot",10,false)==FS_OK);
+    puts("PASS: spare-media stop flushes staged data, retains the prior file on mount, and allows later writes");
+}
+int main(void) { crashes();metadata();capacity();backups();path_history();recovery_crashes();spare_stop();return 0; }

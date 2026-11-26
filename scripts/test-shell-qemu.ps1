@@ -1,8 +1,8 @@
 # Interactive acceptance against regular scratch files only. No physical drive.
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
-      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -14,6 +14,7 @@ $contentHasher=[Security.Cryptography.SHA256]::Create()
 try { $contentHash=([BitConverter]::ToString($contentHasher.ComputeHash([Text.Encoding]::ASCII.GetBytes('persistent shell data')))).Replace('-','').ToLowerInvariant() } finally { $contentHasher.Dispose() }
 $out=Join-Path $ProjectRoot 'build/handoff-test'
 $kernel=if ($Kernel) { (Resolve-Path -LiteralPath $Kernel).Path } else { Join-Path $out 'kernel.bin' }
+$fullBatch='apprun '+('CAPCHK.ELF '*8).Trim()
 New-Item -ItemType Directory -Force (Join-Path $ProjectRoot 'build/usb-tests') | Out-Null
 function Range-Hash([string]$Path,[long]$Offset,[long]$Length) {
     $f=[IO.File]::OpenRead($Path);$sha=[Security.Cryptography.SHA256]::Create();$b=New-Object byte[] 65536
@@ -157,7 +158,7 @@ if ($PipeChain) {
                 'echo ignored | cat | /boot/CONFIG.TXT | cat > /tmp/p29bad || echo load-status=$?',
                 'stat /tmp/p29bad || echo no-output-created',
                 'echo x | /boot/FAULT.ELF | cat | wc || echo fault-status=$?',
-                'echo forbidden; cat | cat | cat | cat | wc',
+                'echo forbidden; cat | cat | cat | cat | cat | cat | cat | wc',
                 @{Text='/boot/SPIN.ELF | cat | cat | ps';Delay=1600},$cancel,'echo group-status=$?',
                 @{Text='/boot/SPIN.ELF | cat | cat | wc';Delay=700},$cancel,'echo blocked-status=$?',
                 $batch,'exit',
@@ -165,7 +166,7 @@ if ($PipeChain) {
                 'fileinfo','storagetest','datacheck','pwd','halt'
             ) @($pass,"`r`nabcabc`r`n","`r`n0 1 3`r`n",'load-status=127',"`r`nno-output-created`r`n",
                 'fault-status=125','shell: invalid pipe or redirection syntax','group-status=130','blocked-status=130',
-                'PID PPID STATE PAGES PATH','EL0 processes: limit=5','cleanup=restored','Open files: 0/16',
+                'PID PPID STATE PAGES PATH','EL0 processes: limit=8','cleanup=restored','Open files: 0/16',
                 'process=4 path=/boot/HELLO.ELF state=exited code=0',
                 'PASS: read-only storage','matches_mounted=yes') 2 'ouros.startup=shell'
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
@@ -204,6 +205,166 @@ if ($CoreMilestones) {
             if ($runs.Count -ne 2 -or $runs[0].Groups[1].Value -ne $runs[1].Groups[1].Value -or
                 $beats.Count -ne 2 -or [int]$beats[0].Groups[1].Value -ge [int]$beats[1].Groups[1].Value -or
                 (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name service progress or storage differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($ProcessTrees) {
+    $treePass='PASS: nested process ownership, wait, slot reuse and subtree cleanup.'
+    $tree=@{Text='run /boot/TREECHK.ELF';Delay=4200}
+    $tty=@{Text='run /boot/TTYPAR.ELF';Delay=700}
+    $cancel=@{Text=[string][char]3;Raw=$true;Delay=550}
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="process-tree-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                $tree,'runio /etc/hostname - /boot/TREECHK.ELF input-file',
+                $tty,'terminal-ok',$tty,$cancel,'echo nested-terminal-restored',
+                $tree,'exit','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($treePass,'PASS: input redirection bounds terminal delegation.',
+                'PASS: child readline before parent wait blocks until terminal handoff.',
+                'child exit=2','nested-terminal-restored',
+                'children_started=48 children_reaped=48 last_child_code=0 cleanup=restored',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,[regex]::Escape($treePass)).Count -ne 2 -or
+                $log -notmatch '\^C\r?\nTTYPAR: reader cancelled\.\r?\nchild exit=2\r?\n' -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name tree results or disk differ" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($Scheduling) {
+    $pass='PASS: weighted EL0 scheduling, bounded progress, priority ownership, inheritance and exec accounting.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="scheduling-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'sched','bg 30 /boot/SPIN.ELF','sched 3','sched 3 low','sched 3 high','sched 3 normal',
+                'stop 3','sched 3','sched 3 high',
+                @{Text='run /boot/SCHEDCHK.ELF';Delay=5100},
+                @{Text='run /boot/TTYPAR.ELF';Delay=6200},
+                @{Text='runio - - /boot/TTYPAR.ELF manual';Delay=6200},'terminal-ok',
+                'exit','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($pass,'pid=2 priority=normal quantum_ticks=2','pid=3 priority=normal quantum_ticks=2',
+                'pid=3 priority=low quantum_ticks=1','pid=3 priority=high quantum_ticks=4',
+                'child exit=130','sched: process unavailable','sched: priority change refused',
+                'TTYPAR: reader timed out.','PASS: child readline before parent wait blocks until terminal handoff.',
+                'children_started=10 children_reaped=10 last_child_code=0 cleanup=restored',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,'(?m)^User ticks low=\d+ high=\d+\r?$').Count -ne 2 -or
+                $log -notmatch '\r?\nterminal-ok\r?\nPASS: terminal pointer/capacity checks' -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name scheduling or disk results differ" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($ProcessCapacity) {
+    $capacity='PASS: eight foreground slots and compatible process snapshots.'
+    $header='PID PPID STATE PAGES QUANTUM USER_TICKS READY_TICKS ROLE PATH'
+    $pass='PASS: seven-stage binary pipeline, process inventory and four-job control.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="process-capacity-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'exit','cd /boot',@{Text=$fullBatch;Delay=1800},'cd /','svc start /boot/SPIN.ELF','appshell',
+                @{Text='source -e /boot/PROCS35.OSH';Delay=3800},
+                'bg 30 /boot/SPIN.ELF','bg 30 /boot/SPIN.ELF','bg 30 /boot/SPIN.ELF','bg 30 /boot/SPIN.ELF',
+                'bgio 30 - /tmp/refused echo fifth-job','stat /tmp/refused || echo refused-output-absent','stopall',
+                'bg 30 /boot/FAULT.ELF','bg 30 /boot/SLEEP.ELF 100','waitall || echo waitall-fault=$?',
+                'bg 30 /boot/FAULT.ELF','bg 30 /boot/SPIN.ELF','stopall && echo stopall-collected','jobs',
+                'echo forbidden; cat | cat | cat | cat | cat | cat | cat | wc',
+                'echo ok | cat | cat | cat | cat | cat | /boot/CONFIG.TXT > /tmp/p35bad || echo pipe-failure=$?',
+                'stat /tmp/p35bad || echo pipe-output-absent','exit','svc stop','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($capacity,$header,$pass,'process=7 path=/boot/CAPCHK.ELF state=exited code=0',
+                'foreground-with-three-jobs','shell: use fg or stop first','refused-output-absent','waitall-fault=125',
+                'stopall-collected','shell: invalid pipe or redirection syntax','pipe-failure=127','pipe-output-absent',
+                'No background job.','children_started=31 children_reaped=31 last_child_code=130 cleanup=restored',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 3 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $rows=[regex]::Match($log,'(?m)^'+[regex]::Escape($header)+'\r?\n((?:\d+ \d+ [a-z-]+ \d+ \d+ \d+ \d+ (?:app|service) /[^\r\n]+\r?\n)+)')
+            if (!$rows.Success -or [regex]::Matches($rows.Groups[1].Value,'(?m) app /').Count -ne 8 -or
+                [regex]::Matches($rows.Groups[1].Value,'(?m) service /boot/SPIN\.ELF\r?$').Count -ne 1 -or
+                [regex]::Matches($log,[regex]::Escape($capacity)).Count -ne 8 -or
+                [regex]::Matches($log,'(?m)^job pid=\d+ exit=125\r?$').Count -ne 2 -or
+                $log -match '(?m)^(?:forbidden|fifth-job)\r?$' -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name process, job or disk results differ" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($FileMappings) {
+    $pass='PASS: file windows, private writes, protection, shared revocation, VM inventory and cleanup.'
+    $windowDigest='0f61c14365ba386013f8492706f53654017d0796c34e5097494f8433ff1b939f'
+    $bootHash=Range-Hash $source 0 (260097L*512)
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="file-mappings-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'vmstat','bg 30 /boot/VMCHK.ELF hold','vmstat 3','stop 3','vmstat 3',
+                @{Text='source -e /boot/VM36.OSH';Delay=3800},
+                'mapcat /boot/LARGE.BIN 123 16001 | hash','exit','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($pass,'vm pid=2 pages=0/48 regions=0','vm pid=3 pages=1/48 regions=1',
+                'file private bytes=1 pages=1 rights=rw ceiling=rw','vmstat: process unavailable','child exit=130',
+                'b83d3c832f2110bf760f831a9b22f0e85264092cd5f370d1aec11d7fd43e258b  /tmp/vm36.part',
+                'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/vm36.eof',
+                'PASS: mapped file range, EOF and VM shell diagnostics.',
+                'children_started=11 children_reaped=11 last_child_code=0 cleanup=restored','Open files: 0/16',
+                'PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ($log -notmatch "(?m)^$windowDigest\r?\npipeline exit=0\r?$") { throw "$name multi-window SHA-256 differs" }
+            if ((Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name changed the scratch disk" }
+            Session $disk "$name-persistent" $case[0] $case[1] @(
+                'exit',@{Text='datarestore /boot/DEMO.BAK';Delay=7000},'appshell',
+                'mapcat /data/pattern.bin | hash','exit','fileinfo','datacheck','pwd','halt'
+            ) @('Data restore committed and read back','dc404a613fedaeb54034514bc6505f56b933caa5250299ba7d094377a51caa46',
+                'pipeline exit=0','Open files: 0/16','matches_mounted=yes') 2 'ouros.startup=shell'
+            if ((Range-Hash $disk 0 (260097L*512)) -ne $bootHash) { throw "$name changed the boot region" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
+if ($NamedIpc) {
+    $pass='PASS: named listeners, sibling channels, timed queues, descriptor rights and teardown.'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="named-ipc-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                @{Text='run /boot/CHANCHK.ELF';Delay=4600},'ports','exit','fileinfo',
+                'svc start /boot/IPCECHO.ELF serve demo37','svc',
+                'appshell','ports','ipcecho call demo37 first-session','exit',
+                'svc','appshell','ports','ipcecho call demo37 second-session','exit','svc stop',
+                'appshell','ports','exit','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @($pass,'NAME PID PENDING ACTIVE','Service started.',
+                'IPC echo matched: first-session','IPC echo matched: second-session',
+                'Service enabled=no active=no launches=1 restarts=0 last_reason=4 last_code=143 cleanup=ok',
+                'Open files: 0/16','PASS: read-only storage','matches_mounted=yes') 4 'ouros.startup=shell'
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $ports=[regex]::Matches($log,'(?m)^demo37 (\d+) 0 0\r?$')
+            $services=[regex]::Matches($log,'(?m)^Service enabled=yes active=yes .* pid=(\d+) path=/boot/IPCECHO\.ELF\r?$')
+            if ($ports.Count -ne 2 -or $services.Count -ne 2 -or
+                $ports[0].Groups[1].Value -ne $ports[1].Groups[1].Value -or
+                $ports[0].Groups[1].Value -ne $services[0].Groups[1].Value -or
+                $ports[0].Groups[1].Value -ne $services[1].Groups[1].Value -or
+                [regex]::Matches($log,'(?m)^No listening ports\.\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^Open files: 0/16;').Count -ne 2 -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name port, service or storage results differ" }
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
@@ -993,6 +1154,68 @@ if ($AppLifecycle) {
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
     return
 }
+if ($StorageApps) {
+    if ($layout.Version -ne 5 -or $RepositoryPin -notmatch '^[0-9a-f]{64}$') {
+        throw 'StorageApps requires the v5 spare image and its 64-digit RepositoryPin'
+    }
+    $patternHash='dc404a613fedaeb54034514bc6505f56b933caa5250299ba7d094377a51caa46'
+    $prefix=Range-Hash $source 0 (260097L*512)
+    $busy='Package operation failed: root or current directory is busy'
+    $start='pkgstart pkgdemo'
+    $repos='ouros.startup=shell'
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="storage-apps-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk "$name-guards" $case[0] $case[1] @(
+                'exit','pkginstall /boot/REPO.OPR pkgdemo 1',('pkgtrust '+('0'*64)),
+                @{Text='pkginstall /boot/REPO.OPR pkgdemo 1';Delay=2200},"pkgtrust $RepositoryPin",
+                @{Text='pkginstall /boot/REPOBAD.OPR pkgdemo 1';Delay=2200},
+                @{Text='pkginstall /boot/REPO.OPR pkgloop 1';Delay=2200},
+                @{Text='pkginstall /boot/REPO.OPR pkgmiss 1';Delay=2200},
+                'pkglist','pwd','halt'
+            ) @('Package operation failed: file access mode denied','Package operation failed: corrupt filesystem',
+                $busy,'Package operation failed: path not found','No installed packages.') 1 $repos
+            if ((Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name rejected actions wrote to storage" }
+            Session $disk "$name-install" $case[0] $case[1] @(
+                'exit',@{Text='datarestore /boot/DEMO.BAK';Delay=9000},
+                @{Text='appadd phase32check 1 /boot/ECHO.ELF';Delay=2500},
+                'appstart phase32check managed-one',@{Text='appupgrade phase32check 2 /boot/HELLO.ELF';Delay=2500},
+                'appstart phase32check',@{Text='approllback phase32check';Delay=2200},
+                "pkgtrust $RepositoryPin",@{Text='pkginstall /boot/REPO.OPR pkgdemo 1';Delay=8500},
+                $start,@{Text='pkginstall /boot/REPO.OPR pkgkeep 1';Delay=7500},
+                @{Text='pkginstall /boot/REPO.OPR pkgdemo 2';Delay=3000},
+                'pkglist','write /data/.pkg/pkgdemo-1/message.txt forbidden','datacheck','pwd','halt'
+            ) @('Data restore committed and read back','phase32check active=1 previous=none',
+                'managed-one','Hello from an OurOS EL0 application.','phase32check active=1 previous=2',
+                'Package ready pkgdemo 1','Package asset demo revision one','Dependency asset base revision one',$busy,
+                "`r`npkgbase 1`r`n",'fs: read-only filesystem','matches_mounted=yes') 4 $repos
+            Session $disk "$name-reopen" $case[0] $case[1] @(
+                'sha256 /data/pattern.bin','exit','appstart phase32check managed-rollback',
+                @{Text='appuninstall phase32check';Delay=4000},'applist','pkgremove pkgbase',
+                @{Text='pkgremove pkgkeep';Delay=4000},"pkgtrust $RepositoryPin",
+                @{Text='pkginstall /boot/REPO.OPR pkgdemo 2';Delay=9000},
+                $start,'pkgpath pkgbase',@{Text='pkgremove pkgdemo';Delay=4000},
+                @{Text='pkgremove pkgbase';Delay=4000},'pkglist','fileinfo','pwd','halt'
+            ) @("$patternHash  /data/pattern.bin",'managed-rollback','Uninstalled phase32check','No managed apps.',
+                $busy,'Package ready pkgdemo 2','Package asset demo revision two','Dependency asset base revision two',
+                '/data/.pkg/pkgbase-2','No installed packages.','Open files: 0/16') 3 $repos
+            Session $disk "$name-cut" $case[0] $case[1] @(
+                'write /data/cut32.txt older-cut','write /data/cut32.txt before-cut','exit',
+                @{Text='datacut';Delay=3500},'datacheck','pwd','halt'
+            ) @('CUT READY: new data flushed; index unpublished.','status=empty','matches_mounted=yes') 1 $repos
+            Session $disk "$name-after-cut" $case[0] $case[1] @(
+                'cat /data/cut32.txt','sha256 /data/pattern.bin','exit','datacheck',
+                'write /data/cut32.txt after-boot','cat /data/cut32.txt','pwd','halt'
+            ) @("`r`nbefore-cut`r`n","$patternHash  /data/pattern.bin",'status=empty',
+                'matches_mounted=yes',"`r`nafter-boot`r`n") 1 $repos
+            if ((Range-Hash $disk 0 (260097L*512)) -cne $prefix) { throw "$name changed /boot or the data superblock" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
+}
 if ($DataHistory) {
     if ($layout.Version -ne 5) { throw 'DataHistory requires a v5 image' }
     $bootLength=260097L*512
@@ -1110,7 +1333,7 @@ if ($TwoJobs) {
         try {
             Session $disk $name $case[0] $case[1] @(
                 'bg 30 /boot/SPIN.ELF','bg 1 /boot/SPIN.ELF','jobs','fg','stop','fg 99',
-                'runio - /tmp/blocked echo capacity-failed','fg 4','echo timeout=$?','jobs',
+                'echo capacity-failed | cat > /tmp/blocked','fg 4','echo timeout=$?','jobs',
                 'bg 30 /boot/TTYCHK.ELF','fg 5','terminal-ok','jobs',
                 'run /boot/ECHO.ELF foreground-peer','bgio 30 - /tmp/job-output echo redirected-peer',
                 'stop 3','echo cancelled=$?','fg','cat /tmp/job-output',
@@ -2218,7 +2441,7 @@ if ($Pipes) {
         $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
         Copy-Item -LiteralPath $source -Destination $disk
         $actions=@('storageinit','datainit','mmuinit','irqinit','timerstart',@{Text='appterm 30 /boot/PIPECHK.ELF';Delay=6000},
-            'apprun /boot/CAPCHK.ELF /boot/CAPCHK.ELF /boot/CAPCHK.ELF','appshell',
+            'cd /boot',$fullBatch,'cd /','appshell',
             'runio - /data/greeting.txt /boot/ECHO.ELF "hello from OurOS"','runio /data/greeting.txt /data/ctxt /boot/CAT.ELF',
             'sha256 /data/copy.txt','runio /data/copy.txt - /boot/CAT','sha256 /data/ctxt','runio /data/ctxt - /boot/CAT.ELF',
             'pipe /boot/ECHO.ELF "pipe-ok" -- /boot/CAT.ELF','pipe /boot/STREAM.ELF -- /boot/HASH.ELF',
@@ -2358,7 +2581,7 @@ foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
     Copy-Item -LiteralPath $source -Destination $disk
     $actions=@('storageinit','datainit','mmuinit','irqinit','timerstart',
         'apprun /boot/MUTATE.ELF /boot/TTYDENY.ELF','apprun /boot/COPYCHK.ELF',
-        @{Text='appterm 30 /boot/SPAWNCHK.ELF';Delay=4500},'apprun /boot/ORPHAN.ELF','apprun /boot/CAPCHK.ELF /boot/CAPCHK.ELF /boot/CAPCHK.ELF',
+        @{Text='appterm 30 /boot/SPAWNCHK.ELF';Delay=4500},'apprun /boot/ORPHAN.ELF','cd /boot',$fullBatch,'cd /',
         'appterm 10 /boot/TTYPAR.ELF','terminal-ok',
         'appshell','help','mkdir /tmp/shelltest','cd /tmp/shelltest','pwd',
         'write note "long original tail"','cat note','write note "x"','cat note','ls','rm note','cd /','rmdir /tmp/shelltest',

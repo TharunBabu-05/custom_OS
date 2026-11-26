@@ -6,6 +6,15 @@ static struct fat32_volume boot;
 static struct persist_volume data_volume;
 static bool data_attempted;
 static enum fs_result data_mount_result;
+static bool package_edit;
+void vfs_package_edit(bool enable) { package_edit=enable; }
+static bool package_locked(const char *path)
+{
+    static const char root[]="/data/.pkg";
+    if (package_edit) { return false; }
+    for (unsigned i=0;i<sizeof(root)-1;++i) { if (path[i]!=root[i]) { return false; } }
+    return !path[sizeof(root)-1] || path[sizeof(root)-1]=='/';
+}
 static const char *data_path(const char *p)
 {
     const char *prefix="/data";if (!p) { return NULL; }
@@ -32,7 +41,19 @@ enum fs_result vfs_data_history(const char *path,struct persist_path_history *ou
 enum fs_result vfs_data_recover(const char *source,const char *destination,uint64_t *generation)
 {
     const char *from=data_path(source),*to=data_path(destination);
+    if (to && package_locked(destination)) { return FS_READ_ONLY; }
     return from && to ? persist_recover_previous(&data_volume,from,to,generation) : FS_INVALID_PATH;
+}
+enum fs_result vfs_data_interruption_test(void)
+{
+    static const char marker[]="OurOS spare-media cut test v1\n", path[]="/boot/CUTTEST.TAG";
+    char bytes[sizeof(marker)];
+    size_t read=0;
+    enum fs_result result=vfs_read(path,0,bytes,sizeof(bytes),&read);
+    if (result!=FS_OK || read!=sizeof(marker)-1) { return FS_ACCESS; }
+    for (unsigned i=0;i<read;++i) { if (bytes[i]!=marker[i]) { return FS_ACCESS; } }
+    if (kfile_path_busy("/data/cut32.txt",false)) { return FS_BUSY; }
+    return persist_interruption_test(&data_volume);
 }
 enum fs_result vfs_data_export(persist_emit emit,void *context) { return persist_export(&data_volume,emit,context); }
 enum fs_result vfs_data_export_previous(persist_emit emit,void *context) { return persist_export_previous(&data_volume,emit,context); }
@@ -102,7 +123,7 @@ enum fs_result vfs_boot_open(const char *absolute,struct fat32_file *file)
     if (!boot.ready || !path) { return FS_NOT_READY; }
     return fat32_open(&boot,path,file);
 }
-bool vfs_read_only(const char *path) { return path && boot_path(path)!=NULL; } /* Reserved mountpoint even before attachment. */
+bool vfs_read_only(const char *path) { return path && (boot_path(path) || package_locked(path)); }
 void vfs_boot_info(void)
 {
     if (!boot.ready) { console_write("/boot: not mounted; run storageinit\n"); return; }

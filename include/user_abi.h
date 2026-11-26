@@ -27,7 +27,11 @@ enum uos_syscall {
     UOS_SYS_FD_DUP=64,UOS_SYS_FD_SET=65,UOS_SYS_FD_LIST=66,
     UOS_SYS_PIPE_CHAIN=67,
     UOS_SYS_IPC_SEND=68,UOS_SYS_IPC_RECV=69,UOS_SYS_SIGNAL_SEND=70,UOS_SYS_SIGNAL_WAIT=71,
-    UOS_SYS_CHILD_FAULT=72,UOS_SYS_VM_CREATE=73,UOS_SYS_VM_MAP=74,UOS_SYS_VM_UNMAP=75
+    UOS_SYS_CHILD_FAULT=72,UOS_SYS_VM_CREATE=73,UOS_SYS_VM_MAP=74,UOS_SYS_VM_UNMAP=75,
+    UOS_SYS_PACKAGE_PATH=76,UOS_SYS_SCHED_GET=77,UOS_SYS_SCHED_SET=78,UOS_SYS_SPAWN_EX=79,
+    UOS_SYS_VM_FILE=80,UOS_SYS_VM_PROTECT=81,UOS_SYS_VM_REVOKE=82,UOS_SYS_VM_INFO=83,
+    UOS_SYS_PORT_LISTEN=84,UOS_SYS_PORT_CONNECT=85,UOS_SYS_PORT_ACCEPT=86,UOS_SYS_PORT_CLOSE=87,
+    UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91
 };
 enum { UOS_RANDOM_MAX=64 };
 /* Fixed 48-byte result; unused/reserved bytes are always zero. Directory
@@ -37,6 +41,7 @@ struct uos_entry { uint64_t bytes;uint32_t type,reserved;char name[32]; };
  * existing files are refused. Paths are relative to the spawning process. */
 struct uos_stdio { char input[256],output[256]; };
 _Static_assert(sizeof(struct uos_stdio)==512,"standard stream ABI size");
+enum { UOS_JOB_MAX=4,UOS_SPAWN_STDOUT_APPEND=1 };
 enum { UOS_FILE=1,UOS_DIRECTORY=2 };
 _Static_assert(sizeof(struct uos_entry)==48,"directory ABI size");
 /* Private dynamic page arena, separate from the executable and stack. */
@@ -51,7 +56,9 @@ _Static_assert(sizeof(struct uos_memory_pressure)==48,"memory pressure ABI size"
 /* One coherent snapshot of the active foreground batch. No kernel addresses,
  * arguments, credentials, cwd or environment are exported. Unused bytes zero. */
 enum { UOS_PROCESS_MAX=3,UOS_PROCESS_VERSION=1,UOS_PROCESS_SELF=1,UOS_PROCESS_CHILD=2 };
-enum { UOS_PROCESS_MAX_V2=5,UOS_PROCESS_VERSION_V2=2,UOS_PIPE_STAGES=4,UOS_PIPE_APPEND=1 };
+enum { UOS_PROCESS_MAX_V2=5,UOS_PROCESS_VERSION_V2=2 };
+enum { UOS_PROCESS_MAX_V3=9,UOS_PROCESS_VERSION_V3=3,UOS_PROCESS_SERVICE=4 };
+enum { UOS_PIPE_STAGES=7,UOS_PIPE_APPEND=1 };
 enum uos_process_state {
     UOS_PROCESS_RUNNING=1,UOS_PROCESS_READY,UOS_PROCESS_SLEEPING,UOS_PROCESS_INPUT,
     UOS_PROCESS_WAIT_CHILD,UOS_PROCESS_PIPE_READ,UOS_PROCESS_PIPE_WRITE,
@@ -71,16 +78,55 @@ struct uos_process_table_v2 {
     uint32_t version,count;uint64_t caller_pid;
     struct uos_process_entry entries[UOS_PROCESS_MAX_V2];
 };
+struct uos_process_entry_v3 {
+    struct uos_process_entry process;
+    uint64_t user_ticks,ready_ticks;
+    uint32_t quantum_ticks,reserved;
+};
+/* Includes the supervised service while it is active. A service calling
+ * PROCESSES sees its own row. The foreground table has eight slots. */
+struct uos_process_table_v3 {
+    uint32_t version,count;uint64_t caller_pid;
+    struct uos_process_entry_v3 entries[UOS_PROCESS_MAX_V3];
+};
 struct uos_child_info { uint64_t pid;uint32_t state,finished;int32_t exit_code;uint32_t reserved; };
 _Static_assert(sizeof(struct uos_process_entry)==312,"process entry ABI size");
 _Static_assert(sizeof(struct uos_process_table)==952,"process table ABI size");
 _Static_assert(sizeof(struct uos_process_table_v2)==1576,"process table v2 ABI size");
+_Static_assert(sizeof(struct uos_process_entry_v3)==336,"process entry v3 ABI size");
+_Static_assert(sizeof(struct uos_process_table_v3)==3040,"process table v3 ABI size");
 _Static_assert(sizeof(struct uos_child_info)==24,"child info ABI size");
+enum { UOS_SCHED_LOW=1,UOS_SCHED_NORMAL=2,UOS_SCHED_HIGH=4 };
+/* Tick samples taken while EL0 is executing. Ready ticks count samples
+ * when this process was runnable but another process was executing. */
+struct uos_sched_info {
+    uint64_t pid,user_ticks,ready_ticks;
+    uint32_t quantum_ticks,reserved;
+};
+_Static_assert(sizeof(struct uos_sched_info)==32,"scheduler info ABI size");
 enum { UOS_IPC_BYTES=96,UOS_IPC_DEPTH=4,UOS_WAIT_MAX_MS=10000 };
-/* Send uses peer as the destination PID. Receive returns the sender in peer.
- * A nonzero handle requires explicit READ/WRITE rights and arrives CLOEXEC. */
+/* Direct IPC send uses peer as the destination PID. Channel send requires
+ * peer=0. Receive returns the sender PID. A transferred handle arrives CLOEXEC. */
 struct uos_message { uint64_t peer,handle;uint32_t bytes,rights;unsigned char data[UOS_IPC_BYTES]; };
 _Static_assert(sizeof(struct uos_message)==120,"IPC message ABI size");
+enum { UOS_PORT_MAX=4,UOS_CHANNEL_MAX=8,UOS_PORT_NAME_MAX=15 };
+struct uos_port_entry {
+    uint64_t pid;
+    uint32_t pending,active;
+    char name[UOS_PORT_NAME_MAX+1];
+};
+struct uos_port_table { uint32_t count,reserved;struct uos_port_entry entries[UOS_PORT_MAX]; };
+_Static_assert(sizeof(struct uos_port_table)==136,"IPC port inventory ABI size");
+enum { UOS_EVENT_MAX=UOS_CHANNEL_MAX+1 };
+enum uos_event_source {
+    UOS_EVENT_LISTENER=1,UOS_EVENT_CHANNEL,UOS_EVENT_MAILBOX,UOS_EVENT_CHILD,UOS_EVENT_SIGNAL
+};
+enum { UOS_EVENT_READ=1,UOS_EVENT_WRITE=2,UOS_EVENT_HANGUP=4 };
+/* READ covers accept, receive, child status and a pending SIGUSR1. Only a
+ * channel accepts WRITE. HANGUP is returned for a closed or inaccessible
+ * source. Mailbox object zero watches any direct message. Signal uses zero. */
+struct uos_event { uint64_t object;uint32_t source;uint16_t events,revents; };
+_Static_assert(sizeof(struct uos_event)==16,"event wait ABI size");
 enum { UOS_SIGINT=2,UOS_SIGUSR1=10,UOS_SIGTERM=15 };
 enum { UOS_STOP_EXIT=1,UOS_STOP_FAULT,UOS_STOP_TIMEOUT,UOS_STOP_SIGNAL,UOS_STOP_KERNEL };
 enum { UOS_FAULT_FAR_VALID=1 };
@@ -89,7 +135,21 @@ struct uos_fault_info {
     uint32_t reason,code,signal,flags;
 };
 _Static_assert(sizeof(struct uos_fault_info)==48,"process stop ABI size");
-enum { UOS_VM_MAX_PAGES=32 };
+enum { UOS_VM_MAX_PAGES=32,UOS_VM_MAX_REGIONS=4 };
+enum { UOS_VM_FILE_BACKED=1,UOS_VM_SHARED=2,UOS_VM_PEER=4 };
+struct uos_vm_entry {
+    uint64_t token,address,file_offset;
+    uint32_t bytes,pages,rights,ceiling,flags,reserved;
+};
+/* PID zero queries the caller. Direct-child queries omit tokens, virtual
+ * addresses and file offsets. Unused rows and reserved fields are zero. */
+struct uos_vm_info {
+    uint64_t pid;
+    uint32_t count,pages,page_limit,reserved;
+    struct uos_vm_entry entries[UOS_VM_MAX_REGIONS];
+};
+_Static_assert(sizeof(struct uos_vm_entry)==48,"VM entry ABI size");
+_Static_assert(sizeof(struct uos_vm_info)==216,"VM inventory ABI size");
 /* Query an existing path's mount; zero write limit means read-only. */
 enum { UOS_FS_RAM=1,UOS_FS_FAT=2,UOS_FS_SNAPSHOT=3,UOS_FS_READONLY=1,UOS_FS_VOLATILE=2 };
 struct uos_fs_info { uint64_t max_write_bytes;uint32_t type,version,node_limit,used_nodes;uint64_t flags; };
@@ -139,4 +199,5 @@ _Static_assert(sizeof(struct uos_utc_time)==16,"UTC time ABI size");
 #define UOS_ECERTTIME (-23LL)
 #define UOS_ENORANDOM (-24LL)
 #define UOS_EINTR (-25LL)
+#define UOS_EACCES (-26LL)
 #endif

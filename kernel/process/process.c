@@ -1,6 +1,7 @@
 /* Original bounded single-CPU EL0 batches. Only lower-EL exception frames
  * switch; the kernel/driver stack is never preempted. */
 #include "process.h"
+#include "package.h"
 #include "elf_app.h"
 #include "user_mmu.h"
 #include "user_abi.h"
@@ -26,7 +27,8 @@
 static unsigned char copy_bytes[VFS_FILE_MAX];
 static unsigned char profile_bytes[APP_PROFILE_BYTES];
 enum status { UNUSED,READY,SLEEPING,INPUT_WAIT,CHILD_WAIT,PIPE_READ_WAIT,PIPE_WRITE_WAIT,UDP_WAIT,
-              IPC_SEND_WAIT,IPC_RECV_WAIT,SIGNAL_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
+              IPC_SEND_WAIT,IPC_RECV_WAIT,IPC_ACCEPT_WAIT,SIGNAL_WAIT,EVENT_WAIT,EXITED,FAULTED,TIMED_OUT,CANCELLED };
+struct ipc_entry { struct uos_message message;uint64_t link; };
 struct process {
     struct user_tables *tables;
     struct user_mapping maps[USER_MAPPING_LIMIT];unsigned map_count;
@@ -34,6 +36,8 @@ struct process {
     struct uos_memory_pressure pressure;
     struct exception_frame context;
     uint64_t sp,owner,calls,dispatches,esr,far,pc;
+    uint64_t user_ticks,ready_ticks;
+    unsigned quantum_ticks,slice_left;
     enum status status;int code;
     char path[RAMFS_PATH_MAX];
     char cwd[RAMFS_PATH_MAX];struct app_args args;
@@ -44,13 +48,20 @@ struct process {
     uint64_t stdin_handle,stdout_handle;bool io_failed;
     uint64_t pipe_address;size_t pipe_bytes;unsigned char pipe_buffer[512];unsigned pipe_stage;
     uint64_t udp_handle,udp_address;size_t udp_capacity;
-    struct uos_message inbox[UOS_IPC_DEPTH],outgoing;
-    uint64_t ipc_peer,ipc_address,ipc_image;
-    unsigned inbox_count,stop_signal;
+    struct ipc_entry inbox[UOS_IPC_DEPTH];
+    /* A process can block on a send or a wait set, one at a time. */
+    union { struct uos_message outgoing;struct uos_event events[UOS_EVENT_MAX]; } wait_data;
+    uint64_t ipc_peer,wait_address,ipc_image,ipc_wait_link;
+    unsigned inbox_count,event_count,stop_signal;
     bool signal_pending,has_exception;
 };
 static struct process tasks[PROCESS_LIMIT+1];
 static struct process *const service_task=&tasks[PROCESS_LIMIT];
+struct ipc_listener { uint64_t token,owner;char name[UOS_PORT_NAME_MAX+1]; };
+struct ipc_link { uint64_t token,listener,client;bool accepted; };
+static struct ipc_listener listeners[UOS_PORT_MAX];
+static struct ipc_link links[UOS_CHANNEL_MAX];
+static uint64_t ipc_sequence;
 static struct {
     struct app_args args;
     char cwd[RAMFS_PATH_MAX];
@@ -63,10 +74,10 @@ static struct {
 static struct process exec_stage;
 static struct user_tables memory_stage;
 struct vm_region {
-    uint64_t token,creator,peer;
+    uint64_t token,creator,peer,file_offset;
     uint64_t physical[USER_VM_REGION_PAGES];
-    unsigned pages,peer_rights;
-    bool peer_mapped;
+    unsigned bytes,pages,owner_rights,peer_rights;
+    bool peer_mapped,file_backed;
 };
 static struct vm_region regions[USER_VM_REGIONS];
 static uint64_t region_sequence;
@@ -127,6 +138,7 @@ static bool allocate(struct process *p,uint64_t va,enum user_page_kind kind)
 enum { TABLE_BACKING_PAGES=sizeof(struct user_tables)/4096 };
 _Static_assert(sizeof(struct user_tables)%4096==0,"user table backing pages");
 _Static_assert((unsigned)USER_VM_REGION_PAGES==(unsigned)UOS_VM_MAX_PAGES,"VM page limit ABI");
+_Static_assert((unsigned)USER_VM_REGIONS==(unsigned)UOS_VM_MAX_REGIONS,"VM table capacity ABI");
 static bool vm_release(struct vm_region *region,uint64_t owner)
 {
     if (!owner) { return true; }
@@ -171,15 +183,7 @@ static bool release_vm(struct process *p)
     }
     return good;
 }
-static uint64_t ipc_escrow(const struct process *p) { return p->owner | (1ULL<<61); }
-static void ipc_discard(struct process *p)
-{
-    if (p->inbox_count) { (void)kfile_close_owner(ipc_escrow(p)); }
-    p->inbox_count=0;
-    zero(p->inbox,sizeof(p->inbox));
-    zero(&p->outgoing,sizeof(p->outgoing));
-    p->ipc_peer=p->ipc_address=p->ipc_image=0;
-}
+static void ipc_discard(struct process *p);
 static bool release(struct process *p)
 {
     close_sockets(p->owner);ipc_discard(p);(void)kfile_close_owner(p->owner);
@@ -226,6 +230,7 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
     enum user_mmu_result ur=user_mmu_build(p->tables,root,(const uint64_t *)(uintptr_t)kernel_root,p->maps,p->map_count);
     if (ur!=USER_MMU_OK) { console_write("User mapping failed: ");console_write(user_mmu_result_text(ur));console_write("\n");return false; }
     p->context=(struct exception_frame){.elr=plan.entry,.spsr=0x340};p->sp=USER_STACK_BASE+USER_STACK_PAGES*4096;p->status=READY;
+    p->quantum_ticks=UOS_SCHED_NORMAL;
     size_t i=0;do { p->path[i]=absolute[i]; } while (absolute[i++]);
     copy(p->cwd,cwd,length(cwd)+1);
     if (args) { p->args=*args; }
@@ -237,7 +242,7 @@ static bool load(struct process *p,const char *path,const char *cwd,const struct
 { return load_at(p,path,cwd,args,env,0); }
 static bool live(const struct process *p) { return p->status>=READY && p->status<EXITED; }
 static unsigned scheduled_slots(void) { return service.enabled ? PROCESS_LIMIT+1 : total; }
-_Static_assert((unsigned)PROCESS_LIMIT==(unsigned)UOS_PROCESS_MAX_V2,"process snapshot capacity");
+_Static_assert(PROCESS_LIMIT+1==UOS_PROCESS_MAX_V3,"snapshot includes the service slot");
 _Static_assert(PROCESS_LIMIT==UOS_PIPE_STAGES+1,"pipeline and parent capacity");
 static uint64_t process_pid(const struct process *p) { return p->owner ? (p->owner&~(1ULL<<63))+1 : 0; }
 static unsigned public_state(const struct process *p)
@@ -247,7 +252,8 @@ static unsigned public_state(const struct process *p)
     case SLEEPING:return UOS_PROCESS_SLEEPING;case INPUT_WAIT:return UOS_PROCESS_INPUT;
     case CHILD_WAIT:return UOS_PROCESS_WAIT_CHILD;case PIPE_READ_WAIT:return UOS_PROCESS_PIPE_READ;
     case PIPE_WRITE_WAIT:return UOS_PROCESS_PIPE_WRITE;case UDP_WAIT:return UOS_PROCESS_UDP_WAIT;case EXITED:return UOS_PROCESS_EXITED;
-    case IPC_SEND_WAIT:return UOS_PROCESS_IPC_SEND;case IPC_RECV_WAIT:return UOS_PROCESS_IPC_RECV;
+    case IPC_SEND_WAIT:return UOS_PROCESS_IPC_SEND;
+    case IPC_RECV_WAIT:case IPC_ACCEPT_WAIT:case EVENT_WAIT:return UOS_PROCESS_IPC_RECV;
     case SIGNAL_WAIT:return UOS_PROCESS_SIGNAL_WAIT;
     case FAULTED:return UOS_PROCESS_FAULTED;case TIMED_OUT:return UOS_PROCESS_TIMEOUT;
     case CANCELLED:return UOS_PROCESS_CANCELLED;default:return 0;
@@ -257,18 +263,39 @@ static bool is_child(unsigned parent,const struct process *child)
 {
     return parent<PROCESS_LIMIT && child->status!=UNUSED && child->parent==parent;
 }
-static struct process *owned_child(uint64_t pid)
+static struct process *child_of(const struct process *p,uint64_t pid)
 {
-    if (channel.active && current==channel.parent) { return NULL; }
+    unsigned parent=(unsigned)(p-tasks);
+    if (channel.active && parent==channel.parent) { return NULL; }
     for (unsigned i=0;i<total;++i) {
-        if (is_child(current,&tasks[i]) && process_pid(&tasks[i])==pid) { return &tasks[i]; }
+        if (is_child(parent,&tasks[i]) && process_pid(&tasks[i])==pid) { return &tasks[i]; }
     }
     return NULL;
 }
+static struct process *owned_child(uint64_t pid) { return child_of(&tasks[current],pid); }
 static bool has_children(void)
 {
     for (unsigned i=0;i<total;++i) { if (is_child(current,&tasks[i])) { return true; } }
     return false;
+}
+static int64_t scheduling_call(struct process *p,struct exception_frame *f)
+{
+    uint64_t pid=f->x[0],arg=f->x[1];
+    if (f->x[8]==UOS_SYS_SCHED_SET) {
+        struct process *child=owned_child(pid);
+        if (!child || !live(child)) { return UOS_ECHILD; }
+        if (arg!=UOS_SCHED_LOW && arg!=UOS_SCHED_NORMAL && arg!=UOS_SCHED_HIGH) { return UOS_ERROR; }
+        child->quantum_ticks=(unsigned)arg;
+        child->slice_left=0;
+        return 0;
+    }
+    const struct process *target=pid ? owned_child(pid) : p;
+    if (!target) { return UOS_ECHILD; }
+    if (!user_range(p,arg,sizeof(struct uos_sched_info),true)) { return UOS_EFAULT; }
+    struct uos_sched_info info={.pid=process_pid(target),.user_ticks=target->user_ticks,
+        .ready_ticks=target->ready_ticks,.quantum_ticks=target->quantum_ticks};
+    user_copy(p,arg,&info,sizeof(info),true);
+    return 0;
 }
 static struct uos_fault_info stop_info(const struct process *p)
 {
@@ -291,33 +318,53 @@ static struct uos_fault_info stop_info(const struct process *p)
     }
     return out;
 }
+static int64_t process_snapshot(struct process *p,uint64_t address,uint64_t bytes)
+{
+    bool legacy=bytes==sizeof(struct uos_process_table),extended=bytes==sizeof(struct uos_process_table_v3);
+    if (!legacy && !extended && bytes!=sizeof(struct uos_process_table_v2)) { return UOS_ERROR; }
+    if (!user_range(p,address,(size_t)bytes,true)) { return UOS_EFAULT; }
+    unsigned limit=extended ? UOS_PROCESS_MAX_V3 : legacy ? UOS_PROCESS_MAX : UOS_PROCESS_MAX_V2;
+    union {
+        struct uos_process_table_v2 v2;
+        struct uos_process_table_v3 v3;
+    } table={.v3={0}};
+    unsigned first=p==service_task ? PROCESS_LIMIT : 0;
+    unsigned end=p==service_task ? PROCESS_LIMIT+1 : extended ? scheduled_slots() : total;
+    unsigned count=0;
+    for (unsigned i=first;i<end && count<limit;++i) {
+        const struct process *source=&tasks[i];if (source->status==UNUSED) { continue; }
+        /* The caller must fit even when an older table truncates the batch. */
+        if (i<current && count==limit-1) { continue; }
+        struct uos_process_entry *e;
+        if (extended) {
+            struct uos_process_entry_v3 *row=&table.v3.entries[count];
+            row->quantum_ticks=source->quantum_ticks;
+            row->user_ticks=source->user_ticks;
+            row->ready_ticks=source->ready_ticks;
+            e=&row->process;
+        } else {
+            e=&table.v2.entries[count];
+        }
+        ++count;
+        e->pid=process_pid(source);
+        if (source->parent<total && tasks[source->parent].status!=UNUSED) { e->parent_pid=process_pid(&tasks[source->parent]); }
+        e->state=public_state(source);e->syscalls=source->calls;e->dispatches=source->dispatches;e->heap_pages=source->heap.live;
+        if (!live(source)) { e->exit_code=source->code; }
+        e->flags=(i==current ? UOS_PROCESS_SELF : 0) | (source==owned_child(e->pid) ? UOS_PROCESS_CHILD : 0) |
+                 (extended && source==service_task ? UOS_PROCESS_SERVICE : 0);
+        size_t n=0;while (n+1<sizeof(e->path) && source->path[n]) { e->path[n]=source->path[n];++n; }
+    }
+    if (extended) {
+        table.v3.version=UOS_PROCESS_VERSION_V3;table.v3.count=count;table.v3.caller_pid=process_pid(p);
+    } else {
+        table.v2.version=legacy ? UOS_PROCESS_VERSION : UOS_PROCESS_VERSION_V2;
+        table.v2.count=count;table.v2.caller_pid=process_pid(p);
+    }
+    user_copy(p,address,&table,(size_t)bytes,true);return 0;
+}
 static int64_t process_control(struct process *p,struct exception_frame *f)
 {
-    if (f->x[8]==UOS_SYS_PROCESSES) {
-        bool legacy=f->x[1]==sizeof(struct uos_process_table);
-        size_t bytes=legacy ? sizeof(struct uos_process_table) : sizeof(struct uos_process_table_v2);
-        if (f->x[1]!=bytes) { return UOS_ERROR; }
-        if (!user_range(p,f->x[0],bytes,true)) { return UOS_EFAULT; }
-        unsigned limit=legacy ? UOS_PROCESS_MAX : UOS_PROCESS_MAX_V2;
-        struct uos_process_table_v2 table={0};
-        table.version=legacy ? UOS_PROCESS_VERSION : UOS_PROCESS_VERSION_V2;
-        table.caller_pid=process_pid(p);
-        unsigned first=p==service_task ? PROCESS_LIMIT : 0;
-        unsigned end=p==service_task ? PROCESS_LIMIT+1 : total;
-        for (unsigned i=first;i<end;++i) {
-            const struct process *source=&tasks[i];if (source->status==UNUSED) { continue; }
-            if (table.count==limit) { break; }
-            /* Keep one slot for the caller when filling the legacy table. */
-            if (i<current && table.count==limit-1) { continue; }
-            struct uos_process_entry *e=&table.entries[table.count++];e->pid=process_pid(source);
-            if (source->parent<total && tasks[source->parent].status!=UNUSED) { e->parent_pid=process_pid(&tasks[source->parent]); }
-            e->state=public_state(source);e->syscalls=source->calls;e->dispatches=source->dispatches;e->heap_pages=source->heap.live;
-            if (!live(source)) { e->exit_code=source->code; }
-            e->flags=(i==current ? UOS_PROCESS_SELF : 0) | (source==owned_child(e->pid) ? UOS_PROCESS_CHILD : 0);
-            size_t n=0;while (n+1<sizeof(e->path) && source->path[n]) { e->path[n]=source->path[n];++n; }
-        }
-        user_copy(p,f->x[0],&table,bytes,true);return 0;
-    }
+    if (f->x[8]==UOS_SYS_PROCESSES) { return process_snapshot(p,f->x[0],f->x[1]); }
     struct process *child=owned_child(f->x[0]);if (!child) { return UOS_ECHILD; }
     if (f->x[8]==UOS_SYS_CHILD_FAULT) {
         if (!user_range(p,f->x[1],sizeof(struct uos_fault_info),true)) { return UOS_EFAULT; }
@@ -340,7 +387,23 @@ static void input_clear(void)
 static unsigned terminal_owner(void)
 {
     if (!interactive || !live(&tasks[0])) { return PROCESS_LIMIT; }
-    return tasks[0].status==CHILD_WAIT ? tasks[0].wait_child : 0;
+    unsigned owner=0;
+    while (owner<total && tasks[owner].status==CHILD_WAIT && !tasks[owner].stdin_handle) {
+        owner=tasks[owner].wait_child;
+    }
+    return owner;
+}
+static bool terminal_can_read(const struct process *p)
+{
+    if (!interactive || channel.active || !live(&tasks[0])) { return false; }
+    unsigned slot=(unsigned)(p-tasks);
+    /* A descendant may prepare a read early. Only the current terminal
+     * owner consumes input, and redirected stdin ends the delegation. */
+    while (slot<total && !tasks[slot].stdin_handle) {
+        if (slot==0) { return true; }
+        slot=tasks[slot].parent;
+    }
+    return false;
 }
 static int64_t pipe_transfer(struct process *p,bool reading,bool *blocked)
 {
@@ -399,6 +462,13 @@ static void pipeline_refresh(void)
 }
 static int collect_child(struct process *child)
 {
+    if (live(child)) { child->status=CANCELLED;child->code=130;child->stop_signal=UOS_SIGINT; }
+    unsigned slot=(unsigned)(child-tasks);
+    /* Reclaim descendants before releasing their parent's slot. Spawn only
+     * links unused slots, so this tree is acyclic and bounded by the table. */
+    for (unsigned i=0;i<total;++i) {
+        if (is_child(slot,&tasks[i])) { (void)collect_child(&tasks[i]); }
+    }
     int code=child->code;
     if (!release(child)) { child_cleanup_failed=true;code=126; }
     child->status=UNUSED;++children_reaped;child_last_code=code;return code;
@@ -412,12 +482,12 @@ static void children_refresh(void)
         if (child->status==UNUSED || owner>=total || (channel.active && owner==channel.parent)) { continue; }
         struct process *p=&tasks[owner];
         if (!live(p)) {
-            if (live(child)) { child->status=CANCELLED;child->code=130;child->stop_signal=UOS_SIGINT; }
             (void)collect_child(child);
         } else if (p->status==CHILD_WAIT && p->wait_child==i && !live(child)) {
+            bool owned_terminal=terminal_owner()==i;
             p->context.x[0]=(uint64_t)collect_child(child);
             p->wait_child=PROCESS_LIMIT;p->status=READY;
-            if (owner==0) { input_clear(); }
+            if (owned_terminal) { input_clear(); }
         }
     }
 }
@@ -527,7 +597,172 @@ static struct process *ipc_peer(const struct process *p,uint64_t pid)
     }
     return NULL;
 }
-static int64_t ipc_enqueue(struct process *p,struct process *peer,const struct uos_message *message)
+static struct process *ipc_owner(uint64_t owner)
+{
+    for (unsigned i=0;i<scheduled_slots();++i) {
+        if (tasks[i].owner==owner && live(&tasks[i])) { return &tasks[i]; }
+    }
+    return NULL;
+}
+static struct ipc_listener *ipc_listener(uint64_t token)
+{
+    for (unsigned i=0;i<UOS_PORT_MAX;++i) {
+        if (token && listeners[i].token==token) { return &listeners[i]; }
+    }
+    return NULL;
+}
+static struct ipc_link *ipc_link(uint64_t token)
+{
+    for (unsigned i=0;i<UOS_CHANNEL_MAX;++i) {
+        if (token && links[i].token==token) { return &links[i]; }
+    }
+    return NULL;
+}
+static uint64_t ipc_escrow(const struct process *p) { return p->owner | (1ULL<<61); }
+static void ipc_remove_entry(struct process *p,unsigned index)
+{
+    --p->inbox_count;
+    for (unsigned i=index;i<p->inbox_count;++i) { p->inbox[i]=p->inbox[i+1]; }
+    p->inbox[p->inbox_count]=(struct ipc_entry){0};
+}
+static void ipc_close_link(struct ipc_link *link)
+{
+    for (unsigned i=0;i<PROCESS_LIMIT+1;++i) {
+        struct process *p=&tasks[i];
+        unsigned j=0;
+        while (j<p->inbox_count) {
+            struct ipc_entry *entry=&p->inbox[j];
+            if (entry->link!=link->token) { ++j;continue; }
+            if (entry->message.handle) { (void)kfile_close(ipc_escrow(p),entry->message.handle); }
+            ipc_remove_entry(p,j);
+        }
+    }
+    *link=(struct ipc_link){0};
+}
+static void ipc_close_listener(struct ipc_listener *port)
+{
+    for (unsigned i=0;i<UOS_CHANNEL_MAX;++i) {
+        if (links[i].listener==port->token) { ipc_close_link(&links[i]); }
+    }
+    *port=(struct ipc_listener){0};
+}
+static void ipc_discard(struct process *p)
+{
+    if (!p->owner) { return; }
+    for (unsigned i=0;i<UOS_PORT_MAX;++i) {
+        if (listeners[i].owner==p->owner) { ipc_close_listener(&listeners[i]); }
+    }
+    for (unsigned i=0;i<UOS_CHANNEL_MAX;++i) {
+        if (links[i].client==p->owner) { ipc_close_link(&links[i]); }
+    }
+    if (p->inbox_count) {
+        (void)kfile_close_owner(ipc_escrow(p));
+        zero(p->inbox,sizeof(p->inbox));
+        p->inbox_count=0;
+    }
+    zero(&p->outgoing,sizeof(p->outgoing));
+    p->ipc_peer=p->ipc_address=p->ipc_image=p->ipc_wait_link=0;
+}
+/* Only an admitted channel grants access to its counterpart. Direct PID
+ * mail remains limited to the existing parent-child relationship. */
+static int64_t ipc_target(struct process *p,uint64_t pid,uint64_t token,struct process **peer)
+{
+    if (!token) {
+        *peer=ipc_peer(p,pid);
+        return *peer ? 0 : UOS_EPIPE;
+    }
+    const struct ipc_link *link=ipc_link(token);
+    const struct ipc_listener *port=link ? ipc_listener(link->listener) : NULL;
+    if (!port) { return UOS_EPIPE; }
+    uint64_t owner;
+    if (p->owner==link->client) { owner=port->owner; }
+    else if (p->owner==port->owner && link->accepted) { owner=link->client; }
+    else { return UOS_EPIPE; }
+    *peer=ipc_owner(owner);
+    if (!*peer) { return UOS_EPIPE; }
+    return link->accepted ? 0 : UOS_EAGAIN;
+}
+static int64_t ipc_open(struct process *p,uint64_t address,uint64_t bytes,uint64_t pid,bool listen)
+{
+    char name[UOS_PORT_NAME_MAX+1]={0};
+    if (!bytes || bytes>UOS_PORT_NAME_MAX) { return UOS_ERROR; }
+    if (!user_range(p,address,(size_t)bytes,false)) { return UOS_EFAULT; }
+    user_copy(p,address,name,(size_t)bytes,false);
+    for (unsigned i=0;i<bytes;++i) {
+        char c=name[i];
+        if (!((c>='a' && c<='z') || (c>='0' && c<='9') || c=='-' || c=='_' || c=='.')) { return UOS_ERROR; }
+    }
+    struct ipc_listener *port=NULL,*free_port=NULL;
+    for (unsigned i=0;i<UOS_PORT_MAX;++i) {
+        struct ipc_listener *row=&listeners[i];
+        if (!row->token) { if (!free_port) { free_port=row; }continue; }
+        unsigned n=0;
+        while (n<bytes && row->name[n]==name[n]) { ++n; }
+        if (n==bytes && !row->name[n]) { port=row;break; }
+    }
+    if (ipc_sequence==INT64_MAX) { return UOS_ENOSPC; }
+    if (listen) {
+        if (port) { return UOS_EEXIST; }
+        if (!free_port) { return UOS_ENOSPC; }
+        free_port->token=++ipc_sequence;
+        free_port->owner=p->owner;
+        copy(free_port->name,name,sizeof(name));
+        return (int64_t)free_port->token;
+    }
+    const struct process *server=port ? ipc_owner(port->owner) : NULL;
+    if (!server || (pid && pid!=process_pid(server))) { return UOS_ENOENT; }
+    if (server==p) { return UOS_EACCES; }
+    for (unsigned i=0;i<UOS_CHANNEL_MAX;++i) {
+        if (links[i].token) { continue; }
+        links[i]=(struct ipc_link){.token=++ipc_sequence,.listener=port->token,.client=p->owner};
+        return (int64_t)links[i].token;
+    }
+    return UOS_ENOSPC;
+}
+static int64_t ipc_accept(struct process *p,uint64_t token)
+{
+    const struct ipc_listener *port=ipc_listener(token);
+    if (!port || port->owner!=p->owner) { return UOS_EPIPE; }
+    struct ipc_link *first=NULL;
+    for (unsigned i=0;i<UOS_CHANNEL_MAX;++i) {
+        struct ipc_link *link=&links[i];
+        if (link->listener==token && !link->accepted && (!first || link->token<first->token) &&
+            ipc_owner(link->client)) { first=link; }
+    }
+    if (!first) { return UOS_EAGAIN; }
+    first->accepted=true;
+    return (int64_t)first->token;
+}
+static int64_t ipc_close(struct process *p,uint64_t token)
+{
+    struct ipc_listener *port=ipc_listener(token);
+    if (port && port->owner==p->owner) { ipc_close_listener(port);return 0; }
+    struct ipc_link *link=ipc_link(token);
+    port=link ? ipc_listener(link->listener) : NULL;
+    if (!port || (link->client!=p->owner && (port->owner!=p->owner || !link->accepted))) { return UOS_EPIPE; }
+    ipc_close_link(link);
+    return 0;
+}
+static int64_t ipc_list(struct process *p,uint64_t address)
+{
+    struct uos_port_table table={0};
+    if (!user_range(p,address,sizeof(table),true)) { return UOS_EFAULT; }
+    for (unsigned i=0;i<UOS_PORT_MAX;++i) {
+        const struct ipc_listener *port=&listeners[i];
+        const struct process *owner=port->token ? ipc_owner(port->owner) : NULL;
+        if (!owner) { continue; }
+        struct uos_port_entry *entry=&table.entries[table.count++];
+        entry->pid=process_pid(owner);
+        copy(entry->name,port->name,sizeof(entry->name));
+        for (unsigned j=0;j<UOS_CHANNEL_MAX;++j) {
+            if (links[j].listener!=port->token || !ipc_owner(links[j].client)) { continue; }
+            if (links[j].accepted) { ++entry->active; }else { ++entry->pending; }
+        }
+    }
+    user_copy(p,address,&table,sizeof(table),true);
+    return 0;
+}
+static int64_t ipc_enqueue(struct process *p,struct process *peer,const struct uos_message *message,uint64_t link)
 {
     if (peer->inbox_count==UOS_IPC_DEPTH) { return UOS_EAGAIN; }
     struct uos_message entry={.peer=process_pid(p),.bytes=message->bytes,.rights=message->rights};
@@ -537,20 +772,24 @@ static int64_t ipc_enqueue(struct process *p,struct process *peer,const struct u
         if (r!=FS_OK) { return r==FS_NO_HANDLES ? UOS_ENOSPC : UOS_EBADF; }
     }
     copy(entry.data,message->data,entry.bytes);
-    peer->inbox[peer->inbox_count++]=entry;
+    peer->inbox[peer->inbox_count++]=(struct ipc_entry){entry,link};
     return 0;
 }
-static int64_t ipc_dequeue(struct process *p,uint64_t peer,uint64_t address)
+static int64_t ipc_dequeue(struct process *p,uint64_t peer,uint64_t address,uint64_t link)
 {
     if (!user_range(p,address,sizeof(struct uos_message),true)) { return UOS_EFAULT; }
+    if (link) {
+        struct process *other;
+        int64_t result=ipc_target(p,0,link,&other);
+        if (result) { return result; }
+    }
     for (unsigned i=0;i<p->inbox_count;++i) {
-        struct uos_message *entry=&p->inbox[i];
+        if (p->inbox[i].link!=link) { continue; }
+        struct uos_message *entry=&p->inbox[i].message;
         if (peer && entry->peer!=peer) { continue; }
         if (entry->handle && kfile_receive(ipc_escrow(p),entry->handle,p->owner)!=FS_OK) { return UOS_EBADF; }
         user_copy(p,address,entry,sizeof(*entry),true);
-        --p->inbox_count;
-        for (unsigned j=i;j<p->inbox_count;++j) { p->inbox[j]=p->inbox[j+1]; }
-        p->inbox[p->inbox_count]=(struct uos_message){0};
+        ipc_remove_entry(p,i);
         return 0;
     }
     return peer && !ipc_peer(p,peer) ? UOS_EPIPE : UOS_EAGAIN;
@@ -561,40 +800,68 @@ static void wait_complete(struct process *p,int64_t result)
 {
     p->context.x[0]=(uint64_t)result;
     p->status=READY;
-    p->ipc_peer=p->ipc_address=p->ipc_image=0;
+    p->ipc_peer=p->ipc_address=p->ipc_image=p->ipc_wait_link=0;
     zero(&p->outgoing,sizeof(p->outgoing));
     p->udp_handle=p->udp_address=p->udp_capacity=0;
     ++p->wakes;
 }
 static int64_t ipc_call(struct process *p,struct exception_frame *f)
 {
-    bool sending=f->x[8]==UOS_SYS_IPC_SEND;
-    uint64_t ms=sending ? f->x[1] : f->x[2];
+    uint64_t call=f->x[8];
+    bool channel_io=call==UOS_SYS_CHANNEL_SEND || call==UOS_SYS_CHANNEL_RECV;
+    bool sending=call==UOS_SYS_IPC_SEND || call==UOS_SYS_CHANNEL_SEND;
+    uint64_t link=channel_io ? f->x[0] : 0;
+    uint64_t address=call==UOS_SYS_IPC_SEND ? f->x[0] : f->x[1];
+    uint64_t ms=call==UOS_SYS_IPC_SEND ? f->x[1] : f->x[2];
     if (ms>UOS_WAIT_MAX_MS) { return UOS_ERROR; }
+    if (channel_io && !link) { return UOS_EPIPE; }
     int64_t result;
     if (sending) {
-        if (!user_range(p,f->x[0],sizeof(struct uos_message),false)) { return UOS_EFAULT; }
+        if (!user_range(p,address,sizeof(struct uos_message),false)) { return UOS_EFAULT; }
         struct uos_message message;
-        user_copy(p,f->x[0],&message,sizeof(message),false);
-        if (message.bytes>UOS_IPC_BYTES || (message.handle && (!message.rights ||
+        user_copy(p,address,&message,sizeof(message),false);
+        if ((link && message.peer) || message.bytes>UOS_IPC_BYTES || (message.handle && (!message.rights ||
             (message.rights&~(UOS_READ|UOS_WRITE)))) || (!message.handle && message.rights)) { return UOS_ERROR; }
         if (message.handle && (message.handle==p->stdin_handle || message.handle==p->stdout_handle)) { return UOS_EBADF; }
-        struct process *peer=ipc_peer(p,message.peer);
-        if (!peer) { return UOS_EPIPE; }
-        result=ipc_enqueue(p,peer,&message);
+        struct process *peer;
+        result=ipc_target(p,message.peer,link,&peer);
+        if (!result) { result=ipc_enqueue(p,peer,&message,link); }
         if (result!=UOS_EAGAIN || !ms) { return result; }
         p->outgoing=message;
-        p->ipc_image=peer->execs;
+        p->ipc_image=link ? 0 : peer->execs;
     } else {
-        result=ipc_dequeue(p,f->x[0],f->x[1]);
+        uint64_t peer=link ? 0 : f->x[0];
+        result=ipc_dequeue(p,peer,address,link);
         if (result!=UOS_EAGAIN || !ms) { return result; }
-        p->ipc_peer=f->x[0];
-        p->ipc_address=f->x[1];
+        p->ipc_peer=peer;
+        p->ipc_address=address;
     }
+    p->ipc_wait_link=link;
     p->status=sending ? IPC_SEND_WAIT : IPC_RECV_WAIT;
     p->wake=wait_until(ms);
     ++p->sleeps;
     return 0;
+}
+static int64_t port_call(struct process *p,const struct exception_frame *f)
+{
+    uint64_t a=f->x[0],b=f->x[1];
+    switch (f->x[8]) {
+    case UOS_SYS_PORT_LISTEN:return ipc_open(p,a,b,0,true);
+    case UOS_SYS_PORT_CONNECT:return ipc_open(p,a,b,f->x[2],false);
+    case UOS_SYS_PORT_CLOSE:return ipc_close(p,a);
+    case UOS_SYS_PORT_LIST:return ipc_list(p,a);
+    case UOS_SYS_PORT_ACCEPT: {
+        if (b>UOS_WAIT_MAX_MS) { return UOS_ERROR; }
+        int64_t result=ipc_accept(p,a);
+        if (result!=UOS_EAGAIN || !b) { return result; }
+        p->ipc_wait_link=a;
+        p->status=IPC_ACCEPT_WAIT;
+        p->wake=wait_until(b);
+        ++p->sleeps;
+        return 0;
+    }
+    default:return UOS_ERROR;
+    }
 }
 static int64_t signal_call(struct process *p,struct exception_frame *f)
 {
@@ -614,7 +881,7 @@ static int64_t signal_call(struct process *p,struct exception_frame *f)
         wait_complete(child,signal);
     } else {
         child->signal_pending=true;
-        if (child->status==IPC_SEND_WAIT || child->status==IPC_RECV_WAIT || child->status==UDP_WAIT ||
+        if (child->status==IPC_SEND_WAIT || child->status==IPC_RECV_WAIT || child->status==IPC_ACCEPT_WAIT || child->status==UDP_WAIT ||
             child->status==SLEEPING || child->status==INPUT_WAIT) {
             if (child->status==INPUT_WAIT && (unsigned)(child-tasks)==terminal_owner()) { input_clear(); }
             wait_complete(child,UOS_EINTR);
@@ -626,10 +893,16 @@ static void ipc_refresh(struct process *p,uint64_t now)
 {
     int64_t result=UOS_EAGAIN;
     if (p->status==IPC_RECV_WAIT) {
-        result=ipc_dequeue(p,p->ipc_peer,p->ipc_address);
+        result=ipc_dequeue(p,p->ipc_peer,p->ipc_address,p->ipc_wait_link);
     } else if (p->status==IPC_SEND_WAIT) {
-        struct process *peer=ipc_peer(p,p->outgoing.peer);
-        result=peer && peer->execs==p->ipc_image ? ipc_enqueue(p,peer,&p->outgoing) : UOS_EPIPE;
+        struct process *peer;
+        result=ipc_target(p,p->outgoing.peer,p->ipc_wait_link,&peer);
+        if (!result) {
+            result=p->ipc_wait_link || peer->execs==p->ipc_image ?
+                ipc_enqueue(p,peer,&p->outgoing,p->ipc_wait_link) : UOS_EPIPE;
+        }
+    } else if (p->status==IPC_ACCEPT_WAIT) {
+        result=ipc_accept(p,p->ipc_wait_link);
     } else if (p->status!=SIGNAL_WAIT) {
         return;
     }
@@ -695,30 +968,54 @@ static void refresh(void)
     for (unsigned i=0;i<scheduled_slots();++i) {
         struct process *p=&tasks[i];
         if (live(p)) { ipc_refresh(p,now); }
-        else if (p->status!=UNUSED) { close_sockets(p->owner);if (p->inbox_count) { ipc_discard(p); } }
+        else if (p->status!=UNUSED) { close_sockets(p->owner);ipc_discard(p); }
     }
     service_refresh(now);
 }
 static bool network_checkpoint;
+static bool foreground_live(void)
+{
+    for (unsigned i=0;i<total;++i) { if (live(&tasks[i])) { return true; } }
+    return false;
+}
+static unsigned next_ready(unsigned first,unsigned slots)
+{
+    for (unsigned step=0;step<slots;++step) {
+        unsigned slot=(first+step)%slots;
+        if (tasks[slot].status==READY) { return slot; }
+    }
+    return slots;
+}
+static void dispatch(unsigned next,bool timer)
+{
+    if (next!=current) { ++switches;if (timer) { ++preemptions; } }
+    current=next;
+    tasks[next].slice_left=tasks[next].quantum_ticks;
+    ++tasks[next].dispatches;
+}
+static void account_tick(struct process *p)
+{
+    ++p->user_ticks;
+    if (p->slice_left) { --p->slice_left; }
+    for (unsigned i=0;i<scheduled_slots();++i) {
+        if (i!=current && tasks[i].status==READY) { ++tasks[i].ready_ticks; }
+    }
+}
 static bool schedule(struct exception_frame *frame,bool timer)
 {
     struct process *old=&tasks[current];old->context=*frame;old->context.spsr=(frame->spsr&0xf0000000ULL)|0x340;old->sp=user_sp();
     refresh();
-    if (service.slice) { goto kernel; }
-    if (service.enabled) {
-        unsigned slot=0;
-        while (slot<total && !live(&tasks[slot])) { ++slot; }
-        if (slot==total) { goto kernel; }
-    }
+    if (service.slice || (service.enabled && !foreground_live())) { goto kernel; }
     if (timer && network_worker_due()) {
         network_checkpoint=true;
         goto kernel;
     }
+    if (timer && old->status==READY && old->slice_left) { return true; }
     unsigned slots=scheduled_slots();
-    for (unsigned step=1;step<=slots;++step) {
-        unsigned next=(current+step)%slots;if (tasks[next].status!=READY) { continue; }
-        if (next!=current) { ++switches;if (timer) { ++preemptions; } }
-        current=next;struct process *p=&tasks[current];++p->dispatches;
+    unsigned next=next_ready(current+1,slots);
+    if (next!=slots) {
+        dispatch(next,timer);
+        struct process *p=&tasks[next];
         process_arch_root(p->tables->physical);__asm__ volatile("msr sp_el0, %0" :: "r"(p->sp) : "memory");*frame=p->context;return true;
     }
 kernel:
@@ -960,6 +1257,7 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
     }
     case UOS_SYS_PROCESSES:case UOS_SYS_CHILD_POLL:case UOS_SYS_CHILD_CANCEL:
     case UOS_SYS_CHILD_FAULT:return process_control(p,f);
+    case UOS_SYS_SCHED_GET:case UOS_SYS_SCHED_SET:return scheduling_call(p,f);
     case UOS_SYS_ENV_PROFILE:return profile_call(p,f);
     case UOS_SYS_ENV_GET:case UOS_SYS_ENV_SET:case UOS_SYS_ENV_UNSET:case UOS_SYS_ENV_ENTRY:return environment_call(p,f);
     case UOS_SYS_RENAME:case UOS_SYS_PUBLISH: {
@@ -979,6 +1277,16 @@ static int64_t syscall(struct process *p,struct exception_frame *f)
     case UOS_SYS_ARGC:return p->args.count;
     case UOS_SYS_ARG:if (a>=p->args.count) { return UOS_ERROR; }return string_out(p,b,c,p->args.bytes+p->args.offset[a]);
     case UOS_SYS_GETCWD:return string_out(p,a,b,p->cwd);
+    case UOS_SYS_PACKAGE_PATH: {
+        char name[17],path[RAMFS_PATH_MAX];
+        if (!b || b>=sizeof(name)) { return UOS_ERROR; }
+        if (!user_range(p,a,(size_t)b,false)) { return UOS_EFAULT; }
+        user_copy(p,a,name,(size_t)b,false);
+        for (size_t i=0;i<b;++i) { if (!name[i]) { return UOS_ERROR; } }
+        name[b]=0;
+        r=package_path(name,path);
+        return r==FS_OK ? string_out(p,c,f->x[3],path) : r==FS_NOT_FOUND ? UOS_ENOENT : UOS_ERROR;
+    }
     case UOS_SYS_GETPID:return (int64_t)process_pid(p);
     case UOS_SYS_STAT:case UOS_SYS_READDIR:case UOS_SYS_CHDIR:return path_call(p,f);
     case UOS_SYS_MKDIR:case UOS_SYS_REMOVE:case UOS_SYS_REPLACE: {
@@ -1131,37 +1439,134 @@ static int64_t vm_attach(struct process *p,struct vm_region *region,enum user_pa
     p->map_count+=region->pages;
     return (int64_t)address;
 }
-static int64_t vm_create(struct process *p,struct exception_frame *f)
+static bool vm_rights_valid(uint64_t rights)
+{ return rights==UOS_READ || rights==(UOS_READ|UOS_WRITE); }
+
+static enum user_page_kind vm_page_kind(unsigned rights)
+{ return rights&UOS_WRITE ? USER_PAGE_RW : USER_PAGE_RO; }
+
+static struct vm_region *vm_reserve(struct process *p,unsigned pages,unsigned bytes,unsigned rights)
 {
-    uint64_t peer_pid=f->x[0],pages=f->x[1],rights=f->x[2],out=f->x[3];
-    if (!pages || pages>USER_VM_REGION_PAGES ||
-        (peer_pid ? (rights!=UOS_READ && rights!=(UOS_READ|UOS_WRITE)) : rights!=0)) { return UOS_ERROR; }
-    if (!user_range(p,out,sizeof(uint64_t),true)) { return UOS_EFAULT; }
-    struct process *peer=peer_pid ? owned_child(peer_pid) : NULL;
-    if (peer_pid && (!peer || !live(peer))) { return UOS_ECHILD; }
-    if (!vm_fits(p,(unsigned)pages) || region_sequence==UINT64_MAX) { return UOS_ENOSPC; }
-    struct vm_region *region=NULL;
-    for (unsigned i=0;i<USER_VM_REGIONS;++i) { if (!regions[i].token) { region=&regions[i];break; } }
-    if (!region) { return UOS_ENOSPC; }
-    region->token=++region_sequence;
-    region->creator=p->owner;
-    int64_t result;
-    for (;region->pages<pages;++region->pages) {
-        if (!heap_allocate_page(p,&region->physical[region->pages])) { break; }
+    if (!vm_fits(p,pages) || region_sequence==UINT64_MAX) { return NULL; }
+    for (unsigned i=0;i<USER_VM_REGIONS;++i) {
+        struct vm_region *region=&regions[i];
+        if (region->token) { continue; }
+        region->token=++region_sequence;
+        region->creator=p->owner;
+        region->bytes=bytes;
+        region->owner_rights=rights;
+        return region;
     }
-    result=region->pages==pages ? vm_attach(p,region,USER_PAGE_RW) : UOS_ENOMEM;
+    return NULL;
+}
+
+static int64_t vm_back_pages(struct process *p,struct vm_region *region,unsigned pages)
+{
+    for (;region->pages<pages;++region->pages) {
+        if (!heap_allocate_page(p,&region->physical[region->pages])) { return UOS_ENOMEM; }
+    }
+    return 0;
+}
+
+static int64_t vm_finish(struct process *p,struct vm_region *region,uint64_t out,int64_t result)
+{
+    if (!result) { result=vm_attach(p,region,vm_page_kind(region->owner_rights)); }
     if (result<0) {
         if (!vm_release(region,p->owner)) { child_cleanup_failed=true; }
         return result;
     }
-    region->peer=peer ? peer->owner : 0;
-    region->peer_rights=(unsigned)rights;
     user_copy(p,out,&region->token,sizeof(region->token),true);
     return result;
+}
+
+static int64_t vm_create(struct process *p,const struct exception_frame *f)
+{
+    uint64_t peer_pid=f->x[0],pages=f->x[1],rights=f->x[2],out=f->x[3];
+    if (!pages || pages>USER_VM_REGION_PAGES || (peer_pid ? !vm_rights_valid(rights) : rights!=0)) { return UOS_ERROR; }
+    if (!user_range(p,out,sizeof(uint64_t),true)) { return UOS_EFAULT; }
+    struct process *peer=peer_pid ? owned_child(peer_pid) : NULL;
+    if (peer_pid && (!peer || !live(peer))) { return UOS_ECHILD; }
+    struct vm_region *region=vm_reserve(p,(unsigned)pages,(unsigned)pages*4096,UOS_READ|UOS_WRITE);
+    if (!region) { return UOS_ENOSPC; }
+    region->peer=peer ? peer->owner : 0;
+    region->peer_rights=(unsigned)rights;
+    return vm_finish(p,region,out,vm_back_pages(p,region,(unsigned)pages));
+}
+
+static int64_t vm_file(struct process *p,const struct exception_frame *f)
+{
+    uint64_t handle=f->x[0],offset=f->x[1],bytes=f->x[2],rights=f->x[3],out=f->x[4];
+    if (!bytes || bytes>USER_VM_REGION_PAGES*4096ULL || !vm_rights_valid(rights)) { return UOS_ERROR; }
+    if (!user_range(p,out,sizeof(uint64_t),true)) { return UOS_EFAULT; }
+    struct kfile_status file;
+    enum fs_result status=kfile_stat(p->owner,handle,&file);
+    if (status!=FS_OK) { return file_error(status,true); }
+    if (!(file.flags&KFILE_READ)) { return UOS_EACCES; }
+    if (offset>file.bytes) { return UOS_ERROR; }
+    unsigned pages=(unsigned)((bytes+4095)/4096);
+    struct vm_region *region=vm_reserve(p,pages,(unsigned)bytes,(unsigned)rights);
+    if (!region) { return UOS_ENOSPC; }
+    region->file_backed=true;region->file_offset=offset;
+    int64_t result=vm_back_pages(p,region,pages);
+    size_t remaining=(size_t)(file.bytes-offset);
+    if (remaining>bytes) { remaining=(size_t)bytes; }
+    for (unsigned i=0;!result && remaining;++i) {
+        size_t want=remaining>4096 ? 4096 : remaining,got=0;
+        status=kfile_pread(p->owner,handle,(void *)(uintptr_t)region->physical[i],want,offset+(uint64_t)i*4096,&got);
+        if (status!=FS_OK || got!=want) { result=UOS_ERROR; }
+        remaining-=want;
+    }
+    return vm_finish(p,region,out,result);
+}
+
+static bool vm_change(struct process *p,const struct vm_region *region,bool remove,enum user_page_kind kind)
+{
+    uint64_t address=region_address(region);
+    struct user_mapping next[USER_MAPPING_LIMIT];
+    unsigned count=0,changed=0;
+    for (unsigned i=0;i<p->map_count;++i) {
+        struct user_mapping row=p->maps[i];
+        if (row.virtual_address>=address && row.virtual_address-address<region->pages*4096ULL) {
+            ++changed;
+            if (remove) { continue; }
+            row.kind=kind;
+        }
+        next[count++]=row;
+    }
+    if (changed!=region->pages || !heap_publish(p,next,count)) { return false; }
+    copy(p->maps,next,count*sizeof(next[0]));p->map_count=count;
+    return true;
+}
+
+static int64_t vm_info(struct process *p,uint64_t pid,uint64_t out)
+{
+    const struct process *target=pid ? owned_child(pid) : p;
+    if (!target) { return UOS_ECHILD; }
+    if (!user_range(p,out,sizeof(struct uos_vm_info),true)) { return UOS_EFAULT; }
+    struct uos_vm_info info={.pid=process_pid(target),.page_limit=USER_VM_MAPPED_PAGES};
+    for (unsigned i=0;i<USER_VM_REGIONS;++i) {
+        const struct vm_region *r=&regions[i];
+        bool owner=r->creator==target->owner;
+        if (!owner && !(r->peer==target->owner && r->peer_mapped)) { continue; }
+        uint64_t address=region_address(r);
+        struct user_translation map;
+        if (!user_mmu_lookup(target->tables,address,&map)) { return UOS_ERROR; }
+        struct uos_vm_entry *e=&info.entries[info.count++];
+        if (target==p) { e->address=address;e->token=r->token;e->file_offset=r->file_offset; }
+        e->bytes=r->bytes;e->pages=r->pages;
+        e->rights=UOS_READ|(map.kind==USER_PAGE_RW ? UOS_WRITE : 0);
+        e->ceiling=owner ? r->owner_rights : r->peer_rights;
+        e->flags=(r->file_backed ? UOS_VM_FILE_BACKED : 0) | (r->peer ? UOS_VM_SHARED : 0) | (owner ? 0 : UOS_VM_PEER);
+        info.pages+=e->pages;
+    }
+    user_copy(p,out,&info,sizeof(info),true);
+    return 0;
 }
 static int64_t vm_call(struct process *p,struct exception_frame *f)
 {
     if (f->x[8]==UOS_SYS_VM_CREATE) { return vm_create(p,f); }
+    if (f->x[8]==UOS_SYS_VM_FILE) { return vm_file(p,f); }
+    if (f->x[8]==UOS_SYS_VM_INFO) { return vm_info(p,f->x[0],f->x[1]); }
     struct vm_region *region=NULL;
     for (unsigned i=0;i<USER_VM_REGIONS;++i) {
         if (f->x[0] && regions[i].token==f->x[0]) { region=&regions[i];break; }
@@ -1170,21 +1575,27 @@ static int64_t vm_call(struct process *p,struct exception_frame *f)
     bool creator=region->creator==p->owner,peer=region->peer==p->owner;
     if (f->x[8]==UOS_SYS_VM_MAP) {
         if (!peer || region->peer_mapped || !ipc_peer(p,(region->creator&~(1ULL<<63))+1)) { return UOS_ENOENT; }
-        int64_t address=vm_attach(p,region,region->peer_rights&UOS_WRITE ? USER_PAGE_RW : USER_PAGE_RO);
+        int64_t address=vm_attach(p,region,vm_page_kind(region->peer_rights));
         if (address>0) { region->peer_mapped=true; }
         return address;
     }
-    if (!creator && !(peer && region->peer_mapped)) { return UOS_ENOENT; }
-    uint64_t address=region_address(region);
-    struct user_mapping next[USER_MAPPING_LIMIT];
-    unsigned count=0;
-    for (unsigned i=0;i<p->map_count;++i) {
-        uint64_t va=p->maps[i].virtual_address;
-        if (va<address || va-address>=region->pages*4096ULL) { next[count++]=p->maps[i]; }
+    if (f->x[8]==UOS_SYS_VM_REVOKE) {
+        if (!creator || !region->peer) { return UOS_ENOENT; }
+        if (region->peer_mapped) {
+            struct process *mapped=owned_child((region->peer&~(1ULL<<63))+1);
+            if (!mapped || !vm_change(mapped,region,true,USER_PAGE_RO)) { return UOS_ERROR; }
+        }
+        (void)vm_release(region,region->peer);
+        return 0;
     }
-    if (!heap_publish(p,next,count)) { return UOS_ERROR; }
-    copy(p->maps,next,count*sizeof(next[0]));
-    p->map_count=count;
+    if (!creator && !(peer && region->peer_mapped)) { return UOS_ENOENT; }
+    if (f->x[8]==UOS_SYS_VM_PROTECT) {
+        uint64_t rights=f->x[1];
+        if (!vm_rights_valid(rights)) { return UOS_ERROR; }
+        if (rights&~(uint64_t)(creator ? region->owner_rights : region->peer_rights)) { return UOS_EACCES; }
+        return vm_change(p,region,false,vm_page_kind((unsigned)rights)) ? 0 : UOS_ERROR;
+    }
+    if (!vm_change(p,region,true,USER_PAGE_RO)) { return UOS_ERROR; }
     if (vm_release(region,p->owner)) { return 0; }
     child_cleanup_failed=true;p->status=FAULTED;p->code=126;
     return UOS_ERROR;
@@ -1243,6 +1654,8 @@ static int64_t replace_image(struct process *p,uint64_t address,struct exception
     exec_stage.stdin_handle=p->stdin_handle;exec_stage.stdout_handle=p->stdout_handle;exec_stage.io_failed=p->io_failed;
     exec_stage.pipe_stage=p->pipe_stage;
     exec_stage.calls=p->calls;exec_stage.dispatches=p->dispatches;
+    exec_stage.quantum_ticks=p->quantum_ticks;exec_stage.slice_left=p->slice_left;
+    exec_stage.user_ticks=p->user_ticks;exec_stage.ready_ticks=p->ready_ticks;
     exec_stage.sleeps=p->sleeps;exec_stage.wakes=p->wakes;exec_stage.lines=p->lines;exec_stage.execs=p->execs+1;
     exec_stage.heap.peak=p->heap.peak;exec_stage.heap.allocations=p->heap.allocations;exec_stage.heap.free_calls=p->heap.free_calls;
     exec_stage.pressure=p->pressure;
@@ -1271,15 +1684,17 @@ static int64_t streams_copy(struct process *p,uint64_t address,struct uos_stdio 
         vfs_prepare_write(p->cwd,io->output,output)!=FS_OK)) { return UOS_ERROR; }
     return 0;
 }
-static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool redirected,uint64_t streams,bool append)
+static int64_t spawn(struct process *p,const struct exception_frame *f)
 {
-    /* One generation of children. IDs never repeat when a slot is reused. */
-    if (p==service_task || p->parent!=PROCESS_LIMIT || !seconds || seconds>30) { return UOS_ERROR; }
-    /* Keep the original ordinary spawn quota. A pipeline reserves its
-     * children together through the separate pipeline launch path. */
+    uint64_t call=f->x[8],address=f->x[0],seconds=f->x[1],streams=f->x[2];
+    bool extended=call==UOS_SYS_SPAWN_EX;
+    if (extended && (f->x[3]>UOS_SPAWN_STDOUT_APPEND || (f->x[3] && !streams))) { return UOS_ERROR; }
+    bool redirected=extended ? streams!=0 : call!=UOS_SYS_SPAWN;
+    bool append=call==UOS_SYS_SPAWN_APPEND || (extended && f->x[3]==UOS_SPAWN_STDOUT_APPEND);
+    if (p==service_task || p->pipe_stage || !seconds || seconds>30) { return UOS_ERROR; }
     unsigned children=0;
     for (unsigned i=0;i<total;++i) { children+=is_child(current,&tasks[i]); }
-    if (children>=2) { return UOS_ERROR; }
+    if (children>=(extended ? UOS_JOB_MAX : 2)) { return UOS_ERROR; }
     unsigned slot=0;while (slot<PROCESS_LIMIT && tasks[slot].status!=UNUSED) { ++slot; }if (slot==PROCESS_LIMIT) { return UOS_ERROR; }
     if (!user_range(p,address,sizeof(struct app_args),false)) { return UOS_EFAULT; }
     struct app_args args;user_copy(p,address,&args,sizeof(args),false);if (!args_valid(&args)) { return UOS_ERROR; }
@@ -1296,6 +1711,7 @@ static int64_t spawn(struct process *p,uint64_t address,uint64_t seconds,bool re
         zero(image,sizeof(image));return UOS_ERROR;
     }
     zero(image,sizeof(image));child->parent=current;child->deadline=timer_ticks()+timer_frequency()*seconds;
+    child->quantum_ticks=p->quantum_ticks;
     if (slot>=total) { total=slot+1; }++children_spawned;
     __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
     return (int64_t)(child->owner&~(1ULL<<63))+1;
@@ -1338,6 +1754,7 @@ static int64_t pipeline_start(struct process *p,struct exception_frame *f)
     for (unsigned i=0;i<count;++i) {
         struct process *stage=&tasks[slots[i]];
         stage->parent=current;stage->deadline=deadline;stage->pipe_stage=i+1;channel.slots[i]=slots[i];
+        stage->quantum_ticks=p->quantum_ticks;
         if (i+1<count) { byte_pipe_init(&channel.rings[i]); }
     }
     zero(image,sizeof(image));channel.active=true;channel.parent=current;channel.count=(unsigned)count;p->status=CHILD_WAIT;
@@ -1356,8 +1773,9 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
 {
     struct process *p=&tasks[current];
     if (f->vector==9) {
-        if (!irq_ok) { for (unsigned i=0;i<scheduled_slots();++i) { if (live(&tasks[i])) { tasks[i].status=FAULTED;tasks[i].code=126; } }return schedule(f,true); }
+        if (!irq_ok) { for (unsigned i=0;i<scheduled_slots();++i) { if (live(&tasks[i])) { tasks[i].status=FAULTED;tasks[i].code=126; } }return schedule(f,false); }
         if (!timer_tick) { return true; }
+        account_tick(p);
         return schedule(f,true);
     }
     ++p->calls;
@@ -1366,7 +1784,8 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             f->x[8]==UOS_SYS_RESIZE_PAGES || f->x[8]==UOS_SYS_MEMORY_PRESSURE) {
             f->x[0]=(uint64_t)memory_call(p,f);if (!live(p)) { return schedule(f,false); }return true;
         }
-        if (f->x[8]>=UOS_SYS_VM_CREATE && f->x[8]<=UOS_SYS_VM_UNMAP) {
+        if ((f->x[8]>=UOS_SYS_VM_CREATE && f->x[8]<=UOS_SYS_VM_UNMAP) ||
+            (f->x[8]>=UOS_SYS_VM_FILE && f->x[8]<=UOS_SYS_VM_INFO)) {
             f->x[0]=(uint64_t)vm_call(p,f);return live(p) || schedule(f,false);
         }
         if (f->x[8]==UOS_SYS_EXEC) {
@@ -1379,8 +1798,16 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
         }
         if (f->x[8]>=UOS_SYS_TCP_OPEN && f->x[8]<=UOS_SYS_TCP_CLOSE) { f->x[0]=(uint64_t)tcp_call(p,f);return true; }
         if (f->x[8]==UOS_SYS_IPC_SEND || f->x[8]==UOS_SYS_IPC_RECV ||
-            f->x[8]==UOS_SYS_SIGNAL_SEND || f->x[8]==UOS_SYS_SIGNAL_WAIT) {
-            f->x[0]=(uint64_t)(f->x[8]<=UOS_SYS_IPC_RECV ? ipc_call(p,f) : signal_call(p,f));
+            f->x[8]==UOS_SYS_CHANNEL_SEND || f->x[8]==UOS_SYS_CHANNEL_RECV) {
+            f->x[0]=(uint64_t)ipc_call(p,f);
+            return p->status==READY || schedule(f,false);
+        }
+        if (f->x[8]>=UOS_SYS_PORT_LISTEN && f->x[8]<=UOS_SYS_PORT_LIST) {
+            f->x[0]=(uint64_t)port_call(p,f);
+            return p->status==READY || schedule(f,false);
+        }
+        if (f->x[8]==UOS_SYS_SIGNAL_SEND || f->x[8]==UOS_SYS_SIGNAL_WAIT) {
+            f->x[0]=(uint64_t)signal_call(p,f);
             return p->status==READY || schedule(f,false);
         }
         if (f->x[8]==UOS_SYS_PIPE_RUN || f->x[8]==UOS_SYS_PIPE_APPEND || f->x[8]==UOS_SYS_PIPE_CHAIN) {
@@ -1400,18 +1827,20 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             p->status=reading ? PIPE_READ_WAIT : PIPE_WRITE_WAIT;
             if (reading) { ++pipe_read_waits; }else { ++pipe_write_waits; }return schedule(f,false);
         }
-        if (f->x[8]==UOS_SYS_SPAWN || f->x[8]==UOS_SYS_SPAWN_IO || f->x[8]==UOS_SYS_SPAWN_APPEND) {
-            f->x[0]=(uint64_t)spawn(p,f->x[0],f->x[1],f->x[8]!=UOS_SYS_SPAWN,f->x[2],f->x[8]==UOS_SYS_SPAWN_APPEND);
+        if (f->x[8]==UOS_SYS_SPAWN || f->x[8]==UOS_SYS_SPAWN_IO || f->x[8]==UOS_SYS_SPAWN_APPEND || f->x[8]==UOS_SYS_SPAWN_EX) {
+            f->x[0]=(uint64_t)spawn(p,f);
             return true;
         }
         if (f->x[8]==UOS_SYS_WAIT) {
             struct process *child=owned_child(f->x[0]);
             if (!child) { f->x[0]=(uint64_t)UOS_ERROR;return true; }
             if (!live(child)) { f->x[0]=(uint64_t)collect_child(child);return true; }
+            bool handoff=current==terminal_owner() && !p->stdin_handle;
             p->wait_child=(unsigned)(child-tasks);p->status=CHILD_WAIT;f->x[0]=0;
-            if (interactive && current==0) {
+            if (handoff) {
                 input_clear();
-                if (child->status==INPUT_WAIT) { (void)terminal_begin(&input_line,child->input_capacity); }
+                unsigned owner=terminal_owner();
+                if (owner<total && tasks[owner].status==INPUT_WAIT) { (void)terminal_begin(&input_line,tasks[owner].input_capacity); }
             }
             return schedule(f,false);
         }
@@ -1422,7 +1851,7 @@ static bool dispatch_exception(struct exception_frame *f,bool timer_tick,bool ir
             /* A child may run between spawn and wait. Validate and block its
              * read now, but do not consume input until its parent hands over
              * the terminal. Each waiter retains its own buffer/capacity. */
-            if (channel.active || p->stdin_handle || !interactive || (current!=0 && (p->parent!=0 || !live(&tasks[0])))) { f->x[0]=(uint64_t)UOS_ENOTTY;return true; }
+            if (!terminal_can_read(p)) { f->x[0]=(uint64_t)UOS_ENOTTY;return true; }
             if (capacity<2 || capacity>TERMINAL_BYTES) { f->x[0]=(uint64_t)UOS_ERROR;return true; }
             if (!user_range(p,address,(size_t)capacity,true)) { f->x[0]=(uint64_t)UOS_EFAULT;return true; }
             if (current==terminal_owner()) { (void)terminal_begin(&input_line,(unsigned)capacity); }
@@ -1508,6 +1937,7 @@ void process_service_step(void)
     if (!(flags&0x80) && service_task->status==READY) {
         unsigned foreground=current;
         current=PROCESS_LIMIT;running=true;
+        service_task->slice_left=service_task->quantum_ticks;
         ++service_task->dispatches;
         process_arch_root(service_task->tables->physical);
         process_arch_enter(&service_task->context,service_task->sp);
@@ -1556,7 +1986,7 @@ void process_info(void)
 static int run(const char *const *paths,unsigned count,const struct app_args *args,bool terminal,unsigned seconds)
 {
     if (!paths || !count || count>PROCESS_LIMIT || (terminal && count!=1) || running || !mmu_enabled() || !mmu_dma_compatible() || !irq_timer_running() || epoch>=(1ULL<<60)-2) {
-        console_write("App run refused: require mmuinit, irqinit, timerstart and 1..5 valid paths.\n");return 2;
+        console_write("App run refused: require mmuinit, irqinit, timerstart and 1..8 valid paths.\n");return 2;
     }
     uint64_t flags=irq_save();if (flags&0x80) { irq_restore(flags);console_write("App run refused: CPU IRQs must be unmasked.\n");return 2; }
     struct page_stats before=pages_stats();struct heap_stats heap=heap_get_stats();unsigned handles=kfile_count();
@@ -1577,23 +2007,23 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
         }
         started=timer_ticks();running=true;network_checkpoint=false;
         __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
+        bool first=true;
         for (;;) {
             network_worker_service();
-            refresh();unsigned slots=scheduled_slots(),next=slots;bool pending=false;
+            refresh();
+            if (!foreground_live()) { break; }
             bool checkpoint=network_checkpoint;
             network_checkpoint=false;
-            for (unsigned step=0;step<slots;++step) {
-                unsigned i=checkpoint ? (current+step+1)%slots : step;
-                if (i<total && live(&tasks[i])) { pending=true; }
-                if (next==slots && tasks[i].status==READY) { next=i; }
-            }
-            if (!pending) { break; }
+            unsigned slots=scheduled_slots();
+            bool resume=checkpoint && tasks[current].status==READY && tasks[current].slice_left;
+            unsigned next=resume ? current : next_ready(first ? 0 : current+1,slots);
             if (next==slots) {
                 /* Back on the kernel root/stack, outside exception dispatch.
                  * The periodic IRQ bounds the check-to-WFI wakeup race. */
                 ++idles;irq_restore(flags);__asm__ volatile("wfi" ::: "memory");(void)irq_save();continue;
             }
-            if (next!=current) { ++switches;if (checkpoint) { ++preemptions; } }current=next;++tasks[next].dispatches;
+            if (!resume) { dispatch(next,checkpoint); }
+            first=false;
             process_arch_root(tasks[next].tables->physical);process_arch_enter(&tasks[next].context,tasks[next].sp);
         }
         running=false;

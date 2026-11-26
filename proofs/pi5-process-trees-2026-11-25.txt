@@ -1,0 +1,22 @@
+Raspberry Pi 5 header UART excerpt supplied for the Phase 33 acceptance run
+2026-11-25, SanDisk Cruzer Blade, USB startup
+
+Board=rpi5-header entered EL2 running EL1
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=41 valid_banks=2
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ run /boot/TREECHK.ELF
+PASS: nested process ownership, wait, slot reuse and subtree cleanup.
+child exit=0
+user:/$ runio /etc/hostname - /boot/TREECHK.ELF input-file
+PASS: input redirection bounds terminal delegation.
+child exit=0
+user:/$ run /boot/TTYPAR.ELF
+TTYCHK ready: enter terminal-ok
+Parent now waits for the early terminal reader.
+child exit=2
+user:/$
+
+The old test wrapper reports exit 2 for any nonzero reader result. This
+excerpt records nested process and redirection passes. Successful terminal
+input still needs a Pi capture with the longer manual test.

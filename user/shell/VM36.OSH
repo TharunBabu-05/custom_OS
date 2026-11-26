@@ -1,0 +1,10 @@
+# Run with source -e /boot/VM36.OSH
+run /boot/VMCHK.ELF
+/boot/MAPCAT.ELF /boot/LARGE.BIN 4093 3072 > /tmp/vm36.part
+sha256 /tmp/vm36.part b83d3c832f2110bf760f831a9b22f0e85264092cd5f370d1aec11d7fd43e258b
+/boot/MAPCAT.ELF /boot/LARGE.BIN 16384 32 > /tmp/vm36.eof
+sha256 /tmp/vm36.eof e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+rm /tmp/vm36.part
+rm /tmp/vm36.eof
+vmstat
+echo "PASS: mapped file range, EOF and VM shell diagnostics."

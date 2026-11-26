@@ -30,6 +30,19 @@ Both QEMU profiles and the Raspberry Pi 5 acceptance runs passed.
 
 [Phase 29 Pi capture](../proofs/pi5-pipe-chain-2026-11-24.txt) · [Phase 30 Pi capture](../proofs/pi5-core-os-2026-11-24.txt)
 
+Phase 33 adds nested ordinary processes, descendant cleanup, and serial
+terminal handoff across waiting parents. The Pi passed subtree cleanup and
+redirected input. Phase 34 adds a longer terminal retest, per-child scheduler
+priorities, and tick accounting. The Pi passed the priority swap and nested
+terminal input. The Pi passed Phase 35's seven-stage pipeline and four-job
+run and Phase 36's private file snapshots, protection, revocation, and mapped
+binary transfer. The Pi passed Phase 37's named IPC, including connections
+across process trees, descriptor transfer, and echo before and after a shell
+exit. [Process trees](process-control.md#phase-33-process-trees)
+· [EL0 scheduling](process-control.md#phase-34-el0-scheduling) · [Process capacity](process-control.md#phase-35-process-capacity)
+· [File mappings](user-memory.md#phase-36-file-snapshots-and-shared-views)
+· [Named IPC](process-control.md#phase-37-named-ipc)
+
 ## Other open work
 
 This check uses the November 22 implementation plan, its later platform
@@ -41,10 +54,10 @@ passed on Pi using RAMFS. Phase 28 passed its Pi descriptor and exec run.
 
 | Area | Open tasks |
 | --- | --- |
-| Processes and ABI | Deeper process trees, scheduling fairness and priorities remain part of the longer-term process work. |
-| Memory and concurrency | Broader hardware lifecycle and concurrent allocation checks, file-backed mappings, and out-of-memory policy. Define IRQ-safe locking, cache maintenance for DMA, per-core stacks, secondary-core startup, interrupt affinity, and TLB invalidation. Verify the exclusive atomic operations on a cacheable Pi mapping. |
-| Data and recovery | Phase 31 adds inspection and single-file recovery from the previous v5 generation. Pi acceptance covers retaining both copies across reboot. Additional work includes Pi v4-to-v5 migration, v5 append retention, interrupted writes on spare media, and the backup/export/restore workflow. [Phase 31](data-v5.md#phase-31-file-history-and-recovery) |
-| Apps and distribution | Verify named-app install, upgrade, rollback, and uninstall on the Pi. Add a multi-file package format, manifests, dependency and version handling, authenticated repositories, transactions, and a general installer with backup and layout handling. Local pinned TLS and verified ELF download already have Pi evidence. |
+| Processes and ABI | Eight foreground slots, four background jobs, a process snapshot with scheduler counters, and Pi-verified named IPC channels. Scheduling across CPUs remains open. |
+| Memory and concurrency | Phase 36 adds eager private file mappings and shared-view revocation. Broader lifecycle checks, demand paging, out-of-memory policy, IRQ-safe locking, cache maintenance for DMA, and per-core memory state remain open. Verify the exclusive atomic operations on a cacheable Pi mapping. |
+| Data and recovery | The Pi verified Phase 31 file recovery and Phase 32 v5 retention after a cold power cycle. Physical v4-to-v5 migration and interrupted-write recovery on spare media remain open. [Storage and apps](storage-apps.md) |
+| Apps and distribution | The Pi passed named-app install, upgrade, rollback, and uninstall, plus signed multi-file installation and dependency upgrade. [Storage and apps](storage-apps.md) |
 | Networking | Test Wi-Fi DHCP broadcast rebinding, AP group-key rotation, same-boot manual restart after cleanup, and intentional UDP timeout and recovery. Add wired DHCP and route selection across Wi-Fi and Ethernet, and verify link recovery and interface changes. Direct wired ARP, ICMP, UDP, and TCP have passed on the Pi. |
 | Platform maturity | Broaden the libc and ELF/toolchain support, process credentials and filesystem permissions, update and boot trust, CI coverage, driver soak tests, and board bring-up beyond the Pi 5 and QEMU profiles. |
 
@@ -84,10 +97,10 @@ jobs, process trees and indefinite services are still work.
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Scheduling | Cooperative EL1 tasks, five foreground EL0 slots, and one Pi-verified supervised service slot. A parent can own two ordinary children or launch a four-stage pipeline. | Pi two-job checks, deeper process trees, service dependencies, priorities and fairness |
-| Process memory | Private image and stack pages, W^X, bounded heap pages and larger anonymous regions with explicit read-only or read/write sharing | Broader Pi lifecycle checks, file-backed mappings, copy-on-write if needed, and OOM policy |
+| Scheduling | Cooperative EL1 tasks, eight foreground EL0 slots, and one Pi-verified supervised service slot. Phase 35's pipeline and job controls passed on the Pi. | Service dependencies and multicore scheduling |
+| Process memory | Private image, stack and heap pages, shared regions and private file snapshots, plus Pi-verified mapping controls | Broader lifecycle checks, copy-on-write and OOM policy |
 | Exceptions | Contained EL0 faults and deadlines, targeted signals, and structured stop records | Debugger integration and extended signal policies |
-| System calls | Checked file, terminal, process, and socket I/O, bounded blocking IPC, and rights-reducing control of file handles | General IPC endpoints across process trees and asynchronous storage |
+| System calls | Checked file, terminal, process, and socket I/O, bounded blocking IPC, and rights-reducing file transfers over direct mail and named channels | Asynchronous storage and process credentials |
 | Executables | Static AArch64 ELF subset and compact runtime. The current shell adds command lists and bounded text scripts. [Shell workflows](shell-workflows.md) | Pi broader exec/update validation, stored-shell persistence, larger VM and broader toolchain tests |
 | Concurrency | Single active CPU; syscalls/drivers complete synchronously | Preemptive kernel synchronization, IRQ-safe driver queues, SMP startup/locking and multicore scheduling |
 

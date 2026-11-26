@@ -41,17 +41,22 @@ static int valid(const struct uos_process_table *t)
 static const struct uos_process_entry *find(const struct uos_process_table *t,uint64_t pid)
 { for (unsigned i=0;i<t->count;++i) { if (t->entries[i].pid==pid) { return &t->entries[i]; } }return NULL; }
 static int snapshot(struct uos_process_table *t) { return !uos_processes(t) && valid(t); }
-static int show(void)
+static int show(bool detail)
 {
-    struct uos_process_table_v2 t;
-    if (uos_processes_v2(&t) || t.version!=UOS_PROCESS_VERSION_V2 || !t.count ||
-        t.count>UOS_PROCESS_MAX_V2 || t.caller_pid!=(uint64_t)uos_getpid()) {
+    struct uos_process_table_v3 t;
+    if (uos_processes_v3(&t) || t.version!=UOS_PROCESS_VERSION_V3 || !t.count ||
+        t.count>UOS_PROCESS_MAX_V3 || t.caller_pid!=(uint64_t)uos_getpid()) {
         uos_puts("ps: snapshot failed\n");return 1;
     }
-    uos_puts("PID PPID STATE PAGES PATH\n");
+    uos_puts(detail ? "PID PPID STATE PAGES QUANTUM USER_TICKS READY_TICKS ROLE PATH\n" : "PID PPID STATE PAGES PATH\n");
     for (unsigned i=0;i<t.count;++i) {
-        const struct uos_process_entry *e=&t.entries[i];number(e->pid);uos_puts(" ");number(e->parent_pid);uos_puts(" ");
+        const struct uos_process_entry_v3 *row=&t.entries[i];
+        const struct uos_process_entry *e=&row->process;number(e->pid);uos_puts(" ");number(e->parent_pid);uos_puts(" ");
         uos_puts(state(e->state));uos_puts(" ");number(e->heap_pages);uos_puts(" ");
+        if (detail) {
+            number(row->quantum_ticks);uos_puts(" ");number(row->user_ticks);uos_puts(" ");number(row->ready_ticks);
+            uos_puts(e->flags&UOS_PROCESS_SERVICE ? " service " : " app ");
+        }
         char safe[256];unsigned at=0;do { unsigned char c=(unsigned char)e->path[at];safe[at]=c>=32 && c<127 ? (char)c : c ? '.' : 0; }while (e->path[at++]);
         uos_puts(safe);uos_puts("\n");
     }return 0;
@@ -176,7 +181,7 @@ static int demo(void)
     for (;;) {
         uos_puts("process> ");if (uos_readline(line,sizeof(line))<0 || same(line,"exit")) { return 0; }
         if (same(line,"status")) {
-            if (show()) { return 2; }if (pid<0) { uos_puts("No outstanding child.\n");continue; }
+            if (show(false)) { return 2; }if (pid<0) { uos_puts("No outstanding child.\n");continue; }
             struct uos_child_info info;if (uos_child_poll((uint64_t)pid,&info)) { return 3; }
             uos_puts("Child PID=");number((uint64_t)pid);uos_puts(" state=");uos_puts(state(info.state));uos_puts(" finished=");number(info.finished);uos_puts("\n");
         } else if (same(line,"start")) {
@@ -191,7 +196,8 @@ static int demo(void)
 }
 int app_main(void)
 {
-    if (uos_argc()==1) { return show(); }char mode[24];if (uos_arg(1,mode,sizeof(mode))<0) { return 2; }
+    if (uos_argc()==1) { return show(false); }char mode[24];if (uos_arg(1,mode,sizeof(mode))<0) { return 2; }
+    if (same(mode,"-l")) { return show(true); }
     if (same(mode,"check")) { return checks(); }if (same(mode,"demo")) { return demo(); }
     if (same(mode,"terminal")) { return terminal_check(); }if (same(mode,"foreign")) { return foreign(); }
     if (same(mode,"orphan")) {
@@ -200,5 +206,5 @@ int app_main(void)
         uos_puts("Parent exits with an outstanding owned child.\n");return 0;
     }
     if (same(mode,"worker") || same(mode,"input") || same(mode,"done") || same(mode,"fault") || same(mode,"exec") || same(mode,"after")) { return worker(mode); }
-    uos_puts("Usage: ps [check|demo]\n");return 2;
+    uos_puts("Usage: ps [-l|check|demo]\n");return 2;
 }

@@ -78,7 +78,8 @@ server.listen(Number(portText), host, () => {
     if (packageFile) {
         const sha256 = createHash('sha256').update(packageFile).digest('hex');
         console.log(`Package SHA-256 ${sha256}`);
-        console.log(`appterm 120 /boot/PKGGET.ELF ${host} ${server.address().port} ${sha256} DLHELLO.ELF`);
+        const target = /\.opr$/i.test(packagePath ?? '') ? 'DLREPO.OPR' : 'DLHELLO.ELF';
+        console.log(`appterm 120 /boot/PKGGET.ELF ${host} ${server.address().port} ${sha256} ${target}`);
     }
     timer = setTimeout(() => {
         console.error('TLS echo timed out.');

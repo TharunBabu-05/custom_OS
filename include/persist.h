@@ -22,6 +22,7 @@ struct persist_volume {
     unsigned bank,valid_banks;
     unsigned version,files,file_bytes,directory_bytes,payload_bytes,bank_sectors;
     bool ready,failed,busy,restoring;
+    bool test_stop_after_data,test_stopped;
     const char *mount_phase;
     enum block_result mount_io;
     uint64_t mount_lba;
@@ -77,6 +78,7 @@ enum fs_result persist_sync(struct persist_volume *);
 enum fs_result persist_check(struct persist_volume *,struct persist_report *);
 enum fs_result persist_history(struct persist_volume *,const char *,struct persist_path_history *);
 enum fs_result persist_recover_previous(struct persist_volume *,const char *source,const char *destination,uint64_t *generation);
+enum fs_result persist_interruption_test(struct persist_volume *);
 typedef bool (*persist_emit)(const void *,size_t,void *);
 typedef bool (*persist_input)(void *,size_t,void *);
 typedef bool (*persist_read_at)(uint32_t,void *,size_t,void *);

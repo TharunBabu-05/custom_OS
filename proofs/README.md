@@ -1,5 +1,38 @@
 # Real Raspberry Pi 5 proof
 
+Phase 37 passed the named IPC tests with all seven children reaped.
+The supervised echo service answered from the shell and again from the
+monitor. Shutdown left zero listeners and file handles, and the Pi
+verified v5 generation 41. [Phase 37 capture](pi5-named-ipc-2026-11-26.txt)
+
+Phase 36 passed both VM checks and sent 16,001 mapped bytes through a pipe
+with the expected SHA-256. The Pi reaped all 10 children, left zero open
+files, and verified v5 generation 41. [Phase 36 capture](pi5-file-mappings-2026-11-26.txt)
+
+Phase 35 verified the seven-stage binary transfer, eight process rows, and
+four-job cancellation and collection. The Pi reaped all 23 children, left
+zero open files, and confirmed the mounted v5 generation 41.
+[Phase 35 capture](pi5-process-capacity-2026-11-25.txt)
+
+Phase 34 verified a 30-to-120 tick split before and after swapping the two
+jobs' priorities. The manual nested terminal test accepted `terminal-ok`.
+Both applications exited with code zero. [Phase 34 capture](pi5-scheduling-2026-11-25.txt)
+
+Phase 33 verified nested process ownership, collection, slot reuse, and
+redirected input on the SanDisk at v5 generation 41. The interactive reader
+printed its prompt and returned exit 2. Phase 34 verified the input retest.
+[Phase 33 capture](pi5-process-trees-2026-11-25.txt)
+
+Phase 32 verified named-app install, upgrade, rollback, and uninstall,
+plus signed repository installation and dependency upgrade on the current
+SanDisk. The Pi remounted generation 26 after the power cycle and ran
+both installed apps. Cleanup finished with zero open files at generation 41.
+[Phase 32 capture](pi5-storage-apps-2026-11-24.txt)
+
+Phase 31 verified path history and recovery from generation 5.
+The Pi selected generation 7 after the watchdog reboot.
+[v5 file recovery capture](pi5-v5-file-recovery-2026-11-24.txt)
+
 Phase 30 passed the Core OS check with all seven children reaped.
 The supervised service restarted once, retained PID 12 across shell
 sessions and advanced its heartbeat from 22 to 63 during the

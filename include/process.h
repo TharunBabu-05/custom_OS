@@ -2,7 +2,7 @@
 #define OS_PROCESS_H
 #include "exception.h"
 #include "app_args.h"
-enum { PROCESS_LIMIT=5 };
+enum { PROCESS_LIMIT=8 };
 /* Foreground EL0 batch; timer IRQs preempt users, never kernel drivers.
  * 0 = all exited successfully, 1 = contained process failure, 2 = refused. */
 int process_run(const char *const *paths,unsigned count);

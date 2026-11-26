@@ -1,0 +1,47 @@
+Raspberry Pi 5 header UART excerpt supplied for Phase 35 verification
+2026-11-25, SanDisk Cruzer Blade, USB startup
+
+Board=rpi5-header entered EL2 running EL1
+partition_start_lba=260096 sectors=2048 bank=0 generation=41 valid_banks=2
+user:/$ source -e /boot/PROCS35.OSH
+pipeline exit=0
+56787e142c356f0af5142cc2e695559f923cfa4afe2b1f306d78a1e7fbab7da3  /tmp/procs35/hash
+a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654
+
+PID PPID STATE PAGES QUANTUM USER_TICKS READY_TICKS ROLE PATH
+2 0 wait-child 1 2 24 0 app /boot/SHELL.ELF
+10 2 running 0 2 1 0 app /boot/ps.elf
+11 2 ready 0 2 0 1 app /boot/cat.elf
+12 2 ready 0 2 0 1 app /boot/cat.elf
+13 2 ready 0 2 0 1 app /boot/cat.elf
+14 2 ready 0 2 0 1 app /boot/cat.elf
+15 2 ready 0 2 0 1 app /boot/cat.elf
+16 2 ready 0 2 0 1 app /boot/cat.elf
+pipeline exit=0
+job pid=17 pending
+job pid=18 pending
+job pid=19 pending
+job pid=21 pending
+job pid=17 exit=130
+job pid=18 exit=130
+job pid=19 exit=130
+job pid=21 exit=130
+No background job.
+job pid=22 exit=0
+job pid=23 exit=0
+job pid=24 exit=0
+job pid=25 exit=0
+No background job.
+PASS: seven-stage binary pipeline, process inventory and four-job control.
+user:/$ exit
+EL0 processes: limit=8; private pages; timer preempts users only; runs=1 switches=143 preemptions=19 yields=0 idle_waits=1958 terminal=yes budget_seconds=unlimited children_started=23 children_reaped=23 last_child_code=0 cleanup=restored
+Pipelines: started=2 completed=2 written=100500 read=100500 reader_waits=58 writer_waits=38 left_exit=0 right_exit=0
+App resources restored; monitor ready.
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=41
+bank=0 status=valid generation=41 matches_mounted=yes
+bank=1 status=valid generation=40

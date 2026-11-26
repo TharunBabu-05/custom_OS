@@ -154,6 +154,12 @@ static bool data_word(const char **line,char out[RAMFS_PATH_MAX])
 bool storage_command(const char *line)
 {
     if (same(line,"datacheck")) { data_check();return true; }
+    if (same(line,"datacut")) {
+        enum fs_result result=vfs_data_interruption_test();
+        if (result==FS_OK) { console_write("CUT READY: new data flushed; index unpublished. Power off the spare-media Pi now.\n"); }
+        else { console_write("Spare-media cut test refused/failed: ");console_write(ramfs_error(result));console_write("\n"); }
+        return true;
+    }
     if (same(line,"datahistory") || begins(line,"datahistory ")) {
         const char *args=line+11;char path[RAMFS_PATH_MAX];
         if (data_word(&args,path) && !*args) { data_history(path); }

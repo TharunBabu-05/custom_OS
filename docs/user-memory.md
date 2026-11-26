@@ -1,5 +1,8 @@
 # Private dynamic application pages
 
+[Phase 36 file snapshots and shared views](#phase-36-file-snapshots-and-shared-views)
+extends the separate region arena added in Phase 30.
+
 Read the largest available virtual run and failure counters with the
 pressure query. [Memory pressure](memory-pressure.md)
 
@@ -209,3 +212,69 @@ SHELL.ELF: 8094 bytes; MEMCHK.ELF: 4408; MEMDEMO.ELF: 1160. The full image
 starts with empty v3 `/data` and public DEMO.BAK. Preserve any existing files,
 including `/data/session.env`, using the established export/restore workflow
 before reflashing if they need to be retained.
+
+## Phase 36 File snapshots and shared views
+
+`uos_vm_file` maps bytes from a readable, process-owned file descriptor into
+the larger region arena. It accepts a byte offset and a length of up to
+128 KiB. It fills the request beyond EOF and the unused final page bytes
+with zeros. An offset past EOF is refused. The read leaves the descriptor
+cursor where it was, and the snapshot remains usable after the descriptor
+closes or the source file is removed. Writable private snapshots keep their
+edits in memory. The region arena has four slots across the system and a
+48-page mapped limit per process.
+
+| Call | Result |
+| --- | --- |
+| `uos_vm_file` / 80 | Maps a read-only or read/write private snapshot and publishes a region token. |
+| `uos_vm_protect` / 81 | Changes an entire mapped region between read-only and read/write, within the mapping's original permission ceiling. All region pages are NX. |
+| `uos_vm_revoke` / 82 | The creator withdraws its direct child's pending grant or removes the child's active mapping. The creator keeps its mapping and contents. |
+| `uos_vm_info` / 83 | Lists the caller's regions or those of a direct child. The child report omits tokens, addresses and file offsets. |
+
+`vmstat` shows usage, current rights and permission ceilings. `vmstat PID`
+shows a job owned by the shell. `mapcat PATH OFFSET LENGTH` sends a mapped
+range to stdout in windows of up to 8 KiB and stops at EOF. It uses the
+normal file descriptor API with its 64 KiB maximum file size. Omit the
+offset and length to read the whole file. Use a pipe or file redirection
+for binary output.
+
+### Try the Phase 36 update on Pi
+
+With the Pi off and the boot pendrive mounted as `D:\`, run the update from
+the project folder in Windows PowerShell. Use the actual boot drive letter.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase36-file-mappings-boot-update.zip'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
+```
+
+Safely eject, boot the Pi, and run each command separately. `exit` switches
+from `user:/$` to the monitor prompt.
+
+```text
+source -e /boot/VM36.OSH
+mapcat /boot/LARGE.BIN 123 16001 | hash
+exit
+fileinfo
+storagetest
+datacheck
+```
+
+The script checks byte offsets, zero fill, permission ceilings and faults,
+private writes, revocation during a blocked receive, and release on exec.
+It also checks a mapped binary slice and EOF by their SHA-256 digests.
+Expect two PASS lines from `VM36.OSH` and a `pipeline exit=0` for the
+16,001-byte range. Its SHA-256 is
+`0f61c14365ba386013f8492706f53654017d0796c34e5097494f8433ff1b939f`.
+After `exit`, expect restored resources, zero open files, a storage read
+PASS, and `matches_mounted=yes`.
+
+`test-shell-qemu.ps1 -FileMappings` passed on Cortex-A53/EL1 and
+Cortex-A76/EL2. It checked RAMFS, FAT32 and v5 extents, including a range
+spanning two `mapcat` windows and a child receive interrupted by revocation.
+Both runs reaped all 11 child processes and reported zero open files. The
+Windows updater passed installation and rollback tests on a scratch boot
+directory. The Pi passed both VM checks and matched the 16,001-byte hash.
+It reaped all 10 child processes, closed all files, and verified v5
+generation 41. [Pi capture](../proofs/pi5-file-mappings-2026-11-26.txt)

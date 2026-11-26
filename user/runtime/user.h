@@ -74,6 +74,8 @@ static inline int64_t uos_close(uint64_t h) { return uos_call2(UOS_SYS_CLOSE,h,0
 static inline int64_t uos_argc(void) { return uos_call2(UOS_SYS_ARGC,0,0); }
 static inline int64_t uos_arg(unsigned i,char *p,size_t n) { return uos_call4(UOS_SYS_ARG,i,(uintptr_t)p,n,0); }
 static inline int64_t uos_getcwd(char *p,size_t n) { return uos_call2(UOS_SYS_GETCWD,(uintptr_t)p,n); }
+static inline int64_t uos_package_path(const char *name,char *out,size_t capacity)
+{ return uos_call4(UOS_SYS_PACKAGE_PATH,(uintptr_t)name,uos_length(name),(uintptr_t)out,capacity); }
 static inline int64_t uos_chdir(const char *p) { return uos_call2(UOS_SYS_CHDIR,(uintptr_t)p,uos_length(p)); }
 static inline int64_t uos_stat(const char *p,struct uos_entry *e) { return uos_call4(UOS_SYS_STAT,(uintptr_t)p,uos_length(p),(uintptr_t)e,0); }
 static inline int64_t uos_readdir(const char *p,unsigned index,struct uos_entry *e) { return uos_call4(UOS_SYS_READDIR,(uintptr_t)p,uos_length(p),index,(uintptr_t)e); }
@@ -83,16 +85,51 @@ static inline int64_t uos_ipc_send(const struct uos_message *message,unsigned wa
 { return uos_call2(UOS_SYS_IPC_SEND,(uintptr_t)message,wait_ms); }
 static inline int64_t uos_ipc_recv(uint64_t peer,struct uos_message *message,unsigned wait_ms)
 { return uos_call4(UOS_SYS_IPC_RECV,peer,(uintptr_t)message,wait_ms,0); }
+static inline int64_t uos_port_listen(const char *name)
+{ return uos_call2(UOS_SYS_PORT_LISTEN,(uintptr_t)name,uos_length(name)); }
+/* A nonzero PID binds this connect to a specific listener owner. The
+ * returned channel can exchange messages once the server accepts it. */
+static inline int64_t uos_port_connect(const char *name,uint64_t pid)
+{ return uos_call4(UOS_SYS_PORT_CONNECT,(uintptr_t)name,uos_length(name),pid,0); }
+static inline int64_t uos_port_accept(uint64_t listener,unsigned wait_ms)
+{ return uos_call2(UOS_SYS_PORT_ACCEPT,listener,wait_ms); }
+/* Close a listener and all its channels, or close just one channel. */
+static inline int64_t uos_port_close(uint64_t token)
+{ return uos_call2(UOS_SYS_PORT_CLOSE,token,0); }
+static inline int64_t uos_port_list(struct uos_port_table *table)
+{ return uos_call2(UOS_SYS_PORT_LIST,(uintptr_t)table,0); }
+static inline int64_t uos_channel_send(uint64_t token,const struct uos_message *message,unsigned wait_ms)
+{ return uos_call4(UOS_SYS_CHANNEL_SEND,token,(uintptr_t)message,wait_ms,0); }
+static inline int64_t uos_channel_recv(uint64_t token,struct uos_message *message,unsigned wait_ms)
+{ return uos_call4(UOS_SYS_CHANNEL_RECV,token,(uintptr_t)message,wait_ms,0); }
+/* Returns the number of ready entries, zero on timeout, or a UOS error.
+ * Returned readiness is a snapshot. Read, write or accept separately. */
+static inline int64_t uos_event_wait(struct uos_event *entries,unsigned count,unsigned wait_ms)
+{ return uos_call4(UOS_SYS_EVENT_WAIT,(uintptr_t)entries,count,wait_ms,0); }
 static inline int64_t uos_signal_send(uint64_t child,unsigned signal)
 { return uos_call2(UOS_SYS_SIGNAL_SEND,child,signal); }
 static inline int64_t uos_signal_wait(unsigned wait_ms)
 { return uos_call2(UOS_SYS_SIGNAL_WAIT,wait_ms,0); }
 static inline int64_t uos_child_fault(uint64_t child,struct uos_fault_info *out)
 { return uos_call2(UOS_SYS_CHILD_FAULT,child,(uintptr_t)out); }
+/* Query self with PID zero, or query a direct child until it is collected. */
+static inline int64_t uos_sched_get(uint64_t pid,struct uos_sched_info *out)
+{ return uos_call2(UOS_SYS_SCHED_GET,pid,(uintptr_t)out); }
+static inline int64_t uos_sched_set(uint64_t child,unsigned quantum_ticks)
+{ return uos_call2(UOS_SYS_SCHED_SET,child,quantum_ticks); }
 static inline int64_t uos_vm_create(uint64_t peer,unsigned pages,unsigned rights,uint64_t *token)
 { return uos_call4(UOS_SYS_VM_CREATE,peer,pages,rights,(uintptr_t)token); }
 static inline int64_t uos_vm_map(uint64_t token) { return uos_call2(UOS_SYS_VM_MAP,token,0); }
 static inline int64_t uos_vm_unmap(uint64_t token) { return uos_call2(UOS_SYS_VM_UNMAP,token,0); }
+/* Read a private snapshot of a descriptor's file starting at a byte offset.
+ * Writable mappings can be changed in memory and have no writeback. */
+static inline int64_t uos_vm_file(uint64_t handle,uint64_t offset,size_t bytes,unsigned rights,uint64_t *token)
+{ return uos_call(UOS_SYS_VM_FILE,handle,offset,bytes,rights,(uintptr_t)token,0); }
+static inline int64_t uos_vm_protect(uint64_t token,unsigned rights)
+{ return uos_call2(UOS_SYS_VM_PROTECT,token,rights); }
+static inline int64_t uos_vm_revoke(uint64_t token) { return uos_call2(UOS_SYS_VM_REVOKE,token,0); }
+static inline int64_t uos_vm_info(uint64_t pid,struct uos_vm_info *out)
+{ return uos_call2(UOS_SYS_VM_INFO,pid,(uintptr_t)out); }
 static inline int64_t uos_readline(char *p,size_t n) { return uos_call2(UOS_SYS_READLINE,(uintptr_t)p,n); }
 static inline int64_t uos_mkdir(const char *p) { return uos_call2(UOS_SYS_MKDIR,(uintptr_t)p,uos_length(p)); }
 static inline int64_t uos_remove(const char *p,int directory) { return uos_call4(UOS_SYS_REMOVE,(uintptr_t)p,uos_length(p),(uint64_t)directory,0); }
@@ -135,6 +172,8 @@ static inline int64_t uos_processes(struct uos_process_table *out)
 { return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
 static inline int64_t uos_processes_v2(struct uos_process_table_v2 *out)
 { return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
+static inline int64_t uos_processes_v3(struct uos_process_table_v3 *out)
+{ return uos_call2(UOS_SYS_PROCESSES,(uintptr_t)out,sizeof(*out)); }
 /* Poll/cancel never reap. Only a live direct-child relation grants authority;
  * finished children remain queryable until ordinary wait collects them. */
 static inline int64_t uos_child_poll(uint64_t pid,struct uos_child_info *out)
@@ -165,6 +204,9 @@ static inline int64_t uos_spawn_io(const struct app_args *args,unsigned seconds,
 { return uos_call4(UOS_SYS_SPAWN_IO,(uintptr_t)args,seconds,(uintptr_t)io,0); }
 static inline int64_t uos_spawn_append(const struct app_args *args,unsigned seconds,const struct uos_stdio *io)
 { return uos_call4(UOS_SYS_SPAWN_APPEND,(uintptr_t)args,seconds,(uintptr_t)io,0); }
+/* Allows four outstanding ordinary children. io may be null. */
+static inline int64_t uos_spawn_ex(const struct app_args *args,unsigned seconds,const struct uos_stdio *io,unsigned flags)
+{ return uos_call4(UOS_SYS_SPAWN_EX,(uintptr_t)args,seconds,(uintptr_t)io,flags); }
 /* Binary file stdin only; terminal input uses readline. Up to 512 bytes/call. */
 static inline int64_t uos_stdin(void *buffer,size_t capacity) { return uos_call2(UOS_SYS_STDIN,(uintptr_t)buffer,capacity); }
 /* Start two children concurrently, connect stdout -> stdin, wait for both.

@@ -128,15 +128,17 @@ int main(int argc,char **argv)
             return 1;
         }
         if (expected_size && mode==4) {
-            struct app_image_plan plan;
             assert(download.complete && download.received==expected_size && !memcmp(body,expected,expected_size));
-            assert(app_elf_plan(body,download.received,&plan)==APP_ELF_OK);
+            if (expected_size<144 || memcmp(expected,"OUROSRP1",8)) {
+                struct app_image_plan plan;
+                assert(app_elf_plan(body,download.received,&plan)==APP_ELF_OK);
+            }
         }
         closesocket(client.socket);
     }
     WSACleanup();
     puts(expected_size
-        ? "PASS: HTTPS package bytes match and validate as an AArch64 ELF. RNG failure, bad tag, name and pin rejected."
+        ? "PASS: HTTPS package bytes match the ELF or repository fixture. RNG failure, bad tag, name and pin rejected."
         : "PASS: AES-GCM vector, live OpenSSL TLS 1.3 echo, RNG failure, record tampering, wrong name and wrong pin.");
     return 0;
 }

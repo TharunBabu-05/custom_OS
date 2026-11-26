@@ -1,0 +1,160 @@
+ 11.27 MESS:00:00:11.276507:0: board: boardrev d04171 otp d04171
+ 11.81 Read /config.txt bytes      395 hnd 0x45
+ 11.28 MESS:00:00:11.288943:0: Initial voltage 800000 temp 41676
+ 11.48 MESS:00:00:11.489328:0: avs_2712: AVS pred 8420 842000 temp 40577
+ 11.49 MESS:00:00:11.493007:0: vpred 842 mV +0
+ 11.50 MESS:00:00:11.501491:0: FB framebuffer_swap 1
+ 11.50 MESS:00:00:11.503426:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+ 11.51 MESS:00:00:11.510211:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+ 11.51 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+ 11.30 Read PI5.DTB bytes    78770 hnd 0xbe3
+ 11.53  /overlays/overlay_map.dtb
+ 11.56  /overlays/bcm2712d0.dtbo
+ 11.59 PCIEx1: PWR 0 DET_WAKE 0
+ 11.03 Read /config.txt bytes      395 hnd 0x45
+ 11.68 Read /cmdline.txt bytes       20 hnd 0x40
+ 11.67 MESS:00:00:11.670455:0: Read command line from file 'cmdline.txt':
+ 11.67 MESS:00:00:11.676953:0: 'ouros.startup=shell'
+ 11.85 MESS:00:00:11.858904:0: RPM 0, max RPM 0
+ 11.88 BMD "armstub8-2712.bin" not found
+ 11.87 fs_open: 'armstub8-2712.bin'
+ 11.89 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+ 11.19 Read OUROS.IMG bytes   528512 hnd 0x802
+ 11.92 MESS:00:00:11.921134:0: Device tree loaded to 0x200000 (size 0x139e0)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Starting serial shell from /boot/SHELL.ELF
+Firmware boot source: USB mass storage.
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit checking usb0
+storageinit checking usb1
+storageinit selected usb1 port=1 (USB2 BOT).
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+Recovery rings: clears=0 command_wraps=0 control_wraps=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=1 generation=2 valid_banks=2
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ write /data/p32-demo/live.txt older
+shell: operation failed
+user:/$ mkdir /data/p31-demo
+shell: operation failed
+user:/$ write /data/p31-demo/live.txt older
+user:/$ write /data/p31-demo/live.txt current
+user:/$ exit
+EL0 processes: limit=5; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=6986 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=37 dispatches=11 sleeps=0 wakes=0 input_lines=5 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> appshell
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ stat /data/p31-demo
+type=directory bytes=0 path=/data/p31-demo
+user:/$ ls /data/p31-demo
+f 7 live.txt
+user:/$ write /data/p31-demo/live.txt older
+user:/$ write /data/p31-demo/live.txt current
+user:/$ exit
+EL0 processes: limit=5; private pages; timer preempts users only; runs=2 switches=0 preemptions=0 yields=0 idle_waits=5114 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=47 dispatches=11 sleeps=0 wakes=0 input_lines=5 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+> datahistory /data/p31-demo/live.txt
+Data history /data/p31-demo/live.txt
+mounted bank=1 generation=6 status=valid path=file bytes=7 sha256=97b0560280ed60a5a1eaa1bc45492543c8a986ad5a25b468c427eb83c3e88191
+previous bank=0 generation=5 status=valid path=file bytes=5 sha256=da925a30e31f7fdaa7044e3e5ba4ae17670de82d677b0e7adf5700428a137a36
+> datarecover /data/p31-demo/live.txt /data/p31-demo/recovered.txt
+Recovered generation 5 to /data/p31-demo/recovered.txt
+> datacheck
+Mounted /data bank=0 generation=7
+bank=0 status=valid generation=7 matches_mounted=yes
+bank=1 status=valid generation=6
+> reboot
+Reboot: storage synchronized and idle. Reset via BCM2712 watchdog.
+RP1_UART 0000001c00030000
+  6.09 MESS:00:00:06.092472:0: board: boardrev d04171 otp d04171
+  6.97 Read /config.txt bytes      395 hnd 0x45
+  6.10 MESS:00:00:06.104945:0: Initial voltage 800000 temp 42226
+  6.30 MESS:00:00:06.305345:0: avs_2712: AVS pred 8420 842000 temp 42226
+  6.30 MESS:00:00:06.308939:0: vpred 842 mV +0
+  6.31 MESS:00:00:06.317531:0: FB framebuffer_swap 1
+  6.33 MESS:00:00:06.338084:0: Select resolution HDMI0/2 hotplug 0 max_mode 2
+  6.34 MESS:00:00:06.342152:0: Select resolution HDMI1/2 hotplug 0 max_mode 2
+  6.35 Loading 'PI5.DTB' to 0x00000000 offset 0x200000
+  6.62 Read PI5.DTB bytes    78770 hnd 0xbe3
+  6.85  /overlays/overlay_map.dtb
+  6.88  /overlays/bcm2712d0.dtbo
+  6.42 PCIEx1: PWR 0 DET_WAKE 0
+  6.36 Read /config.txt bytes      395 hnd 0x45
+  6.00 Read /cmdline.txt bytes       20 hnd 0x40
+  6.50 MESS:00:00:06.502507:0: Read command line from file 'cmdline.txt':
+  6.50 MESS:00:00:06.509014:0: 'ouros.startup=shell'
+  6.69 MESS:00:00:06.690978:0: RPM 0, max RPM 0
+  6.71 BMD "armstub8-2712.bin" not found
+  6.19 fs_open: 'armstub8-2712.bin'
+  6.72 Loading 'OUROS.IMG' to 0x00000000 offset 0x80000
+  6.51 Read OUROS.IMG bytes   528512 hnd 0x802
+  6.75 MESS:00:00:06.753304:0: Device tree loaded to 0x200000 (size 0x139e0)
+
+OurOS: AArch64 kernel booted
+Firmware configured PL011 at 0x0000001c00030000 (baud/clock preserved)
+Board=rpi5-header entered EL2 running EL1
+Physical page allocator ready; type meminfo or memmap.
+Kernel heap ready; type heapinfo or heaptest.
+Root filesystem ready: RAMFS at / (volatile).
+Starting serial shell from /boot/SHELL.ELF
+Firmware boot source: USB mass storage.
+Live PCIe BAR2=0x0000000000000015 UBUS_REMAP=0x0000000000000001
+DMA window CPU=0x0000000000000000 RP1/PCIe=0x0000000000000000 bytes=68719476736
+storageinit checking usb0
+storageinit checking usb1
+storageinit selected usb1 port=1 (USB2 BOT).
+PASS: USB device and configuration descriptors read.
+port=1 slot=1 speed_id=3 ep0_packet=64
+USB VID=0x0000000000000781 PID=0x0000000000005567 bcdUSB=0x0000000000000200 device_class=0x0000000000000000 configurations=1
+USB mass storage BOT interface=0 bulk_in=0x0000000000000081 bulk_out=0x0000000000000002 in_packet=512 out_packet=512
+Configuration and bulk endpoints active for read-only storage.
+USB BOT: ready; boot read-only, data opt-in result=ok
+SCSI vendor=SanDisk. product=Cruzer Blade....
+sense_key=0 ASC=0x0000000000000000 ASCQ=0x0000000000000000
+ring_wraps_in=0 out=0 events=0
+BOT last_opcode=0x0000000000000025 stage=4 lba=0 expected=13 actual=13 CSW_status=0 residue=0 sense_valid=no
+Cache policy=SYNCHRONIZE CACHE required; no assumed write-through
+BOT stalls_recovered=0 cache_query=0
+Recovery rings: clears=0 command_wraps=0 control_wraps=0
+xHCI event_type=32 completion=1 halted=no
+/boot: FAT32 read-only start_lba=2048 sectors=258048 clusters=253920
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=7 valid_banks=2
+Enabling EL1 MMU: identity mappings, RAM Normal-NC, devices nGnRnE; I/D caches stay off.
+MMU enabled: kernel code RO executable; constants/DTB/tables RO XN; data RW XN; null/stack guard unmapped.
+GICv2 initialization: ok timer_INTID=30. CPU IRQ stays masked until timerstart.
+Periodic physical timer started: requested_hz=100; CPU IRQ unmasked.
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$

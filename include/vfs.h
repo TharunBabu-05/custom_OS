@@ -25,6 +25,7 @@ bool vfs_data_mounted(void);
 enum fs_result vfs_data_check(struct persist_report *);
 enum fs_result vfs_data_history(const char *,struct persist_path_history *);
 enum fs_result vfs_data_recover(const char *source,const char *destination,uint64_t *generation);
+enum fs_result vfs_data_interruption_test(void);
 enum fs_result vfs_data_export(persist_emit,void *);
 enum fs_result vfs_data_export_previous(persist_emit,void *);
 enum fs_result vfs_data_restore(const char *boot_path);
@@ -42,4 +43,7 @@ enum fs_result vfs_file_size(const char *canonical,uint32_t *bytes);
 /* Trusted handle backend: caller holds an exclusive canonical-path lease.
  * Public mutations below the handle layer must use vfs_write instead. */
 enum fs_result vfs_replace_open(const char *canonical,const void *,size_t);
+/* The serial monitor installer holds this while staging or publishing.
+ * It must clear access before returning or entering EL0. */
+void vfs_package_edit(bool);
 #endif

@@ -197,6 +197,7 @@ static void command(const char *line)
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
         console_write("appinfo apptest apprun <ELF> [up to four more] (EL0; requires MMU/timer)\n");
         console_write("svc | svc start <ELF> [arguments] | svc stop\n");
+        console_write("pkgtrust pkginstall pkglist pkgstart pkgpath pkgremove\n");
         console_write("appexec <ELF> [arguments] tooltest (EL0 utilities and sleeping processes)\n");
         console_write("appshell | appterm <1..300 seconds> <ELF> [arguments] (interactive EL0 serial session)\n");
         console_write("appinstall <source ELF> </data/new-file> (validated ELF, no overwrite)\n");

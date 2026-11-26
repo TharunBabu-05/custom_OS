@@ -1,8 +1,10 @@
 # Writes a regular project-local disk-image file; never opens a physical device.
 [CmdletBinding()]
-param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4,5)][int]$DataVersion=4,[string]$DataBackup,[switch]$KeepBuildFiles,[switch]$BuildOnly)
+param([ValidateSet('debug','header')][string]$Console = 'debug',[ValidateSet(1,2,3,4,5)][int]$DataVersion=4,[string]$DataBackup,
+      [string[]]$Repository,[switch]$SpareRecoveryTest,[switch]$KeepBuildFiles,[switch]$BuildOnly)
 . "$PSScriptRoot/windows-tools.ps1"
 . "$PSScriptRoot/rpi5-profile.ps1"
+if ($SpareRecoveryTest -and $DataVersion -ne 5) { throw 'SpareRecoveryTest requires v5' }
 $piProfile=Get-Rpi5Profile $Console
 & "$PSScriptRoot/package-rpi5.ps1" -Console $Console -KeepBuildFiles:$KeepBuildFiles
 $out=Join-Path $ProjectRoot $piProfile.Output
@@ -14,6 +16,18 @@ Expand-Archive -LiteralPath (Join-Path $out 'ouros-rpi5-boot-files.zip') -Destin
 $files=Join-Path $work 'files'
 New-Item -ItemType Directory -Path $files | Out-Null
 . "$PSScriptRoot/data-backup.ps1"
+if ($Repository) {
+    . "$PSScriptRoot/rpi5-update-files.ps1"
+    foreach ($source in $Repository) {
+        $entry=Get-Item -LiteralPath $source
+        if ($entry.PSIsContainer -or !$entry.Name.EndsWith('.OPR',[StringComparison]::Ordinal) -or
+            !(Test-Rpi5UpdateName $entry.Name) -or $entry.Length -lt 144 -or $entry.Length -gt 65536) { throw 'Invalid repository fixture' }
+        Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $files $entry.Name)
+    }
+}
+if ($SpareRecoveryTest) {
+    [IO.File]::WriteAllText((Join-Path $files 'CUTTEST.TAG'),"OurOS spare-media cut test v1`n",[Text.Encoding]::ASCII)
+}
 if ($DataBackup) {
     $backup=Get-OurOSDataBackup $DataBackup
     if ($backup.Version -ne $DataVersion -and !($DataVersion -eq 5 -and $backup.Version -eq 4)) { throw 'Backup format is incompatible with the target data format' }

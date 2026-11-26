@@ -1,6 +1,6 @@
 # Build a paired Pi 5 header kernel and user application update.
 [CmdletBinding()]
-param([string]$BasePackage)
+param([string]$BasePackage,[string[]]$Repository)
 . "$PSScriptRoot/windows-tools.ps1"
 . "$PSScriptRoot/rpi5-profile.ps1"
 . "$PSScriptRoot/rpi5-update-files.ps1"
@@ -26,6 +26,12 @@ Get-ChildItem -LiteralPath (Join-Path $work 'apps') -File -Filter '*.ELF' |
     Copy-Item -Destination $stage -Force
 Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'user/shell') -File -Filter '*.OSH' |
     Copy-Item -Destination $stage -Force
+foreach ($source in $Repository) {
+    $entry=Get-Item -LiteralPath $source
+    if ($entry.PSIsContainer -or !$entry.Name.EndsWith('.OPR',[StringComparison]::Ordinal) -or
+        !(Test-Rpi5UpdateName $entry.Name) -or $entry.Length -lt 144 -or $entry.Length -gt 65536) { throw 'Invalid repository fixture' }
+    Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $stage $entry.Name) -Force
+}
 
 # Retain the matching profile hashes when pairing rebuilt apps with a base kernel.
 if ($basePath) {

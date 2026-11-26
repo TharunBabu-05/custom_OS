@@ -532,7 +532,13 @@ static enum fs_result commit_extents(struct persist_volume *v)
             put32(row,at);hash(v->staged_file,length,row+4);
         }
     }
-    bool ok=extent_begin(v) && (!length || extent_write_file(v,at,length)) && extent_publish(v);
+    bool ok=extent_begin(v) && (!length || extent_write_file(v,at,length));
+    if (ok && v->test_stop_after_data) {
+        v->test_stopped=true;
+        v->write_phase="test-stop-before-index";
+        ok=false;
+    }
+    if (ok) { ok=extent_publish(v); }
     if (!ok) { v->failed=true; }
     stage_clear(v);return ok ? FS_OK : FS_IO;
 }
@@ -645,6 +651,28 @@ enum fs_result persist_recover_previous(struct persist_volume *v,const char *sou
 done:
     v->busy=false;
     return result;
+}
+enum fs_result persist_interruption_test(struct persist_volume *v)
+{
+    if (!v || !v->ready) { return FS_NOT_READY; }
+    if (v->version!=5) { return FS_UNSUPPORTED; }
+    if (v->failed || v->busy) { return FS_BUSY; }
+    static const char path[]="/cut32.txt", before[]="before-cut", after[]="staged-new";
+    char buffer[sizeof(before)];
+    size_t bytes;
+    enum fs_result result=persist_read(v,path,0,buffer,sizeof(buffer),&bytes);
+    if (result!=FS_OK) { return result; }
+    if (bytes!=sizeof(before)-1 || !equal(buffer,before,bytes)) { return FS_INVALID_PATH; }
+    struct persist_report report;
+    result=persist_check(v,&report);
+    if (result!=FS_OK) { return result; }
+    if (!report.banks[v->bank].matches_mounted || report.banks[v->bank^1].state!=PERSIST_BANK_VALID ||
+        report.banks[v->bank^1].generation>=v->generation) { return FS_CORRUPT; }
+    v->test_stopped=false;
+    v->test_stop_after_data=true;
+    result=persist_write(v,path,after,sizeof(after)-1,false);
+    v->test_stop_after_data=false;
+    return v->test_stopped ? FS_OK : result;
 }
 enum fs_result persist_remove(struct persist_volume *v,const char *path,bool directory)
 {

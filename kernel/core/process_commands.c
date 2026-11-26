@@ -1,4 +1,5 @@
 #include "process.h"
+#include "package.h"
 #include "vfs.h"
 #include "console.h"
 static bool same(const char *a,const char *b) { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
@@ -61,7 +62,7 @@ term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");
         if (same(verb,"appinfo")) { process_info(); }
         else { console_write(process_test() ? "PASS: EL0 applications, isolated memory, checked syscalls, preemption, contained faults/timeouts and resource cleanup.\n" : "FAIL: EL0 application test.\n"); }return true;
     }
-    if (app_file_command(verb,p)) { return true; }
+    if (app_file_command(verb,p) || package_command(verb,p)) { return true; }
     if (!same(verb,"apprun")) { return false; }
     char paths[PROCESS_LIMIT][RAMFS_PATH_MAX];const char *arguments[PROCESS_LIMIT];unsigned count=0;
     for (;;) {
@@ -73,5 +74,5 @@ term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");
     }
     if (!count) { goto usage; }(void)process_run(arguments,count);return true;
 usage:
-    console_write("Usage: apprun <ELF path> [additional ELF paths, up to five total]\n");return true;
+    console_write("Usage: apprun <ELF path> [additional ELF paths, up to eight total]\n");return true;
 }

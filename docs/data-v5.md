@@ -151,12 +151,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory D:\ -Package $pkg -Apply
 ```
 
-Safely eject the drive and boot the Pi. At `user:/$` enter these
-commands one at a time, waiting for each prompt. The directory
-should be new.
+Safely eject the drive and boot the Pi. At `user:/$`, create the
+demo directory.
 
 ```text
 mkdir /data/p31-demo
+```
+
+If an earlier attempt already created it, the shell reports
+`shell: operation failed`. Check it with `stat /data/p31-demo` and
+`ls /data/p31-demo`. If it is an empty directory, continue with the
+existing directory. If it contains files, create a fresh demo
+directory and use that path throughout the test. If `stat` fails,
+type `exit` and run `datainfo` and `datacheck` at the monitor to
+inspect the volume.
+
+Enter these commands one at a time, waiting for each prompt.
+
+```text
 write /data/p31-demo/live.txt older
 write /data/p31-demo/live.txt current
 exit
