@@ -316,7 +316,9 @@ The queries copy metadata and leave the queues and pending errors intact.
 Native TCP and UDP tests verify session resets, retained counters, slot
 cleanup and ownership. The Cortex-A53 and Cortex-A76 QEMU runs also
 passed the EL0 queries, network permission checks and redirection.
-The Pi 5 test below verifies the new diagnostics on the direct link.
+The Pi passed idle snapshots, checked output and permission tests.
+The live traffic counter checks on the Pi are still pending.
+[Phase 54 Pi netstat capture](../proofs/pi5-netstat-idle-2026-11-26.txt)
 
 ### Pi 5 acceptance for Phase 54
 
@@ -391,3 +393,32 @@ datacheck
 Expect both sessions down and zero occupied slots. The finished traffic
 counters should still be readable.
 [Clean up Windows test settings](#clean-up-windows-test-settings)
+
+## Phase 55 Ethernet link recovery
+
+`ethtcpup` and `ethudpup` start monitoring the onboard PHY along with
+the socket worker. The worker checks the negotiated full-duplex speed
+about every 200 ms and also samples after a DMA service error. On a
+carrier loss or speed change it invalidates existing sockets, stops
+GEM DMA, and waits for two matching usable speeds before reopening.
+While DMA is active, the driver leaves the MAC configuration in place
+and reads the PHY through the GEM management port.
+[RP1 peripheral documentation](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008370-DS-1-rp1-peripherals.pdf)
+The PHY hold and the claimed DMA page remain with the worker while it
+waits. On recovery the worker configures the new speed and starts fresh
+transport generations. TCP uses a fresh random secret. Apps must open
+new sockets after the transition.
+
+`ethstatus` shows the worker state, negotiated speed, interruptions,
+successful recoveries, speed changes and last DMA/PHY results. `ethdown`
+can stop an active or waiting worker. If GEM cannot verify that it stopped
+using the DMA page, the driver retains that page and reports failure.
+
+The host fixtures exercise active Clause 22 reads, carrier loss, GEM
+restoration and a reopen at a different speed with invalid old handles.
+On hardware, test a cable disconnect from an idle wired session and
+reconnect it with the worker still running. During the break `ethstatus`
+should report `waiting` and `netstat` should retain traffic counters with
+zero occupied slots. After reconnect `ethstatus` should report `up` with
+one recovery, and `netstat` should show a new generation with zero traffic
+counters before the next echo.

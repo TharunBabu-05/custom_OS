@@ -1,6 +1,7 @@
 #include "rp1_eth_loop.h"
+#include "rp1_probe.h"
 #include "net_wire.h"
-#include <assert.h>
+#include "host_assert.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -25,13 +26,14 @@ static bool write(void *context,unsigned reg,uint32_t value)
 {
     struct fixture *f=context;
     if (reg==NCR && !value && f->drop_stop) { return true; }
-    if (reg==NCFGR && value==0x20003 && f->drop_setup) { return true; }
+    if (reg==NCFGR && value==(0x20003|RP1_GEM_MDC_DIV_224) && f->drop_setup) { return true; }
     if (reg==TSR || reg==RSR) {
         f->regs[reg/4]&=~value;
     } else {
         f->regs[reg/4]=reg==NCR ? value&~0x200u : value;
     }
-    if (reg==NCR && value==0x20c) {
+    if (reg==NCR && (value&0x200)) {
+        assert(value==(0x200|RP1_GEM_RX_TX|RP1_GEM_MPE));
         struct rp1_eth_dma_memory *m=&f->memory;
         assert(f->regs[RBQP/4]==BUS+offsetof(struct rp1_eth_dma_memory,rx));
         assert(f->regs[TBQP/4]==BUS+offsetof(struct rp1_eth_dma_memory,tx));
@@ -250,10 +252,28 @@ static void test_tcp(const struct rp1_dma_io *io,struct fixture *f,const uint32_
     ++reply.seq; ++reply.ack; reply.flags=TCP_ACK;
     tcp_reply(f,&s,&reply);
     assert(rp1_eth_dma_service(&s,720)==BLOCK_OK && !s.pending);
+    tcp=tcp_open(1,&tcp_peer,730);
+    assert(tcp>0 && tcp_status(1,tcp)==UOS_EAGAIN);
+    struct uos_tcp_stats tcp_stats_before,tcp_stats_after;
+    struct uos_udp_stats udp_stats_before,udp_stats_after;
+    tcp_stats(&tcp_stats_before);udp_stats(&udp_stats_before);
     tcp_link_down(); udp_link_down();
     assert(tcp_status(1,tcp)==UOS_ENETDOWN && udp_recv(1,udp,datagram,sizeof(datagram))==UOS_ENETDOWN);
+    assert(tcp_ready(1,tcp)==UOS_EVENT_HANGUP && udp_ready(1,udp)==UOS_EVENT_HANGUP);
     assert(rp1_eth_dma_close(&s) && !memcmp(original,f->regs,sizeof(f->regs)));
     puts("PASS: shared GEM UDP/TCP transmit order, 16 KiB stream, FIN/EOF, closed handles and DMA restoration.");
+    assert(rp1_eth_dma_open(&s,io,&f->memory,BUS,1000,&rp1_eth_default_ipv4,true)==GEM_LOOP_OK);
+    assert((f->regs[NCFGR/4]&0x401)==0x400);
+    assert(tcp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask,secret));
+    assert(udp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask));
+    assert(tcp_status(1,tcp)==UOS_EBADF && udp_recv(1,udp,datagram,sizeof(datagram))==UOS_EBADF);
+    tcp_stats(&tcp_stats_after);udp_stats(&udp_stats_after);
+    assert(tcp_stats_after.session.generation==tcp_stats_before.session.generation+1 && !tcp_stats_after.session.used);
+    assert(udp_stats_after.session.generation==udp_stats_before.session.generation+1 && !udp_stats_after.session.used);
+    assert(!tcp_stats_after.bytes_rx && !udp_stats_after.bytes_rx);
+    tcp_link_down();udp_link_down();
+    assert(rp1_eth_dma_close(&s) && !memcmp(original,f->regs,sizeof(f->regs)));
+    puts("PASS: GEM reopened at a different speed with new transport generations and invalid old handles.");
 }
 
 int main(void)
@@ -271,7 +291,7 @@ int main(void)
     assert(!memcmp(original,f.regs,sizeof(original)));
     f.drop_setup=false;
     assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false)==GEM_LOOP_OK);
-    assert(f.regs[NCR/4]==0xc && !(f.memory.rx[0].address&3) && (f.memory.rx[1].address&3)==2);
+    assert(f.regs[NCR/4]==(RP1_GEM_RX_TX|RP1_GEM_MPE) && !(f.memory.rx[0].address&3) && (f.memory.rx[1].address&3)==2);
     assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false)==GEM_LOOP_BUSY);
     assert(udp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask));
     const struct uos_udp_peer peer={{192,0,2,1},4040,50000};

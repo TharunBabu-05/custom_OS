@@ -1,0 +1,31 @@
+Phase 54 idle diagnostics acceptance excerpt supplied in chat.
+
+user:/$ netstat
+TCP session=down generation=0 slots=0/3
+  connecting=0 established=0 failed=0 closing=0 time_wait=0
+  segments_tx=0 retransmissions=0 bytes_tx=0 bytes_rx=0
+  fin_acked=0 resets=0 timeouts=0 arp_requests=0 arp_failures=0
+UDP session=down generation=0 slots=0/4
+  datagrams_tx=0 datagrams_rx=0 bytes_tx=0 bytes_rx=0
+  full_drops=0 timeouts=0 arp_requests=0 arp_failures=0
+child exit=0
+user:/$ netstat check
+PASS: network snapshot ABI, checked output and socket lookup.
+child exit=0
+user:/$ runlim 0 netstat check
+PASS: network diagnostics honor process permissions.
+child exit=0
+
+> ethdown
+PHY hold released.
+> appterm 5 /boot/NETSTAT.ELF
+Terminal assigned to EL0; Ctrl+C cancels; session_seconds=5
+TCP session=down generation=0 slots=0/3
+  connecting=0 established=0 failed=0 closing=0 time_wait=0
+  segments_tx=0 retransmissions=0 bytes_tx=0 bytes_rx=0
+  fin_acked=0 resets=0 timeouts=0 arp_requests=0 arp_failures=0
+UDP session=down generation=0 slots=0/4
+  datagrams_tx=0 datagrams_rx=0 bytes_tx=0 bytes_rx=0
+  full_drops=0 timeouts=0 arp_requests=0 arp_failures=0
+process=0 path=/boot/NETSTAT.ELF state=exited code=0 syscalls=70 dispatches=3 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.

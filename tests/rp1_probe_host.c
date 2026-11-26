@@ -354,7 +354,7 @@ static bool phy_write_reg(void *context,uint32_t offset,uint32_t value)
         assert(!m->control && (value==0x1200 || value==(0x1200|7u<<18)));
         if (!m->drop_restore || value!=0x1200) { m->config=value; }
     } else {
-        assert(offset==0x34 && m->control==0x10 && !m->delay);
+        assert(offset==0x34 && (m->control&RP1_GEM_MPE) && !m->delay);
         if (value==0x50821340u) {
             assert(m->reads==5 && !m->link && !m->phy_control);
             if (m->drop_restart) { return false; }
@@ -518,6 +518,22 @@ static void test_ethernet_link(void)
            !snapshot.restarted && !model.gem.restarts);
     assert(rp1_eth_link_control(&io,ETH_ARP,&link,&snapshot)==RP1_PHY_OK &&
            rp1_phy_full_duplex_speed(&snapshot)==100 && model.gem.reads==6);
+    assert(rp1_phy_sample(&io,true,&snapshot)==RP1_PHY_IO);
+    model.gem.control=RP1_GEM_RX_TX|RP1_GEM_MPE;
+    model.gem.config|=RP1_GEM_MDC_DIV_224;
+    uint32_t active_config=model.gem.config;
+    model.gem.reads=0;
+    assert(rp1_phy_sample(&io,true,&snapshot)==RP1_PHY_OK && rp1_phy_full_duplex_speed(&snapshot)==100);
+    assert(model.gem.reads==6 && model.gem.control==(RP1_GEM_RX_TX|RP1_GEM_MPE) && model.gem.config==active_config);
+    model.gem.delay=1;model.gem.stuck=true;
+    assert(rp1_phy_sample(&io,true,&snapshot)==RP1_PHY_IO && model.gem.control==(RP1_GEM_RX_TX|RP1_GEM_MPE));
+    model.gem.delay=0;model.gem.stuck=false;
+    model.gem.link=false;model.gem.reads=0;
+    assert(rp1_phy_sample(&io,true,&snapshot)==RP1_PHY_OK && !rp1_phy_full_duplex_speed(&snapshot));
+    model.gem.control=0;model.gem.config=initial.gem.config;
+    model.gem.link=true;
+    assert(rp1_phy_sample(&io,false,&snapshot)==RP1_PHY_OK && rp1_phy_full_duplex_speed(&snapshot)==100);
+    assert(!model.gem.control && model.gem.config==initial.gem.config);
     snapshot.aux=0x8704;
     assert(rp1_phy_full_duplex_speed(&snapshot)==1000);
     snapshot.aux=0x8204;
@@ -563,6 +579,7 @@ static void test_ethernet_link(void)
     assert(rp1_eth_link_control(&io,ETH_DOWN,&link,&snapshot)==RP1_PHY_RESTORE && link.held);
     puts("PASS: pulse-only vs sustained PHY, link change while held, repeat-up idempotence, cleanup on no reply and failed release detection.");
     puts("PASS: one Clause 22 negotiation restart on held PHY, live-link and unsafe-mode skips, latched status, timeout and management restore.");
+    puts("PASS: carrier sampled with DMA enabled, loss detected and full duplex sampled again with registers restored.");
 }
 
 static void test_ethernet(unsigned char *dtb,size_t bytes)

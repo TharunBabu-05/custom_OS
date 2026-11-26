@@ -1,5 +1,9 @@
 # Real Raspberry Pi 5 proof
 
+Phase 54 passed its idle session, checked-output and network permission
+tests on the Pi. The wired traffic counters have a separate acceptance run.
+[Phase 54 Pi netstat capture](pi5-netstat-idle-2026-11-26.txt)
+
 Phase 53 passed the wired TCP half-close test. Windows received the
 client FIN and sent a final reply. The Pi read the reply before EOF,
 and both sides reported the same SHA-256 for 16,384 bytes.

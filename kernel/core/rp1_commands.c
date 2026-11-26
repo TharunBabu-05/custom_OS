@@ -261,12 +261,15 @@ static void report_rp1(uintptr_t dtb,uintptr_t uart)
     report_dma(&bridge);
 }
 struct eth_dma_page { uint64_t physical,bus; unsigned ticket; };
-static struct {
+enum wired_state { WIRED_DOWN,WIRED_UP,WIRED_WAITING,WIRED_FAILED };
+static struct wired_network {
     struct eth_dma_page page;
     uintptr_t dtb;
-    unsigned speed;
+    unsigned speed,losses,recoveries,speed_changes;
     enum rp1_eth_loop_result result;
-    bool running,tcp,random_failed;
+    enum rp1_phy_result phy_result;
+    enum wired_state state;
+    bool tcp,random_failed;
 } wired;
 
 static const struct rp1_dma_io eth_dma_io={
@@ -343,56 +346,102 @@ static bool set_ethernet_address(const char *arg)
            ethernet_ipv4_configure(&wired_ipv4,address,prefix);
 }
 
-static void wired_worker(void *unused)
+static bool wired_open(struct rp1_eth_dma *session,unsigned speed)
 {
-    (void)unused;
     unsigned char secret[32];
     wired.random_failed=wired.tcp && (!platform_rng_prepare(wired.dtb) ||
                                      platform_random_bytes(secret,sizeof(secret))!=BLOCK_OK);
-    struct rp1_eth_dma session;
     struct rp1_eth_dma_memory *memory=(void *)(uintptr_t)wired.page.physical;
     const struct ethernet_ipv4 *ipv4=ethernet_config();
     wired.result=wired.random_failed ? GEM_LOOP_SETUP :
-                 rp1_eth_dma_open(&session,&eth_dma_io,memory,(uint32_t)wired.page.bus,wired.speed,ipv4,wired.tcp);
+                 rp1_eth_dma_open(session,&eth_dma_io,memory,(uint32_t)wired.page.bus,speed,ipv4,wired.tcp);
     bool udp=wired.result==GEM_LOOP_OK && udp_link_up(rp1_eth_mac,ipv4->address,ipv4->mask);
     bool tcp=udp && wired.tcp && tcp_link_up(rp1_eth_mac,ipv4->address,ipv4->mask,secret);
     crypto_wipe(secret,sizeof(secret));
-    if (wired.result==GEM_LOOP_OK) {
-        uint64_t hz=timer_frequency();
-        if (udp && (!wired.tcp || tcp)) {
-            wired.running=true;
-            while (network_worker_pause()) {
-                uint64_t now=timer_ticks();
-                uint64_t ms=now/hz*1000+now%hz*1000/hz;
-                if (rp1_eth_dma_service(&session,ms)!=BLOCK_OK) {
+    if (wired.result!=GEM_LOOP_OK) { return false; }
+    if (!udp || (wired.tcp && !tcp)) {
+        if (udp) { udp_link_down(); }
+        wired.result=rp1_eth_dma_close(session) ? GEM_LOOP_BUSY : GEM_LOOP_RETAIN;
+        return false;
+    }
+    wired.state=WIRED_UP;
+    wired.speed=speed;
+    return true;
+}
+
+static void wired_close(struct rp1_eth_dma *session)
+{
+    if (wired.tcp) { tcp_link_down(); }
+    udp_link_down();
+    if (!rp1_eth_dma_close(session)) { wired.result=GEM_LOOP_RETAIN; }
+}
+
+static void wired_worker(void *unused)
+{
+    (void)unused;
+    struct rp1_eth_dma session;
+    const struct rp1_eth_io phy={
+        .gem={read_register,eth_dma_io.context,RP1_ETH_SPAN},
+        .write=write_register,.ticks=ethernet_ticks,.hz=timer_frequency()
+    };
+    const uint64_t interval=phy.hz/5;
+    uint64_t polled=timer_ticks();
+    unsigned candidate=0;
+    if (wired_open(&session,wired.speed)) {
+        while (network_worker_pause()) {
+            uint64_t now=timer_ticks();
+            bool online=wired.state==WIRED_UP;
+            enum block_result transfer=BLOCK_OK;
+            if (now-polled<interval) {
+                if (!online) { continue; }
+                uint64_t ms=now/phy.hz*1000+now%phy.hz*1000/phy.hz;
+                transfer=rp1_eth_dma_service(&session,ms);
+                if (transfer==BLOCK_OK) { continue; }
+            }
+            polled=now;
+            struct rp1_phy_snapshot snapshot;
+            wired.phy_result=rp1_phy_sample(&phy,online,&snapshot);
+            if (wired.phy_result!=RP1_PHY_OK) { break; }
+            unsigned speed=rp1_phy_full_duplex_speed(&snapshot);
+            if (online) {
+                if (speed!=wired.speed) {
+                    ++wired.losses;
+                    wired_close(&session);
+                    wired.state=WIRED_WAITING;
+                    if (wired.result!=GEM_LOOP_OK) { break; }
+                    candidate=speed;
+                } else if (transfer!=BLOCK_OK) {
                     wired.result=GEM_LOOP_FRAME;
                     break;
                 }
+            } else if (speed && speed==candidate) {
+                unsigned previous=wired.speed;
+                if (!wired_open(&session,speed)) { break; }
+                ++wired.recoveries;
+                if (previous!=speed) { ++wired.speed_changes; }
+                candidate=0;
+            } else {
+                candidate=speed;
             }
-            wired.running=false;
-        } else {
-            wired.result=GEM_LOOP_BUSY;
         }
-        if (tcp) { tcp_link_down(); }
-        if (udp) { udp_link_down(); }
-        if (!rp1_eth_dma_close(&session)) { wired.result=GEM_LOOP_RETAIN; }
     }
+    if (wired.state==WIRED_UP) { wired_close(&session); }
     if (wired.result!=GEM_LOOP_RETAIN) { release_ethernet_dma(&wired.page); }
+    wired.state=wired.result==GEM_LOOP_OK && wired.phy_result==RP1_PHY_OK ? WIRED_DOWN : WIRED_FAILED;
 }
 
 static void ethernet_net_up(const struct xhci_observer *bridge,const void *tree,unsigned speed,bool tcp)
 {
     if (network_worker_active()) { console_write("Stop the active network worker first.\n"); return; }
-    if (!ethernet_dma_page(bridge,tree,true,&wired.page)) { return; }
-    wired.speed=speed;
-    wired.dtb=(uintptr_t)tree;
-    wired.tcp=tcp;
-    wired.random_failed=false;
+    struct eth_dma_page page;
+    if (!ethernet_dma_page(bridge,tree,true,&page)) { return; }
+    wired=(struct wired_network){.page=page,.dtb=(uintptr_t)tree,.speed=speed,.tcp=tcp};
     if (!network_worker_start(wired_worker,NULL)) {
         release_ethernet_dma(&wired.page);
         wired.result=GEM_LOOP_BUSY;
+        wired.state=WIRED_FAILED;
     }
-    if (wired.running) {
+    if (wired.state==WIRED_UP) {
         console_write(tcp ? "Ethernet TCP and UDP" : "Ethernet UDP");
         console_write(" active at ");
         print_ethernet_address();
@@ -444,9 +493,26 @@ static bool ethernet_exchange(const struct xhci_observer *bridge,const void *tre
 bool rp1_ethernet_active(void)
 {
 #ifdef OUROS_PI5
-    return wired.running;
+    return wired.state==WIRED_UP || wired.state==WIRED_WAITING;
 #else
     return false;
+#endif
+}
+
+void rp1_ethernet_status(void)
+{
+#ifdef OUROS_PI5
+    static const char *const states[]={"down","up","waiting","failed"};
+    console_write("Ethernet state=");console_write(states[wired.state]);
+    console_write(" Mbps=");console_u64(wired.state==WIRED_UP ? wired.speed : 0);
+    console_write(" losses=");console_u64(wired.losses);
+    console_write(" recoveries=");console_u64(wired.recoveries);
+    console_write(" speed_changes=");console_u64(wired.speed_changes);
+    console_write(" dma=");console_u64(wired.result);
+    console_write(" phy=");console_u64(wired.phy_result);
+    console_write("\n");
+#else
+    console_write("Ethernet status requires a Raspberry Pi 5.\n");
 #endif
 }
 
@@ -458,7 +524,7 @@ bool rp1_ethernet_address_command(const char *line)
     if (*line && *line!=' ') { return false; }
 #ifdef OUROS_PI5
     while (*line==' ') { ++line; }
-    if (*line && wired.running) {
+    if (*line && rp1_ethernet_active()) {
         console_write("Run ethdown before changing the Ethernet address.\n");
     } else if (*line && !set_ethernet_address(line)) {
         console_write("Usage: ethaddr [IPv4/prefix] with a usable host address and prefix 1..30.\n");
@@ -479,10 +545,11 @@ void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action actio
     static unsigned ticket;
     static bool restore_failed;
     static struct rp1_eth_link link;
-    if (wired.running && (action!=ETH_DOWN || !network_worker_stop())) {
+    if (rp1_ethernet_active() && (action!=ETH_DOWN || !network_worker_stop())) {
         console_write("Ethernet active. Use ethdown.\n"); return;
     }
     if (wired.result==GEM_LOOP_RETAIN) { console_write("Ethernet DMA retained until reboot.\n"); return; }
+    if (wired.phy_result==RP1_PHY_RESTORE) { console_write("Ethernet PHY register restore unverified. Reboot before retrying.\n"); return; }
     if (action==ETH_DOWN && !ticket) { console_write("PHY hold released.\n"); return; }
     const struct xhci_observer bridge={read_register,(void *)RP1_PCIE_BASE,0x9310};
     if (restore_failed || uart!=RP1_LIVE_BASE+0x30000 || !rp1_pci_description((const void *)dtb,0x200000) ||

@@ -1,4 +1,5 @@
 #include "rp1_eth_loop.h"
+#include "rp1_probe.h"
 #include "net_wire.h"
 #include <stddef.h>
 
@@ -66,6 +67,7 @@ static bool program_gem(const struct rp1_dma_io *io,const struct gem_registers *
     else if (!broadcast) { cfg|=1u<<5; }
     if (!speed || speed==1000) { cfg|=1u<<10; }
     if (speed==100) { cfg|=1; }
+    if (broadcast) { cfg|=RP1_GEM_MDC_DIV_224; }
     uint32_t dma=(s->dma&~((7u<<28)|(255u<<16)|(1u<<11)|(7u<<5))) | (GEM_RX_BYTES/64u<<16);
     return (!speed || (set(io,r,SA1_LOW,2) && set(io,r,SA1_HIGH,0x0218))) &&
            set(io,r,NCFGR,cfg) && set(io,r,DMACFG,dma) && set(io,r,TBQP,tx) && set(io,r,RBQP,rx);
@@ -303,7 +305,7 @@ enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *s,const struct rp1
     io->barrier(io->context);
     if (program_gem(io,&s->saved,NULL,speed,bus+offsetof(struct rp1_eth_dma_memory,tx),
                     bus+offsetof(struct rp1_eth_dma_memory,rx),true) &&
-        set(io,NULL,NCR,RX_ENABLE|TX_ENABLE)) { return GEM_LOOP_OK; }
+        set(io,NULL,NCR,RP1_GEM_RX_TX|RP1_GEM_MPE)) { return GEM_LOOP_OK; }
     return rp1_eth_dma_close(s) ? GEM_LOOP_SETUP : GEM_LOOP_RETAIN;
 }
 
@@ -314,7 +316,7 @@ static enum block_result send_frame(struct rp1_eth_dma *s,size_t bytes)
     s->memory->tx.status=TX_LAST|TX_WRAP|(uint32_t)bytes;
     io->barrier(io->context);
     s->pending=true;
-    return io->write(io->context,NCR,RX_ENABLE|TX_ENABLE|TX_START) ? BLOCK_OK : BLOCK_IO;
+    return io->write(io->context,NCR,RP1_GEM_RX_TX|RP1_GEM_MPE|TX_START) ? BLOCK_OK : BLOCK_IO;
 }
 
 static enum block_result send_udp(void *context,const struct udp_packet *packet)

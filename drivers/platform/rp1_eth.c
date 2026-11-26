@@ -2,7 +2,7 @@
 #include "rp1_probe.h"
 
 enum { NET_CONTROL=0, NET_CONFIG=4, NET_STATUS=8, PHY_MAINTENANCE=0x34, MAC_ID=0xfc };
-enum { MPE=1u<<4, MDIO_IDLE=1u<<2, MDC_DIV_224=7u<<18 };
+enum { MDIO_IDLE=1u<<2 };
 enum {
     BMCR_RESTART=0x200, BMCR_AN_ENABLE=0x1000, BMCR_MODE_MASK=0xdc00,
     BMSR_LINK=4, BMSR_CAN_NEGOTIATE=8, BMSR_NEGOTIATED=0x20
@@ -31,6 +31,25 @@ static bool read_clause22(const struct xhci_observer *io,bool (*write)(void *,ui
     /* PHY address 1, read opcode, turnaround 10. */
     return write(io->context,PHY_MAINTENANCE,0x60820000u|reg<<18) &&
            idle(io,ticks,hz) && read_reg(io,PHY_MAINTENANCE,value);
+}
+
+static enum rp1_phy_result phy_registers(const struct xhci_observer *io,bool (*write)(void *,uint32_t,uint32_t),
+                                        uint64_t (*ticks)(void *),uint64_t hz,bool resolve,struct rp1_phy_snapshot *out)
+{
+    /* Read status twice to clear the latched link-down indication. */
+    static const uint8_t registers[]={2,3,0,1,1,0x19};
+    uint16_t data[sizeof(registers)];
+    unsigned count=resolve ? sizeof(registers) : sizeof(registers)-1;
+    for (unsigned i=0;i<count;++i) {
+        uint32_t value;
+        if (!read_clause22(io,write,ticks,hz,registers[i],&value)) { return RP1_PHY_IO; }
+        data[i]=(uint16_t)value;
+    }
+    out->phy_id=(uint32_t)data[0]<<16|data[1];
+    out->control=data[2];out->status=data[4];
+    if (resolve) { out->aux=data[5]; }
+    return out->phy_id && out->phy_id!=UINT32_MAX && out->control!=UINT16_MAX &&
+           out->status && out->status!=UINT16_MAX ? RP1_PHY_OK : RP1_PHY_NO_REPLY;
 }
 
 static enum rp1_phy_result recover_link(const struct xhci_observer *io,bool (*write)(void *,uint32_t,uint32_t),
@@ -73,25 +92,13 @@ static enum rp1_phy_result read_phy(const struct xhci_observer *io,bool (*write)
     if (control || !idle(io,ticks,hz)) { return RP1_PHY_BUSY; }
 
     enum rp1_phy_result result=RP1_PHY_IO;
-    if (write(io->context,NET_CONFIG,config|MDC_DIV_224) && read_reg(io,NET_CONFIG,&value) &&
-        value==(config|MDC_DIV_224) && write(io->context,NET_CONTROL,MPE) && read_reg(io,NET_CONTROL,&value) && value==MPE) {
-        /* Read status twice to clear the latched link-down indication. */
-        static const uint8_t registers[]={2,3,0,1,1,0x19};
-        uint16_t data[sizeof(registers)];
+    uint32_t managed_config=config|RP1_GEM_MDC_DIV_224;
+    if (write(io->context,NET_CONFIG,managed_config) && read_reg(io,NET_CONFIG,&value) &&
+        value==managed_config && write(io->context,NET_CONTROL,RP1_GEM_MPE) &&
+        read_reg(io,NET_CONTROL,&value) && value==RP1_GEM_MPE) {
         bool resolve=action==ETH_ARP || action==ETH_PING || action==ETH_UDP_UP || action==ETH_TCP_UP;
-        unsigned i=0,count=resolve ? sizeof(registers) : sizeof(registers)-1;
-        for (;i<count;++i) {
-            if (!read_clause22(io,write,ticks,hz,registers[i],&value)) { break; }
-            data[i]=(uint16_t)value;
-        }
-        if (i==count) {
-            out->phy_id=(uint32_t)data[0]<<16|data[1];
-            out->control=data[2]; out->status=data[4];
-            if (resolve) { out->aux=data[5]; }
-            result=out->phy_id && out->phy_id!=UINT32_MAX && out->control!=UINT16_MAX &&
-                   out->status && out->status!=UINT16_MAX ? RP1_PHY_OK : RP1_PHY_NO_REPLY;
-            if (result==RP1_PHY_OK && action==ETH_RECOVER) { result=recover_link(io,write,ticks,hz,out); }
-        }
+        result=phy_registers(io,write,ticks,hz,resolve,out);
+        if (result==RP1_PHY_OK && action==ETH_RECOVER) { result=recover_link(io,write,ticks,hz,out); }
     }
     /* Disable the management port before restoring the original divider. */
     bool settled=idle(io,ticks,hz);
@@ -104,6 +111,19 @@ enum rp1_phy_result rp1_phy_read(const struct xhci_observer *io,bool (*write)(vo
                                 uint64_t (*ticks)(void *),uint64_t hz,struct rp1_phy_snapshot *out)
 {
     return read_phy(io,write,ticks,hz,out,ETH_PROBE);
+}
+
+enum rp1_phy_result rp1_phy_sample(const struct rp1_eth_io *io,bool dma_active,struct rp1_phy_snapshot *out)
+{
+    if (!dma_active) { return read_phy(&io->gem,io->write,io->ticks,io->hz,out,ETH_UDP_UP); }
+    uint32_t control;
+    *out=(struct rp1_phy_snapshot){0};
+    if (!read_reg(&io->gem,MAC_ID,&out->mac_id) || out->mac_id!=0x00070109) { return RP1_PHY_MAC; }
+    /* DMA already configured the management port. Only write MDIO commands. */
+    const uint32_t enabled=RP1_GEM_RX_TX|RP1_GEM_MPE;
+    if (!read_reg(&io->gem,NET_CONTROL,&control) || (control&enabled)!=enabled ||
+        !idle(&io->gem,io->ticks,io->hz)) { return RP1_PHY_IO; }
+    return phy_registers(&io->gem,io->write,io->ticks,io->hz,true,out);
 }
 
 unsigned rp1_phy_full_duplex_speed(const struct rp1_phy_snapshot *phy)

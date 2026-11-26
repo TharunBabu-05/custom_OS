@@ -147,6 +147,7 @@ static void command(const char *line)
         rp1_ethernet_command(firmware_dtb,board.uart_base,line[3]=='u' ? ETH_UP : ETH_DOWN); return;
     }
     if (equal(line,"ethrecover")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_RECOVER); return; }
+    if (equal(line,"ethstatus")) { rp1_ethernet_status(); return; }
     if (equal(line,"ethping")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_PING); return; }
     if (rp1_ethernet_address_command(line)) { return; }
     if (equal(line,"ethudpup")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_UDP_UP); return; }
@@ -187,7 +188,7 @@ static void command(const char *line)
         console_write("mediainfo (device-tree media controllers)\n");
         console_write("resinfo (active hardware resource claims)\n");
         console_write("pcieinfo [rp1] | pciewin [rp1] (Pi 5 device tree)\n");
-        console_write("rp1info ethprobe [reset] ethup ethdown ethrecover ethloop etharp ethping ethaddr [IPv4/prefix] ethudpup ethtcpup\n");
+        console_write("rp1info ethprobe [reset] ethup ethdown ethrecover ethstatus ethloop etharp ethping ethaddr [IPv4/prefix] ethudpup ethtcpup\n");
         console_write("rp1msiinfo (Pi 5 PCIe MSI-X capability and doorbell)\n");
         console_write("rp1dmatest (Pi 5 DMA scratch copy)\n");
         console_write("rp1irqtest (GIC edge dispatch on test INTID)\n");
