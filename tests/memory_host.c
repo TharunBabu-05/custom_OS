@@ -212,6 +212,29 @@ static void run_cases(void)
     assert(page_alloc_aligned(3,4,&aligned) && aligned==0x40000 && page_free_run(aligned,3));
     puts("PASS: aligned runs skip holes and occupied pages; whole-run release is atomic across bitmap words.");
 }
+static void window_cases(void)
+{
+    struct memory_map map={0};
+    map.ram_count=2;
+    map.ram[0]=(struct memory_range){5*PAGE_SIZE,18*PAGE_SIZE};
+    map.ram[1]=(struct memory_range){1ULL<<32,8*PAGE_SIZE};
+    assert(memory_reserve(&map,12*PAGE_SIZE,PAGE_SIZE,"hole") && INIT(&map));
+    const struct memory_range low={5*PAGE_SIZE+1,16*PAGE_SIZE};
+    struct page_layout layout=page_window_layout(low);
+    assert(layout.managed==14 && layout.free==14 && layout.runs==2 && layout.largest==8);
+    uint64_t base=0;
+    assert(page_alloc_window(3,2,4,low,&base) && base==8*PAGE_SIZE);
+    layout=page_window_layout(low);
+    assert(layout.free==11 && layout.runs==3 && layout.largest==8);
+    assert(page_free_run(base,3));
+    struct memory_range high={1ULL<<32,UINT64_MAX};
+    assert(page_alloc_window(8,8,8,high,&base) && base==high.base);
+    assert(!page_alloc_window(1,1,1,high,&base) && base==high.base);
+    assert(!page_alloc_window(2,1,1,low,&base) && !page_alloc_window(1,1,3,low,&base));
+    assert(!page_alloc_window(1,1,0,(struct memory_range){PAGE_SIZE,2},&base));
+    assert(page_free_run(base,8) && pages_stats().allocated_pages==0);
+    puts("PASS: address windows, partial pages, boundaries, alignment, zone fragmentation and full release.");
+}
 static void guarded_cases(void)
 {
     start(2,2); memory(2,2,0,0x1000000); size_t n=finish();
@@ -245,7 +268,7 @@ static void real_dtb(const char *path)
 }
 int main(int argc,char **argv)
 {
-    parser_cases(); allocator_cases();bitmap_cases();run_cases();guarded_cases();
+    parser_cases(); allocator_cases();bitmap_cases();run_cases();window_cases();guarded_cases();
     for (int i=1;i<argc;++i) { real_dtb(argv[i]); }
     return 0;
 }

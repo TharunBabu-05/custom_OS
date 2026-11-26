@@ -1,5 +1,11 @@
 # Real Raspberry Pi 5 proof
 
+Phase 46 passed four rounds with three workers and two rounds with one
+worker parked. Workers released all 64 grants. The 32-job queue, timer,
+USB read test and both v5 banks passed. A UART receive error interrupted
+the shutdown sequence before the final CPU and allocator readings.
+[Phase 46 capture](pi5-smp-page-leases-2026-11-26.txt)
+
 Phase 45 passed the lock timeout check, shared queues, cancellation
 and queue reuse, and remapping with parked and fault-parked workers.
 The 256-job queue was split 86/85/85 across the three workers.

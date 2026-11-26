@@ -1,0 +1,83 @@
+user:/$
+user:/$ exit
+EL0 processes: limit=8; private pages; timer preempts users only; runs=1 switches=0 preemptions=0 yields=0 idle_waits=4014 terminal=yes budget_seconds=unlimited children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=36 dispatches=8 sleeps=0 wakes=0 input_lines=6 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> meminfo
+Memory: ready
+Reported RAM: 8585.740 MB (8188.000 MiB)
+Managed RAM:  7515.144 MB (7167.000 MiB)
+Free RAM:     7515.136 MB (7166.992 MiB)
+Allocated:    0.008 MB (0.007 MiB)
+Unavailable:  1070.596 MB (1021.000 MiB)
+MB=1,000,000 bytes; MiB=1,048,576 bytes (fractions truncated).
+DTB RAM banks=2 bytes=8585740288 (firmware-described, not free memory)
+page_size=4096 address_limit_bytes=34359738368
+Bitmap arena=0x0000000040000000 bytes=1048576 (reserved outside kernel image)
+managed_pages=1834752 free_pages=1834750 allocated_pages=2
+peak_allocated_pages=15 exhausted_allocations=0
+managed_bytes=7515144192 unavailable_bytes=1070596096 (reservations, alignment, address limit)
+usable_ranges=1 reservations=7
+PMM pages include the page-backed kernel heap; use heapinfo. MMU on.
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000145000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> smpstart
+Secondary CPU 0x0000000000000100 online at EL1, entered EL2.
+Secondary CPU 0x0000000000000200 online at EL1, entered EL2.
+Secondary CPU 0x0000000000000300 online at EL1, entered EL2.
+Secondary CPUs online=3
+> smpirq on
+Secondary SGI routes ready.
+> smpmem 4
+PASS: SMP memory workers=3 rounds=4
+Secondary CPU 0x0000000000000100 memory_pages=0 peak=10 allocations=16 releases=16 rejected=24 quota_rejections=8 reclaimed_pages=0 retained=no
+Secondary CPU 0x0000000000000200 memory_pages=0 peak=10 allocations=16 releases=16 rejected=24 quota_rejections=8 reclaimed_pages=0 retained=no
+Secondary CPU 0x0000000000000300 memory_pages=0 peak=10 allocations=16 releases=16 rejected=24 quota_rejections=8 reclaimed_pages=0 retained=no
+> smpmeminfo
+Secondary CPU 0x0000000000000100 memory_pages=0 peak=10 allocations=16 releases=16 rejected=24 quota_rejections=8 reclaimed_pages=0 retained=no
+Secondary CPU 0x0000000000000200 memory_pages=0 peak=10 allocations=16 releases=16 rejected=24 quota_rejections=8 reclaimed_pages=0 retained=no
+Secondary CPU 0x0000000000000300 memory_pages=0 peak=10 allocations=16 releases=16 rejected=24 quota_rejections=8 reclaimed_pages=0 retained=no
+> smppark 0X200
+Secondary CPUs parked=1
+> smpmem 2
+PASS: SMP memory workers=2 rounds=2
+Secondary CPU 0x0000000000000100 memory_pages=0 peak=10 allocations=24 releases=24 rejected=36 quota_rejections=12 reclaimed_pages=0 retained=no
+Secondary CPU 0x0000000000000200 memory_pages=0 peak=10 allocations=16 releases=16 rejected=24 quota_rejections=8 reclaimed_pages=0 retained=no
+Secondary CPU 0x0000000000000300 memory_pages=0 peak=10 allocations=24 releases=24 rejected=36 quota_rejections=12 reclaimed_pages=0 retained=no
+> smpstart 0X200
+Secondary CPU 0x0000000000000200 resumed at EL1.
+Secondary CPUs online=3
+> smpqueue 32
+Secondary queue submitted. Use smpwait or smpcancel.
+> smpwait
+Secondary CPU 0x0000000000000100 queue_jobs=11
+Secondary CPU 0x0000000000000200 queue_jobs=11
+Secondary CPU 0x0000000000000300 queue_jobs=10
+PASS: SMP queue verified jobs=32 workers=3
+> timertest
+PASS: periodic timer IRQs delivered; asynchronous GPR/SP/NZCV sentinels preserved and foreground responsive.
+>
+Serial receive error; input discarded.
+> smpmeminfo
+Secondary CPU 0x0000000000000100 memory_pages=0 peak=10 allocations=24 releases=24 rejected=36 quota_rejections=12 reclaimed_pages=0 retained=no
+Secondary CPU 0x0000000000000200 memory_pages=0 peak=10 allocations=16 releases=16 rejected=24 quota_rejections=8 reclaimed_pages=0 retained=no
+Secondary CPU 0x0000000000000300 memory_pages=0 peak=10 allocations=24 releases=24 rejected=36 quota_rejections=12 reclaimed_pages=0 retained=no
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=41
+bank=0 status=valid generation=41 matches_mounted=yes
+bank=1 status=valid generation=40
+>

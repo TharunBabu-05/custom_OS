@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[switch]$PagePlacement,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -61,6 +61,30 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($PagePlacement) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="page-placement-$($case[0])"
+        Session $source $name $case[0] $case[1] @(
+            'pagezone all','pagezone high','pagerun 5 2 8 low32','pagezone all','pageslots',
+            'pagetrim 0 6','pagetrim 0 2','pagezone all','pagealloc','pageslots','pagefree 1',
+            'pagefree 0','pagezone all','pageslots','pagerun 5 1 4 all','pagerun 1 1 0 high','pwd','halt'
+        ) @('Trimmed slot=0','Monitor page slots in use=2','Monitor page slots in use=0',
+            'Freed slot=1','Freed slot=0','Usage: pagealloc or pagerun',
+            'Expected a slot for pagefree','No suitable physical page run.') 0 '' $false $true $false
+        $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+        $zones=[regex]::Matches($log,'(?m)^managed_pages=(\d+) free_pages=(\d+) free_runs=(\d+) largest_run_pages=(\d+)\r?$')
+        $alloc=[regex]::Match($log,'Allocated slot=0 physical=0x([a-fA-F0-9]+) bytes=20480')
+        if (!$alloc.Success -or $zones.Count -ne 5) { throw "$name missing allocation or zone snapshots" }
+        $page=[Convert]::ToUInt64($alloc.Groups[1].Value,16)/4096
+        $baseline=[long]$zones[0].Groups[2].Value
+        if ($page%2 -ne 0 -or $page%8 -gt 3 -or $zones[1].Groups[1].Value -ne '0' -or
+            [long]$zones[2].Groups[2].Value -ne ($baseline-5) -or
+            [long]$zones[3].Groups[2].Value -ne ($baseline-2) -or $zones[4].Value -cne $zones[0].Value) {
+            throw "$name placement, trim or baseline mismatch"
+        }
+    }
+    return
 }
 if ($SecondaryMemory) {
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {

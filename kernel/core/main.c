@@ -37,8 +37,6 @@ static bool console_ready;
 static uint64_t boot_ticks;
 static unsigned long entry_el;
 static uintptr_t firmware_dtb;
-static uint64_t monitor_pages[16];
-static bool monitor_owned[16];
 void kernel_main(uintptr_t dtb, unsigned long boot_el);
 void exception_fatal(unsigned long vector, unsigned long esr, unsigned long elr, unsigned long far);
 static bool equal(const char *a, const char *b)
@@ -167,7 +165,7 @@ static void command(const char *line)
     if (platform_health_command(line,(const void *)firmware_dtb,
                                 equal(board.name,"rpi5-header") || equal(board.name,"rpi5"))) { return; }
     if (framebuffer_command(line)) { return; }
-    if (heap_command(line)) { return; }
+    if (page_monitor_command(line) || heap_command(line)) { return; }
     if (filesystem_command(line)) { return; }
     if (storage_command(line)) { return; }
     if (usb_command(line)) { return; }
@@ -196,7 +194,7 @@ static void command(const char *line)
         console_write("utc | utc set <YYYY-MM-DDTHH:MM:SSZ> | utc clear\n");
         console_write("trustlist trustadd <SHA-256> trustcheck <SHA-256> <from UTC> <to UTC> trustclear\n");
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");
-        console_write("memmap pagealloc pagefree <slot> pagetest\n");
+        console_write("memmap pagealloc pagefree <slot> pagetest pageslots pagetrim <slot> <keep-pages>\npagezone <all|low32|high> | pagerun <pages> <alignment-pages> <boundary-pages|0> <all|low32|high>\n");
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
         console_write("fbinfo fbtest fbon fboff (firmware HDMI framebuffer and UART mirror)\n");
         console_write("excinfo exctest irqinit irqinfo irqtest timerstart timerinfo timertest timerstop\n");
@@ -277,26 +275,6 @@ static void command(const char *line)
         memory_print_map();
     } else if (equal(line,"pagetest")) {
         (void)memory_page_test();
-    } else if (equal(line,"pagealloc")) {
-        unsigned slot=0;
-        while (slot<16 && monitor_owned[slot]) { ++slot; }
-        if (slot == 16) { console_write("Monitor page slots full; use pagefree <slot>.\n"); }
-        else if (!page_alloc(&monitor_pages[slot])) { console_write("Allocation unavailable or out of physical pages.\n"); }
-        else {
-            monitor_owned[slot]=true;
-            console_write("Allocated slot="); console_u64(slot);
-            console_write(" physical="); console_hex(monitor_pages[slot]); console_write(" bytes=4096\n");
-        }
-    } else if (line[0]=='p' && line[1]=='a' && line[2]=='g' && line[3]=='e' &&
-               line[4]=='f' && line[5]=='r' && line[6]=='e' && line[7]=='e' && line[8]==' ') {
-        const char *p=line+9; unsigned slot=0; bool valid=*p != '\0';
-        while (*p && valid) {
-            if (*p<'0' || *p>'9' || slot>15) { valid=false; break; }
-            slot=slot*10+(unsigned)(*p++-'0');
-        }
-        if (!valid || slot>=16 || !monitor_owned[slot]) { console_write("Invalid or unallocated page slot.\n"); }
-        else if (!page_free(monitor_pages[slot])) { console_write("Page release rejected.\n"); }
-        else { monitor_owned[slot]=false; console_write("Freed slot="); console_u64(slot); console_write("\n"); }
     } else if (equal(line,"uptime")) {
         uint64_t hz=timer_frequency();
         console_write("uptime_seconds=");

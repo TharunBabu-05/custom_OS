@@ -77,14 +77,47 @@ bool page_alloc(uint64_t *physical)
     } while (word != next_word);
     return false;
 }
-bool page_alloc_aligned(unsigned count,unsigned alignment,uint64_t *physical)
+static bool window_pages(struct memory_range window,unsigned index,uint64_t *start,uint64_t *end)
+{
+    if (!window.size || window.base>=PMM_ADDRESS_LIMIT) { return false; }
+    uint64_t limit=PMM_ADDRESS_LIMIT;
+    if (window.size<limit-window.base) { limit=window.base+window.size; }
+    uint64_t first=usable[index].base,stop=first+usable[index].size;
+    *start=up(first>window.base ? first : window.base)/PAGE_SIZE;
+    *end=(stop<limit ? stop : limit)/PAGE_SIZE;
+    return *start<*end;
+}
+struct page_layout page_window_layout(struct memory_range window)
+{
+    struct page_layout layout={0};
+    for (unsigned i=0;stats.ready && i<usable_count;++i) {
+        uint64_t start,end,run=0;
+        if (!window_pages(window,i,&start,&end)) { continue; }
+        layout.managed+=end-start;
+        for (uint64_t page=start;page<end;++page) {
+            if (used[page/64]&(1ULL<<(page%64))) { run=0;continue; }
+            if (!run) { ++layout.runs; }
+            ++layout.free;
+            if (++run>layout.largest) { layout.largest=run; }
+        }
+    }
+    return layout;
+}
+bool page_alloc_window(unsigned count,unsigned alignment,unsigned boundary,
+                       struct memory_range window,uint64_t *physical)
 {
     if (!count || !physical || !alignment || (alignment&(alignment-1)) ||
+        (boundary && ((boundary&(boundary-1)) || count>boundary)) ||
         alignment>PMM_ADDRESS_LIMIT/PAGE_SIZE || !stats.ready || count>stats.free_pages) { return false; }
     uint64_t mask=alignment-1;
     for (unsigned i=0;i<usable_count;++i) {
-        uint64_t start=usable[i].base/PAGE_SIZE,end=start+usable[i].size/PAGE_SIZE;
+        uint64_t start,end;
+        if (!window_pages(window,i,&start,&end)) { continue; }
         for (uint64_t first=(start+mask)&~mask;first<end && count<=end-first;) {
+            if (boundary && (first&(boundary-1))+count>boundary) {
+                first=(first+boundary)&~((uint64_t)boundary-1);
+                continue;
+            }
             uint64_t page=first,stop=first+count;
             while (page<stop && !(used[page/64]&(1ULL<<(page%64)))) { ++page; }
             if (page!=stop) {
@@ -102,6 +135,8 @@ bool page_alloc_aligned(unsigned count,unsigned alignment,uint64_t *physical)
     ++stats.exhausted_allocations;
     return false;
 }
+bool page_alloc_aligned(unsigned count,unsigned alignment,uint64_t *physical)
+{ return page_alloc_window(count,alignment,0,(struct memory_range){0,PMM_ADDRESS_LIMIT},physical); }
 bool page_alloc_run(unsigned count,uint64_t *physical)
 { return page_alloc_aligned(count,1,physical); }
 

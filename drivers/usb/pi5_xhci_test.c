@@ -54,7 +54,10 @@ void pi5_usb_accessory(uintptr_t dtb,uintptr_t uart,unsigned host,const struct x
 
     unsigned pages=(sizeof(memory)+PAGE_SIZE-1)/PAGE_SIZE;
     uint64_t physical;
-    if (!page_alloc_run(pages,&physical)) { console_write("USB accessory DMA allocation failed.\n"); return; }
+    struct memory_range reachable={accessory_window.cpu,accessory_window.size};
+    if (!page_alloc_window(pages,1,0,reachable,&physical)) {
+        console_write("USB accessory DMA window has no suitable free run.\n"); return;
+    }
     const struct resource_range claims[]={
         {RESOURCE_MMIO,0,base,d.span},{RESOURCE_DMA_MEMORY,0,physical,sizeof(memory)}
     };
@@ -73,7 +76,7 @@ void pi5_usb_accessory(uintptr_t dtb,uintptr_t uart,unsigned host,const struct x
         (void)resource_release(accessory_ticket);
         accessory_ticket=0;
     } else { console_write("USB accessory controller is already claimed.\n"); }
-    for (unsigned i=0;i<pages;++i) { (void)page_free(physical+i*PAGE_SIZE); }
+    (void)page_free_run(physical,pages);
 }
 static bool run(uintptr_t dtb,uintptr_t uart_base,bool enumerate,struct block_device *storage)
 {

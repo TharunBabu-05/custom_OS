@@ -415,5 +415,79 @@ Expect `PASS: SMP memory workers=3 rounds=4` followed by
 `PASS: SMP memory workers=2 rounds=2`. Each finished worker should show
 `memory_pages=0` and `retained=no`. After `smpstop` all three secondary CPUs
 should be off, page allocations and resource claims should match the initial
-readings, and both storage checks should pass. Phase 46 Pi verification
-is pending.
+readings, and both storage checks should pass. The Pi passed both worker counts and released all leases. After the
+32-job queue and timer test, a serial receive error interrupted the shutdown
+sequence. The capture shows USB storage and both data banks passing.
+[Phase 46 Pi capture](../proofs/pi5-smp-page-leases-2026-11-26.txt)
+
+## Phase 47 physical page placement
+
+The boot allocator can select an aligned run wholly inside a physical byte
+window. A power-of-two boundary in pages can constrain the whole run to
+one boundary block. Zero disables this constraint. The Pi USB accessory
+path requests pages from the CPU address window reported by the RP1 bridge.
+Each device transfer still checks its DMA address translation.
+
+At the kernel monitor, use `pagezone all`, `pagezone low32`, or `pagezone high`
+to see managed and free pages, the number of free runs, and the largest run.
+The split is at 4 GiB. A zone can be empty. Runs stop at usable range edges.
+The report scans the allocator on demand.
+
+`pagerun <pages> <alignment> <boundary> <zone>` accepts 1 through 256 pages.
+Alignment and boundary are measured in pages. Each run takes one of the same
+16 monitor slots used by `pagealloc`. Use `pageslots` to see physical addresses
+and lengths, `pagetrim <slot> <pages-to-keep>` to release a suffix, and
+`pagefree <slot>` to return the rest.
+
+### Pi 5 acceptance
+
+Power off the Pi, connect its boot pendrive to Windows, and run in PowerShell
+from the project directory.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase47-page-placement-boot-update.zip'
+$volumes = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.VolumeLabel -eq 'OUROSBOOT' })
+if ($volumes.Count -ne 1) { throw 'Connect exactly one OUROSBOOT pendrive.' }
+$boot = $volumes[0].Name
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg
+if ($LASTEXITCODE -eq 0) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg -Apply
+}
+```
+
+Safely eject and boot the pendrive. Type `exit` at `user:/$`. On a fresh boot,
+enter each command when the kernel monitor displays its next `>` prompt.
+
+```text
+meminfo
+resinfo
+pagezone low32
+pagezone high
+pagerun 5 2 8 low32
+pageslots
+pagetrim 0 2
+pagefree 0
+pagezone low32
+pageslots
+smpstart
+smpirq on
+smpmem 2
+smpirq off
+smpstop
+cpustate
+meminfo
+resinfo
+storagetest
+datacheck
+```
+
+The run should show 20480 bytes initially and 8192 after trimming.
+The second low32 report should match the first, with zero monitor slots in
+use. Check for three secondary CPUs off and the original allocated page
+and resource counts after shutdown. Hardware acceptance of the allocator
+and the RP1 USB accessory path are separate. To exercise the latter with
+a keyboard, run `usbports` before and after plugging the keyboard into
+the other controller. For a new device on usb0 port 2, run
+`usbidentify usb0 2`, then `usbkeytest usb0 2` and press A when prompted.
+Use the controller and port shown for your keyboard. Run `meminfo` and
+`resinfo` again to compare with the original counts.

@@ -37,6 +37,13 @@ bool page_alloc(uint64_t *physical);
 bool page_alloc_run(unsigned count,uint64_t *physical);
 /* Alignment is a power of two in pages. The output changes on success. */
 bool page_alloc_aligned(unsigned count,unsigned alignment,uint64_t *physical);
+/* A physical byte window. Only whole pages inside it qualify. A nonzero
+ * boundary is a power of two in pages that a run must not cross. */
+bool page_alloc_window(unsigned count,unsigned alignment,unsigned boundary,
+                       struct memory_range window,uint64_t *physical);
+struct page_layout { uint64_t managed,free,runs,largest; };
+struct page_layout page_window_layout(struct memory_range window);
+bool page_monitor_command(const char *line);
 bool page_free(uint64_t physical);
 /* The caller owns the entire run. Validate all pages before freeing any. */
 bool page_free_run(uint64_t physical,unsigned count);
