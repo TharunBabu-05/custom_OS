@@ -23,6 +23,7 @@ enum block_result udp_service(udp_transmit,void *,uint64_t now_ms);
 int64_t udp_open(uint64_t owner,const struct uos_udp_peer *);
 int64_t udp_send(uint64_t owner,uint64_t handle,const void *,size_t,uint64_t now_ms);
 int64_t udp_recv(uint64_t owner,uint64_t handle,void *,size_t);
+unsigned udp_ready(uint64_t owner,uint64_t handle);
 int64_t udp_close(uint64_t owner,uint64_t handle);
 void udp_close_owner(uint64_t owner);
 unsigned udp_open_count(void);

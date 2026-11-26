@@ -76,3 +76,6 @@ Native tests cover timer arithmetic, quotas, ownership, and handle reuse.
 Both QEMU profiles passed the timer and existing event-wait suites.
 The 75 ms one-shot measured 79 ms on Cortex-A53 and 82 ms on Cortex-A76.
 Both profiles returned to zero timers after service shutdown.
+The Pi measured 75 ms for the one-shot. The service ran with one timer
+before and after restart and released it at shutdown.
+[Phase 50 Pi capture](../proofs/pi5-user-timers-2026-11-26.txt)

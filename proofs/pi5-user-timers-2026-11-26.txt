@@ -1,0 +1,40 @@
+Raspberry Pi 5 Phase 50 serial acceptance excerpt supplied in chat
+
+user:/$ tmrchk
+App load failed: path not found: /boot/NOAPP.ELF
+PASS: user timers, event waits, ownership and exec cleanup.
+child exit=0
+user:/$ tmrchk once 75 | cat
+timer fired elapsed_ms=75
+pipeline exit=0
+user:/$ tmrchk fault
+child exit=125
+user:/$ bg 1 /boot/TMRCHK.ELF hold
+job pid=10
+user:/$ waitall
+job pid=10 exit=124
+user:/$ exit
+App resources restored; monitor ready.
+Kernel monitor ready. Type help.
+> timerobjects
+Timer objects: 0/16
+> svc start -n timers /boot/TMRCHK.ELF hold
+Service started.
+> timerobjects
+Timer objects: 1/16
+> svc restart timers
+Service restarted.
+> timerobjects
+Timer objects: 1/16
+> svc stop timers
+Service name=timers depends=- enabled=no active=no launches=2 restarts=1 last_reason=4 last_code=143 cleanup=ok permissions=15
+> timerobjects
+Timer objects: 0/16
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=41
+bank=0 status=valid generation=41 matches_mounted=yes
+bank=1 status=valid generation=40

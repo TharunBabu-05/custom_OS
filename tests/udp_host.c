@@ -47,6 +47,7 @@ int main(void)
     assert(udp_open(1,&bad)==UOS_ERROR);
 
     int64_t handle=udp_open(1,&target);assert(handle>0);
+    assert(udp_ready(1,handle)==UOS_EVENT_WRITE && udp_ready(2,handle)==UOS_EVENT_HANGUP);
     assert(udp_open(2,&target)==UOS_EBUSY);
     struct uos_udp_peer automatic=target;automatic.local_port=0;
     assert(udp_open(1,&automatic)>0 && udp_open(1,&automatic)==UOS_ENOSPC);
@@ -58,6 +59,7 @@ int main(void)
     unsigned char buffer[UOS_UDP_MAX_BYTES],frame[UDP_FRAME_MAX];
     const unsigned char message[]={0xa0,0,0x7f};
     assert(udp_send(1,handle,message,sizeof(message),0)==sizeof(message));
+    assert(!udp_ready(1,handle));
     assert(udp_send(1,handle,NULL,0,0)==UOS_EAGAIN);
     arp(frame);udp_receive(frame,60,0); /* An unsolicited response cannot prime the cache. */
     wire.result=BLOCK_NOT_READY;step(0);udp_receive(frame,60,1);
@@ -79,18 +81,24 @@ int main(void)
     frame[11]^=1;udp_receive(frame,n,4);frame[11]^=1;
     assert(udp_recv(1,handle,buffer,sizeof(buffer))==UOS_EAGAIN);
     udp_receive(frame,n,4);
+    assert(udp_ready(1,handle)==(UOS_EVENT_READ|UOS_EVENT_WRITE));
+    assert(udp_ready(1,handle)&UOS_EVENT_READ);
     n=reply(frame,target.port,"later",5);udp_receive(frame,n,4); /* Full queue retains its first packet. */
     assert(udp_recv(1,handle,buffer,2)==UOS_EMSGSIZE);
     assert(udp_recv(1,handle,buffer,sizeof(buffer))==sizeof(message) && !memcmp(buffer,message,sizeof(message)));
+    assert(udp_ready(1,handle)==UOS_EVENT_WRITE);
     assert(udp_recv(1,handle,buffer,sizeof(buffer))==UOS_EAGAIN);
-    n=reply(frame,target.port,NULL,0);udp_receive(frame,n,5);assert(udp_recv(1,handle,NULL,0)==0);
+    n=reply(frame,target.port,NULL,0);udp_receive(frame,n,5);
+    assert((udp_ready(1,handle)&UOS_EVENT_READ) && udp_recv(1,handle,NULL,0)==0);
     n=reply(frame,target.port,message,sizeof(message));frame[40]=frame[41]=0;udp_receive(frame,n,5);
     assert(udp_recv(1,handle,buffer,sizeof(buffer))==sizeof(message));
 
     const uint64_t expired=31000;
     assert(udp_send(1,handle,NULL,0,expired)==0);
     step(expired);step(expired+999);step(expired+1000);step(expired+2000);step(expired+3000);
+    assert(udp_ready(1,handle)==UOS_EVENT_ERROR && udp_ready(1,handle)==UOS_EVENT_ERROR);
     assert(wire.arp==5 && wire.udp==1 && udp_recv(1,handle,NULL,0)==UOS_EHOSTUNREACH);
+    assert(udp_ready(1,handle)==UOS_EVENT_WRITE);
     assert(udp_recv(1,handle,NULL,0)==UOS_EAGAIN);
     assert(udp_send(1,handle,NULL,0,expired+3000)==0);step(expired+3000);
     arp(frame);udp_receive(frame,60,expired+3001);step(expired+3001);
@@ -98,6 +106,7 @@ int main(void)
 
     assert(udp_send(1,handle,message,sizeof(message),expired+3002)==sizeof(message));
     udp_link_down();assert(!udp_open_count() && udp_recv(1,handle,NULL,0)==UOS_ENETDOWN && udp_service(transmit,&wire,0)==BLOCK_NOT_READY);
+    assert(udp_ready(1,handle)==UOS_EVENT_HANGUP);
     assert(udp_link_up(local_mac,local_ip,mask));
     int64_t next=udp_open(1,&target);assert(next>handle && udp_close(1,handle)==UOS_EBADF && udp_close(1,next)==0);
     assert(!udp_open_count());udp_link_down();

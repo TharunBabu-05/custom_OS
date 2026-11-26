@@ -1,5 +1,10 @@
 # Real Raspberry Pi 5 proof
 
+Phase 50 passed timer ownership, exec cleanup, a 75 ms one-shot, fault
+and timeout cleanup, and service restart. The timer count returned to
+zero after shutdown. USB and both v5 data banks passed.
+[Phase 50 capture](pi5-user-timers-2026-11-26.txt)
+
 Phase 49 passed the process-history ABI check and kept the PID across
 an image replacement. The capture shows exit, fault, cancellation,
 timeout, and successful reaping. The monitor kept 32 of 34 records.

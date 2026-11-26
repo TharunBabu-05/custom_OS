@@ -1595,9 +1595,11 @@ if ($UdpSockets) {
                 'storageinit','mmuinit','irqinit','timerstart',@{Text='udpmodeltest';Delay=5500},
                 'appterm 2 /boot/UDPCHK.ELF 192.0.2.2 32001','fileinfo','pwd','timerstop','halt'
             ) @('PASS: EL0 UDP ownership, datagrams, checked buffers and receive timeout.',
+                'PASS: UDP readiness, timer race and restricted wait.',
                 'PASS: UDP link loss woke the blocked receive and invalidated its handle.',
+                'PASS: UDP link loss woke the socket wait.',
                 'PASS: UDP worker and EL0 socket integration.',
-                'UDP requires an active ','Open files: 0/16') 3
+                'UDP requires an active ','Open files: 0/16') 4
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
     if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }

@@ -1080,6 +1080,8 @@ static unsigned event_ready(struct process *p,const struct uos_event *event,uint
         }
         return timer.pending ? UOS_EVENT_READ : 0;
     }
+    case UOS_EVENT_UDP:return udp_ready(p->owner,object);
+    case UOS_EVENT_TCP:return tcp_ready(p->owner,object);
     default:return 0;
     }
 }
@@ -1090,7 +1092,7 @@ static int64_t event_probe(struct process *p,struct uos_event *events,unsigned c
     for (unsigned i=0;i<count;++i) {
         struct uos_event *event=&events[i];
         watches_signal|=event->source==UOS_EVENT_SIGNAL;
-        event->revents=(uint16_t)(event_ready(p,event,now)&(event->events|UOS_EVENT_HANGUP));
+        event->revents=(uint16_t)(event_ready(p,event,now)&(event->events|UOS_EVENT_HANGUP|UOS_EVENT_ERROR));
         ready+=event->revents!=0;
     }
     return p->signal_pending && !watches_signal ? UOS_EINTR : (int64_t)ready;
@@ -1105,10 +1107,12 @@ static int64_t event_call(struct process *p,const struct exception_frame *f)
     user_copy(p,address,events,bytes,false);
     for (unsigned i=0;i<count;++i) {
         const struct uos_event *event=&events[i];
-        unsigned allowed=UOS_EVENT_READ|(event->source==UOS_EVENT_CHANNEL ? UOS_EVENT_WRITE : 0);
-        if (event->source<UOS_EVENT_LISTENER || event->source>UOS_EVENT_TIMER ||
+        bool network=event->source==UOS_EVENT_UDP || event->source==UOS_EVENT_TCP;
+        unsigned allowed=UOS_EVENT_READ|((network || event->source==UOS_EVENT_CHANNEL) ? UOS_EVENT_WRITE : 0);
+        if (event->source<UOS_EVENT_LISTENER || event->source>UOS_EVENT_TCP ||
             !event->events || (event->events&~allowed) ||
             (event->source==UOS_EVENT_SIGNAL && event->object)) { return UOS_ERROR; }
+        if (network && !(p->permissions&UOS_ALLOW_NETWORK)) { return UOS_EACCES; }
     }
     int64_t ready=event_probe(p,events,(unsigned)count,timer_ticks());
     if (ready || !ms) {

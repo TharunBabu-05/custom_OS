@@ -49,7 +49,11 @@ static bool test_app(const char *command,bool loss)
     return network_worker_stop() && ok;
 }
 bool udp_worker_test(void)
-{ return test_app("/boot/UDPCHK.ELF model",false) && test_app("/boot/UDPCHK.ELF loss",true); }
+{
+    return test_app("/boot/UDPCHK.ELF model",false) &&
+           test_app("/boot/UDPCHK.ELF loss",true) &&
+           test_app("/boot/UDPCHK.ELF waitloss",true);
+}
 
 struct tcp_test_peer {
     unsigned char frame[TCP_FRAME_MAX];size_t bytes;

@@ -43,6 +43,7 @@ int main(void)
     struct uos_tcp_peer offsite=ep;offsite.ipv4[2]=3;
     assert(tcp_open(1,&offsite,0)==UOS_EHOSTUNREACH);
     int64_t h=tcp_open(1,&ep,0);assert(h>0 && tcp_status(1,h)==UOS_EAGAIN);
+    assert(!tcp_ready(1,h) && tcp_ready(2,h)==UOS_EVENT_HANGUP);
     assert(tcp_status(2,h)==UOS_EBADF && tcp_close(2,h,0)==UOS_EBADF && tcp_read(2,h,NULL,0)==UOS_EBADF);
     arp();tick(0);assert(sends==1 && !last.peer_mac);arp();tick(1);
     assert(sends==2 && last.flags==TCP_SYN && sent[46]==0x60 && net_be16(sent+56)==512);
@@ -52,9 +53,11 @@ int main(void)
     segment(TCP_SYN|TCP_ACK,seq,ack,20,NULL,0,true);assert(tcp_status(1,h)==UOS_EAGAIN);
     segment(TCP_SYN|TCP_ACK,seq,ack+1,20,NULL,0,false);assert(tcp_status(1,h)==UOS_EAGAIN);
     segment(TCP_SYN|TCP_ACK,seq,ack,20,NULL,0,false);assert(tcp_status(1,h)==0);++seq;
+    assert(tcp_ready(1,h)==UOS_EVENT_WRITE);
     tick(1002);assert(sends==4 && last.flags==TCP_ACK && last.seq==ack && last.ack==seq);
 
     assert(tcp_write(1,h,"abcde",5)==5 && tcp_write(1,h,"x",1)==UOS_EAGAIN);
+    assert(!tcp_ready(1,h));
     tick(1003);assert(sends==5 && last.flags==(TCP_ACK|TCP_PSH) && last.seq==ack && last.bytes==5 && !memcmp(sent+54,"abcde",5));
     tick(2003);assert(sends==6 && last.seq==ack && !memcmp(sent+54,"abcde",5));
     segment(TCP_ACK,seq,ack+2,2,NULL,0,false);ack+=2;
@@ -68,11 +71,15 @@ int main(void)
     segment(TCP_ACK|TCP_PSH,seq,ack,20,"abc",3,false);
     segment(TCP_ACK|TCP_PSH,seq+1,ack,20,"bcde",4,false);
     segment(TCP_ACK|TCP_PSH,seq,ack,20,"abc",3,false);seq+=5;
+    assert(tcp_ready(1,h)==(UOS_EVENT_READ|UOS_EVENT_WRITE));
     assert(tcp_read(1,h,read,2)==2 && !memcmp(read,"ab",2));
     assert(tcp_read(1,h,read,sizeof(read))==3 && !memcmp(read,"cde",3));
     segment(TCP_RST,seq+1,0,0,NULL,0,false);assert(tcp_status(1,h)==0);
     segment(TCP_ACK|TCP_FIN,seq,ack,20,NULL,0,false);++seq;
-    assert(tcp_read(1,h,read,sizeof(read))==0 && tcp_close(1,h,2006)==0 && tcp_status(1,h)==UOS_EBADF);
+    assert(tcp_ready(1,h)&UOS_EVENT_READ);
+    assert(tcp_read(1,h,read,sizeof(read))==0 && (tcp_ready(1,h)&UOS_EVENT_READ));
+    assert(tcp_close(1,h,2006)==0 && tcp_status(1,h)==UOS_EBADF);
+    assert(tcp_ready(1,h)==UOS_EVENT_HANGUP);
     tick(2006);assert(last.flags==(TCP_FIN|TCP_ACK) && last.ack==seq && last.seq==ack);
     segment(TCP_ACK,seq,ack+1,20,NULL,0,false);tick(2007);
     segment(TCP_ACK|TCP_FIN,seq-1,ack+1,20,NULL,0,false);tick(2008);
@@ -80,12 +87,15 @@ int main(void)
 
     h=tcp_open(1,&ep,3000);assert(h>0);tick(3000);arp();tick(3001);isn=last.seq;
     segment(TCP_RST|TCP_ACK,0,isn,0,NULL,0,false);assert(tcp_status(1,h)==UOS_EAGAIN);
-    segment(TCP_RST|TCP_ACK,0,isn+1,0,NULL,0,false);assert(tcp_status(1,h)==UOS_ECONNRESET && tcp_close(1,h,3001)==0);
+    segment(TCP_RST|TCP_ACK,0,isn+1,0,NULL,0,false);
+    assert(tcp_ready(1,h)==UOS_EVENT_ERROR && tcp_ready(1,h)==UOS_EVENT_ERROR);
+    assert(tcp_status(1,h)==UOS_ECONNRESET && tcp_close(1,h,3001)==0);
     h=tcp_open(1,&ep,4000);assert(h>0);tick(4000);tick(5000);tick(6000);tick(7000);
     assert(tcp_status(1,h)==UOS_EHOSTUNREACH && tcp_close(1,h,7000)==0);
     h=tcp_open(1,&ep,8000);assert(h>0);tick(8000);arp();tick(8001);tick(9001);tick(11001);tick(15001);tick(23001);
     assert(tcp_status(1,h)==UOS_ETIMEDOUT);tcp_close_owner(1,23001);assert(!tcp_open_count());
     h=tcp_open(1,&ep,24000);assert(h>0);tcp_link_down();assert(!tcp_open_count() && tcp_status(1,h)==UOS_ENETDOWN);
+    assert(tcp_ready(1,h)==UOS_EVENT_HANGUP);
     assert(tcp_link_up(local_mac,local_ip,mask,secret) && tcp_status(1,h)==UOS_EBADF);tcp_link_down();
     puts("PASS: TCP handshake, lost SYN/data, partial ACK, reordering, duplicate/overlap, sequence wrap, FIN, reset, timeout and ownership.");return 0;
 }

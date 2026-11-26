@@ -152,12 +152,12 @@ _Static_assert(sizeof(struct uos_port_table)==136,"IPC port inventory ABI size")
 enum { UOS_EVENT_MAX=UOS_CHANNEL_MAX+1 };
 enum uos_event_source {
     UOS_EVENT_LISTENER=1,UOS_EVENT_CHANNEL,UOS_EVENT_MAILBOX,UOS_EVENT_CHILD,UOS_EVENT_SIGNAL,
-    UOS_EVENT_TIMER
+    UOS_EVENT_TIMER,UOS_EVENT_UDP,UOS_EVENT_TCP
 };
-enum { UOS_EVENT_READ=1,UOS_EVENT_WRITE=2,UOS_EVENT_HANGUP=4 };
-/* READ covers accept, receive, child status, a timer expiration and SIGUSR1. Only a
- * channel accepts WRITE. HANGUP is returned for a closed or inaccessible
- * source. Mailbox object zero watches any direct message. Signal uses zero. */
+enum { UOS_EVENT_READ=1,UOS_EVENT_WRITE=2,UOS_EVENT_HANGUP=4,UOS_EVENT_ERROR=8 };
+/* READ includes TCP data or EOF. WRITE applies to channels and sockets.
+ * HANGUP and socket ERROR are output flags and wake either interest.
+ * Mailbox object zero watches any direct message. Signal uses zero. */
 struct uos_event { uint64_t object;uint32_t source;uint16_t events,revents; };
 _Static_assert(sizeof(struct uos_event)==16,"event wait ABI size");
 enum {

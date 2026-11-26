@@ -30,8 +30,11 @@ static int64_t wait_result(uint64_t handle,void *buffer,size_t bytes,unsigned op
         int64_t r=operation==UOS_SYS_TCP_STATUS ? uos_tcp_status(handle) : operation==UOS_SYS_TCP_READ ?
             uos_tcp_read(handle,buffer,bytes) : uos_tcp_write(handle,buffer,bytes);
         if (r!=UOS_EAGAIN) { return r; }
-        if (uos_time_ms()>=end) { return UOS_ETIMEDOUT; }
-        uos_sleep_ms(10);
+        int64_t left=end-uos_time_ms();
+        if (left<=0) { return UOS_ETIMEDOUT; }
+        r=uos_socket_wait(UOS_EVENT_TCP,handle,
+                         operation==UOS_SYS_TCP_READ ? UOS_EVENT_READ : UOS_EVENT_WRITE,(unsigned)left);
+        if (r<=0) { return r ? r : UOS_ETIMEDOUT; }
     }
 }
 static int error(int64_t result)
@@ -75,6 +78,7 @@ static int model(void)
     if (h<=0) { return 11; }
     uint64_t socket=(uint64_t)h;
     if (wait_result(socket,NULL,0,UOS_SYS_TCP_STATUS,4000)) { return 12; }
+    if (uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_READ|UOS_EVENT_WRITE,0)!=UOS_EVENT_WRITE) { return 17; }
     if (uos_tcp_read(socket,(void *)(uintptr_t)&p,1)!=UOS_EFAULT ||
         uos_tcp_write(socket,(void *)(uintptr_t)1,1)!=UOS_EFAULT) { return 13; }
     unsigned char data[]={1,0,2,3,4},reply[5];
@@ -83,7 +87,9 @@ static int model(void)
         int64_t n=wait_result(socket,reply+at,1,UOS_SYS_TCP_READ,4000);
         if (n!=1 || reply[at]!=data[at]) { return 15; }++at;
     }
-    if (wait_result(socket,reply,1,UOS_SYS_TCP_READ,1000) || uos_tcp_close(socket) || uos_tcp_status(socket)!=UOS_EBADF) { return 16; }
+    if (uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_READ,1000)!=UOS_EVENT_READ ||
+        uos_tcp_read(socket,reply,1) || uos_tcp_close(socket) || uos_tcp_status(socket)!=UOS_EBADF ||
+        uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_READ,0)!=UOS_EVENT_HANGUP) { return 16; }
     uos_puts("PASS: EL0 TCP connect, checked buffers, ordered stream, EOF and close.\n");return 0;
 }
 int app_main(void)

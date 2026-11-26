@@ -37,7 +37,11 @@ static int echo(const struct uos_udp_peer *peer,const char *message)
     size_t bytes=uos_length(message);
     int64_t result=uos_udp_send((uint64_t)h,message,bytes);
     unsigned char reply[UOS_UDP_MAX_BYTES];
-    if (result>=0) { result=uos_udp_recv((uint64_t)h,reply,sizeof(reply),5000); }
+    if (result>=0) {
+        result=uos_socket_wait(UOS_EVENT_UDP,(uint64_t)h,UOS_EVENT_READ,5000);
+        if (!result) { result=UOS_ETIMEDOUT; }
+        else if (result>0) { result=uos_udp_recv((uint64_t)h,reply,sizeof(reply),0); }
+    }
     if (uos_udp_close((uint64_t)h) && result>=0) { return report(UOS_EBADF); }
     if (result!=(int64_t)bytes) { return report(result); }
     for (size_t i=0;i<bytes;++i) {
@@ -68,9 +72,13 @@ static int foreign(void)
     const char *p=text;uint64_t stolen=decimal(&p,INT64_MAX);
     if (*p || !stolen || stolen>INT64_MAX || uos_udp_send(stolen,NULL,0)!=UOS_EBADF ||
         uos_udp_recv(stolen,NULL,0,0)!=UOS_EBADF || uos_udp_close(stolen)!=UOS_EBADF ||
+        uos_socket_wait(UOS_EVENT_UDP,stolen,UOS_EVENT_READ,0)!=UOS_EVENT_HANGUP ||
         uos_udp_open(&model_peer)!=UOS_EBUSY) { return 3; }
     struct uos_udp_peer own=model_peer;own.local_port=55002;
-    return uos_udp_open(&own)>0 ? 0 : 4; /* Kernel closes this on exit. */
+    int64_t handle=uos_udp_open(&own);
+    if (handle<0 || uos_policy_restrict(UOS_POLICY_ALL&~UOS_ALLOW_NETWORK)) { return 4; }
+    struct uos_event event={.object=(uint64_t)handle,.source=UOS_EVENT_UDP,.events=UOS_EVENT_READ,.revents=123};
+    return uos_event_wait(&event,1,0)==UOS_EACCES && event.revents==123 ? 0 : 5;
 }
 static int model(void)
 {
@@ -79,6 +87,8 @@ static int model(void)
     if (h<=0) { return 11; }
     uint64_t handle=(uint64_t)h;
     unsigned char buffer[8];
+    if (uos_socket_wait(UOS_EVENT_UDP,handle,UOS_EVENT_READ|UOS_EVENT_WRITE,0)!=UOS_EVENT_WRITE ||
+        uos_socket_wait(UOS_EVENT_UDP,handle,UOS_EVENT_ERROR,0)!=UOS_ERROR) { return 18; }
     if (uos_udp_recv(handle,buffer,sizeof(buffer),0)!=UOS_EAGAIN || uos_udp_send(handle,(const void *)(uintptr_t)1,1)!=UOS_EFAULT ||
         uos_udp_recv(handle,(void *)(uintptr_t)&model_peer,1,0)!=UOS_EFAULT ||
         uos_udp_send(handle,buffer,UOS_UDP_MAX_BYTES+1)!=UOS_EMSGSIZE ||
@@ -95,22 +105,38 @@ static int model(void)
         uos_udp_recv((uint64_t)second,NULL,0,0)!=UOS_EBADF) { return 14; }
 
     const unsigned char payload[]={0xc5,0,0x21};
+    int64_t timer=uos_timer_open();
+    if (timer<=0 || uos_timer_arm((uint64_t)timer,1000,0)) { return 19; }
+    struct uos_event events[]={
+        {.object=handle,.source=UOS_EVENT_UDP,.events=UOS_EVENT_READ},
+        {.object=(uint64_t)timer,.source=UOS_EVENT_TIMER,.events=UOS_EVENT_READ}
+    };
     if (uos_udp_send(handle,payload,sizeof(payload))!=(int64_t)sizeof(payload) ||
-        uos_udp_recv(handle,buffer,1,1000)!=UOS_EMSGSIZE ||
+        uos_event_wait(events,2,1200)!=1 || events[0].revents!=UOS_EVENT_READ || events[1].revents ||
+        uos_udp_recv(handle,buffer,1,0)!=UOS_EMSGSIZE ||
+        uos_socket_wait(UOS_EVENT_UDP,handle,UOS_EVENT_READ,0)!=UOS_EVENT_READ ||
         uos_udp_recv(handle,buffer,sizeof(buffer),0)!=(int64_t)sizeof(payload)) { return 15; }
     for (unsigned i=0;i<sizeof(payload);++i) { if (buffer[i]!=payload[i]) { return 16; } }
-    if (uos_udp_send(handle,NULL,0)!=0 || uos_udp_recv(handle,NULL,0,1000)!=0 ||
+    if (uos_udp_send(handle,NULL,0)!=0 || uos_socket_wait(UOS_EVENT_UDP,handle,UOS_EVENT_READ,1000)!=UOS_EVENT_READ ||
+        uos_udp_recv(handle,NULL,0,0)!=0 || uos_timer_arm((uint64_t)timer,70,0) ||
+        uos_event_wait(events,2,1000)!=1 || events[0].revents || events[1].revents!=UOS_EVENT_READ ||
+        uos_timer_close((uint64_t)timer) ||
         uos_udp_recv(handle,buffer,sizeof(buffer),100)!=UOS_ETIMEDOUT) { return 17; }
     uos_puts("PASS: EL0 UDP ownership, datagrams, checked buffers and receive timeout.\n");
+    uos_puts("PASS: UDP readiness, timer race and restricted wait.\n");
     return 0; /* The parent handle also exercises process cleanup. */
 }
-static int loss(void)
+static int loss(bool readiness)
 {
     struct uos_udp_peer peer=model_peer;peer.port=32002;
     int64_t h=uos_udp_open(&peer);
-    if (h<=0 || uos_udp_send((uint64_t)h,NULL,0)!=0 || uos_udp_recv((uint64_t)h,NULL,0,1000)!=UOS_ENETDOWN ||
+    if (h<=0 || uos_udp_send((uint64_t)h,NULL,0)!=0 ||
+        (readiness && uos_socket_wait(UOS_EVENT_UDP,(uint64_t)h,UOS_EVENT_READ,1000)!=UOS_EVENT_HANGUP) ||
+        uos_udp_recv((uint64_t)h,NULL,0,readiness ? 0 : 1000)!=UOS_ENETDOWN ||
         uos_udp_close((uint64_t)h)!=UOS_EBADF || uos_udp_open(&peer)!=UOS_ENETDOWN) { return 20; }
-    uos_puts("PASS: UDP link loss woke the blocked receive and invalidated its handle.\n");return 0;
+    uos_puts(readiness ? "PASS: UDP link loss woke the socket wait.\n" :
+             "PASS: UDP link loss woke the blocked receive and invalidated its handle.\n");
+    return 0;
 }
 
 int app_main(void)
@@ -118,7 +144,8 @@ int app_main(void)
     int64_t argc=uos_argc();char name[24],port[8];
     if (argc>=2 && uos_arg(1,name,sizeof(name))>0) {
         if (argc==2 && same(name,"model")) { return model(); }
-        if (argc==2 && same(name,"loss")) { return loss(); }
+        if (argc==2 && same(name,"loss")) { return loss(false); }
+        if (argc==2 && same(name,"waitloss")) { return loss(true); }
         if (argc==3 && same(name,"foreign")) { return foreign(); }
         struct uos_udp_peer peer={0};
         if ((argc==3 || argc==4) && parse_ip(name,peer.ipv4) && uos_arg(2,port,sizeof(port))>0) {

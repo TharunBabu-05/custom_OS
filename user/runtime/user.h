@@ -115,6 +115,14 @@ static inline int64_t uos_channel_recv(uint64_t token,struct uos_message *messag
  * Returned readiness is a snapshot. Read, write or accept separately. */
 static inline int64_t uos_event_wait(struct uos_event *entries,unsigned count,unsigned wait_ms)
 { return uos_call4(UOS_SYS_EVENT_WAIT,(uintptr_t)entries,count,wait_ms,0); }
+/* Wait for one socket and return its event flags, zero on timeout, or an error.
+ * The socket operation still supplies the detailed transport result. */
+static inline int64_t uos_socket_wait(unsigned source,uint64_t handle,unsigned events,unsigned wait_ms)
+{
+    struct uos_event event={.object=handle,.source=source,.events=(uint16_t)events};
+    int64_t result=uos_event_wait(&event,1,wait_ms);
+    return result>0 ? event.revents : result;
+}
 static inline int64_t uos_timer_open(void)
 { return uos_call2(UOS_SYS_TIMER,UOS_TIMER_OPEN,0); }
 static inline int64_t uos_timer_arm(uint64_t timer,uint64_t delay_ms,uint64_t interval_ms)

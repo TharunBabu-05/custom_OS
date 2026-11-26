@@ -153,6 +153,15 @@ int64_t tcp_read(uint64_t owner,uint64_t handle,void *data,size_t n)
     for (unsigned i=0;i<count;++i) { p[i]=s->rx[s->rx_head];s->rx[s->rx_head++]=0;s->rx_head%=RX_BYTES; }
     s->rx_bytes-=count;s->ack=true;return count;
 }
+unsigned tcp_ready(uint64_t owner,uint64_t handle)
+{
+    const struct connection *s=lookup(owner,handle);
+    if (!link.online || !s) { return UOS_EVENT_HANGUP; }
+    if (s->phase==FAILED) { return UOS_EVENT_ERROR; }
+    if (s->phase!=OPEN) { return 0; }
+    unsigned ready=s->rx_bytes || s->peer_fin ? UOS_EVENT_READ : 0;
+    return !s->tx_bytes ? ready|UOS_EVENT_WRITE : ready;
+}
 static void detach(struct connection *s,uint64_t now)
 {
     if (s->phase!=OPEN) { memset(s,0,sizeof(*s));return; }

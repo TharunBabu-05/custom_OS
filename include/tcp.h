@@ -24,6 +24,7 @@ int64_t tcp_open(uint64_t owner,const struct uos_tcp_peer *,uint64_t now);
 int64_t tcp_status(uint64_t owner,uint64_t handle);
 int64_t tcp_write(uint64_t owner,uint64_t handle,const void *,size_t);
 int64_t tcp_read(uint64_t owner,uint64_t handle,void *,size_t);
+unsigned tcp_ready(uint64_t owner,uint64_t handle);
 int64_t tcp_close(uint64_t owner,uint64_t handle,uint64_t now);
 void tcp_close_owner(uint64_t owner,uint64_t now);
 unsigned tcp_open_count(void);

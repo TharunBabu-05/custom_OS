@@ -151,6 +151,14 @@ int64_t udp_close(uint64_t owner,uint64_t handle)
     if (!s) { return UOS_EBADF; }
     memset(s,0,sizeof(*s));return 0;
 }
+unsigned udp_ready(uint64_t owner,uint64_t handle)
+{
+    const struct udp_socket *s=find(owner,handle);
+    if (!link.online || !s) { return UOS_EVENT_HANGUP; }
+    unsigned ready=s->received ? UOS_EVENT_READ : 0;
+    if (s->send_error) { return ready|UOS_EVENT_ERROR; }
+    return !s->sending ? ready|UOS_EVENT_WRITE : ready;
+}
 void udp_close_owner(uint64_t owner)
 {
     if (!owner) { return; }
