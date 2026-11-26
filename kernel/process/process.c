@@ -178,7 +178,7 @@ static bool release_memory(struct process *p)
     if (p->tables) {
         uintptr_t physical=(uintptr_t)p->tables;
         zero(p->tables,sizeof(*p->tables));
-        for (unsigned i=0;i<TABLE_BACKING_PAGES;++i) { if (!page_free(physical+i*4096)) { good=false; } }
+        if (!page_free_run(physical,TABLE_BACKING_PAGES)) { good=false; }
         p->tables=NULL;
     }
     zero(&p->environment,sizeof(p->environment));
@@ -232,7 +232,7 @@ static bool load_at(struct process *p,const char *path,const char *cwd,const str
     uint64_t root;
     if (!page_alloc_run(TABLE_BACKING_PAGES,&root)) { return false; }
     if (!mmu_dma_buffer(root,sizeof(*p->tables))) {
-        for (unsigned i=0;i<TABLE_BACKING_PAGES;++i) { if (!page_free(root+i*4096)) { child_cleanup_failed=true; } }
+        if (!page_free_run(root,TABLE_BACKING_PAGES)) { child_cleanup_failed=true; }
         return false;
     }
     p->tables=(void *)(uintptr_t)root;
@@ -1087,9 +1087,7 @@ static bool service_dependency_live(const char *name)
 }
 static void service_return_pages(struct supervised_service *s,uint64_t physical)
 {
-    for (unsigned i=0;i<SERVICE_CONTEXT_PAGES;++i) {
-        if (!page_free(physical+i*PAGE_SIZE)) { s->cleanup_failed=true; }
-    }
+    if (!page_free_run(physical,SERVICE_CONTEXT_PAGES)) { s->cleanup_failed=true; }
 }
 static void service_release(struct supervised_service *s)
 {

@@ -22,7 +22,7 @@ static bool monitor_hint(const char *line)
     bool network=monitor_command(line,"netup\0netping\0netrenew\0netinfo\0netdown\0networktest\0");
     if (!network && !monitor_command(line,"smpstart\0smpinfo\0smptest\0smpfault\0smpstop\0smppark\0"
         "smpsubmit\0smpwait\0smpcancel\0smpirq\0smpipi\0smptlb\0smpqueue\0smplock\0"
-        "cpustate\0meminfo\0fileinfo\0storagetest\0datacheck\0")) {
+        "smpmem\0smpmeminfo\0cpustate\0meminfo\0fileinfo\0storagetest\0datacheck\0")) {
         return false;
     }
     print("Type exit, then run this command at the > monitor prompt.");

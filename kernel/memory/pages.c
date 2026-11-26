@@ -77,17 +77,21 @@ bool page_alloc(uint64_t *physical)
     } while (word != next_word);
     return false;
 }
-bool page_alloc_run(unsigned count,uint64_t *physical)
+bool page_alloc_aligned(unsigned count,unsigned alignment,uint64_t *physical)
 {
-    if (!count || !physical || !stats.ready || count>stats.free_pages) { return false; }
+    if (!count || !physical || !alignment || (alignment&(alignment-1)) ||
+        alignment>PMM_ADDRESS_LIMIT/PAGE_SIZE || !stats.ready || count>stats.free_pages) { return false; }
+    uint64_t mask=alignment-1;
     for (unsigned i=0;i<usable_count;++i) {
         uint64_t start=usable[i].base/PAGE_SIZE,end=start+usable[i].size/PAGE_SIZE;
-        unsigned free=0;
-        for (uint64_t page=start;page<end;++page) {
-            if (used[page/64]&(1ULL<<(page%64))) { free=0; continue; }
-            if (++free<count) { continue; }
-            uint64_t first=page+1-count;
-            for (uint64_t p=first;p<=page;++p) { used[p/64]|=1ULL<<(p%64); }
+        for (uint64_t first=(start+mask)&~mask;first<end && count<=end-first;) {
+            uint64_t page=first,stop=first+count;
+            while (page<stop && !(used[page/64]&(1ULL<<(page%64)))) { ++page; }
+            if (page!=stop) {
+                first=(page+1+mask)&~mask;
+                continue;
+            }
+            for (page=first;page<stop;++page) { used[page/64]|=1ULL<<(page%64); }
             stats.free_pages-=count;
             stats.allocated_pages+=count;
             if (stats.allocated_pages>stats.peak_allocated_pages) { stats.peak_allocated_pages=stats.allocated_pages; }
@@ -98,18 +102,31 @@ bool page_alloc_run(unsigned count,uint64_t *physical)
     ++stats.exhausted_allocations;
     return false;
 }
-bool page_free(uint64_t physical)
+bool page_alloc_run(unsigned count,uint64_t *physical)
+{ return page_alloc_aligned(count,1,physical); }
+
+bool page_free_run(uint64_t physical,unsigned count)
 {
-    if (!stats.ready || (physical & (PAGE_SIZE-1)) || physical >= PMM_ADDRESS_LIMIT) { return false; }
+    if (!stats.ready || !count || (physical&(PAGE_SIZE-1)) || physical>=PMM_ADDRESS_LIMIT ||
+        count>(PMM_ADDRESS_LIMIT-physical)/PAGE_SIZE) { return false; }
     bool managed=false;
+    uint64_t bytes=(uint64_t)count*PAGE_SIZE;
     for (unsigned i=0; i<usable_count; ++i) {
-        if (physical >= usable[i].base && physical-usable[i].base < usable[i].size) { managed=true; break; }
+        if (physical>=usable[i].base && bytes<=usable[i].size && physical-usable[i].base<=usable[i].size-bytes) {
+            managed=true;break;
+        }
     }
-    uint64_t page=physical/PAGE_SIZE;
-    if (!managed || !(used[page/64] & (1ULL<<(page%64)))) { return false; }
-    used[page/64]&=~(1ULL<<(page%64));
-    if (page/64 < next_word) { next_word=(size_t)(page/64); }
-    ++stats.free_pages; --stats.allocated_pages;
+    if (!managed) { return false; }
+    uint64_t first=physical/PAGE_SIZE,stop=first+count;
+    for (uint64_t page=first;page<stop;++page) {
+        if (!(used[page/64]&(1ULL<<(page%64)))) { return false; }
+    }
+    for (uint64_t page=first;page<stop;++page) { used[page/64]&=~(1ULL<<(page%64)); }
+    if (first/64<next_word) { next_word=(size_t)(first/64); }
+    stats.free_pages+=count;
+    stats.allocated_pages-=count;
     return true;
 }
+bool page_free(uint64_t physical)
+{ return page_free_run(physical,1); }
 struct page_stats pages_stats(void) { return stats; }

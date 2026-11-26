@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
-      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
+      [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
       [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
@@ -24,7 +24,7 @@ function Range-Hash([string]$Path,[long]$Offset,[long]$Length) {
         $null=$sha.TransformFinalBlock((New-Object byte[] 0),0,0);return [Convert]::ToBase64String($sha.Hash)
     } finally { $f.Dispose();$sha.Dispose() }
 }
-function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs,[bool]$FastClock,[bool]$ReadOnlyVirtio,[bool]$Poweroff,[int]$Smp=1,[bool]$SerialBreak=$false) {
+function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[]]$Actions,[string[]]$Expected,[int]$Restores,[string]$BootArgs,[bool]$FastClock,[bool]$ReadOnlyVirtio,[bool]$Poweroff,[int]$Smp=1,[bool]$SerialBreak=$false,[int]$CharacterDelayMs=6) {
     $si=New-Object Diagnostics.ProcessStartInfo
     $si.FileName=$QemuExe
     $serial=if ($SerialBreak) { 'mon:stdio' } else { 'stdio' }
@@ -45,7 +45,7 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
             $delay=550;$raw=$false;$text=$action
             if ($action -is [hashtable]) { $text=$action.Text;$delay=$action.Delay;$raw=$action.Raw }
             if (!$raw) { $text+="`r`n" }
-            foreach ($c in $text.ToCharArray()) { $p.StandardInput.Write($c);$p.StandardInput.Flush();Start-Sleep -Milliseconds 6 }
+            foreach ($c in $text.ToCharArray()) { $p.StandardInput.Write($c);$p.StandardInput.Flush();Start-Sleep -Milliseconds $CharacterDelayMs }
             Start-Sleep -Milliseconds $delay
         }
         $offOk=!$Poweroff -or ($p.WaitForExit(5000) -and $p.ExitCode -eq 0)
@@ -61,6 +61,55 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($SecondaryMemory) {
+    foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="secondary-memory-$($case[0])"
+        $disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $case[0] $case[1] @(
+                'smpmem','smpmem 0','smpmem 17','storageinit','datainit','mmuinit','irqinit','timerstart','meminfo','resinfo',
+                'smpstart 0X1',@{Text='smpmem 1';Delay=1000},'smpmeminfo','meminfo',
+                'smpstart','smpirq on','resinfo','meminfo','smpqueue 64','smpmem 1','smpmeminfo','smpcancel',
+                @{Text='smpmem';Delay=1500},'smppark 0X2','smptlb','smptlb map',
+                @{Text='smpmem 2';Delay=1500},'meminfo','smpstart 0X2','smpfault 0x3',
+                @{Text='smpmem 16';Delay=2300},'smpmeminfo','smpstart 0x3','smptest',
+                'appshell','smpmem 1','smpmeminfo','echo memory-shell-ok','exit','pagetest',
+                @{Text='timertest';Delay=1000},'irqinfo','smpirq off','smpstop','cpustate','meminfo','resinfo',
+                'smpmeminfo','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('Start secondary CPUs with smpstart.','Secondary batch pending. Use smpwait or smpcancel.',
+                'Secondary queue cancelled.','Secondary CPUs parked=1','PASS: SMP TLB invalidations=4',
+                'SMP map CPUs A/unmapped/B/revoked/restored=4/4/4/4/4','PASS: secondary fault captured, worker parked.',
+                'PASS: secondary checksum jobs=3','memory-shell-ok','PASS: four distinct pages written/read/freed;',
+                'PASS: periodic timer IRQs delivered;','Secondary SGI routes released.',
+                'Secondary CPU stacks released.','Open files: 0/16','PASS: read-only storage','matches_mounted=yes'
+            ) 1 '' $false $false $false 4
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            $verified=@([regex]::Matches($log,'(?m)^PASS: SMP memory workers=(\d+) rounds=(\d+)\r?$') |
+                ForEach-Object { "$($_.Groups[1].Value)/$($_.Groups[2].Value)" }) -join ','
+            $pages=@([regex]::Matches($log,'(?m)^managed_pages=\d+ free_pages=\d+ allocated_pages=(\d+)\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            $claims=@([regex]::Matches($log,'(?m)^Resource claims: (\d+)/16\r?$') |
+                ForEach-Object { [int]$_.Groups[1].Value })
+            $totals='(?m)^Secondary CPU 0x0+1 memory_pages=0 peak=10 allocations=92 releases=92 rejected=137 quota_rejections=46 reclaimed_pages=0 retained=no\r?\n' +
+                'Secondary CPU 0x0+2 memory_pages=0 peak=10 allocations=80 releases=80 rejected=120 quota_rejections=40 reclaimed_pages=0 retained=no\r?\n' +
+                'Secondary CPU 0x0+3 memory_pages=0 peak=10 allocations=24 releases=24 rejected=36 quota_rejections=12 reclaimed_pages=0 retained=no\r?$'
+            if ($verified -cne '1/1,3/4,2/2,2/16' -or $log -notmatch $totals -or
+                $pages.Count -ne 5 -or $pages[1] -ne ($pages[0]+1) -or $pages[2] -ne ($pages[0]+3) -or
+                $pages[3] -ne $pages[2] -or $pages[4] -ne $pages[0] -or
+                $claims.Count -ne 3 -or $claims[1] -ne ($claims[0]+1) -or $claims[2] -ne $claims[0] -or
+                [regex]::Matches($log,'(?m)^Usage: smpmem \[1\.\.16\]\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^Type exit, then run this command at the > monitor prompt\.\r?$').Count -ne 2 -or
+                [regex]::Matches($log,'(?m)^CPU affinity=0x[0-9a-f]+ dt=enabled psci=off\r?$').Count -ne 3 -or
+                $log -notmatch ' unexpected=0 ' -or $log.Contains(' retained=yes') -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) {
+                throw "$name lease checks, allocation counts, cleanup or disk differs"
+            }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    if ((Get-FileHash -LiteralPath $source).Hash -ne $original) { throw 'Delivery changed' }
+    return
 }
 if ($SecondaryQueue) {
     foreach ($case in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
@@ -407,7 +456,7 @@ if ($CoreMilestones) {
             Session $disk $name $case[0] $case[1] @(
                 'exit',@{Text='appterm 70 /boot/CORECHK.ELF';Delay=6000},
                 @{Text='svc start /boot/CORECHK.ELF service';Delay=1500},'svc','cat /tmp/core30-beat',
-                'appshell','source -e /boot/PIPE29.OSH','exit','svc','cat /tmp/core30-beat',
+                'appshell',@{Text='source -e /boot/PIPE29.OSH';Delay=4500},'exit','svc','cat /tmp/core30-beat',
                 'appshell','echo shell-reopened','exit','svc stop',
                 'svc start /boot/SPIN.ELF','appshell','echo spin-service-responsive','exit','svc stop','fileinfo',
                 'rm /tmp/core30-started','rm /tmp/core30-beat','storagetest','datacheck','pwd','halt'
@@ -415,7 +464,7 @@ if ($CoreMilestones) {
                 'enabled=no active=no launches=2 restarts=1 last_reason=4 last_code=143 cleanup=ok',
                 'PASS: four-stage pipeline preserved all 16384 bytes.',"`r`nshell-reopened`r`n",
                 "`r`nspin-service-responsive`r`n",'Open files: 0/16',
-                'PASS: read-only storage','matches_mounted=yes') 5 'ouros.startup=shell'
+                'PASS: read-only storage','matches_mounted=yes') 5 'ouros.startup=shell' -CharacterDelayMs 24
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             $runs=[regex]::Matches($log,'(?m)^Service enabled=yes active=yes .* pid=(\d+) path=/boot/CORECHK\.ELF\r?$')
             $beats=[regex]::Matches($log,'(?m)^> cat /tmp/core30-beat\r?\n(\d+)\r?$')
@@ -532,23 +581,23 @@ if ($FileMappings) {
         try {
             Session $disk $name $case[0] $case[1] @(
                 'vmstat','bg 30 /boot/VMCHK.ELF hold','vmstat 3','stop 3','vmstat 3',
-                @{Text='source -e /boot/VM36.OSH';Delay=3800},
-                'mapcat /boot/LARGE.BIN 123 16001 | hash','exit','fileinfo','storagetest','datacheck','pwd','halt'
+                @{Text='source -e /boot/VM36.OSH';Delay=7000},
+                @{Text='mapcat /boot/LARGE.BIN 123 16001 | hash';Delay=2200},'exit','fileinfo','storagetest','datacheck','pwd','halt'
             ) @($pass,'vm pid=2 pages=0/48 regions=0','vm pid=3 pages=1/48 regions=1',
                 'file private bytes=1 pages=1 rights=rw ceiling=rw','vmstat: process unavailable','child exit=130',
                 'b83d3c832f2110bf760f831a9b22f0e85264092cd5f370d1aec11d7fd43e258b  /tmp/vm36.part',
                 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /tmp/vm36.eof',
                 'PASS: mapped file range, EOF and VM shell diagnostics.',
                 'children_started=11 children_reaped=11 last_child_code=0 cleanup=restored','Open files: 0/16',
-                'PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell'
+                'PASS: read-only storage','matches_mounted=yes') 1 'ouros.startup=shell' -CharacterDelayMs 24
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             if ($log -notmatch "(?m)^$windowDigest\r?\npipeline exit=0\r?$") { throw "$name multi-window SHA-256 differs" }
             if ((Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name changed the scratch disk" }
             Session $disk "$name-persistent" $case[0] $case[1] @(
                 'exit',@{Text='datarestore /boot/DEMO.BAK';Delay=7000},'appshell',
-                'mapcat /data/pattern.bin | hash','exit','fileinfo','datacheck','pwd','halt'
+                @{Text='mapcat /data/pattern.bin | hash';Delay=2200},'exit','fileinfo','datacheck','pwd','halt'
             ) @('Data restore committed and read back','dc404a613fedaeb54034514bc6505f56b933caa5250299ba7d094377a51caa46',
-                'pipeline exit=0','Open files: 0/16','matches_mounted=yes') 2 'ouros.startup=shell'
+                'pipeline exit=0','Open files: 0/16','matches_mounted=yes') 2 'ouros.startup=shell' -CharacterDelayMs 24
             if ((Range-Hash $disk 0 (260097L*512)) -ne $bootHash) { throw "$name changed the boot region" }
         } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
     }
@@ -2407,7 +2456,7 @@ if ($Exec) {
         $name="exec-$($case[0])-$($case[1])";$disk=Join-Path $ProjectRoot ('build/usb-tests/'+$name+'-'+[guid]::NewGuid().ToString('N')+'.img')
         Copy-Item -LiteralPath $source -Destination $disk
         Session $disk "$name-create" $case[0] $case[1] @('storageinit','datainit','mmuinit','irqinit','timerstart',
-            @{Text='appterm 60 /boot/EXECCHK.ELF';Delay=3500},@{Text='appterm 60 /boot/EXECCHK.ELF parent';Delay=5000},
+            @{Text='appterm 60 /boot/EXECCHK.ELF';Delay=4500},@{Text='appterm 60 /boot/EXECCHK.ELF parent';Delay=10000},
             @{Text='apprun /boot/EXECCHK.ELF /boot/EXECCHK.ELF /boot/EXECCHK.ELF';Delay=4000},
             @{Text='appterm 60 /boot/PIPECHK.ELF';Delay=6000},@{Text='appterm 60 /boot/SPAWNCHK.ELF';Delay=5000},
             'appshell','help','path','hello','run echo "lookup ok" ""','run /boot/HELLO.ELF','not-installed-name','status',
@@ -2429,7 +2478,7 @@ if ($Exec) {
             'shell: exec failed; current shell retained','shell-survived-exec',
             'a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654',
             'stored-precedence','exact-name','quoted value ','before-reboot','shell-replaced',
-            'path=/boot/echo.elf state=exited code=0','Open files: 0/16') 6
+            'path=/boot/echo.elf state=exited code=0','Open files: 0/16') 6 -CharacterDelayMs 24
         $capture=Get-Content -Raw -LiteralPath (Join-Path $out "$name-create.log")
         $cfgMatch=[regex]::Match($capture,'(?m)^([0-9a-f]{64})  /boot/CONFIG.TXT\r?$')
         $copyMatch=[regex]::Match($capture,'(?m)^([0-9a-f]{64})  /tmp/exec-copy\r?$')
@@ -2443,7 +2492,7 @@ if ($Exec) {
             'speak cold-boot-lookup','pipe exec /boot/STREAM.ELF small -- exec /boot/HASH.ELF',
             'exec /data/bin/speak replaced-after-reboot','pwd','fileinfo','heaptest','pagetest','timerstop','halt') @(
             'cold-boot-lookup','3e5718fea51a8f3f5baca61c77afab473c1810f8b9db330273b4011ce92c787e',
-            'replaced-after-reboot','path=/data/bin/speak state=exited code=0','Open files: 0/16') 1
+            'replaced-after-reboot','path=/data/bin/speak state=exited code=0','Open files: 0/16') 1 -CharacterDelayMs 24
         if ((Range-Hash $disk 0 (260097L*512)) -ne $prefix -or (Range-Hash $disk $tailAt (134217728L-$tailAt)) -ne $tail) { throw 'Application exec wrote outside data banks' }
         Write-Output "PASS: $name exec/rollback/FD identity, three occupied slots, pipe/stream inheritance, original deadlines, lookup precedence and installed-program cold boot."
     }

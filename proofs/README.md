@@ -1,5 +1,12 @@
 # Real Raspberry Pi 5 proof
 
+Phase 45 passed the lock timeout check, shared queues, cancellation
+and queue reuse, and remapping with parked and fault-parked workers.
+The 256-job queue was split 86/85/85 across the three workers.
+The timer, USB reads, and both v5 banks passed. The final shutdown
+and allocation snapshots are included in the Phase 46 procedure.
+[Phase 45 capture](pi5-smp-work-queue-2026-11-26.txt)
+
 Phase 44 passed all four TLB acknowledgements and all five remap
 stages on the Pi. The three workers were online. The park command
 with an uppercase `0X` prefix was rejected, so Phase 45 includes the

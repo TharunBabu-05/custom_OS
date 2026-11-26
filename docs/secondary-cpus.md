@@ -255,6 +255,12 @@ verified shutdown, and a new queue passed after restart in QEMU.
 Both Pi builds fit with 28 KiB before the firmware device tree.
 All 99 package payload hashes matched the verified image.
 
+The Pi verified all 256 jobs, with contributions of 86, 85, and 85.
+It passed cancellation and queue reuse, both parked remaps, timer
+delivery, USB reads, and both data banks. A UART receive error
+preceded the storage commands. Phase 46 includes the final shutdown
+and resource checks. [Pi capture](../proofs/pi5-smp-work-queue-2026-11-26.txt)
+
 ### Run Phase 45 on Pi 5
 
 Power off the Pi and connect its boot pendrive to Windows. From the
@@ -316,4 +322,98 @@ after parking. The queues should verify `256 workers=3`,
 `smpinfo` and both remaps should report `4/4/4/4/4`. After cancellation,
 the next queue should pass. After `smpstop`, all three workers should
 be off, page allocations and resource claims should match the baseline,
-and the storage checks should pass. Phase 45 Pi verification is pending.
+and the storage checks should pass.
+
+## Phase 46 Worker physical page leases
+
+The boot CPU services allocation and release requests from one mailbox
+per worker. It owns the bitmap and the lease records. A worker publishes
+its request with a release store and reads the acknowledgement with an
+acquire load before using the granted span. [Arm memory ordering guide](https://documentation-service.arm.com/static/62a304f231ea212bb662321d)
+
+- `page_alloc_aligned` allocates runs with a power-of-two alignment in pages.
+- `page_free_run` checks the full span before returning any pages. Process
+  page tables, service contexts and remap scratch tables use this release path.
+- A worker can hold four runs and sixteen pages. Each release must match
+  the owning worker, base address, and exact page count.
+- The broker zeros pages before granting them and scrubs them before
+  returning them to the physical allocator.
+- `smpmem [ROUNDS]` checks aligned allocation, ownership and quota rejections,
+  and data preservation in simultaneous runs. It defaults to four rounds
+  and accepts 1 to 16.
+- `smpmeminfo` prints per-worker live and peak pages, allocation and release
+  totals, rejections, and pages reclaimed after failures.
+
+If a worker stops acknowledging requests, `smpmem` retains its leases
+and refuses to reuse the mailbox. `smpstop` releases those pages and
+the worker's stack after firmware confirms the CPU is off. The boot
+allocator can service its ordinary callers while those pages are reserved.
+
+### Phase 46 verification
+
+Native tests verified aligned allocation across reserved holes and
+atomic rejection of invalid releases, including runs spanning bitmap
+words. The four-core Cortex-A53 and Cortex-A76 tests covered all worker
+counts from one to three and the 16-round limit. They checked ownership
+rejections, quota counters, data integrity, zero live leases, and the
+original page and resource counts after shutdown.
+The existing worker queue, Core OS, file mapping, and executable
+replacement suites passed on both profiles.
+
+A scratch build faulted one worker after it received ten pages. The
+broker retained those pages while the boot allocator passed `pagetest`.
+After PSCI confirmed shutdown, `smpstop` reclaimed all ten pages. A new
+worker batch passed on restart in QEMU. Both Pi builds fit with 24 KiB
+before the firmware device tree. All 99 ZIP payload hashes matched the
+verified v5 image, and the updater passed rollback checks.
+
+### Run Phase 46 on Pi 5
+
+Power off the Pi and connect its boot pendrive to Windows. From the
+project folder, run the boot updater. The preview selects `OUROS.IMG`
+and `SHELL.ELF` on a Phase 45 boot volume.
+
+```powershell
+$pkg = 'build/rpi5-header/OurOS-Pi5-header-phase46-physical-page-leases-boot-update.zip'
+$volumes = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.VolumeLabel -eq 'OUROSBOOT' })
+if ($volumes.Count -ne 1) { throw 'Connect exactly one OUROSBOOT pendrive.' }
+$boot = $volumes[0].Name
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg
+if ($LASTEXITCODE -eq 0) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-rpi5-boot.ps1 -BootDirectory $boot -Package $pkg -Apply
+}
+```
+
+Safely eject the pendrive and boot the Pi. Type `exit` at `user:/$`.
+At the `>` prompt, enter one command at a time and wait for the next prompt.
+
+```text
+meminfo
+resinfo
+smpstart
+smpirq on
+smpmem 4
+smpmeminfo
+smppark 0X200
+smpmem 2
+smpstart 0X200
+smpqueue 32
+smpwait
+timertest
+smpirq off
+smpstop
+cpustate
+meminfo
+resinfo
+smpmeminfo
+fileinfo
+storagetest
+datacheck
+```
+
+Expect `PASS: SMP memory workers=3 rounds=4` followed by
+`PASS: SMP memory workers=2 rounds=2`. Each finished worker should show
+`memory_pages=0` and `retained=no`. After `smpstop` all three secondary CPUs
+should be off, page allocations and resource claims should match the initial
+readings, and both storage checks should pass. Phase 46 Pi verification
+is pending.

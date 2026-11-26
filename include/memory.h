@@ -35,7 +35,11 @@ bool memory_claim_bitmap(struct memory_map *,uint64_t *physical);
 bool pages_init(const struct memory_map *map,void *bitmap,size_t bytes);
 bool page_alloc(uint64_t *physical);
 bool page_alloc_run(unsigned count,uint64_t *physical);
+/* Alignment is a power of two in pages. The output changes on success. */
+bool page_alloc_aligned(unsigned count,unsigned alignment,uint64_t *physical);
 bool page_free(uint64_t physical);
+/* The caller owns the entire run. Validate all pages before freeing any. */
+bool page_free_run(uint64_t physical,unsigned count);
 struct page_stats pages_stats(void);
 void memory_boot_init(uintptr_t dtb);
 bool memory_boot_map(struct memory_map *out);

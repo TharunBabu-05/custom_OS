@@ -184,6 +184,34 @@ static void bitmap_cases(void)
     assert(!pages_init(&m,NULL,PMM_BITMAP_BYTES));
     puts("PASS: external 1 MiB bitmap claim, overlap/alignment/cap/exhaustion checks, self-reservation excluded from every allocation/free, bounded storage and no static kernel bitmap");
 }
+static void run_cases(void)
+{
+    struct memory_map m={0};
+    m.ram_count=1;
+    m.ram[0]=(struct memory_range){0x1000,0x18000};
+    assert(memory_reserve(&m,0x6000,0x3000,"hole") && INIT(&m));
+    uint64_t aligned=0,small=0,unchanged=0xdeadbeef;
+    assert(!page_alloc_aligned(1,0,&unchanged) && !page_alloc_aligned(1,3,&unchanged));
+    assert(!page_alloc_aligned(0,4,&unchanged) && !page_alloc_aligned(1,1u<<31,&unchanged));
+    assert(unchanged==0xdeadbeef && pages_stats().allocated_pages==0);
+    assert(page_alloc_aligned(3,4,&aligned) && aligned==0xc000);
+    assert(page_alloc_aligned(2,2,&small) && small==0x2000);
+    assert(!page_free_run(small,3) && !page_free_run(0x5000,5));
+    assert(!page_free_run(small,0) && !page_free_run(small+1,2) && !page_free_run(small,UINT32_MAX));
+    assert(pages_stats().allocated_pages==5);
+    assert(page_free_run(small,2) && !page_free_run(small,2));
+    assert(page_free_run(aligned,3) && pages_stats().allocated_pages==0);
+    assert(page_alloc_aligned(3,4,&small) && small==aligned && page_free_run(small,3));
+
+    m.reserved_count=0;
+    m.ram[0]=(struct memory_range){0x3d000,0x9000};
+    assert(INIT(&m));
+    assert(page_alloc_run(6,&small) && small==0x3d000);
+    assert(!page_free_run(small,7) && pages_stats().allocated_pages==6);
+    assert(page_free_run(small,6) && pages_stats().allocated_pages==0);
+    assert(page_alloc_aligned(3,4,&aligned) && aligned==0x40000 && page_free_run(aligned,3));
+    puts("PASS: aligned runs skip holes and occupied pages; whole-run release is atomic across bitmap words.");
+}
 static void guarded_cases(void)
 {
     start(2,2); memory(2,2,0,0x1000000); size_t n=finish();
@@ -217,7 +245,7 @@ static void real_dtb(const char *path)
 }
 int main(int argc,char **argv)
 {
-    parser_cases(); allocator_cases();bitmap_cases(); guarded_cases();
+    parser_cases(); allocator_cases();bitmap_cases();run_cases();guarded_cases();
     for (int i=1;i<argc;++i) { real_dtb(argv[i]); }
     return 0;
 }

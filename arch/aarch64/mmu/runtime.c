@@ -145,10 +145,8 @@ bool mmu_smp_release(void)
         for (size_t i=0;i<SMP_PAGES*PAGE_SIZE/sizeof(*scratch);++i) { scratch[i]=0; }
         __atomic_store_n(&smp_root,0,__ATOMIC_RELEASE);
     }
-    while (smp_pages) {
-        if (!page_free(smp_allocation+(uint64_t)(smp_pages-1)*PAGE_SIZE)) { return false; }
-        --smp_pages;
-    }
+    if (smp_pages && !page_free_run(smp_allocation,smp_pages)) { return false; }
+    smp_pages=0;
     return true;
 }
 

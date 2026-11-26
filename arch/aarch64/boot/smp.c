@@ -8,6 +8,7 @@
 #include "mmu.h"
 #include "smp.h"
 #include "smp_lock.h"
+#include "smp_memory.h"
 
 enum worker_phase { STARTING,READY,PARKED,FAULT_PARKED,STOPPING,FAULTED,BAD_MMU,OFF_RETURNED };
 enum { PSCI_ON=0, PSCI_OFF=1, PSCI_PENDING=2, MAX_ROUNDS=1024, QUEUE_LIMIT=256, QUEUE_DEFAULT=64 };
@@ -20,7 +21,8 @@ _Static_assert(IPI_MAP+MMU_SMP_RESTORE<(1u<<IPI_SHIFT),"IPI operation fits in re
 #define CANCEL_BIT (1ULL<<63)
 #define ROUTE_BIT (1ULL<<62)
 #define QUEUE_BIT (1ULL<<61)
-#define MAX_SEQUENCE ((QUEUE_BIT>>1)-1)
+#define MEMORY_BIT (1ULL<<60)
+#define MAX_SEQUENCE ((MEMORY_BIT>>1)-1)
 #define STACK_CANARY 0x6f75726f73736d70ULL
 #define CPU_LIFECYCLE_CODE __attribute__((section(".text.cpu_lifecycle")))
 
@@ -230,6 +232,10 @@ _Noreturn CPU_LIFECYCLE_CODE void smp_worker_main(struct smp_worker *w,uint64_t 
             publish(&w->reply,request);
         }
         else if (request&QUEUE_BIT) { execute_queue(w,request); }
+        else if (request&MEMORY_BIT) {
+            w->result=smp_memory_worker((unsigned)(w-smp_workers),w->rounds);
+            publish(&w->reply,request);
+        }
         else { execute_checksum(w,request); }
     }
 }
@@ -282,6 +288,9 @@ static bool stack_intact(const struct smp_worker *w)
 static bool release_stack(struct smp_worker *w)
 {
     bool intact=stack_intact(w);
+    if (!smp_memory_reclaim((unsigned)(w-smp_workers))) {
+        w->retained=true;cpu_label(w);console_write("page lease release unverified.\n");return false;
+    }
     if (!page_free(w->stack_top-PAGE_SIZE)) {
         w->retained=true;cpu_label(w);console_write("stack release failed.\n");return false;
     }
@@ -296,6 +305,15 @@ static bool release_stack(struct smp_worker *w)
 
 static bool online(const struct smp_worker *w)
 { return w->stack_top && !w->retained && acquire(&w->phase)==READY; }
+
+static unsigned online_mask(void)
+{
+    unsigned mask=0;
+    for (unsigned i=0;i<worker_count;++i) {
+        if (online(&smp_workers[i])) { mask|=1u<<i; }
+    }
+    return mask;
+}
 
 static bool parked(uint64_t phase)
 { return phase==PARKED || phase==FAULT_PARKED; }
@@ -651,10 +669,7 @@ static bool submit_batch(unsigned rounds,bool shared)
     if (shared && (queue_unverified || !smp_lock_idle(&queue.lock))) {
         console_write("Secondary queue requires smpstop before reuse.\n");return false;
     }
-    unsigned mask=0;
-    for (unsigned i=0;i<worker_count;++i) {
-        if (online(&smp_workers[i])) { mask|=1u<<i; }
-    }
+    unsigned mask=online_mask();
     if (!mask) { console_write("Start secondary CPUs with smpstart.\n");return false; }
     if (shared) {
         queue.total=rounds;
@@ -676,6 +691,65 @@ static bool submit_batch(unsigned rounds,bool shared)
     }
     wake_workers();
     return true;
+}
+
+static void memory_info(void)
+{
+    for (unsigned i=0;i<worker_count;++i) {
+        cpu_label(&smp_workers[i]);smp_memory_print(i);
+    }
+}
+
+static void test_memory(unsigned rounds)
+{
+    unsigned mask=online_mask();
+    if (!mask) { console_write("Start secondary CPUs with smpstart.\n");return; }
+    if (sequence==MAX_SEQUENCE || ipi_blocked || !mmu_dma_compatible() || !smp_memory_begin(mask)) {
+        console_write("SMP memory test unavailable. Check smpinfo and smpmeminfo.\n");return;
+    }
+    struct page_stats before=pages_stats();
+    uint64_t request=++sequence|MEMORY_BIT;
+    for (unsigned i=0;i<worker_count;++i) {
+        if (!(mask&(1u<<i))) { continue; }
+        struct smp_worker *w=&smp_workers[i];
+        w->rounds=rounds;
+        publish(&w->request,request);
+    }
+    wake_workers();
+
+    unsigned pending=mask,acknowledged=0,verified=0;
+    uint64_t start=timer_ticks(),budget=timer_frequency()*5;
+    while (pending && timer_ticks()-start<budget) {
+        smp_memory_service();
+        for (unsigned i=0;i<worker_count;++i) {
+            unsigned bit=1u<<i;
+            if (!(pending&bit)) { continue; }
+            struct smp_worker *w=&smp_workers[i];
+            if (acquire(&w->reply)!=request && acquire(&w->phase)==READY) { continue; }
+            pending&=~bit;
+            if (acquire(&w->reply)==request && stack_intact(w)) {
+                acknowledged|=bit;
+                if (w->result==1) { ++verified;continue; }
+            }
+            smp_memory_abort();
+        }
+        __asm__ volatile("yield");
+    }
+    for (unsigned i=0;i<worker_count;++i) {
+        if ((mask&~acknowledged)&(1u<<i)) {
+            smp_workers[i].retained=true;
+            cpu_label(&smp_workers[i]);console_write("memory work unverified. Use smpstop.\n");
+        }
+    }
+    bool clean=smp_memory_finish(acknowledged);
+    struct page_stats after=pages_stats();
+    unsigned count=0;
+    for (unsigned i=0;i<worker_count;++i) { count+=!!(mask&(1u<<i)); }
+    bool pass=verified==count && clean && before.free_pages==after.free_pages &&
+        before.allocated_pages==after.allocated_pages;
+    console_write(pass ? "PASS: SMP memory workers=" : "FAIL: SMP memory workers verified=");
+    console_u64(verified);console_write(" rounds=");console_u64(rounds);console_write("\n");
+    memory_info();
 }
 
 static bool await_reply(struct smp_worker *w,uint64_t request,uint64_t start,uint64_t hz)
@@ -816,10 +890,10 @@ static unsigned select_workers(const char *arg)
 
 bool smp_command(const char *line,const void *dtb)
 {
-    enum { START,INFO,TEST,FAULT,STOP,PARK,SUBMIT,WAIT,CANCEL,IRQ,IPI,TLB,QUEUE,LOCK,COMMAND_COUNT };
+    enum { START,INFO,TEST,FAULT,STOP,PARK,SUBMIT,WAIT,CANCEL,IRQ,IPI,TLB,QUEUE,LOCK,MEMORY,MEMINFO,COMMAND_COUNT };
     static const char *const commands[COMMAND_COUNT]={
         "smpstart","smpinfo","smptest","smpfault","smpstop","smppark","smpsubmit","smpwait","smpcancel",
-        "smpirq","smpipi","smptlb","smpqueue","smplock"
+        "smpirq","smpipi","smptlb","smpqueue","smplock","smpmem","smpmeminfo"
     };
     unsigned cmd=0;
     const char *arg=line;
@@ -837,8 +911,11 @@ bool smp_command(const char *line,const void *dtb)
     bool map=cmd==TLB && arg[0]=='m' && arg[1]=='a' && arg[2]=='p' && !arg[3];
     if (cmd==IRQ && !(enable || disable)) { console_write("Usage: smpirq on|off\n");return true; }
     if (cmd==TLB && *arg && !map) { console_write("Usage: smptlb [map]\n");return true; }
-    unsigned rounds=cmd==QUEUE ? QUEUE_DEFAULT : 1;
-    if (*arg && !targeted && cmd!=IRQ && !map &&
+    unsigned rounds=cmd==QUEUE ? QUEUE_DEFAULT : cmd==MEMORY ? SMP_MEMORY_DEFAULT_ROUNDS : 1;
+    if (cmd==MEMORY && *arg && (!app_args_uint(arg,SMP_MEMORY_MAX_ROUNDS,&rounds) || !rounds)) {
+        console_write("Usage: smpmem [1..16]\n");return true;
+    }
+    if (*arg && !targeted && cmd!=IRQ && cmd!=MEMORY && !map &&
         ((cmd!=SUBMIT && cmd!=QUEUE) || !app_args_uint(arg,cmd==QUEUE ? QUEUE_LIMIT : MAX_ROUNDS,&rounds) || !rounds)) {
         console_write("Invalid SMP arguments. smpsubmit accepts 1..1024 rounds, smpqueue accepts 1..256 jobs.\n");return true;
     }
@@ -847,7 +924,7 @@ bool smp_command(const char *line,const void *dtb)
         return true;
     }
     if (cmd==WAIT || cmd==CANCEL) { collect_batch(cmd==CANCEL);return true; }
-    if (batch_mask && cmd!=INFO && cmd!=IPI && (cmd!=TLB || map)) {
+    if (batch_mask && cmd!=INFO && cmd!=MEMINFO && cmd!=IPI && (cmd!=TLB || map)) {
         console_write("Secondary batch pending. Use smpwait or smpcancel.\n");return true;
     }
     if (cmd==START && !(mmu_enabled() && mmu_dma_compatible())) {
@@ -870,6 +947,8 @@ bool smp_command(const char *line,const void *dtb)
     else if (cmd==PARK) { park_workers(mask); }
     else if (cmd==FAULT) { test_fault(mask); }
     else if (cmd==IRQ) { irq_mode(enable); }
+    else if (cmd==MEMORY) { test_memory(rounds); }
+    else if (cmd==MEMINFO) { memory_info(); }
     else if (cmd==IPI || cmd==TLB) {
         ipi_test(cmd==IPI && *arg ? mask : resident_mask(),cmd==IPI ? IPI_PING : map ? IPI_MAP : IPI_TLB);
     }
