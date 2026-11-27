@@ -121,7 +121,7 @@ try {
                 'kernel/core/wifi_files.c','kernel/process/app_args.c','network/netprobe_selftest.c',
                 'kernel/core/reboot.c','drivers/usb/pi5_dma.c','kernel/scheduler/policy.c','kernel/process/user_mmu.c',
                 'network/dhcp_selftest.c','lib/crypto.c','kernel/interrupts/irq_work.c','lib/aes.c','lib/sha256.c',
-                'kernel/core/package.c','lib/ecdsa.c'))) { @('-Os') } else { @() }
+                'kernel/core/package.c','lib/ecdsa.c','lib/sae_session.c'))) { @('-Os') } else { @() }
             if ($Target -eq 'rpi5' -and $source -eq 'kernel/interrupts/exception.c') {
                 $optimize=@($optimize)+@('-fno-tree-switch-conversion')
             }

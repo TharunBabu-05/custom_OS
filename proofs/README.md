@@ -1,5 +1,9 @@
 # Real Raspberry Pi 5 proof
 
+Phase 60 passed the EL0 network DMA cleanup regression and saw non-DHCP
+LAN traffic. No OFFER or ACK was observed. The Windows ping targeted the
+laptop address. [Phase 60 capture](pi5-wired-cleanup-2026-11-27.txt)
+
 Phase 59 observed three completed DHCP Discover transmissions, zero
 received frames, and an EL0 resource-accounting failure during DHCP
 teardown. Storage checks and the final resource claim count passed.

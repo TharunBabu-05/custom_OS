@@ -104,6 +104,21 @@ static void request_arp(struct fixture *f,unsigned slot,const struct ethernet_ip
     receive(f,slot,60);
 }
 
+static uint8_t *client_reply(struct fixture *f,unsigned slot,const uint8_t *fixture)
+{
+    uint8_t *reply=f->memory.received[slot];
+    memcpy(reply,fixture,DHCP_FRAME_BYTES);
+    memcpy(reply+42+28,rp1_eth_mac,6);
+    for (size_t option=42+240;reply[option]!=255;) {
+        unsigned type=reply[option++];
+        if (!type) { continue; }
+        unsigned len=reply[option++];
+        if (type==61) { assert(len==7); memcpy(reply+option+1,rp1_eth_mac,6); }
+        option+=len;
+    }
+    return reply;
+}
+
 struct dhcp_exchange {
     struct fixture *gem;
     struct rp1_eth_dma *dma;
@@ -137,16 +152,7 @@ static enum block_result dhcp_transmit(void *context,const void *frame,size_t by
     assert(rp1_eth_dma_dhcp_send(x->dma,frame,bytes,x->now)==BLOCK_NOT_READY);
     if (x->reply) {
         unsigned slot=x->dma->head;
-        uint8_t *reply=x->gem->memory.received[slot];
-        memcpy(reply,request ? dhcp_ack_fixture : dhcp_offer_fixture,DHCP_FRAME_BYTES);
-        memcpy(reply+42+28,rp1_eth_mac,6);
-        for (size_t option=42+240;reply[option]!=255;) {
-            unsigned type=reply[option++];
-            if (!type) { continue; }
-            unsigned len=reply[option++];
-            if (type==61) { assert(len==7); memcpy(reply+option+1,rp1_eth_mac,6); }
-            option+=len;
-        }
+        client_reply(x->gem,slot,request ? dhcp_ack_fixture : dhcp_offer_fixture);
         receive(x->gem,slot,DHCP_FRAME_BYTES);
     }
     complete(x->gem);
@@ -262,6 +268,100 @@ static void test_dhcp(const struct rp1_dma_io *io,struct fixture *f,const uint32
         assert(stats.tx_submitted==completed[i] && stats.tx_completed==completed[i] && stats.mac_tx==completed[i]);
     }
     puts("PASS: GEM DHCP filtering, offer/ACK, timeout, cancellation, ARP claim, conflict/DECLINE, expiry and DMA restoration.");
+}
+
+enum renewal_scenario { RENEW_T1,RENEW_T2,RENEW_MANUAL,RENEW_NAK };
+struct renew_fixture {
+    struct fixture *gem;
+    struct rp1_eth_dma *dma;
+    struct dhcp_renewal renewal;
+    uint64_t now;
+    unsigned seed;
+    enum renewal_scenario scenario;
+};
+
+static uint64_t renew_clock(void *context) { return ((struct renew_fixture *)context)->now; }
+static bool renew_entropy(void *context,uint8_t out[32])
+{
+    struct renew_fixture *r=context;
+    memset(out,0,32);out[0]=(uint8_t)++r->seed;
+    return true;
+}
+
+static enum block_result renew_transmit(void *context,const void *frame,size_t bytes)
+{
+    struct renew_fixture *r=context;
+    struct rp1_eth_dma *dma=r->dma;
+    struct dhcp_client *exchange=&r->renewal.exchange;
+    const uint8_t *packet=frame;
+    assert(net_be32(packet+26)==net_be32(dma->ipv4.address));
+    assert(net_be32(packet+30)==(exchange->rebinding ? UINT32_MAX : net_be32(exchange->offer.server)));
+    assert(rp1_eth_dma_dhcp_send(dma,frame,bytes,r->now)==BLOCK_ARGUMENT);
+    enum block_result result=rp1_eth_dma_renew_send(dma,exchange,frame,bytes,r->now);
+    if (result!=BLOCK_OK) { return result; }
+    assert(dma->pending && !memcmp(r->gem->memory.frame,packet,bytes));
+    if (r->scenario!=RENEW_T2 || exchange->rebinding) {
+        unsigned slot=dma->head;
+        uint8_t *reply=client_reply(r->gem,slot,dhcp_ack_fixture);
+        memcpy(reply+42+4,packet+42+4,4);
+        if (r->scenario==RENEW_NAK) {
+            for (size_t at=42+240;reply[at]!=255;) {
+                unsigned tag=reply[at++];
+                if (tag==53) { reply[at+1]=6;break; }
+                if (tag) { at+=1u+reply[at]; }
+            }
+        }
+        receive(r->gem,slot,DHCP_FRAME_BYTES);
+    }
+    complete(r->gem);
+    return rp1_eth_dma_lan_poll(dma,exchange,r->now);
+}
+
+static void test_renewals(const struct rp1_dma_io *io,struct fixture *f,const uint32_t *original)
+{
+    const uint8_t server_mac[]={2,0,0,0,1,1},local_ip[]={192,0,2,10};
+    for (unsigned mode=RENEW_T1;mode<=RENEW_NAK;++mode) {
+        struct rp1_eth_dma dma;
+        struct rp1_eth_dma_stats stats={0};
+        struct ethernet_ipv4 local;
+        struct netprobe claim={.active=true};
+        struct dhcp_lease lease={.seconds=60,.t1_seconds=20,.t2_seconds=45,.have_mask=true,.mask={255,255,255,0},
+            .have_router=true,.router={192,0,2,1},.have_dns=true,.dns={8,8,8,8}};
+        memcpy(lease.address,local_ip,4);memcpy(lease.server,peer_ip,4);memcpy(lease.server_mac,server_mac,6);
+        uint64_t origin=100;
+        struct renew_fixture r={.gem=f,.dma=&dma,.now=20099,.scenario=(enum renewal_scenario)mode};
+        const struct dhcp_renew_io renew={&r,renew_transmit,renew_entropy,renew_clock};
+        memcpy(f->regs,original,sizeof(f->regs));
+        assert(ethernet_ipv4_configure(&local,local_ip,24));
+        assert(rp1_eth_dma_open(&dma,io,&f->memory,BUS,100,&local,false,&stats)==GEM_LOOP_OK);
+        dma.claim=&claim;
+        assert(dhcp_renew_service(&renew,&r.renewal,rp1_eth_mac,&lease,&origin)==BLOCK_OK && !stats.tx_submitted);
+        if (mode==RENEW_MANUAL) { r.now=1000;r.renewal.queued=true; }
+        else { r.now=20100; }
+        unsigned first=(unsigned)r.now;
+        assert(dhcp_renew_service(&renew,&r.renewal,rp1_eth_mac,&lease,&origin)==BLOCK_OK);
+        assert(stats.tx_completed==1 && r.renewal.requests==1 && origin==100);
+        if (mode==RENEW_T2) {
+            uint32_t xid=r.renewal.xid;
+            request_arp(f,dma.head,&local);
+            assert(rp1_eth_dma_lan_poll(&dma,&r.renewal.exchange,r.now+100)==BLOCK_OK && dma.pending);
+            assert(net_be16(f->memory.frame+20)==2);complete(f);
+            assert(rp1_eth_dma_lan_poll(&dma,&r.renewal.exchange,45099)==BLOCK_OK);
+            r.now=45100;first=(unsigned)r.now;
+            assert(dhcp_renew_service(&renew,&r.renewal,rp1_eth_mac,&lease,&origin)==BLOCK_OK);
+            assert(r.renewal.xid!=xid && r.renewal.requests==2 && r.renewal.rebroadcasts==1);
+        }
+        ++r.now;
+        enum block_result result=dhcp_renew_service(&renew,&r.renewal,rp1_eth_mac,&lease,&origin);
+        if (mode==RENEW_NAK) {
+            assert(result==BLOCK_IO && r.renewal.rejected && !r.renewal.completed && origin==100);
+        } else {
+            assert(result==BLOCK_OK && r.renewal.completed==1 && origin==first && lease.seconds==3600);
+            assert(!memcmp(dma.ipv4.address,lease.address,4) && !r.renewal.exchange.armed);
+        }
+        assert(rp1_eth_dma_close(&dma) && !memcmp(original,f->regs,sizeof(f->regs)));
+    }
+    puts("PASS: GEM DHCP T1, T2, manual renewal, coexisting LAN traffic, NAK and DMA restoration.");
 }
 
 static size_t request_ping(struct fixture *f,unsigned slot,const struct ethernet_ipv4 *local,
@@ -532,4 +632,5 @@ int main(void)
     test_inbound(&io,&f,original);
     puts("PASS: GEM TX ring rotation, idle-slot guards, DMA and MAC counters, and retained stats across reopen.");
     test_dhcp(&io,&f,original);
+    test_renewals(&io,&f,original);
 }

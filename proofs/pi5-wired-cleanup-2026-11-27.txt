@@ -1,0 +1,57 @@
+Phase 60 Pi 5 UART and Windows PowerShell excerpts reported on 2026-11-27
+
+> networktest cleanup
+sleep complete
+EL0 processes: limit=8; private pages; timer preempts users only; runs=2 switches=0 preemptions=0 yields=0 idle_waits=26 terminal=no budget_seconds=2 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SLEEP.ELF state=exited code=0 syscalls=5 dispatches=2 sleeps=1 wakes=1 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+PASS: network DMA page released during EL0 with clean app teardown.
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethdhcp up
+Ethernet link Mbps=100
+Ethernet DHCP activation started. Use ethlease.
+> ethdhcp wait
+Waiting for DHCP. Ctrl+C returns to the monitor.
+Ethernet DHCP state=selecting result=6
+DHCP discover=3 request=0 rx=0 ignored=0 malformed=0 other=9 polls=1443
+> ethstats
+Ethernet tx_submitted=3 tx_completed=3 tx_timeouts=0
+Ethernet rx_frames=18 rx_discarded=0 rx_overruns=0
+Ethernet mac_tx=3 mac_rx=18 mac_stats=ok
+
+On the following run:
+> ethdhcp wait
+Ethernet DHCP state=timeout result=3
+DHCP discover=3 request=0 rx=0 ignored=0 malformed=0 other=18 polls=2250
+No DHCP replies received. Check the DHCP server on the attached LAN.
+
+After stopping Ethernet:
+> ethdown
+PHY hold released.
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000149000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+Windows PowerShell:
+PS> ping.exe -n 3 ([ipaddress](Read-Host 'IPv4 from ethaddr ip')).IPAddressToString
+IPv4 from ethaddr ip: 192.0.2.1
+
+Pinging 192.0.2.1 with 32 bytes of data:
+Reply from 192.0.2.1: bytes=32 time<1ms TTL=128
+Reply from 192.0.2.1: bytes=32 time<1ms TTL=128
+Reply from 192.0.2.1: bytes=32 time<1ms TTL=128

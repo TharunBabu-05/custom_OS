@@ -575,4 +575,23 @@ process pages. A page released by the worker changes the background
 resource baseline, so a shell can finish after the worker times out.
 `networktest cleanup` runs an EL0 sleeper across a background page
 release and checks that the application cleanup still succeeds. The
-Pi still needs a complete router exchange and bound-session test.
+Phase 60 Pi run passed that check and restored storage and resource
+claims. It saw ordinary LAN traffic but received zero DHCP replies.
+The Windows echo capture targeted the laptop's own address.
+[Phase 60 Pi and Windows capture](../proofs/pi5-wired-cleanup-2026-11-27.txt)
+
+## Phase 61 wired lease renewal
+
+A bound `ethdhcp up` session renews by unicast with the leasing server at
+T1. At T2 it broadcasts a rebinding request. `ethdhcp renew` queues an
+earlier attempt. The GEM poll processes DHCP replies while dispatching
+ordinary LAN traffic to the existing TCP and UDP sessions. A successful
+ACK that preserves the current LAN configuration extends the deadline
+without reopening sockets. An accepted NAK or lease expiry withdraws
+the lease and closes the sockets. [DHCP renewal and expiry](https://www.rfc-editor.org/rfc/rfc2131.html#section-4.4.5)
+
+`ethlease` shows renewal state, requests, rebroadcasts, completions, and
+remaining lease seconds. `scripts/ping-rpi5-ethernet.ps1` rejects IP
+addresses assigned to the Windows PC and counts successful replies from
+the supplied Pi IPv4 address. The Pi still needs a complete router
+exchange, bound-session and renewal test.
