@@ -1,5 +1,14 @@
 # Real Raspberry Pi 5 proof
 
+Phase 55 recorded one carrier loss and one recovery, followed by a full
+16 KiB TCP half-close. Both transports advanced to generation 2. The
+UDP echo in the same capture timed out.
+[Phase 55 recovery and TCP capture](pi5-ethernet-recovery-2026-11-27.txt)
+
+The first Phase 55 run passed the wired UDP echo and resource cleanup.
+The TCP child reached its process deadline and the capture shows one
+transport generation. [Initial Phase 55 Pi and Windows capture](pi5-ethernet-recovery-initial-2026-11-26.txt)
+
 Phase 54 passed its idle session, checked-output and network permission
 tests on the Pi. The wired traffic counters have a separate acceptance run.
 [Phase 54 Pi netstat capture](pi5-netstat-idle-2026-11-26.txt)

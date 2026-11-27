@@ -215,6 +215,11 @@ bool storage_command(const char *line)
         console_write(tcp_worker_test() ? "PASS: TCP worker and EL0 file transfer.\n" : "FAIL: TCP worker integration.\n");
         return true;
     }
+    if (same(line,"tcpmodeltest slow")) {
+        console_write(tcp_worker_slow_test() ? "PASS: paced TCP echo exceeded ten seconds and finished within the runio budget.\n" :
+                      "FAIL: paced TCP echo.\n");
+        return true;
+    }
     if (same(line,"udpmodeltest")) {
         console_write(udp_worker_test() ? "PASS: UDP worker and EL0 socket integration.\n" : "FAIL: UDP worker integration.\n");
         return true;

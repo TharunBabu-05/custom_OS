@@ -18,6 +18,8 @@ and the final reply after FIN. Phase 54 adds transport session statistics,
 owned socket snapshots and the `netstat` command. The Pi passed the idle
 snapshot and permission checks. Phase 55 adds RP1 Ethernet carrier
 monitoring, socket teardown on loss and automatic restart on reconnection.
+The Pi passed carrier recovery and TCP half-close. Phase 56 adds bounded
+UDP probes, retry reporting and a Windows batch echo listener.
 [Secondary CPU workers](secondary-cpus.md) · [System statistics](system-stats.md) · [Process history](process-events.md) · [Process timers](user-timers.md) · [Socket readiness](socket-readiness.md)
 
 The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes
@@ -89,7 +91,7 @@ passed on Pi using RAMFS. Phase 28 passed its Pi descriptor and exec run.
 | Memory and concurrency | Phase 36 adds eager private file mappings and shared-view revocation. Phase 46 adds aligned runs and bounded owned leases on all secondaries. Pi lease acceptance, demand paging, out-of-memory policy, ownership beyond worker leases, DMA cache maintenance, and shootdown for general mapping updates remain open. Verify exclusive operations on a cacheable Pi mapping. |
 | Data and recovery | The Pi verified Phase 31 file recovery and Phase 32 v5 retention after a cold power cycle. Physical v4-to-v5 migration and interrupted-write recovery on spare media remain open. [Storage and apps](storage-apps.md) |
 | Apps and distribution | The Pi passed named-app install, upgrade, rollback, and uninstall, plus signed multi-file installation and dependency upgrade. [Storage and apps](storage-apps.md) |
-| Networking | Test Wi-Fi DHCP broadcast rebinding, AP group-key rotation, same-boot manual restart after cleanup, and intentional UDP timeout and recovery. Add wired DHCP and route selection across Wi-Fi and Ethernet. Verify Phase 55 wired carrier loss and reconnect on the Pi. Direct wired ARP, ICMP, UDP, and TCP have passed on the Pi. |
+| Networking | Test Wi-Fi DHCP broadcast rebinding, AP group-key rotation, and same-boot manual restart after cleanup. Add wired DHCP and route selection across Wi-Fi and Ethernet. Verify Phase 56 UDP probes on the Pi. Direct wired ARP, ICMP, UDP, TCP, and carrier recovery have passed on the Pi. |
 | Platform maturity | Broaden the libc and ELF/toolchain support, process credentials and filesystem permissions, update and boot trust, CI coverage, driver soak tests, and board bring-up beyond the Pi 5 and QEMU profiles. |
 
 ### Hardware and local UI

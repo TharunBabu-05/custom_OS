@@ -143,7 +143,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAd
 With the TCP server waiting, run at `user:/$`:
 
 ```text
-run /boot/TCPCHK.ELF 192.0.2.1 4041
+runio - - /boot/TCPCHK.ELF 192.0.2.1 4041
 exit
 ```
 
@@ -213,7 +213,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAd
 ```
 
 ```text
-run /boot/TCPCHK.ELF 192.0.2.1 4041
+runio - - /boot/TCPCHK.ELF 192.0.2.1 4041
 ```
 
 Expect both ends to report 16,384 bytes with the same SHA-256. Use the
@@ -268,7 +268,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAd
 Once Windows prints `Waiting`, run at `user:/$`.
 
 ```text
-run /boot/TCPCHK.ELF 192.0.2.1 4041 half
+runio - - /boot/TCPCHK.ELF 192.0.2.1 4041 half
 exit
 ```
 
@@ -368,7 +368,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAd
 ```
 
 ```text
-run /boot/TCPCHK.ELF 192.0.2.1 4041 half
+runio - - /boot/TCPCHK.ELF 192.0.2.1 4041 half
 netstat
 exit
 ```
@@ -422,3 +422,51 @@ should report `waiting` and `netstat` should retain traffic counters with
 zero occupied slots. After reconnect `ethstatus` should report `up` with
 one recovery, and `netstat` should show a new generation with zero traffic
 counters before the next echo.
+
+The initial Pi run confirmed UDP traffic and clean shutdown. The status
+samples showed generation 1 with zero interruptions and recoveries. The
+TCP check reached 15,872 bytes before the shell stopped its child with
+exit 124. [Initial Pi and Windows capture](../proofs/pi5-ethernet-recovery-initial-2026-11-26.txt)
+
+Use `runio - - /boot/TCPCHK.ELF 192.0.2.1 4041 half` with the Phase 55
+TCP retest package. Both streams still use the terminal. The `runio`
+child gets a 30-second budget. The rebuilt check sends up to 512 bytes
+per echo round trip and gives connection, transfer and close at most
+24 seconds total. After disconnecting the cable, wait for `ethstatus`
+to report `waiting` before reconnecting. The Windows adapter status
+can confirm the physical link went down.
+
+Both QEMU profiles passed a paced 16 KiB TCP half-close that took more
+than ten seconds and finished under the `runio` budget. The Windows
+responder also passed a paced loopback test with the same payload hash.
+
+The Pi retest recorded one carrier loss, one recovery, and generation 2
+for TCP and UDP. TCP passed the full 16 KiB half-close with matching
+hashes. The two UDP probes in that capture had no reply.
+[Pi recovery and TCP capture](../proofs/pi5-ethernet-recovery-2026-11-27.txt)
+
+## Phase 56 UDP echo probes
+
+`UDPCHK probe` runs one to four rounds on one socket. Each round sends
+the process ID and round number in its payload. A retry uses the same
+payload. The client only accepts the exact current payload as a match
+and counts unexpected replies. Run it with `runio` to give the probe
+its full 24-second app deadline within the 30-second child budget.
+
+The UDP runtime waits for queue availability, confirms that the stack
+handed the datagram to the driver, and waits for a reply under absolute
+deadlines. A round retries a missed reply up to two times. Per-round
+elapsed time includes retry delays. A send failure ends the probe with
+its transport error. A sent datagram with no matching reply is reported
+separately. Empty datagrams remain valid in the runtime and single echo.
+
+The Windows listener's `-Count` parameter selects a bounded batch. A
+repeated source endpoint and payload echoes again without advancing
+the batch count. The completed batch accepts repeats for up to another
+4.5 seconds. The default invocation still echoes once. A missing bind
+address now reports which local IPv4 address Windows needs.
+
+Both QEMU profiles passed the probe retry, mismatched reply, timeout
+and cleanup checks. Windows loopback passed the single and batch echo
+checks, including empty datagrams and duplicate requests. Pi acceptance
+is pending.

@@ -1486,7 +1486,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAd
 When Windows says `Waiting`, run this at the OurOS `user:/$` prompt.
 
 ```text
-run /boot/TCPCHK.ELF 192.0.2.1 4041
+runio - - /boot/TCPCHK.ELF 192.0.2.1 4041
 ```
 
 Expect both sides to report 16384 bytes with identical SHA-256 values.

@@ -1,4 +1,7 @@
-#include "user.h"
+#include "udp_io.h"
+#include "net_wire.h"
+
+enum { PROBE_ROUNDS_MAX=4, PROBE_ATTEMPTS=3, PROBE_SEND_MS=4000, PROBE_REPLY_MS=1500, PROBE_TOTAL_MS=24000 };
 
 static int same(const char *a,const char *b)
 { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
@@ -8,7 +11,7 @@ static uint64_t decimal(const char **input,uint64_t limit)
     if (*p<'0' || *p>'9') { return limit+1; }
     while (*p>='0' && *p<='9') {
         unsigned digit=(unsigned)(*p++-'0');
-        if (value>(limit-digit)/10) { return limit+1; }
+        if (digit>limit || value>(limit-digit)/10) { return limit+1; }
         value=value*10+digit;
     }
     *input=p;return value;
@@ -26,7 +29,7 @@ static int report(int64_t error)
 {
     if (error==UOS_ENETDOWN) { uos_puts("UDP requires an active network session.\n"); }
     else if (error==UOS_EHOSTUNREACH) { uos_puts("UDP LAN peer did not answer ARP or is off-subnet.\n"); }
-    else if (error==UOS_ETIMEDOUT) { uos_puts("UDP echo timed out.\n"); }
+    else if (error==UOS_ETIMEDOUT) { uos_puts("UDP echo timed out. Check the listener address and port.\n"); }
     else { uos_puts("UDP echo failed.\n"); }
     return 1;
 }
@@ -76,6 +79,67 @@ static void number(char text[24],uint64_t n)
     do { reverse[count++]=(char)('0'+n%10);n/=10; } while (n);
     for (unsigned i=0;i<count;++i) { text[i]=reverse[count-1-i]; }
     text[count]=0;
+}
+static void metric(const char *label,uint64_t value)
+{
+    char text[24];number(text,value);uos_puts(label);uos_puts(text);
+}
+static int64_t probe_deadline(int64_t limit,unsigned window)
+{
+    int64_t next=uos_time_ms()+window;
+    return next<limit ? next : limit;
+}
+static int64_t probe_round(uint64_t socket,uint64_t pid,unsigned round,int64_t limit,unsigned *sent,unsigned *ignored)
+{
+    unsigned char request[16]={'O','U','P','1'},reply[UOS_UDP_MAX_BYTES];
+    net_put32(request+4,(uint32_t)(pid>>32));
+    net_put32(request+8,(uint32_t)pid);
+    net_put32(request+12,round);
+    int64_t started=uos_time_ms();
+    for (unsigned attempt=1;attempt<=PROBE_ATTEMPTS;++attempt) {
+        int64_t deadline=probe_deadline(limit,PROBE_SEND_MS);
+        int64_t result=udp_send_until(socket,request,sizeof(request),deadline);
+        if (result>=0) { result=result==(int64_t)sizeof(request) ? udp_flush_until(socket,deadline) : UOS_ERROR; }
+        if (result) { uos_puts("UDP probe send did not complete.\n");return result; }
+        ++*sent;
+        deadline=probe_deadline(limit,PROBE_REPLY_MS);
+        for (;;) {
+            result=udp_recv_until(socket,reply,sizeof(reply),deadline);
+            if (result==UOS_ETIMEDOUT) { break; }
+            if (result<0) { return result; }
+            if (result==(int64_t)sizeof(request) && net_equal(request,reply,sizeof(request))) {
+                metric("probe=",round);
+                metric(" attempts=",attempt);
+                metric(" elapsed_ms=",(uint64_t)(uos_time_ms()-started));
+                uos_puts("\n");
+                return 0;
+            }
+            ++*ignored;
+        }
+        if (uos_time_ms()>=limit) { break; }
+    }
+    uos_puts("UDP probe sent but no matching reply arrived.\n");
+    return UOS_ETIMEDOUT;
+}
+static int probe(const struct uos_udp_peer *peer,unsigned rounds)
+{
+    int64_t handle=uos_udp_open(peer);
+    if (handle<0) { return report(handle); }
+    const int64_t limit=uos_time_ms()+PROBE_TOTAL_MS;
+    const uint64_t pid=(uint64_t)uos_getpid();
+    unsigned sent=0,ignored=0,matched=0;
+    int64_t result=0;
+    while (matched<rounds) {
+        result=probe_round((uint64_t)handle,pid,matched+1,limit,&sent,&ignored);
+        if (result) { break; }
+        ++matched;
+    }
+    int64_t closed=uos_udp_close((uint64_t)handle);
+    metric("UDP probes matched=",matched);metric("/",rounds);
+    metric(" sent=",sent);metric(" ignored=",ignored);uos_puts("\n");
+    if (result || closed) { return report(result ? result : closed); }
+    uos_puts("PASS: all UDP probe replies matched.\n");
+    return 0;
 }
 static int foreign(void)
 {
@@ -139,9 +203,16 @@ static int model(void)
         uos_event_wait(events,2,1000)!=1 || events[0].revents || events[1].revents!=UOS_EVENT_READ ||
         uos_timer_close((uint64_t)timer) ||
         uos_udp_recv(handle,buffer,sizeof(buffer),100)!=UOS_ETIMEDOUT) { return 17; }
+    int64_t now=uos_time_ms();
+    if (udp_send_until(handle,NULL,0,now)!=UOS_ETIMEDOUT ||
+        udp_send_until(handle,NULL,0,now+1000)!=0 || udp_flush_until(handle,now+1000) ||
+        udp_recv_until(handle,NULL,0,now+1000)!=0 || udp_recv_until(handle,buffer,sizeof(buffer),now)!=UOS_ETIMEDOUT) {
+        return 21;
+    }
     uos_puts("PASS: EL0 UDP ownership, datagrams, checked buffers and receive timeout.\n");
     uos_puts("PASS: UDP readiness, timer race and restricted wait.\n");
     uos_puts("PASS: UDP socket snapshot preserves empty datagram and ownership semantics.\n");
+    uos_puts("PASS: UDP runtime preserves empty datagrams and absolute deadlines.\n");
     return 0; /* The parent handle also exercises process cleanup. */
 }
 static int loss(bool readiness)
@@ -165,6 +236,18 @@ int app_main(void)
         if (argc==2 && same(name,"loss")) { return loss(false); }
         if (argc==2 && same(name,"waitloss")) { return loss(true); }
         if (argc==3 && same(name,"foreign")) { return foreign(); }
+        if (argc==5 && same(name,"probe")) {
+            char address[24],count[8];
+            struct uos_udp_peer peer={0};
+            if (uos_arg(2,address,sizeof(address))>0 && parse_ip(address,peer.ipv4) &&
+                uos_arg(3,port,sizeof(port))>0 && uos_arg(4,count,sizeof(count))>0) {
+                const char *port_text=port,*count_text=count;
+                uint64_t target=decimal(&port_text,65535),rounds=decimal(&count_text,PROBE_ROUNDS_MAX);
+                if (target && target<=65535 && !*port_text && rounds && rounds<=PROBE_ROUNDS_MAX && !*count_text) {
+                    peer.port=(uint16_t)target;return probe(&peer,(unsigned)rounds);
+                }
+            }
+        }
         struct uos_udp_peer peer={0};
         if ((argc==3 || argc==4) && parse_ip(name,peer.ipv4) && uos_arg(2,port,sizeof(port))>0) {
             const char *p=port;uint64_t value=decimal(&p,65535);
@@ -174,5 +257,5 @@ int app_main(void)
             }
         }
     }
-    uos_puts("Usage: UDPCHK <LAN IPv4> <UDP port> [message]\n");return 2;
+    uos_puts("Usage: UDPCHK <LAN IPv4> <UDP port> [message]\n       UDPCHK probe <LAN IPv4> <UDP port> <1..4>\n");return 2;
 }

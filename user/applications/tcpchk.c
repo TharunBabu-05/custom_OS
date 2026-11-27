@@ -1,6 +1,14 @@
 #include "tcp_io.h"
 #include "sha256.h"
 
+enum { ECHO_BYTES=16384,ECHO_TIMEOUT_MS=24000,ECHO_STEP_MS=5000,CONNECT_MS=8000 };
+
+static int64_t step_deadline(int64_t limit,unsigned step_ms)
+{
+    int64_t deadline=uos_time_ms()+step_ms;
+    return deadline<limit ? deadline : limit;
+}
+
 static int same(const char *a,const char *b)
 { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
 static unsigned number(const char **text,unsigned limit)
@@ -44,11 +52,14 @@ static int64_t finish_send(uint64_t socket)
     return 0;
 }
 
-static int64_t receive_after_finish(uint64_t socket)
+static int64_t receive_after_finish(uint64_t socket,int64_t limit)
 {
     static const char expected[]="ouros-fin-ok";
     char trailer[sizeof(expected)-1];
-    int64_t result=uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_FIN_ACK,5000);
+    int64_t left=limit-uos_time_ms();
+    if (left<=0) { return UOS_ETIMEDOUT; }
+    unsigned wait=left<ECHO_STEP_MS ? (unsigned)left : ECHO_STEP_MS;
+    int64_t result=uos_socket_wait(UOS_EVENT_TCP,socket,UOS_EVENT_FIN_ACK,wait);
     if (result<0) { return result; }
     if (!result) { return UOS_ETIMEDOUT; }
     if (result!=UOS_EVENT_FIN_ACK) {
@@ -61,36 +72,36 @@ static int64_t receive_after_finish(uint64_t socket)
         (info.ready&(UOS_EVENT_FIN_ACK|UOS_EVENT_WRITE_CLOSED))!=(UOS_EVENT_FIN_ACK|UOS_EVENT_WRITE_CLOSED)) {
         return UOS_ERROR;
     }
-    result=tcp_read_exact(socket,trailer,sizeof(trailer),uos_time_ms()+5000);
+    result=tcp_read_exact(socket,trailer,sizeof(trailer),step_deadline(limit,ECHO_STEP_MS));
     if (result) { return result; }
     for (size_t i=0;i<sizeof(trailer);++i) { if (trailer[i]!=expected[i]) { return UOS_ERROR; } }
     return 0;
 }
 
-static int64_t echo_file(uint64_t socket,uint64_t file,bool half_close)
+static int64_t echo_file(uint64_t socket,uint64_t file,bool half_close,int64_t limit)
 {
     struct sha256 hash;sha256_init(&hash);
-    unsigned char part[256],reply[256],digest[32];
-    for (unsigned total=0;total<16384;) {
+    unsigned char part[UOS_TCP_MAX_BYTES],reply[UOS_TCP_MAX_BYTES],digest[32];
+    for (unsigned total=0;total<ECHO_BYTES;) {
         int64_t n=uos_read(file,part,sizeof(part));
-        if (n<=0 || (uint64_t)n>16384-total) { return UOS_ERROR; }
-        int64_t result=tcp_write_all(socket,part,(size_t)n,uos_time_ms()+5000);
+        if (n<=0 || (uint64_t)n>ECHO_BYTES-total) { return UOS_ERROR; }
+        int64_t result=tcp_write_all(socket,part,(size_t)n,step_deadline(limit,ECHO_STEP_MS));
         if (result) { return result; }
-        if (half_close && total+(size_t)n==16384) {
+        if (half_close && total+(size_t)n==ECHO_BYTES) {
             result=finish_send(socket);
             if (result) { return result; }
         }
-        result=tcp_read_exact(socket,reply,(size_t)n,uos_time_ms()+5000);
+        result=tcp_read_exact(socket,reply,(size_t)n,step_deadline(limit,ECHO_STEP_MS));
         if (result) { return result; }
         for (size_t i=0;i<(size_t)n;++i) { if (reply[i]!=part[i]) { return UOS_ERROR; } }
         sha256_update(&hash,reply,(size_t)n);
         total+=(unsigned)n;
     }
     if (half_close) {
-        int64_t result=receive_after_finish(socket);
+        int64_t result=receive_after_finish(socket,limit);
         if (result) { return result; }
     }
-    int64_t end=tcp_read_until(socket,reply,1,uos_time_ms()+5000);
+    int64_t end=tcp_read_until(socket,reply,1,step_deadline(limit,ECHO_STEP_MS));
     if (end) { return end<0 ? end : UOS_ERROR; }
     sha256_final(&hash,digest);
     const char *digits="0123456789abcdef";char hex[65];
@@ -143,12 +154,13 @@ int app_main(void)
     const char *p=port;unsigned value=number(&p,65535);
     if (!value || value>65535 || *p) { return error(UOS_ERROR); }peer.port=(uint16_t)value;
     struct uos_entry info;
-    if (uos_stat("/boot/LARGE.BIN",&info) || info.bytes!=16384) { uos_puts("TCPCHK requires a 16 KiB /boot/LARGE.BIN.\n");return 2; }
+    if (uos_stat("/boot/LARGE.BIN",&info) || info.bytes!=ECHO_BYTES) { uos_puts("TCPCHK requires a 16 KiB /boot/LARGE.BIN.\n");return 2; }
     int64_t file=uos_open("/boot/LARGE.BIN",UOS_READ);if (file<0) { return error(file); }
     int64_t h=uos_tcp_open(&peer),r=h;
     if (h>0) {
-        r=tcp_wait_connected((uint64_t)h,uos_time_ms()+8000);
-        if (!r) { r=echo_file((uint64_t)h,(uint64_t)file,half_close); }
+        int64_t limit=uos_time_ms()+ECHO_TIMEOUT_MS;
+        r=tcp_wait_connected((uint64_t)h,step_deadline(limit,CONNECT_MS));
+        if (!r) { r=echo_file((uint64_t)h,(uint64_t)file,half_close,limit); }
         (void)uos_tcp_close((uint64_t)h);
     }
     (void)uos_close((uint64_t)file);return r ? error(r) : 0;

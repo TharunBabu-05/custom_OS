@@ -22,6 +22,7 @@ try {
     Invoke-Tool gcc ($flags+@('-c','lib/sha256.c','-o',"$out/sha256.o"))
     Invoke-Tool gcc ($flags+@('-c','user/runtime/tls_net.c','-o',"$out/tls_net.o"))
     Invoke-Tool gcc ($flags+@('-c','user/runtime/tcp_io.c','-o',"$out/tcp_io.o"))
+    Invoke-Tool gcc ($flags+@('-c','user/runtime/udp_io.c','-o',"$out/udp_io.o"))
     Invoke-Tool gcc ($flags+@('-c','user/runtime/dir_walk.c','-o',"$out/dir_walk.o"))
     Invoke-Tool gcc ($flags+@('-c','user/runtime/wave.c','-o',"$out/wave.o"))
     Invoke-Tool gcc ($flags+@('-c','user/runtime/text_io.c','-o',"$out/text_io.o"))
@@ -37,6 +38,7 @@ try {
         $extra=if ($app -eq 'shell') { @("$out/app_args-shell.o") } else { @() }
         if ($app -in @('hash','tcpchk')) { $extra+=@("$out/sha256.o") }
         if ($app -in @('tcpchk','tlsecho','pkgget')) { $extra+=@("$out/tcp_io.o") }
+        if ($app -eq 'udpchk') { $extra+=@("$out/udp_io.o") }
         if ($app -in @('certchk','tlschk','tlsecho','pkgget')) {
             $extra+=@('sha256','crypto','p256','ecdsa','trust_time','pinned_cert' | ForEach-Object { "$out/$_.o" })
         }

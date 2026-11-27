@@ -1,0 +1,38 @@
+Initial Phase 55 acceptance excerpts supplied in chat.
+
+> ethstatus
+Ethernet state=up Mbps=100 losses=0 recoveries=0 speed_changes=0 dma=0 phy=0
+user:/$ run /boot/UDPCHK.ELF 192.0.2.1 4040 wired-before
+PASS: UDP echo matched the sent datagram.
+PASS: owned UDP socket snapshot confirmed receive queue length.
+child exit=0
+> ethstatus
+Ethernet state=up Mbps=100 losses=0 recoveries=0 speed_changes=0 dma=0 phy=0
+user:/$ run /boot/TCPCHK.ELF 192.0.2.1 4041 half
+child exit=124
+user:/$ netstat
+TCP session=up generation=1 slots=1/3 address=192.0.2.2/30
+  connecting=0 established=0 failed=0 closing=0 time_wait=1
+  segments_tx=171 retransmissions=0 bytes_tx=15872 bytes_rx=15872
+  fin_acked=1 resets=0 timeouts=0 arp_requests=1 arp_failures=0
+UDP session=up generation=1 slots=0/4 address=192.0.2.2/30
+  datagrams_tx=1 datagrams_rx=1 bytes_tx=12 bytes_rx=12
+  full_drops=0 timeouts=0 arp_requests=1 arp_failures=0
+child exit=0
+> ethdown
+PHY hold released.
+> ethstatus
+Ethernet state=down Mbps=0 losses=0 recoveries=0 speed_changes=0 dma=0 phy=0
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=41
+bank=0 status=valid generation=41 matches_mounted=yes
+bank=1 status=valid generation=40
+
+Windows excerpts
+New-NetFirewallRule : Access is denied.
+Waiting for 192.0.2.2 on 192.0.2.1:4040
+Echoed 12 bytes to 192.0.2.2:49152
+Waiting for 192.0.2.2 on 192.0.2.1:4041
+Peer closed after 15872 bytes.
