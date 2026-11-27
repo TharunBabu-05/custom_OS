@@ -2,6 +2,7 @@
 #include "rp1_probe.h"
 #include "net_wire.h"
 #include "host_assert.h"
+#include "dhcp_fixture.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -101,6 +102,83 @@ static void request_arp(struct fixture *f,unsigned slot,const struct ethernet_ip
     memcpy(frame+28,(const uint8_t[]){192,0,2,5},4);
     memcpy(frame+38,local->address,4);
     receive(f,slot,60);
+}
+
+struct dhcp_exchange {
+    struct fixture *gem;
+    struct rp1_eth_dma *dma;
+    struct dhcp_client client;
+    uint64_t now;
+    bool reply,cancel;
+};
+
+static uint64_t dhcp_clock(void *context) { return ((struct dhcp_exchange *)context)->now; }
+static bool dhcp_ready(void *context) { return !((struct dhcp_exchange *)context)->dma->ipv4.prefix; }
+static enum block_result dhcp_poll(void *context)
+{
+    struct dhcp_exchange *x=context;
+    return rp1_eth_dma_dhcp_poll(x->dma,&x->client,x->now);
+}
+static enum block_result dhcp_delay(void *context,unsigned us)
+{
+    struct dhcp_exchange *x=context;
+    x->now+=us/1000;
+    return x->cancel && x->client.discover_written ? BLOCK_NOT_READY : BLOCK_OK;
+}
+
+static enum block_result dhcp_transmit(void *context,const void *frame,size_t bytes)
+{
+    struct dhcp_exchange *x=context;
+    const uint8_t *packet=frame;
+    bool request=packet[42+242]==3;
+    assert(net_be32(packet+26)==0 && net_be32(packet+30)==UINT32_MAX);
+    assert(rp1_eth_dma_dhcp_send(x->dma,frame,bytes,x->now)==BLOCK_OK);
+    assert(x->dma->pending && !memcmp(x->gem->memory.frame,frame,bytes));
+    assert(rp1_eth_dma_dhcp_send(x->dma,frame,bytes,x->now)==BLOCK_NOT_READY);
+    if (x->reply) {
+        unsigned slot=x->dma->head;
+        uint8_t *reply=x->gem->memory.received[slot];
+        memcpy(reply,request ? dhcp_ack_fixture : dhcp_offer_fixture,DHCP_FRAME_BYTES);
+        memcpy(reply+42+28,rp1_eth_mac,6);
+        for (size_t option=42+240;reply[option]!=255;) {
+            unsigned type=reply[option++];
+            if (!type) { continue; }
+            unsigned len=reply[option++];
+            if (type==61) { assert(len==7); memcpy(reply+option+1,rp1_eth_mac,6); }
+            option+=len;
+        }
+        receive(x->gem,slot,DHCP_FRAME_BYTES);
+    }
+    complete(x->gem);
+    return dhcp_poll(x);
+}
+
+static void test_dhcp(const struct rp1_dma_io *io,struct fixture *f,const uint32_t *original)
+{
+    const uint8_t entropy[10]={0x12,0x34,0x56,0x78};
+    for (unsigned i=0;i<3;++i) {
+        memcpy(f->regs,original,sizeof(f->regs));
+        f->starts=0;
+        struct rp1_eth_dma session;
+        struct rp1_eth_dma_stats stats={0};
+        struct dhcp_exchange x={.gem=f,.dma=&session,.reply=i==0,.cancel=i==2};
+        assert(rp1_eth_dma_open(&session,io,&f->memory,BUS,100,NULL,false,&stats)==GEM_LOOP_OK);
+        assert(rp1_eth_dma_service(&session,0)==BLOCK_NOT_READY);
+        request_arp(f,session.head,&rp1_eth_default_ipv4);
+        assert(rp1_eth_dma_dhcp_send(&session,f->memory.received[session.head],60,0)==BLOCK_ARGUMENT);
+        const struct dhcp_io probe={&x,dhcp_transmit,dhcp_poll,dhcp_delay,dhcp_clock,dhcp_ready};
+        const enum block_result expected[]={BLOCK_OK,BLOCK_TIMEOUT,BLOCK_NOT_READY};
+        const unsigned starts[]={2,3,1};
+        assert(dhcp_probe_run(&probe,rp1_eth_mac,entropy,&x.client)==expected[i]);
+        assert(x.client.ignored==1 && x.client.request_sent==(unsigned)x.reply && f->starts==starts[i]);
+        if (x.reply) {
+            assert(x.client.phase==DHCP_ACKED && x.client.lease.seconds==3600);
+            assert(!memcmp(x.client.lease.address,(const uint8_t[]){192,0,2,10},4));
+        }
+        assert(rp1_eth_dma_close(&session) && !memcmp(original,f->regs,sizeof(f->regs)));
+        assert(stats.tx_submitted==starts[i] && stats.tx_completed==starts[i] && stats.mac_tx==starts[i]);
+    }
+    puts("PASS: GEM DHCP offer/ACK, bootstrap-only traffic, no-server timeout, cancellation and DMA restoration.");
 }
 
 static size_t request_ping(struct fixture *f,unsigned slot,const struct ethernet_ipv4 *local,
@@ -370,4 +448,5 @@ int main(void)
     test_tcp(&io,&f,original);
     test_inbound(&io,&f,original);
     puts("PASS: GEM TX ring rotation, idle-slot guards, DMA and MAC counters, and retained stats across reopen.");
+    test_dhcp(&io,&f,original);
 }

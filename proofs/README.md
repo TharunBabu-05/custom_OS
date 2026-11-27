@@ -1,5 +1,10 @@
 # Real Raspberry Pi 5 proof
 
+Phase 57 matched all three UDP probes on their first attempts without
+repeats or queue drops, then passed the 16 KiB TCP half-close. GEM and
+DMA frame counts matched and the Ethernet resource claims were released.
+[Phase 57 Pi and Windows capture](pi5-gem-tx-ring-2026-11-27.txt)
+
 Phase 56 matched all three UDP probes on their first attempts. Windows
 received three distinct requests and logged twelve echoes in total.
 The Pi counted two mismatched replies and five full-queue drops.

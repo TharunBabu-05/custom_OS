@@ -96,7 +96,7 @@ static enum rp1_phy_result read_phy(const struct xhci_observer *io,bool (*write)
     if (write(io->context,NET_CONFIG,managed_config) && read_reg(io,NET_CONFIG,&value) &&
         value==managed_config && write(io->context,NET_CONTROL,RP1_GEM_MPE) &&
         read_reg(io,NET_CONTROL,&value) && value==RP1_GEM_MPE) {
-        bool resolve=action==ETH_ARP || action==ETH_PING || action==ETH_UDP_UP || action==ETH_TCP_UP;
+        bool resolve=action==ETH_ARP || action==ETH_PING || action==ETH_UDP_UP || action==ETH_TCP_UP || action==ETH_DHCP;
         result=phy_registers(io,write,ticks,hz,resolve,out);
         if (result==RP1_PHY_OK && action==ETH_RECOVER) { result=recover_link(io,write,ticks,hz,out); }
     }
@@ -149,7 +149,7 @@ enum rp1_phy_result rp1_eth_link_control(const struct rp1_eth_io *io,enum rp1_et
     }
 
     if ((action==ETH_ARP || action==ETH_PING || action==ETH_UDP_UP ||
-         action==ETH_TCP_UP || action==ETH_RECOVER) && !link->held) {
+         action==ETH_TCP_UP || action==ETH_DHCP || action==ETH_RECOVER) && !link->held) {
         return RP1_PHY_BUSY;
     }
     enum rp1_phy_result result=read_phy(&io->gem,io->write,io->ticks,io->hz,out,action);

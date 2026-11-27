@@ -19,7 +19,7 @@ try {
     if ($LASTEXITCODE) { throw 'RP1 MSI-X native test build failed' }
     & $msixFixture
     if ($LASTEXITCODE) { throw 'RP1 MSI-X native tests failed' }
-    $socketSources=@('network/udp.c','network/tcp.c','network/ethernet_ipv4.c','lib/crypto.c','lib/sha256.c')
+    $socketSources=@('network/udp.c','network/tcp.c','network/dhcp.c','network/ethernet_ipv4.c','lib/crypto.c','lib/sha256.c')
     $ethFixture=Join-Path $out 'rp1-eth-loop-host.exe'
     & $HostCompiler -std=c11 -Os -Wall -Wextra -Werror -Iinclude tests/rp1_eth_loop_host.c drivers/platform/rp1_eth_loop.c @socketSources -o $ethFixture
     if ($LASTEXITCODE) { throw 'GEM loopback native test build failed' }

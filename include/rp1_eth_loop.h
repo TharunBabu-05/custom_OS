@@ -1,5 +1,6 @@
 #ifndef OS_RP1_ETH_LOOP_H
 #define OS_RP1_ETH_LOOP_H
+#include "dhcp.h"
 #include "ethernet_ipv4.h"
 #include "rp1_dma_test.h"
 #include "udp.h"
@@ -57,6 +58,8 @@ enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *,const struct rp1_
                                          struct rp1_eth_dma_memory *,uint32_t bus,unsigned speed,
                                          const struct ethernet_ipv4 *,bool tcp_enabled,struct rp1_eth_dma_stats *);
 enum block_result rp1_eth_dma_service(struct rp1_eth_dma *,uint64_t now_ms);
+enum block_result rp1_eth_dma_dhcp_poll(struct rp1_eth_dma *,struct dhcp_client *,uint64_t now_ms);
+enum block_result rp1_eth_dma_dhcp_send(struct rp1_eth_dma *,const void *,size_t,uint64_t now_ms);
 void rp1_eth_dma_sample(struct rp1_eth_dma *);
 bool rp1_eth_dma_close(struct rp1_eth_dma *);
 #endif

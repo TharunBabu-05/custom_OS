@@ -1,0 +1,76 @@
+Phase 57 Pi 5 UART and Windows PowerShell excerpts reported on 2026-11-27
+
+Pi monitor, after negotiating the 100 Mbps link:
+> ethtcpup
+Ethernet link Mbps=100
+Ethernet TCP and UDP active at 192.0.2.2/30. Use ethdown to stop.
+> ethstats
+Ethernet tx_submitted=0 tx_completed=0 tx_timeouts=0
+Ethernet rx_frames=0 rx_discarded=0 rx_overruns=0
+Ethernet mac_tx=0 mac_rx=0 mac_stats=ok
+
+Pi shell:
+user:/$ runio - - /boot/UDPCHK.ELF probe 192.0.2.1 4040 3
+probe=1 attempts=1 elapsed_ms=54
+probe=2 attempts=1 elapsed_ms=40
+probe=3 attempts=1 elapsed_ms=40
+UDP probes matched=3/3 sent=3 ignored=0
+PASS: all UDP probe replies matched.
+child exit=0
+user:/$ netstat
+TCP session=up generation=1 slots=0/3 address=192.0.2.2/30
+  connecting=0 established=0 failed=0 closing=0 time_wait=0
+  segments_tx=0 retransmissions=0 bytes_tx=0 bytes_rx=0
+  fin_acked=0 resets=0 timeouts=0 arp_requests=0 arp_failures=0
+UDP session=up generation=1 slots=0/4 address=192.0.2.2/30
+  datagrams_tx=3 datagrams_rx=3 bytes_tx=48 bytes_rx=48
+  full_drops=0 timeouts=0 arp_requests=1 arp_failures=0
+child exit=0
+
+Pi monitor:
+> ethstats
+Ethernet tx_submitted=5 tx_completed=5 tx_timeouts=0
+Ethernet rx_frames=5 rx_discarded=0 rx_overruns=0
+Ethernet mac_tx=5 mac_rx=5 mac_stats=ok
+
+Pi shell:
+user:/$ runio - - /boot/TCPCHK.ELF 192.0.2.1 4041 half
+PASS: TCP echoed 16384 bytes. SHA-256 a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3
+PASS: TCP write half-close acknowledged and final reply received before EOF.
+PASS: owned TCP socket snapshot confirmed FIN acknowledgment and drained send queue.
+child exit=0
+
+Pi monitor:
+> ethdown
+PHY hold released.
+> ethstatus
+Ethernet state=down Mbps=0 losses=0 recoveries=0 speed_changes=0 dma=0 phy=0
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000147000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+Windows PowerShell:
+PS> powershell -NoProfile -ExecutionPolicy Bypass -File scripts/udp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4040 -Count 3
+Waiting for 192.0.2.2 on 192.0.2.1:4040
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+UDP batch unique=3 repeats=0 echoed=3
+PASS: echoed 3 distinct UDP probes.
+PS> powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tcp-echo.ps1 -BindAddress 192.0.2.1 -PeerAddress 192.0.2.2 -Port 4041 -WaitForClientFin
+Waiting for 192.0.2.2 on 192.0.2.1:4041
+Client FIN received. Sent final reply and closed the server send side.
+Echoed 16384 bytes. SHA-256 a8c7ef11b44f99d24ca05a81a5cee1be9ed05f4ea2f12df3b83bc2b90e851aa3

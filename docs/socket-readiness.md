@@ -492,11 +492,39 @@ adapter. The worker retains statistics across cable recovery and after
 
 The Windows batch listener prints distinct requests, repeats and total
 echoes. Compare those counts with `netstat` and `ethstats` around an
-otherwise idle three-probe run. The Phase 56 capture established the
-extra datagrams, and the Phase 57 hardware retest will check whether
-they persist with the new transmit ring.
+otherwise idle three-probe run. The Phase 57 Pi retest matched all three
+probes on their first attempts. Windows echoed three requests with zero
+repeats. The Pi counted five submitted and completed frames, with matching
+GEM TX and RX totals, zero queue drops, and zero RX overruns. The same run
+passed the 16 KiB TCP half-close and released Ethernet resources.
+[Phase 57 Pi and Windows capture](../proofs/pi5-gem-tx-ring-2026-11-27.txt)
 
 The native RP1 model passed slot rotation, descriptor guards, MAC
 counter sampling and retention across reopen. The Windows loopback
 test counted two repeated arrivals in a three-request batch. Both QEMU
 profiles passed platform command routing and TCP and UDP regressions.
+
+## Phase 58 wired DHCP probe
+
+`ethdhcp` uses the background network worker and an unconfigured GEM
+session. Hardware entropy supplies a new transaction ID and randomized
+delays. The shared DHCP client attempts up to three DISCOVERs and three
+REQUESTs in a 45-second window. The GEM worker admits outbound DISCOVER
+and initial REQUEST frames and sends incoming frames to the DHCP client.
+The client confirms its transmit completion before accepting an ACK.
+[DHCP client-server interaction](https://www.rfc-editor.org/rfc/rfc2131.html#section-3.1)
+
+`ethlease` shows probe state, packet counts, and the latest offer or
+acknowledgment. Metadata includes the address, server, lease duration, and
+available mask, router, DNS, and renewal timer options. The probe requires
+a negotiated full-duplex link and a directly reachable DHCP server. A PHY
+link loss or speed change ends the probe. `ethdhcp cancel` stops it while
+holding the PHY for another run, and `ethdown` also releases the PHY hold.
+`ethstats` retains the probe's DMA and MAC counters after it finishes.
+
+The static address displayed by `ethaddr` stays in effect for the next
+socket session. The observed DHCP address is metadata until address
+conflict detection and lease installation are available. The host tests
+exercise a complete exchange through the GEM model, unrelated traffic,
+retry exhaustion, cancellation, and DMA restoration. Real Pi DHCP
+acceptance is pending.

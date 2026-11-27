@@ -491,7 +491,7 @@ if ($PlatformHealth) {
             Session $disk $name $case[0] $case[1] @('exit','datacheck','utc','platforminfo','therminfo','powerinfo','rtcinfo',
                 'rtcsync','rtcalarm','rtcset 2026-11-24T00:00:00Z',
                 'devlist','devinfo /pl011@9000000','devinfo /does-not-exist','rp1info','rp1msiinfo','rp1dmatest','ethprobe','ethprobe reset','ethup','ethdown','ethrecover','ethloop','etharp','ethping','ethudpup','ethtcpup',
-                'ethaddr','ethaddr 192.0.2.6/30','ethstatus','ethstats',
+                'ethaddr','ethaddr 192.0.2.6/30','ethstatus','ethstats','ethdhcp','ethdhcp cancel','ethlease',
                 'pcieinfo','pcieinfo rp1','pciewin','pciewin rp1',
                 'gpioinfo 14','gpioinfo 27','gpioinfo 27 ','gpioinfo 28','gpiotest 17','gpiotest 28','gpioloop','gpioloop 17',
                 'gpiopull 17','gpiopull 28',
@@ -515,6 +515,7 @@ if ($PlatformHealth) {
             if ([regex]::Matches($log,'Ethernet probe requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet command routing failed" }
             if ([regex]::Matches($log,'Ethernet DMA test requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet DMA command routing failed" }
             if ([regex]::Matches($log,'Ethernet addressing requires a Raspberry Pi 5\.').Count -ne 2) { throw "$name Ethernet address command routing failed" }
+            if ([regex]::Matches($log,'Ethernet DHCP requires a Raspberry Pi 5\.').Count -ne 3) { throw "$name Ethernet DHCP command routing failed" }
             if ([regex]::Matches($log,'PCIe inventory requires a Raspberry Pi 5\.').Count -ne 4) { throw "$name PCIe inventory command routing failed" }
             if (!$log.Contains("> gpioloop`r`nGPIO test requires a Raspberry Pi 5.") -or
                 !$log.Contains("> gpioloop 17`r`nUsage: gpioloop")) { throw "$name GPIO loopback gate failed" }

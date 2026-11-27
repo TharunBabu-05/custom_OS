@@ -261,17 +261,19 @@ static void report_rp1(uintptr_t dtb,uintptr_t uart)
     report_dma(&bridge);
 }
 struct eth_dma_page { uint64_t physical,bus; unsigned ticket; };
-enum wired_state { WIRED_DOWN,WIRED_UP,WIRED_WAITING,WIRED_FAILED };
+enum wired_state { WIRED_DOWN,WIRED_UP,WIRED_WAITING,WIRED_FAILED,WIRED_DHCP };
 static struct wired_network {
     struct eth_dma_page page;
     struct rp1_eth_dma session;
     struct rp1_eth_dma_stats stats;
+    struct dhcp_client dhcp;
     uintptr_t dtb;
     unsigned speed,losses,recoveries,speed_changes;
     enum rp1_eth_loop_result result;
     enum rp1_phy_result phy_result;
     enum wired_state state;
-    bool tcp,random_failed;
+    enum block_result dhcp_result;
+    bool tcp,random_failed,dhcp_mode,dhcp_cancelled,dhcp_link_lost;
 } wired;
 
 static const struct rp1_dma_io eth_dma_io={
@@ -321,13 +323,18 @@ static const struct ethernet_ipv4 *ethernet_config(void)
     return wired_ipv4.prefix ? &wired_ipv4 : &rp1_eth_default_ipv4;
 }
 
+static void print_ipv4(const uint8_t *address)
+{
+    for (unsigned i=0;i<4;++i) {
+        if (i) { console_write("."); }
+        console_u64(address[i]);
+    }
+}
+
 static void print_ethernet_address(void)
 {
     const struct ethernet_ipv4 *ipv4=ethernet_config();
-    for (unsigned i=0;i<4;++i) {
-        if (i) { console_write("."); }
-        console_u64(ipv4->address[i]);
-    }
+    print_ipv4(ipv4->address);
     console_write("/");
     console_u64(ipv4->prefix);
 }
@@ -432,24 +439,111 @@ static void wired_worker(void *unused)
     wired.state=wired.result==GEM_LOOP_OK && wired.phy_result==RP1_PHY_OK ? WIRED_DOWN : WIRED_FAILED;
 }
 
-static void ethernet_net_up(const struct xhci_observer *bridge,const void *tree,unsigned speed,bool tcp)
+struct wired_dhcp_context { struct rp1_eth_io phy; uint64_t polled; };
+
+static uint64_t wired_dhcp_ms(void *context)
+{
+    const struct wired_dhcp_context *d=context;
+    uint64_t now=timer_ticks(),hz=d->phy.hz;
+    return now/hz*1000+now%hz*1000/hz;
+}
+
+static bool wired_dhcp_ready(void *context)
+{
+    (void)context;
+    return wired.state==WIRED_DHCP;
+}
+
+static enum block_result wired_dhcp_poll(void *context)
+{
+    struct wired_dhcp_context *d=context;
+    if (wired.dhcp_link_lost) { return BLOCK_NOT_READY; }
+    uint64_t now=timer_ticks();
+    if (now-d->polled>=d->phy.hz/5) {
+        d->polled=now;
+        struct rp1_phy_snapshot phy;
+        wired.phy_result=rp1_phy_sample(&d->phy,true,&phy);
+        if (wired.phy_result!=RP1_PHY_OK) { return BLOCK_IO; }
+        if (rp1_phy_full_duplex_speed(&phy)!=wired.speed) {
+            wired.dhcp_link_lost=true;
+            return BLOCK_NOT_READY;
+        }
+    }
+    return rp1_eth_dma_dhcp_poll(&wired.session,&wired.dhcp,wired_dhcp_ms(context));
+}
+
+static bool wired_dhcp_pause(void)
+{
+    if (network_worker_pause()) { return true; }
+    wired.dhcp_cancelled=true;
+    return false;
+}
+
+static enum block_result wired_dhcp_delay(void *context,unsigned us)
+{
+    const struct wired_dhcp_context *d=context;
+    uint64_t ticks=(d->phy.hz*us+999999)/1000000,start=timer_ticks();
+    while (timer_ticks()-start<ticks) {
+        if (!wired_dhcp_pause()) { return BLOCK_NOT_READY; }
+    }
+    return BLOCK_OK;
+}
+
+static enum block_result wired_dhcp_tx(void *context,const void *frame,size_t bytes)
+{
+    enum block_result result=rp1_eth_dma_dhcp_send(&wired.session,frame,bytes,wired_dhcp_ms(context));
+    while (result==BLOCK_OK && wired.session.pending) {
+        if (!wired_dhcp_pause()) { return BLOCK_NOT_READY; }
+        result=wired_dhcp_poll(context);
+    }
+    return result;
+}
+
+static void wired_dhcp_worker(void *unused)
+{
+    (void)unused;
+    unsigned char entropy[10];
+    wired.random_failed=!platform_rng_prepare(wired.dtb) || platform_random_bytes(entropy,sizeof(entropy))!=BLOCK_OK;
+    struct rp1_eth_dma_memory *memory=(void *)(uintptr_t)wired.page.physical;
+    wired.result=wired.random_failed ? GEM_LOOP_SETUP :
+        rp1_eth_dma_open(&wired.session,&eth_dma_io,memory,(uint32_t)wired.page.bus,wired.speed,NULL,false,&wired.stats);
+    wired.dhcp_result=BLOCK_NOT_READY;
+    if (wired.result==GEM_LOOP_OK) {
+        struct wired_dhcp_context context={
+            .phy={{read_register,eth_dma_io.context,RP1_ETH_SPAN},{0},write_register,ethernet_ticks,timer_frequency()},
+            .polled=timer_ticks()
+        };
+        const struct dhcp_io io={&context,wired_dhcp_tx,wired_dhcp_poll,wired_dhcp_delay,wired_dhcp_ms,wired_dhcp_ready};
+        wired.state=WIRED_DHCP;
+        wired.dhcp_result=dhcp_probe_run(&io,rp1_eth_mac,entropy,&wired.dhcp);
+        if (!rp1_eth_dma_close(&wired.session)) { wired.result=GEM_LOOP_RETAIN; }
+    }
+    crypto_wipe(entropy,sizeof(entropy));
+    if (wired.result!=GEM_LOOP_RETAIN) { release_ethernet_dma(&wired.page); }
+    wired.state=wired.result==GEM_LOOP_OK && wired.phy_result==RP1_PHY_OK ? WIRED_DOWN : WIRED_FAILED;
+}
+
+static void ethernet_worker_up(const struct xhci_observer *bridge,const void *tree,unsigned speed,enum rp1_eth_action action)
 {
     if (network_worker_active()) { console_write("Stop the active network worker first.\n"); return; }
     struct eth_dma_page page;
     if (!ethernet_dma_page(bridge,tree,true,&page)) { return; }
-    wired=(struct wired_network){.page=page,.dtb=(uintptr_t)tree,.speed=speed,.tcp=tcp};
-    if (!network_worker_start(wired_worker,NULL)) {
+    wired=(struct wired_network){.page=page,.dtb=(uintptr_t)tree,.speed=speed,.tcp=action==ETH_TCP_UP,
+        .dhcp_mode=action==ETH_DHCP,.dhcp_result=BLOCK_NOT_READY};
+    if (!network_worker_start(wired.dhcp_mode ? wired_dhcp_worker : wired_worker,NULL)) {
         release_ethernet_dma(&wired.page);
         wired.result=GEM_LOOP_BUSY;
         wired.state=WIRED_FAILED;
     }
     if (wired.state==WIRED_UP) {
-        console_write(tcp ? "Ethernet TCP and UDP" : "Ethernet UDP");
+        console_write(wired.tcp ? "Ethernet TCP and UDP" : "Ethernet UDP");
         console_write(" active at ");
         print_ethernet_address();
         console_write(". Use ethdown to stop.\n");
+    } else if (wired.state==WIRED_DHCP) {
+        console_write("Ethernet DHCP probe started. Use ethlease or ethdhcp cancel.\n");
     } else if (wired.random_failed) {
-        console_write("Ethernet TCP needs hardware randomness. Use rngtest for status.\n");
+        console_write("Ethernet session needs hardware randomness. Use rngtest for status.\n");
     } else {
         console_write("Ethernet network result="); console_u64(wired.result); console_write("\n");
     }
@@ -495,7 +589,7 @@ static bool ethernet_exchange(const struct xhci_observer *bridge,const void *tre
 bool rp1_ethernet_active(void)
 {
 #ifdef OUROS_PI5
-    return wired.state==WIRED_UP || wired.state==WIRED_WAITING;
+    return wired.state==WIRED_UP || wired.state==WIRED_WAITING || wired.state==WIRED_DHCP;
 #else
     return false;
 #endif
@@ -504,9 +598,9 @@ bool rp1_ethernet_active(void)
 void rp1_ethernet_status(void)
 {
 #ifdef OUROS_PI5
-    static const char *const states[]={"down","up","waiting","failed"};
+    static const char *const states[]={"down","up","waiting","failed","dhcp"};
     console_write("Ethernet state=");console_write(states[wired.state]);
-    console_write(" Mbps=");console_u64(wired.state==WIRED_UP ? wired.speed : 0);
+    console_write(" Mbps=");console_u64(wired.state==WIRED_UP || wired.state==WIRED_DHCP ? wired.speed : 0);
     console_write(" losses=");console_u64(wired.losses);
     console_write(" recoveries=");console_u64(wired.recoveries);
     console_write(" speed_changes=");console_u64(wired.speed_changes);
@@ -521,7 +615,7 @@ void rp1_ethernet_status(void)
 void rp1_ethernet_stats(void)
 {
 #ifdef OUROS_PI5
-    if (wired.state==WIRED_UP) { rp1_eth_dma_sample(&wired.session); }
+    if (wired.state==WIRED_UP || wired.state==WIRED_DHCP) { rp1_eth_dma_sample(&wired.session); }
     const struct rp1_eth_dma_stats *s=&wired.stats;
     console_write("Ethernet tx_submitted=");console_u64(s->tx_submitted);
     console_write(" tx_completed=");console_u64(s->tx_completed);
@@ -534,6 +628,57 @@ void rp1_ethernet_stats(void)
     console_write(wired.session.io && !s->mac_unavailable ? " mac_stats=ok\n" : " mac_stats=unavailable\n");
 #else
     console_write("Ethernet statistics require a Raspberry Pi 5.\n");
+#endif
+}
+
+void rp1_ethernet_lease(void)
+{
+#ifdef OUROS_PI5
+    if (!wired.dhcp_mode) { console_write("No wired DHCP probe. Use ethdhcp.\n"); return; }
+    const struct dhcp_client *d=&wired.dhcp;
+    const char *state="failed";
+    if (wired.state==WIRED_DHCP) { state=d->phase==DHCP_REQUESTING ? "requesting" : "selecting"; }
+    else if (wired.result==GEM_LOOP_RETAIN) { state="dma-retained"; }
+    else if (d->phase==DHCP_ACKED) { state="ack"; }
+    else if (wired.dhcp_cancelled) { state="cancelled"; }
+    else if (wired.dhcp_link_lost) { state="link-lost"; }
+    else if (d->nak_seen) { state="nak"; }
+    else if (wired.dhcp_result==BLOCK_TIMEOUT) { state="timeout"; }
+    console_write("Ethernet DHCP state=");console_write(state);
+    console_write(" result=");console_u64(wired.dhcp_result);
+    console_write("\nDHCP discover=");console_u64(d->discover_sent);
+    console_write(" request=");console_u64(d->request_sent);
+    console_write(" rx=");console_u64(d->received);
+    console_write(" ignored=");console_u64(d->ignored);
+    console_write(" malformed=");console_u64(d->malformed);
+    console_write(" polls=");console_u64(d->polls);
+    console_write("\n");
+    if (d->have_offer) {
+        bool ack=d->phase==DHCP_ACKED;
+        const struct dhcp_lease *l=ack ? &d->lease : &d->offer;
+        console_write(ack ? "ACK address=" : "Offer address="); print_ipv4(l->address);
+        console_write(" server="); print_ipv4(l->server);
+        console_write(" lease_seconds="); console_u64(l->seconds);
+        if (l->have_mask) { console_write(" mask="); print_ipv4(l->mask); }
+        if (l->have_router) { console_write(" router="); print_ipv4(l->router); }
+        if (l->have_dns) { console_write(" dns="); print_ipv4(l->dns); }
+        if (l->t1_seconds) { console_write(" renewal_seconds="); console_u64(l->t1_seconds); }
+        if (l->t2_seconds) { console_write(" rebind_seconds="); console_u64(l->t2_seconds); }
+        console_write("\nLease metadata only.\n");
+    }
+#else
+    console_write("Ethernet DHCP requires a Raspberry Pi 5.\n");
+#endif
+}
+
+void rp1_ethernet_dhcp_cancel(void)
+{
+#ifdef OUROS_PI5
+    if (wired.state!=WIRED_DHCP) { console_write("No active wired DHCP probe.\n"); return; }
+    if (!network_worker_stop()) { console_write("Ethernet DHCP worker busy.\n"); return; }
+    rp1_ethernet_lease();
+#else
+    console_write("Ethernet DHCP requires a Raspberry Pi 5.\n");
 #endif
 }
 
@@ -583,8 +728,8 @@ void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action actio
         (void)ethernet_exchange(&bridge,(const void *)dtb,0,false);
         return;
     }
-    bool sockets=action==ETH_UDP_UP || action==ETH_TCP_UP;
-    bool wire=action==ETH_ARP || action==ETH_PING || sockets;
+    bool worker=action==ETH_UDP_UP || action==ETH_TCP_UP || action==ETH_DHCP;
+    bool wire=action==ETH_ARP || action==ETH_PING || worker;
     if ((wire || action==ETH_RECOVER) && !link.held) {
         console_write("Run ethup first.\n"); return;
     }
@@ -616,7 +761,7 @@ void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action actio
             console_write(" aux="); console_hex(snapshot.aux); console_write("\n"); return;
         }
         console_write("Ethernet link Mbps="); console_u64(speed); console_write("\n");
-        if (sockets) { ethernet_net_up(&bridge,(const void *)dtb,speed,action==ETH_TCP_UP); }
+        if (worker) { ethernet_worker_up(&bridge,(const void *)dtb,speed,action); }
         else { restore_failed=!ethernet_exchange(&bridge,(const void *)dtb,speed,action==ETH_PING); }
         return;
     }
@@ -638,6 +783,7 @@ void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action actio
     console_write("\n");
 #else
     (void)dtb; (void)uart; (void)action;
+    if (action==ETH_DHCP) { console_write("Ethernet DHCP requires a Raspberry Pi 5.\n"); return; }
     console_write(action==ETH_LOOP || action==ETH_ARP || action==ETH_PING || action==ETH_UDP_UP || action==ETH_TCP_UP ?
                   "Ethernet DMA test requires a Raspberry Pi 5.\n" :
                   "Ethernet probe requires a Raspberry Pi 5.\n");

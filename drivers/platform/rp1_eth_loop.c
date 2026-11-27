@@ -314,7 +314,7 @@ enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *s,const struct rp1
                                          struct rp1_eth_dma_memory *m,uint32_t bus,unsigned speed,
                                          const struct ethernet_ipv4 *ipv4,bool tcp_enabled,struct rp1_eth_dma_stats *stats)
 {
-    if ((speed!=10 && speed!=100 && speed!=1000) || (bus&63) ||
+    if ((!ipv4 && tcp_enabled) || (speed!=10 && speed!=100 && speed!=1000) || (bus&63) ||
         bus>UINT32_MAX-(sizeof(*m)-1) || !save_gem(io,&s->saved,NULL,true)) {
         return GEM_LOOP_BUSY;
     }
@@ -327,7 +327,7 @@ enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *s,const struct rp1
     s->pending=false;
     s->tcp_enabled=tcp_enabled;
     s->tcp_first=false;
-    s->ipv4=*ipv4;
+    s->ipv4=ipv4 ? *ipv4 : (struct ethernet_ipv4){0};
     s->reply_due[0]=s->reply_due[1]=0;
     for (unsigned i=0;i<2;++i) {
         m->tx[i]=(struct gem_descriptor){tx_address(s),TX_USED|(i ? TX_WRAP : 0)};
@@ -389,7 +389,7 @@ static enum block_result reply_to_control(struct rp1_eth_dma *s,const uint8_t *f
     return send_frame(s,length);
 }
 
-enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
+static enum block_result poll_dma(struct rp1_eth_dma *s,struct dhcp_client *dhcp,uint64_t now_ms)
 {
     const struct rp1_dma_io *io=s->io;
     void *ctx=io->context;
@@ -423,9 +423,12 @@ enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
         if ((status&RX_WHOLE)==RX_WHOLE && bytes<=GEM_RX_BYTES) {
             ++s->stats->rx_frames;
             const uint8_t *frame=s->memory->received[slot];
-            udp_receive(frame,bytes,now_ms);
-            if (s->tcp_enabled) { tcp_receive(frame,bytes); }
-            if (reply_to_control(s,frame,bytes,now_ms)!=BLOCK_OK) { return BLOCK_IO; }
+            if (dhcp) { dhcp_receive(dhcp,frame,bytes); }
+            else {
+                udp_receive(frame,bytes,now_ms);
+                if (s->tcp_enabled) { tcp_receive(frame,bytes); }
+                if (reply_to_control(s,frame,bytes,now_ms)!=BLOCK_OK) { return BLOCK_IO; }
+            }
         } else { ++s->stats->rx_discarded; }
         descriptor->status=0;
         io->barrier(ctx);
@@ -437,6 +440,35 @@ enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
         if (!io->write(ctx,RSR,rx&~s->saved.rx_status&RX_W1C)) { return BLOCK_IO; }
         if (rx&~s->saved.rx_status&RX_OVERRUN) { ++s->stats->rx_overruns; }
     }
+    return BLOCK_OK;
+}
+
+enum block_result rp1_eth_dma_dhcp_poll(struct rp1_eth_dma *s,struct dhcp_client *client,uint64_t now_ms)
+{
+    if (s->ipv4.prefix || !client || !net_equal(client->mac,rp1_eth_mac,6)) { return BLOCK_ARGUMENT; }
+    return poll_dma(s,client,now_ms);
+}
+
+enum block_result rp1_eth_dma_dhcp_send(struct rp1_eth_dma *s,const void *frame,size_t bytes,uint64_t now_ms)
+{
+    const uint8_t *packet=frame;
+    /* The shared validator also accepts renewal, rebinding and DECLINE.
+     * An unconfigured wired adapter only emits DISCOVER and initial REQUEST. */
+    if (s->ipv4.prefix || !dhcp_wire_request_valid(frame,bytes) || !net_equal(packet+6,rp1_eth_mac,6) ||
+        (packet[42+242]!=1 && packet[42+242]!=3) || net_be32(packet+26)) { return BLOCK_ARGUMENT; }
+    if (s->pending) { return BLOCK_NOT_READY; }
+    s->io->barrier(s->io->context);
+    if (!tx_idle(s)) { return BLOCK_IO; }
+    for (size_t i=0;i<bytes;++i) { s->memory->frame[i]=packet[i]; }
+    s->submitted=now_ms;
+    return send_frame(s,bytes);
+}
+
+enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
+{
+    if (!s->ipv4.prefix) { return BLOCK_NOT_READY; }
+    enum block_result polled=poll_dma(s,NULL,now_ms);
+    if (polled!=BLOCK_OK) { return polled; }
     if (!s->pending) { s->submitted=now_ms; }
     /* Give the other protocol first use of the shared TX slot next time. */
     bool tcp_first=s->tcp_enabled && s->tcp_first;
