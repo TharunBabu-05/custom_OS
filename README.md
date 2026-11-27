@@ -24,131 +24,37 @@
 
 <h1 align="center">The kernel is on the board.</h1>
 
-The Pi 5 header image now boots into the serial shell. The kernel mounts the
-existing USB volumes and starts the MMU and timer. Type `df` to inspect the
-mounts, `exit` to reach the monitor, and `startup` to reopen the shell.
-The Pi now verifies automatic startup, shell exit and the 16 KiB file checks.
-The Windows updater previews and copies changed boot files to an existing drive,
-with verified backups for rollback. [Boot update guide](docs/boot-updates-tharun_verified.md)
-· [Pi capture](proofs/pi5-startup-v4chk-2026-11-21.txt)
+OurOS is an original AArch64 operating system written in C and assembly.
+On the tested Raspberry Pi 5, it boots from USB into a serial shell, mounts
+read-only `/boot` and persistent `/data`, and enables MMU protection and the
+timer. Run `df` in the shell to inspect the mounts, `exit` to reach the kernel
+monitor, or `startup` at the monitor to reopen the shell.
+[Boot and update guide](docs/boot-updates-tharun_verified.md)
 
-OurOS runs protected user applications, a serial shell, and bounded
-persistent storage on the boot core. MMU protection, GIC/timer IRQs,
-EL0 multitasking, USB writes, and WPA3/DNS/Internet ping have Pi evidence.
-Opt-in secondary CPU workers passed four-core QEMU tests.
-[Secondary CPU workers](docs/secondary-cpus.md)
-See the [current status and driver checklist](docs/os-status.md) and
-[remaining implementation order](docs/remaining-os-roadmap.md).
-
-<p align="center">
-  <strong>An original operating-system kernel, written in C and AArch64 assembly.</strong><br />
-  Booted on a physical Raspberry Pi 5. Controlled from a Windows PC through a CP2102 serial adapter.<br />
-  Firmware hands over. Our code takes the next instruction.
-</p>
-
-> **Hardware milestone · 08 November 2026**
-> The Pi 5 header-console build reaches EL1 from EL2, accepts monitor commands,
-> reads CPU identification, and reports advancing uptime. This is an early kernel:
-> RAM discovery and physical page allocation have also passed the real-Pi test.
-> Readable MB/MiB summaries and a writable RAM root also work on the physical Pi.
-> The hardware boots from a **32 GB USB pendrive**, without a microSD card.
-> Firmware loads the kernel; USB DMA, USB2 BOT endpoint discovery and Wi-Fi
-> function-1 identification now pass on the Pi (chip `0x4345`, revision 6).
-> Read-only USB sectors, FAT32 `/boot`, CONFIG.TXT reads and transfer/event ring
-> cycling now pass on the Pi. Radio core discovery and 800 KiB RAM sizing also
-> pass. All 609,309 firmware bytes and packed NVRAM now pass physical
-> upload/readback with the radio CPU halted. This phase adds
-> [controlled firmware startup](docs/wifi-startup.md), now verified on the Pi.
-> The [firmware query channel](docs/wifi-control.md) also passes on the Pi
-> (firmware 7.45.265). [Capability and CLM/country setup](docs/wifi-prepare.md)
-> also pass for IN / revision 0. [Passive scanning](docs/wifi-scan.md) now finds
-> Jack's with SAE and required PMF. New [crypto/RNG foundations](docs/wifi-auth-foundation.md)
-> now pass their physical random-source test. The [WPA3 target checks](docs/wifi-target.md)
-> inspect exact cipher/AKM/PMF and RSNXE advertisements before authentication,
-> and now pass on the Pi. [P-256 math](docs/wifi-p256.md) also passes twice on
-> hardware. [H2E derivation](docs/wifi-h2e.md) now passes on the Pi too. The next
-> [in-memory SAE exchange](docs/wifi-sae.md) also passes on the Pi. The next
-> [external-auth transport stage](docs/wifi-auth-transport.md) adds frame/event
-> encoding and a reversible firmware policy check before radio authentication.
-> WPA3-Personal is the requested connection target;
-> SAE, association, M2/M3, key SET/deletion ACKs, authenticated M3 retries and
-> live M4 writes now pass on hardware. Corrected M4/key ordering, peer-port
-> authorization/readback and DHCP OFFER/ACK also pass, with two successful decryptions.
-> Address checks, ARP, the live network console and all three gateway and
-> `1.1.1.1` replies, DNS and hostname ping pass, followed by clean disconnect.
-> Heap, MMU protection, exception return and timer IRQs now pass on Pi too.
-> Cooperative kernel tasks, guarded stacks and timed sleep/wakeup also pass on Pi.
-> Pi now verifies `/data` mount, write/read and sync after BOT stall recovery.
-> Pi also verifies owned file handles and task I/O with automatic cleanup.
-> Pi now verifies ELF loading, private EL0 pages, checked syscalls,
-> user timer preemption and local application installation. The next
-> [user-tools phase](docs/user-tools.md) adds quoted arguments, private cwd,
-> directory queries, EL0 LS/CAT/PWD/ECHO and sleeping processes; Pi tests pass.
-> The new [interactive EL0 shell](docs/user-shell.md) adds serial line input,
-> file commands and Ctrl+C cancellation; interactive file commands now pass on Pi.
-> The [file-tools stage](docs/file-tools.md) adds binary copy, SHA-256
-> and sync; its Pi acceptance now passes. The
-> [foreground program stage](docs/shell-programs.md) adds shell `run`/`status`
-> and child spawn/wait; normal launches, early input handoff and timeout cleanup
-> now pass on Pi. The current [file-stream stage](docs/stdio.md) adds binary
-> standard input/output and shell `runio`; IOCHK, capture/copy and cleanup now
-> pass on Pi. The new [pipeline stage](docs/pipelines.md) connects two concurrent
-> programs through a bounded binary FIFO, with blocking/EOF/cancellation and
-> clearer missing-path errors; PIPECHK and shell pipelines now pass on Pi.
-> The earlier [data v2 stage](docs/data-v2.md) expands persistent capacity to
-> 16 files of 8 KiB, permits installing the shell and preserves v1 support.
-> The first physical v2 capacity run failed during repeated writes. The
-> [USB reliability stage](docs/usb-storage-reliability.md) removes a lifetime
-> recovery cutoff and recycles command/control rings; Pi now passes capacity and
-> 152 recoveries with USB online. The new [backup/restore stage](docs/data-backup-restore.md)
-> adds serial export, validated empty-target restore and Windows backup tools;
-> Pi now verifies demo restore, file sizes and text readback. The new
-> [file rename/stat stage](docs/file-rename.md) adds same-filesystem file moves,
-> no-overwrite/lease protection and a checked EL0 call; MVCHK now passes on Pi.
-> The new [v3 directory stage](docs/persistent-directories.md) adds nested
-> persistent paths and explicit backup migration; DIRCHK now passes on Pi.
-> Physical reboot, nested installed ELF execution and serial export remain pending.
-> Physical data power-cycle checks, renewal/rekey, background networking and
-> downloads remain; see [the remaining roadmap](docs/remaining-os-roadmap.md).
-> On a fresh boot run `storageinit` before `usbtest`/`usbenum`. The USB block
-> driver supplies the next dependency for reading Wi-Fi firmware from disk.
+The current build produces **94 userland ELF programs**. The OurOS syscall ABI
+defines **102 syscall IDs (0–101)**, including demand-paged reservations.
+The kernel supports **8 foreground process slots and 3 supervised service
+slots**, nested process trees, named IPC, and pipelines of up to 7 stages.
+[Application build list](scripts/build-apps.ps1) · [Syscall ABI](include/user_abi.h) ·
+[Process limits](include/process.h)
 
 ## The hardware receipts
 
-Complete disk image backups are saved directly in `image_files` with readable
-phase names. The newest header image is `OurOS-Pi5-header-experimental-sd.img`.
-Builds preserve previous versions before cleaning stale output. See
-[image backups and cleanup](docs/image-archive.md).
+| Verified on Raspberry Pi 5 | Recorded result |
+| :--- | :--- |
+| Core process model | `CORECHK.ELF` passed shared memory, permission-limited descriptor transfer, timed blocking, signals, fault reporting, and cleanup. Later runs verified nested process trees, named IPC, seven-stage binary pipelines, and three supervised services. [CORECHK](proofs/pi5-core-os-2026-11-24.txt) · [Process trees](proofs/pi5-process-trees-2026-11-25.txt) · [Named IPC](proofs/pi5-named-ipc-2026-11-26.txt) · [Pipelines and jobs](proofs/pi5-core-smp-vm-dma-2026-11-27.txt) · [Services](proofs/pi5-services-2026-11-26.txt) |
+| Secondary CPU workers, phases 41–46 | The Pi started three EL1 workers and exercised GICv2 SGIs, shared work queues, TLB invalidation, and page leases. A separate GICv2 test verified peripheral SPIs and deferred handlers. [Worker milestones](docs/secondary-cpus.md) · [SGI capture](proofs/pi5-interprocessor-irqs-2026-11-26.txt) · [Page leases](proofs/pi5-smp-page-leases-2026-11-26.txt) · [Peripheral IRQs](proofs/pi5-peripheral-irqs-2026-11-22.txt) |
+| Multicore EL0 and memory, phase 63 | Three secondary CPUs ran EL0 slices concurrently. Demand-zero paging, all remap stages across four cores, and two cache-maintained RP1 DMA transfers passed. The multicore shell reaped all 23 children and resource claims returned to baseline. [Pi capture](proofs/pi5-core-smp-vm-dma-2026-11-27.txt) |
+| Wired Ethernet and DHCP | The Gigabit-capable RP1 GEM driver passed link negotiation, ARP, ICMP, UDP, and outbound TCP on the tested 100 Mbps link. Both endpoints matched the 16 KiB TCP echo digest, and the Pi received the final reply after a write half-close. The Pi bound a wired DHCP lease and the Windows fixture logged three renewal ACKs. [IPv4](proofs/pi5-ethernet-ipv4-pass-2026-11-24.txt) · [TCP and UDP](proofs/pi5-gem-tx-ring-2026-11-27.txt) · [DHCP](proofs/pi5-wired-dhcp-bound-2026-11-27.txt) |
+| Wi-Fi and TLS 1.3 | WPA3/SAE, DHCP, DNS, Internet ICMP, and automatic hotspot reconnection have Pi evidence. `TLSCHK.ELF` passed handshake transcript checks, `TLSECHO.ELF` completed a pinned TLS 1.3 encrypted echo, and `PKGGET.ELF` downloaded and verified an ELF over HTTPS. [Wi-Fi and DNS](proofs/pi5-dns-hostname-ping-clean-disconnect-2026-11-12.txt) · [Reconnect](proofs/pi5-hotspot-reconnect-2026-11-22.txt) · [TLS transcript](proofs/pi5-tls-transcript-2026-11-22.txt) · [Live TLS](docs/tls-live.md#local-verification) · [HTTPS download](proofs/pi5-package-download-2026-11-22.txt) |
+| Persistent storage and apps | The USB-backed v5 filesystem retained files and installed apps across a cold power cycle. The Pi also verified named-app install, upgrade, rollback, and uninstall, plus signed multi-file packages and dependencies. On spare media it imported a v4 archive, recovered the last committed v5 generation after a physical power cut, and committed a new write. [Storage and apps capture](proofs/pi5-storage-apps-2026-11-24.txt) · [Migration and power cut](proofs/pi5-storage-migration-power-cut-2026-11-27.txt) |
 
-**Download the complete flashable image:**
-[Pi 5 header-console disk ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip).
-Extract the `.img` before flashing your pendrive. Every completed disk-image
-build now creates a verified ZIP for GitHub; raw 128 MiB images stay local.
-The [latest Pi transcript](proofs/pi5-dns-hostname-ping-clean-disconnect-2026-11-12.txt)
-passes DHCP, address checks, gateway ARP, DNS, the live console and all three
-ICMP replies each from `www.google.com` and `1.1.1.1`, followed by clean disconnect.
+See the [Pi capture index](proofs/README.md) for the recorded test results and
+the [remaining roadmap](docs/remaining-os-roadmap.md) for open work.
 
-The verified [`wificonnect` phase](docs/wifi-session.md) keeps that connection open
-in a foreground `net>` console. It services RX/ARP while idle and supports
-gateway/off-link numeric pings, status and explicit disconnect. Lease expiry,
-unsupported rekey or link failure closes it. The page bitmap moves from kernel
-BSS into separately reserved RAM to make room for networking. Native models
-cover these changes; the Pi capture also confirms the reserved page bitmap.
-The verified [DNS phase](docs/wifi-dns.md) provides `nslookup` and hostname ping.
-The [kernel heap](docs/kernel-heap.md) provides small allocations and backs
-RAMFS file contents; repeated heap tests and counter restoration now pass on Pi.
-The [MMU phase](docs/mmu.md) and [interrupt phase](docs/interrupts.md) now have
-Pi protection/USB and synchronous/asynchronous exception/timer IRQ evidence.
-The [kernel task phase](docs/kernel-tasks.md) now has Pi evidence for guarded
-stacks, saved contexts, cooperative yield, timed sleep/wakeup and exit.
-The new [persistent storage phase](docs/persistent-storage.md) adds USB write/flush
-and `/data` files in a separate 1 MiB snapshot partition. Run `storageinit`,
-`datainit`, then `write /data/hello.txt saved` and `sync`; reboot without
-reflashing and mount/read again. New Pi writes need their hardware test.
-See the [full OS/driver checklist](docs/os-status.md).
-Renewal/rekey, background networking and package installation remain.
-Type credentials only at the hidden prompt; none are saved or embedded.
-Current development images stay local; the user handles GitHub publication.
+The repository includes an [archived Pi 5 header-console disk ZIP](image_files/OurOS-Pi5-header-experimental-sd.zip).
+Extract the `.img` before flashing. To reproduce the current source build, use
+the Pi build command below. [Image archive and cleanup](docs/image-archive.md)
 <p align="center">
   <img src="docs/assets/boot-replay.gif" width="100%" alt="Animated illustration replaying captured OurOS startup, CPU information, uptime and echo commands." />
   <br />
@@ -191,8 +97,8 @@ Current development images stay local; the user handles GitHub publication.
 ![Physical memory allocator tests](proofs/Screenshot%202026-11-08%20174124.png)
 ![RAM root filesystem and MB/MiB memory details](proofs/Screenshot%202026-11-08%20181454.png)
 
-These captures verify the earlier memory and RAMFS revisions. They do not
-establish that the new Pi SD-card handoff or Wi-Fi query has passed.
+These early captures show the physical page allocator and RAMFS before the
+later storage, networking, and user-mode tests.
 
 </details>
 
@@ -202,71 +108,46 @@ establish that the new Pi SD-card handoff or Wi-Fi query has passed.
   <img src="docs/assets/boot-path.svg" width="100%" alt="Implemented boot path: firmware, AArch64 entry, board initialization, kernel services and serial monitor." />
 </p>
 
-OurOS uses a modular monolithic design. Board code selects the hardware interface;
-shared kernel code implements the console, timer access and command monitor.
-The current monitor runs in privileged EL1 on one active core. MMU protection,
-timer interrupts and cooperative task tests are enabled explicitly by commands.
+OurOS uses a modular monolithic kernel. The monitor and device drivers run
+on the boot CPU. The normal serial shell schedules EL0 there. After
+`smpstart` and `smpirq on`, `appmulti` and `appsmpshell` run EL0 slices on
+secondary CPUs, with syscalls, drivers, and page ownership serialized on
+the boot CPU. Kernel tasks use cooperative EL1 scheduling.
+[Multicore scheduling and memory](docs/core-vm-smp.md) ·
+[Kernel tasks](docs/kernel-tasks.md)
 
-| Working today | Implementation |
+| Subsystem | Implementation |
 | :--- | :--- |
-| AArch64 entry | Stack setup, BSS clearing, masked exceptions and EL1/EL2 handoff |
-| Exceptions and IRQs | Full saved EL1 frames, fatal diagnostics, controlled BRK/MMU recovery and timer dispatch; Pi verified |
-| Serial console | Polling PL011; firmware-preserved RP1 UART setup on the tested Pi |
-| Device-tree subset | Bounded UART/clock/RAM discovery for **QEMU virt** |
-| Time and CPU | Counter/uptime/MIDR plus new GICv2/PPI30 periodic timer with start/stop and register-return tests |
-| Physical memory | DTB RAM/reservations and 4 KiB pages, also observed on the real Pi |
-| Root filesystem | Writable RAMFS with paths and monitor commands, also observed on the real Pi |
-| Storage | USB BOT capacity/sectors and FAT32 `/boot` observed on Pi, including reads after ring wrap; virtio tested in QEMU |
-| USB | Pi DMA/descriptors observed; configuration, bulk/event ring cycling and SCSI reads tested in QEMU |
-| Wi-Fi | WPA3, keys/peer authorization, DHCP, ARP, DNS, hostname/numeric Internet ping and clean disconnect observed on Pi; long-lived maintenance remains |
-| Kernel heap | 16..4096-byte buffers, calloc/realloc/free, zeroing/page reclamation and RAMFS use; Pi self-tests/count restoration verified |
-| MMU protection | Opt-in identity maps, RO code/constants, XN data/device memory, null/boot stack guards and controlled faults verified on Pi; new private task guards |
-| Kernel tasks | Cooperative EL1 saved contexts, 16 KiB guarded stacks, yield, timed sleep/wakeup, exit and repeatable self-test; Pi verified |
-| Persistent data | USB WRITE10/WCE=0 sync, separate `/data` snapshot volume with eight 4 KiB files; Pi writes verified, power-cycle check pending |
-| Kernel monitor | Line editing, command dispatch, echo and overflow recovery |
-| Image tooling | Native PowerShell packaging, MBR/FAT32 generation and independent extraction checks |
-| Emulator validation | A53/A76 monitor tests, EL1/EL2 handoff, fatal faults and GDB startup checks |
+| Boot and interrupts | AArch64 EL1/EL2 entry, device-tree discovery, GICv2, architectural timer, peripheral SPI dispatch, and SGIs |
+| Memory and isolation | 4 KiB physical pages, small-object kernel heap, protected kernel and user mappings, private ELF address spaces, file-backed snapshots, shared mappings, demand-zero pages, and broadcast TLB invalidation |
+| Processes and IPC | ELF loading and exec, nested process trees, weighted EL0 scheduling, named IPC, descriptor passing, signals, fault records, and timed waits |
+| Shell and services | Interactive serial shell, redirected I/O, seven-stage pipelines, four shell jobs, three supervised service slots, and checked file and socket descriptors |
+| Filesystems and storage | Writable RAMFS at `/`, read-only FAT32 at `/boot`, and USB-backed v5 extents at `/data` with up to 32 nodes and 32 KiB per file. The kernel also supports older data formats and explicit v4 archive import into v5. |
+| Networking | WPA3/SAE station sessions, RP1 Ethernet, DHCP, ARP, IPv4, ICMP and DNS, UDP sockets, and bounded outbound TCP with half-close. User applications exercise pinned P-256 TLS 1.3 and HTTPS downloads. |
+| Packages | Managed ELF versions with rollback, and a signed multi-file repository with dependency validation and installer commands |
+| Platform drivers | PL011, timer and GICv2, USB xHCI/BOT and boot-keyboard reports, microSD reads, GPIO diagnostics, PCIe and RP1 diagnostics, and an opt-in HDMI framebuffer console |
 
-The FAT32 boot partition is read by the Pi firmware. Our kernel creates a
-separate [RAM root filesystem](docs/ramfs.md). `storageinit` attempts a read-only
-[FAT32 mount at /boot](docs/storage.md) from SD handoff or experimental USB2 BOT
-on Pi, and virtio or USB on QEMU. Follow the [pendrive test](docs/usb.md) on a
-fresh boot; the latest Pi capture verifies capacity, sectors and file reads.
-[Physical memory](docs/memory.md) and RAMFS
-have hardware evidence; Pi SD reads still need their own test. The heap has Pi
-self-test evidence. MMU and timer interrupts have Pi evidence. Cooperative
-task/file I/O now has Pi evidence, as do data write/read/sync. EL0 programs,
-private mappings, checked syscalls, user preemption and local ELF installation
-now pass on Pi; see [application tests](docs/user-applications.md).
-[User tools](docs/user-tools.md), arguments, private cwd, metadata calls and
-sleep/wake now pass on Pi. The [interactive shell](docs/user-shell.md) is the
-current application stage, with physical acceptance pending.
-[Wi-Fi](docs/wifi.md) provides the tested foreground connection.
+### Source map
 
-<details>
-<summary><strong>Explore the source map</strong></summary>
-
-```text
-arch/aarch64/       CPU entry and exception vectors
-boards/            Raspberry Pi 5 and QEMU board initialization
-boot/rpi5/         Firmware config, asset pins and boot-file notes
-drivers/           PL011 UART and architectural timer
-kernel/core/       Monitor, console and QEMU device-tree reader
-kernel/memory/     RAM/reservations and physical page allocation
-filesystem/        Bounded RAM root filesystem
-include/           Internal interfaces
-lib/               Freestanding memory helpers
-linker/            Board memory layouts
-scripts/           Native Windows builds, image generation and checks
-tests/             Toolchain probes and host-side device-tree tests
-proofs/            Original screenshots from the physical Pi 5
-docs/              Architecture, evidence, guides and generated artwork
-```
-
-Some additional directories reserve space for future subsystems. Their presence
-does not imply those drivers or services are implemented.
-
-</details>
+| Path | What lives there |
+| :--- | :--- |
+| [`arch/aarch64/`](arch/aarch64/) | CPU entry, exception vectors, MMU control, context switching, and secondary CPU bring-up |
+| [`boards/`](boards/) | Pi 5 and QEMU board setup |
+| [`boot/rpi5/`](boot/rpi5/) | Firmware configuration, device-tree asset pins, and boot notes |
+| [`drivers/`](drivers/) | UART, timer, interrupts, xHCI and USB storage, SD/SDIO, radio, RNG, and framebuffer |
+| [`drivers/platform/`](drivers/platform/) | Pi firmware mailbox and health queries, PCIe, RP1 discovery, GEM Ethernet, DMA, and MSI-X diagnostics |
+| [`filesystem/`](filesystem/) | VFS, RAMFS, FAT32, and persistent snapshot and extent formats |
+| [`kernel/core/`](kernel/core/) | Monitor and console commands, boot and storage setup, app management, and package installation |
+| [`kernel/memory/`](kernel/memory/) | Physical page allocation, kernel heap, MMU table policy, and SMP page leases |
+| [`kernel/process/`](kernel/process/) and [`kernel/scheduler/`](kernel/scheduler/) | ELF loader, process and syscall handling, user memory, scheduling policy, kernel tasks, and network worker |
+| [`include/`](include/) | Kernel interfaces and the OurOS user syscall ABI |
+| [`lib/`](lib/) | Freestanding memory and crypto, WPA3/SAE primitives, TLS 1.3, and HTTP download parsing |
+| [`network/`](network/) | Ethernet/IPv4 data paths, ARP/ICMP, DHCP, DNS, and UDP and TCP socket engines |
+| [`user/applications/`](user/applications/) | EL0 shell, commands, utilities, demos, and acceptance programs |
+| [`user/runtime/`](user/runtime/) | ELF entry and linker layout, syscall wrappers, allocation, and reusable file, stream, and network helpers |
+| [`linker/`](linker/) | Kernel image and memory layouts |
+| [`scripts/`](scripts/) and [`tests/`](tests/) | Build, image, and update tooling, plus host and emulator tests |
+| [`proofs/`](proofs/) and [`docs/`](docs/) | Pi captures, architecture, driver status, and developer guides |
 
 ## Boot it yourself
 
@@ -289,7 +170,7 @@ Files are volatile and return to their initial contents after reboot.
 <summary><strong>Build the physically tested Pi 5 header-console variant</strong></summary>
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/image-rpi5.ps1 -Console header -KeepBuildFiles
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/image-rpi5.ps1 -Console header -DataVersion 5 -KeepBuildFiles
 ```
 
 Generated whole-card image:
@@ -311,9 +192,8 @@ The current header build uses the firmware mapping captured on the tested board,
 `0x1c00030000`. Other firmware mappings require separate verification. The default
 build uses the small UART10 connector and has not been physically tested.
 
-Generated images and downloaded tools are excluded from Git. Build the image
-locally; no hosted binary release is claimed here. Choose your intended SD card
-carefully when flashing because writing an image replaces its existing contents.
+Build the current disk image locally. Flash it to the intended USB drive or
+SD card after checking the target, since flashing replaces the drive contents.
 
 [Full wiring and boot guide](docs/rpi5-header-uart.md) · [Disk-image guide](docs/disk-image.md)
 
@@ -347,62 +227,32 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 
 | Target | CPU | Current state |
 | :--- | :--- | :--- |
-| **Raspberry Pi 5** | BCM2712 · Cortex-A76 · AArch64 | Header-console kernel boot and commands observed on hardware |
-| **QEMU virt** | Cortex-A53 / Cortex-A76 | Shared startup, monitor and diagnostics tested in emulation |
+| **Raspberry Pi 5** | BCM2712 · Cortex-A76 · AArch64 | USB boot, serial shell, multicore EL0, v5 storage, and networking verified on the header-console build |
+| **QEMU virt** | Cortex-A53 / Cortex-A76 | Shared kernel, storage, process, and SMP test suites exercised in emulation |
 | **Raspberry Pi Zero 2 W** | BCM2710A1 · Cortex-A53 · 512 MB | Planned physical port; compiler probe only |
 
 ## The next frontier
 
-- [x] Native Windows cross-build and QEMU bring-up
-- [x] EL1 startup, serial monitor and fatal exception diagnostics
-- [x] Firmware-style EL1/EL2 handoff tests
-- [x] Whole-card experimental Pi 5 image generation
-- [x] Real Pi 5 header UART boot, CPU information, echo and advancing uptime
-- [x] Memory discovery, reservations and physical pages: host/QEMU tests
-- [x] Physical Pi memory validation: pattern tests, allocation and release
-- [x] RAM root filesystem and file commands: host/QEMU tests
-- [x] Physical Pi validation of the RAMFS and MB/MiB revision
-- [x] Read-only FAT32, mount routing and QEMU block reads
-- [x] Physical Pi USB BOT sectors, FAT32 files and bulk/event ring cycling
-- [x] Physical Pi Wi-Fi SDIO and ChipCommon identification
-- [x] Physical Pi Wi-Fi core map, 800 KiB RAM and selector restoration
-- [x] Physical Pi firmware upload/readback with CR4 halted
-- [x] Physical Pi firmware startup and shared-memory initialization
-- [x] Physical Pi read-only FullMAC control replies (firmware 7.45.265)
-- [x] Physical Pi capability/CLM/country IN verification
-- [x] Physical Pi passive scan/events including SAE + required PMF hotspot
-- [x] Physical Pi RNG source and live SAE peer confirmation
-- [x] Physical Pi association and EAPOL M2/M3 MIC/unwrap verification
-- [x] Physical Pi authenticated key-data validation and offline M4
-- [x] Physical Pi firmware key installation/live M4 with authenticated M3 retries
-- [x] Physical Pi peer-port authorization/readback and DHCP DORA
-- [x] Physical Pi address checks, ARP and three gateway ICMP replies
-- [x] Physical Pi foreground session and numeric external ping
-- [x] Physical Pi DNS lookup, hostname ping and clean disconnect
-- [x] Physical Pi kernel heap self-tests and packed RAMFS seed buffers
-- [x] Physical Pi MMU identity protection, RAMFS edits and USB/FAT reads
-- [x] Physical Pi exception return, GICv2 and timer IRQs
-- [x] Physical Pi cooperative task contexts, guarded stacks and sleep/wakeup
-- [ ] Physical Pi USB writes/flush and persistent `/data` across reboot (new revision)
-- [x] Pi `/data` mount, write/read and WCE=0 sync (same-session evidence)
-- [x] Kernel owned file handles, cursors, path leases and automatic task cleanup
-- [x] Physical Pi file handles and task I/O before/after USB attachment
-- [ ] Physical Pi data power-cycle persistence check
-- [ ] Persistent supplicant, group rekey, lease renewal and background networking
-- [ ] Physical Pi SD-card handoff
-- [ ] General peripheral IRQ dispatch, IRQ-safe concurrency and dynamic/user virtual memory
-- [x] ELF loader, private EL0 processes, checked syscalls and user preemption (Pi verified)
-- [x] Tiny user runtime and verified local ELF installation (QEMU)
-- [x] User utilities, quoted arguments, cwd/metadata and sleep/wake (Pi verified)
-- [x] Interactive EL0 builtin shell, checked terminal input and mutation calls
-- [ ] Pi shell acceptance, physical persistence across reboot, background services and general packages
-- [ ] VFS, storage and persistent filesystems
-- [ ] GPIO, display, USB input and networking
-- [ ] Pi Zero 2 W physical bring-up and later multicore support
+### Passed on Raspberry Pi 5
 
-<p align="center">
-  <img src="docs/assets/footer.svg" width="100%" alt="Next frontier: memory. Discover, reserve, allocate. One verified boundary at a time." />
-</p>
+- [x] USB boot to the serial shell with MMU protection, GICv2 timer IRQs, and protected EL0 programs.
+- [x] Eight foreground slots, three supervised service slots, nested processes, named IPC, descriptor passing, and the `CORECHK.ELF` suite.
+- [x] Seven-stage binary pipelines, four background shell jobs, and multicore EL0 execution in `appsmpshell`.
+- [x] Secondary-core bring-up, SGIs and peripheral SPIs, shared work queues, worker page leases, general user-mapping TLB shootdown, demand paging, and cached RP1 DMA diagnostics.
+- [x] USB-backed v5 cold retention, v4 archive import and physical power-cut recovery on spare media, named-app lifecycle, and signed packages with dependencies.
+- [x] WPA3 Wi-Fi and hotspot reconnect, wired DHCP activation, UDP and outbound TCP echo, pinned TLS 1.3 echo, and HTTPS package download.
+- [x] Read-only microSD sector reads and USB boot-keyboard report detection. [microSD capture](proofs/pi5-microsd-tail-2026-11-24.txt) · [Keyboard capture](proofs/pi5-usb-keyboard-port-2026-11-24.txt)
+
+### Open engineering work
+
+- [ ] Extend multicore scheduling to services and broader driver concurrency, with per-CPU run queues and IRQ affinity.
+- [ ] Expand kernel image headroom beyond the current firmware handoff layout.
+- [ ] Wire USB HID input into the shell and verify the HDMI console on a physical display.
+- [ ] Verify wired Gigabit negotiation, add network route selection, and capture DHCP rebinding and lease-loss cases on hardware.
+- [ ] Automate host and QEMU regression tests in GitHub Actions.
+- [ ] Continue remaining peripheral drivers and Pi Zero 2 W bring-up.
+
+[Detailed roadmap](docs/remaining-os-roadmap.md) · [Hardware driver plan](docs/platform-driver-plan.md)
 
 <details>
 <summary><strong>Documentation, artwork and licensing</strong></summary>
