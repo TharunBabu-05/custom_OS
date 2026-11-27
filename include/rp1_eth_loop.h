@@ -1,6 +1,7 @@
 #ifndef OS_RP1_ETH_LOOP_H
 #define OS_RP1_ETH_LOOP_H
 #include "dhcp.h"
+#include "netprobe.h"
 #include "ethernet_ipv4.h"
 #include "rp1_dma_test.h"
 #include "udp.h"
@@ -47,9 +48,10 @@ struct rp1_eth_dma {
     struct gem_registers saved;
     struct ethernet_ipv4 ipv4;
     struct rp1_eth_dma_stats *stats;
+    struct netprobe *claim;
     uint64_t submitted,reply_due[2];
     uint32_t bus;
-    unsigned head,tx_head;
+    unsigned head,tx_head,dhcp_other;
     bool pending,tcp_enabled,tcp_first;
 };
 extern const uint8_t rp1_eth_mac[6];
@@ -60,6 +62,7 @@ enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *,const struct rp1_
 enum block_result rp1_eth_dma_service(struct rp1_eth_dma *,uint64_t now_ms);
 enum block_result rp1_eth_dma_dhcp_poll(struct rp1_eth_dma *,struct dhcp_client *,uint64_t now_ms);
 enum block_result rp1_eth_dma_dhcp_send(struct rp1_eth_dma *,const void *,size_t,uint64_t now_ms);
+enum block_result rp1_eth_dma_claim_send(struct rp1_eth_dma *,enum netprobe_packet,const void *,size_t,uint64_t now_ms);
 void rp1_eth_dma_sample(struct rp1_eth_dma *);
 bool rp1_eth_dma_close(struct rp1_eth_dma *);
 #endif

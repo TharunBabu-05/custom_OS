@@ -522,9 +522,33 @@ link loss or speed change ends the probe. `ethdhcp cancel` stops it while
 holding the PHY for another run, and `ethdown` also releases the PHY hold.
 `ethstats` retains the probe's DMA and MAC counters after it finishes.
 
-The static address displayed by `ethaddr` stays in effect for the next
-socket session. The observed DHCP address is metadata until address
-conflict detection and lease installation are available. The host tests
-exercise a complete exchange through the GEM model, unrelated traffic,
-retry exhaustion, cancellation, and DMA restoration. Real Pi DHCP
-acceptance is pending.
+The plain probe records metadata. The host tests exercise a complete
+exchange through the GEM model, retry exhaustion, cancellation, and DMA
+restoration. The Pi verified cancellation and resource cleanup. The router
+trial ended after one completed transmission, before an OFFER or ACK was
+recorded. [Phase 58 Pi capture](../proofs/pi5-wired-dhcp-probe-2026-11-27.txt)
+
+## Phase 59 wired DHCP LAN sessions
+
+The `ethdhcp up` command obtains a fresh lease and checks the offered
+address. It runs three ARP probes and two announcements through the same
+GEM DMA session. During the check it listens for existing owners and
+competing probes. If the check detects a conflict, it attempts a DHCPDECLINE
+and enforces a ten-second retry delay for wired DHCP. The claim can finish
+on a local network with no default router option.
+[IPv4 address conflict detection](https://www.rfc-editor.org/rfc/rfc5227.html#section-2.1)
+[DHCP client-server interaction](https://www.rfc-editor.org/rfc/rfc2131.html#section-3.1)
+
+After the check, the DHCP address and mask provide local-subnet TCP and
+UDP connectivity. `ethlease` reports `checking-address`, `bound`, and
+terminal results, plus ARP counts and conflict details. `ethaddr` and
+`netstat` show the active lease address. `ethdown`, lease expiration,
+carrier interruption, or a later address conflict invalidate the sockets
+and remove the lease from service. A later static session uses its
+configured address. Wired renewal and routed traffic are future work.
+
+The DHCP receiver counts non-DHCP traffic under `other`. `rx`, `ignored`,
+and `malformed` cover DHCP candidates. The native GEM fixtures passed
+acquisition, ARP announcement, duplicate-address refusal and DECLINE,
+early expiry, conflict after activation, and DMA restoration. The Pi
+still needs a complete router exchange and bound-session test.

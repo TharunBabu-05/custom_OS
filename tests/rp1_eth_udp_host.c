@@ -109,7 +109,7 @@ struct dhcp_exchange {
     struct rp1_eth_dma *dma;
     struct dhcp_client client;
     uint64_t now;
-    bool reply,cancel;
+    bool reply,cancel,conflict;
 };
 
 static uint64_t dhcp_clock(void *context) { return ((struct dhcp_exchange *)context)->now; }
@@ -153,32 +153,115 @@ static enum block_result dhcp_transmit(void *context,const void *frame,size_t by
     return dhcp_poll(x);
 }
 
+static enum block_result claim_transmit(void *context,enum netprobe_packet kind,unsigned sequence,const void *frame,size_t bytes)
+{
+    struct dhcp_exchange *x=context;
+    const uint8_t *packet=frame;
+    struct ethernet_ipv4 local;
+    assert(!sequence && (kind==NP_ARP_PROBE || kind==NP_ARP_ANNOUNCE));
+    assert(bytes==60 && !memcmp(packet+38,x->client.lease.address,4));
+    assert(net_be32(packet+28)==(kind==NP_ARP_PROBE ? 0 : net_be32(x->client.lease.address)));
+    assert(rp1_eth_dma_claim_send(x->dma,kind,frame,bytes,x->now)==BLOCK_OK);
+    if (x->conflict) {
+        assert(ethernet_ipv4_configure(&local,x->client.lease.address,24));
+        request_arp(x->gem,x->dma->head,&local);
+        memset(x->gem->memory.received[x->dma->head]+28,0,4);
+    }
+    complete(x->gem);
+    return dhcp_poll(x);
+}
+
+static void verify_claim(struct dhcp_exchange *x)
+{
+    struct netprobe claim={0};
+    struct ethernet_ipv4 local;
+    const uint8_t entropy[32]={[8]=1,[24]=1};
+    uint8_t decline[DHCP_FRAME_BYTES];size_t bytes;
+    struct rp1_eth_dma *dma=x->dma;
+    struct fixture *gem=x->gem;
+    dma->claim=&claim;
+    assert(ethernet_ipv4_configure(&local,x->client.lease.address,24));
+    assert(dhcp_encode_decline(&x->client,decline,sizeof(decline),&bytes)==BLOCK_OK);
+    assert(rp1_eth_dma_dhcp_send(dma,decline,bytes,x->now)==BLOCK_ARGUMENT);
+    const struct netprobe_io io={x,claim_transmit,dhcp_poll,dhcp_delay,dhcp_clock,dhcp_ready};
+    x->client.lease.have_router=false;
+    const uint64_t origin=x->now;
+    enum block_result result=netprobe_claim(&io,rp1_eth_mac,&x->client.lease,entropy,origin,&claim);
+    if (x->conflict) {
+        assert(result==BLOCK_IO && claim.conflict && !claim.active && !claim.announcements);
+        assert(!memcmp(claim.conflict_mac,peer_mac,6));
+        assert(rp1_eth_dma_dhcp_send(dma,decline,bytes,x->now)==BLOCK_OK);
+        assert(gem->memory.frame[42+242]==4);
+        complete(gem);
+        assert(dhcp_poll(x)==BLOCK_OK);
+    } else if (x->client.lease.seconds==1) {
+        assert(result==BLOCK_TIMEOUT && !claim.active && claim.probes==1 && !claim.announcements);
+    } else {
+        assert(result==BLOCK_OK && claim.active && claim.probes==3 && claim.announcements==2 && x->now-origin>=8000);
+        dma->ipv4=local;
+        dma->tcp_enabled=true;
+        const uint8_t secret[32]={3};
+        assert(udp_link_up(rp1_eth_mac,local.address,local.mask));
+        assert(tcp_link_up(rp1_eth_mac,local.address,local.mask,secret));
+        const struct uos_udp_peer peer={{192,0,2,1},4040,50000};
+        const struct uos_tcp_peer tcp_peer={{192,0,2,1},4041,0};
+        int64_t handle=udp_open(1,&peer);
+        int64_t stream=tcp_open(1,&tcp_peer,x->now);
+        assert(handle>0 && stream>0);
+        request_arp(gem,dma->head,&local);
+        assert(rp1_eth_dma_service(dma,x->now)==BLOCK_OK && dma->pending);
+        assert(net_be16(gem->memory.frame+20)==2 && !memcmp(gem->memory.frame+28,local.address,4));
+        complete(gem);
+        request_arp(gem,dma->head,&local);
+        memcpy(gem->memory.received[dma->head]+28,local.address,4);
+        assert(rp1_eth_dma_service(dma,x->now)==BLOCK_IO && claim.conflict && !dma->pending);
+        udp_link_down();
+        tcp_link_down();
+        assert(udp_ready(1,handle)==UOS_EVENT_HANGUP);
+        assert(tcp_ready(1,stream)==UOS_EVENT_HANGUP);
+    }
+    netprobe_close(&claim);
+    dma->claim=NULL;
+}
+
 static void test_dhcp(const struct rp1_dma_io *io,struct fixture *f,const uint32_t *original)
 {
     const uint8_t entropy[10]={0x12,0x34,0x56,0x78};
-    for (unsigned i=0;i<3;++i) {
+    for (unsigned i=0;i<5;++i) {
         memcpy(f->regs,original,sizeof(f->regs));
         f->starts=0;
         struct rp1_eth_dma session;
         struct rp1_eth_dma_stats stats={0};
-        struct dhcp_exchange x={.gem=f,.dma=&session,.reply=i==0,.cancel=i==2};
+        struct dhcp_exchange x={.gem=f,.dma=&session,.reply=i!=1 && i!=2,.cancel=i==2,.conflict=i==3};
         assert(rp1_eth_dma_open(&session,io,&f->memory,BUS,100,NULL,false,&stats)==GEM_LOOP_OK);
         assert(rp1_eth_dma_service(&session,0)==BLOCK_NOT_READY);
         request_arp(f,session.head,&rp1_eth_default_ipv4);
+        unsigned other=session.head^1;
+        memset(f->memory.received[other],0,60);
+        memset(f->memory.received[other],255,6);
+        memcpy(f->memory.received[other]+6,peer_mac,6);
+        net_put16(f->memory.received[other]+12,0x800);
+        f->memory.received[other][14]=0x45;
+        f->memory.received[other][23]=6;
+        receive(f,other,60);
         assert(rp1_eth_dma_dhcp_send(&session,f->memory.received[session.head],60,0)==BLOCK_ARGUMENT);
         const struct dhcp_io probe={&x,dhcp_transmit,dhcp_poll,dhcp_delay,dhcp_clock,dhcp_ready};
-        const enum block_result expected[]={BLOCK_OK,BLOCK_TIMEOUT,BLOCK_NOT_READY};
-        const unsigned starts[]={2,3,1};
+        const enum block_result expected[]={BLOCK_OK,BLOCK_TIMEOUT,BLOCK_NOT_READY,BLOCK_OK,BLOCK_OK};
+        const unsigned starts[]={2,3,1,2,2};
         assert(dhcp_probe_run(&probe,rp1_eth_mac,entropy,&x.client)==expected[i]);
-        assert(x.client.ignored==1 && x.client.request_sent==(unsigned)x.reply && f->starts==starts[i]);
+        assert(!x.client.ignored && !x.client.malformed && x.client.received==(x.reply ? 2 : 0) && session.dhcp_other==2);
+        assert(x.client.request_sent==(unsigned)x.reply && f->starts==starts[i]);
         if (x.reply) {
             assert(x.client.phase==DHCP_ACKED && x.client.lease.seconds==3600);
             assert(!memcmp(x.client.lease.address,(const uint8_t[]){192,0,2,10},4));
+            if (i==4) { x.client.lease.seconds=1; }
+            verify_claim(&x);
         }
         assert(rp1_eth_dma_close(&session) && !memcmp(original,f->regs,sizeof(f->regs)));
-        assert(stats.tx_submitted==starts[i] && stats.tx_completed==starts[i] && stats.mac_tx==starts[i]);
+        const unsigned completed[]={8,3,1,4,3};
+        assert(stats.tx_submitted==completed[i] && stats.tx_completed==completed[i] && stats.mac_tx==completed[i]);
     }
-    puts("PASS: GEM DHCP offer/ACK, bootstrap-only traffic, no-server timeout, cancellation and DMA restoration.");
+    puts("PASS: GEM DHCP filtering, offer/ACK, timeout, cancellation, ARP claim, conflict/DECLINE, expiry and DMA restoration.");
 }
 
 static size_t request_ping(struct fixture *f,unsigned slot,const struct ethernet_ipv4 *local,

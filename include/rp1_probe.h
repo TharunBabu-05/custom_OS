@@ -36,7 +36,7 @@ struct rp1_mip {
 struct rp1_mip_snapshot { uint64_t edge,host_mask,vpu_mask,host_pending; };
 enum rp1_snapshot_result { RP1_SNAPSHOT_OK, RP1_SNAPSHOT_LINK, RP1_SNAPSHOT_WINDOW, RP1_SNAPSHOT_IO };
 enum rp1_phy_result { RP1_PHY_OK,RP1_PHY_MAC,RP1_PHY_BUSY,RP1_PHY_IO,RP1_PHY_NO_REPLY,RP1_PHY_RESTORE,RP1_PHY_PIN,RP1_PHY_MODE };
-enum rp1_eth_action { ETH_PROBE,ETH_PULSE,ETH_UP,ETH_DOWN,ETH_ARP,ETH_LOOP,ETH_RECOVER,ETH_PING,ETH_UDP_UP,ETH_TCP_UP,ETH_DHCP };
+enum rp1_eth_action { ETH_PROBE,ETH_PULSE,ETH_UP,ETH_DOWN,ETH_ARP,ETH_LOOP,ETH_RECOVER,ETH_PING,ETH_UDP_UP,ETH_TCP_UP,ETH_DHCP,ETH_DHCP_UP };
 enum { RP1_GEM_RX_TX=12,RP1_GEM_MPE=1u<<4,RP1_GEM_MDC_DIV_224=7u<<18 };
 struct rp1_phy_snapshot { uint32_t mac_id,phy_id; uint16_t control,status,aux; bool pulsed,restarted; };
 unsigned rp1_phy_full_duplex_speed(const struct rp1_phy_snapshot *);

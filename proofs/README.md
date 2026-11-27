@@ -1,5 +1,9 @@
 # Real Raspberry Pi 5 proof
 
+Phase 58 verified cancellation and Ethernet resource cleanup. The router
+trial recorded one completed transmission before shutdown and left the
+OFFER and ACK unverified. [Phase 58 Pi capture](pi5-wired-dhcp-probe-2026-11-27.txt)
+
 Phase 57 matched all three UDP probes on their first attempts without
 repeats or queue drops, then passed the 16 KiB TCP half-close. GEM and
 DMA frame counts matched and the Ethernet resource claims were released.

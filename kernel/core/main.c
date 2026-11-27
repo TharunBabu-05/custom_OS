@@ -149,7 +149,9 @@ static void command(const char *line)
     if (equal(line,"ethrecover")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_RECOVER); return; }
     if (equal(line,"ethstatus")) { rp1_ethernet_status(); return; }
     if (equal(line,"ethstats")) { rp1_ethernet_stats(); return; }
-    if (equal(line,"ethdhcp")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_DHCP); return; }
+    if (equal(line,"ethdhcp") || equal(line,"ethdhcp up")) {
+        rp1_ethernet_command(firmware_dtb,board.uart_base,line[7] ? ETH_DHCP_UP : ETH_DHCP); return;
+    }
     if (equal(line,"ethdhcp cancel")) { rp1_ethernet_dhcp_cancel(); return; }
     if (equal(line,"ethlease")) { rp1_ethernet_lease(); return; }
     if (equal(line,"ethping")) { rp1_ethernet_command(firmware_dtb,board.uart_base,ETH_PING); return; }
@@ -193,7 +195,7 @@ static void command(const char *line)
         console_write("resinfo (active hardware resource claims)\n");
         console_write("pcieinfo [rp1] | pciewin [rp1] (Pi 5 device tree)\n");
         console_write("rp1info ethprobe [reset] ethup ethdown ethrecover ethstatus ethstats ethloop etharp ethping ethaddr [IPv4/prefix] ethudpup ethtcpup\n");
-        console_write("ethdhcp [cancel] | ethlease (wired DHCP lease probe)\n");
+        console_write("ethdhcp [up|cancel] | ethlease (wired DHCP probe or LAN session)\n");
         console_write("rp1msiinfo (Pi 5 PCIe MSI-X capability and doorbell)\n");
         console_write("rp1dmatest (Pi 5 DMA scratch copy)\n");
         console_write("rp1irqtest (GIC edge dispatch on test INTID)\n");

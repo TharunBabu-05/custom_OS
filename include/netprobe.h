@@ -8,7 +8,7 @@ enum netprobe_packet { NP_ARP_PROBE,NP_ARP_ANNOUNCE,NP_ARP_RESOLVE,NP_ARP_REPLY,
 struct netprobe {
     enum netprobe_phase phase;enum block_result error;
     bool attempted,armed,active,was_active,conflict,gateway_known,gateway_changed,reply_pending,resolve_issued,live;
-    bool lease_rejected;
+    bool lease_rejected,claim_only;
     unsigned char mac[6],gateway_mac[6],token[16],reply_mac[6],reply_ip[4],conflict_mac[6];
     struct dhcp_lease lease;unsigned identifier,initial_delay,probe_delay[2];
     unsigned char target[4];uint64_t ping_started,ping_next,arp_window;unsigned ping_finished,arp_window_replies;
@@ -34,6 +34,8 @@ enum block_result netprobe_run(const struct netprobe_io *,const unsigned char ma
 /* Open retains its verified temporary address for the foreground session.
  * Close is mandatory on every exit. No background task or lease renewal. */
 enum block_result netprobe_open(const struct netprobe_io *,const unsigned char mac[6],const struct dhcp_lease *,const unsigned char entropy[32],uint64_t lease_origin,struct netprobe *);
+/* Verify and announce a local address without requiring a router or ping. */
+enum block_result netprobe_claim(const struct netprobe_io *,const unsigned char mac[6],const struct dhcp_lease *,const unsigned char entropy[32],uint64_t lease_origin,struct netprobe *);
 enum block_result netprobe_ping_start(struct netprobe *,const unsigned char target[4],const unsigned char entropy[32],uint64_t now);
 enum block_result netprobe_dns_start(struct netprobe *,const char *name,const unsigned char entropy[32],uint64_t now);
 enum block_result netprobe_service(const struct netprobe_io *,struct netprobe *);

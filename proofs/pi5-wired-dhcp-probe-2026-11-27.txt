@@ -1,0 +1,66 @@
+Phase 58 Pi 5 UART excerpts reported on 2026-11-27
+
+Direct cable, with the Ethernet PHY still negotiating:
+> ethdhcp
+Ethernet link down. status=0x0000000000007949 aux=0x0000000000000000
+
+Direct cable, after link negotiation:
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethdhcp
+Ethernet link Mbps=100
+Ethernet DHCP probe started. Use ethlease or ethdhcp cancel.
+> ethlease
+Ethernet DHCP state=selecting result=6
+DHCP discover=0 request=0 rx=0 ignored=0 malformed=0 polls=119
+> ethdhcp cancel
+Ethernet DHCP state=cancelled result=6
+DHCP discover=0 request=0 rx=0 ignored=0 malformed=0 polls=360
+> ethstats
+Ethernet tx_submitted=0 tx_completed=0 tx_timeouts=0
+Ethernet rx_frames=0 rx_discarded=0 rx_overruns=0
+Ethernet mac_tx=0 mac_rx=0 mac_stats=ok
+> ethdown
+PHY hold released.
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000149000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+
+Router trial:
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethdhcp
+Ethernet link Mbps=100
+Ethernet DHCP probe started. Use ethlease or ethdhcp cancel.
+> ethlease
+Ethernet DHCP state=selecting result=6
+DHCP discover=0 request=0 rx=7 ignored=1 malformed=6 polls=81
+> ethstats
+Ethernet tx_submitted=1 tx_completed=1 tx_timeouts=0
+Ethernet rx_frames=14 rx_discarded=0 rx_overruns=0
+Ethernet mac_tx=1 mac_rx=14 mac_stats=ok
+> ethdown
+PHY hold released.
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000149000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
