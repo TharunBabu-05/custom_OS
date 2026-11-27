@@ -24,7 +24,9 @@ matched all three probes. The Phase 57 hardware retest passed the UDP
 batch with zero repeats or queue drops and the 16 KiB TCP half-close.
 The Pi verified Phase 58 DHCP cancellation and cleanup. Phase 59 adds
 ARP conflict detection and activation of a wired TCP/UDP lease for the
-local subnet. Pi acceptance requires a DHCP server on the attached LAN.
+local subnet. The Pi timed out with three completed Discover frames and
+zero RX frames. Phase 60 fixes shell cleanup accounting across DHCP
+teardown and adds a bounded DHCP wait with explicit active IPv4 reporting.
 [Secondary CPU workers](secondary-cpus.md) · [System statistics](system-stats.md) · [Process history](process-events.md) · [Process timers](user-timers.md) · [Socket readiness](socket-readiness.md)
 
 The [Pi allocator capture](../proofs/pi5-user-allocator-2026-11-15.txt) passes

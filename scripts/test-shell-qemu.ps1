@@ -491,7 +491,7 @@ if ($PlatformHealth) {
             Session $disk $name $case[0] $case[1] @('exit','datacheck','utc','platforminfo','therminfo','powerinfo','rtcinfo',
                 'rtcsync','rtcalarm','rtcset 2026-11-24T00:00:00Z',
                 'devlist','devinfo /pl011@9000000','devinfo /does-not-exist','rp1info','rp1msiinfo','rp1dmatest','ethprobe','ethprobe reset','ethup','ethdown','ethrecover','ethloop','etharp','ethping','ethudpup','ethtcpup',
-                'ethaddr','ethaddr 192.0.2.6/30','ethstatus','ethstats','ethdhcp','ethdhcp up','ethdhcp cancel','ethlease',
+                'ethaddr','ethaddr ip','ethaddr 192.0.2.6/30','ethstatus','ethstats','ethdhcp','ethdhcp up','ethdhcp cancel','ethdhcp wait','ethlease',
                 'pcieinfo','pcieinfo rp1','pciewin','pciewin rp1',
                 'gpioinfo 14','gpioinfo 27','gpioinfo 27 ','gpioinfo 28','gpiotest 17','gpiotest 28','gpioloop','gpioloop 17',
                 'gpiopull 17','gpiopull 28',
@@ -514,8 +514,8 @@ if ($PlatformHealth) {
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             if ([regex]::Matches($log,'Ethernet probe requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet command routing failed" }
             if ([regex]::Matches($log,'Ethernet DMA test requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet DMA command routing failed" }
-            if ([regex]::Matches($log,'Ethernet addressing requires a Raspberry Pi 5\.').Count -ne 2) { throw "$name Ethernet address command routing failed" }
-            if ([regex]::Matches($log,'Ethernet DHCP requires a Raspberry Pi 5\.').Count -ne 4) { throw "$name Ethernet DHCP command routing failed" }
+            if ([regex]::Matches($log,'Ethernet addressing requires a Raspberry Pi 5\.').Count -ne 3) { throw "$name Ethernet address command routing failed" }
+            if ([regex]::Matches($log,'Ethernet DHCP requires a Raspberry Pi 5\.').Count -ne 5) { throw "$name Ethernet DHCP command routing failed" }
             if ([regex]::Matches($log,'PCIe inventory requires a Raspberry Pi 5\.').Count -ne 4) { throw "$name PCIe inventory command routing failed" }
             if (!$log.Contains("> gpioloop`r`nGPIO test requires a Raspberry Pi 5.") -or
                 !$log.Contains("> gpioloop 17`r`nUsage: gpioloop")) { throw "$name GPIO loopback gate failed" }
@@ -1641,7 +1641,7 @@ if ($NetworkWorker) {
         try {
             Session $disk $name $case[0] $case[1] @(
                 'storageinit','mmuinit','irqinit','timerstart','networktest','networktest bogus',
-                @{Text='networktest e10';Delay=2400},@{Text='schedtest';Delay=2500},
+                @{Text='networktest e10';Delay=2400},@{Text='networktest cleanup';Delay=1400},@{Text='schedtest';Delay=2500},
                 'help','netup -R Example','netping','netrenew','netdown','appshell','networktest el0','netinfo',"netup -r Jack's",
                 'echo shell-responsive','exit','fileinfo','pwd','timerstop','halt'
             ) @($pass,'EL0 timeout test: infinite user loop.',
@@ -1650,7 +1650,8 @@ if ($NetworkWorker) {
                 'PASS: three guarded kernel tasks yielded/slept/exited',
                 'background session unavailable. No password requested.',
                 'Type exit, then run this command at the > monitor prompt.',
-                'No background Wi-Fi session.',"echo shell-responsive`r`nshell-responsive",'Open files: 0/16') 2
+                'No background Wi-Fi session.',"echo shell-responsive`r`nshell-responsive",'Open files: 0/16',
+                'PASS: network DMA page released during EL0 with clean app teardown.') 3
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             if ([regex]::Matches($log,[regex]::Escape($pass)).Count -ne 2) { throw "$name missed an EL0 or monitor worker pass" }
             if ($log -notmatch "netup -r Jack's\r?\nType exit, then run this command at the > monitor prompt") {

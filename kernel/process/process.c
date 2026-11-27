@@ -2495,10 +2495,10 @@ void process_service_step(void)
     service_slice=false;
     irq_restore(flags);
 }
-struct service_resources { unsigned pages,handles;bool cleanup_failed; };
-static struct service_resources service_usage(void)
+struct background_resources { unsigned pages,handles;bool cleanup_failed; };
+static struct background_resources background_usage(void)
 {
-    struct service_resources usage={0};
+    struct background_resources usage={.pages=network_worker_dma_pages()};
     for (unsigned i=0;i<SERVICE_LIMIT;++i) {
         const struct process *p=services[i].task;
         usage.cleanup_failed|=services[i].cleanup_failed;
@@ -2547,7 +2547,7 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     }
     uint64_t flags=irq_save();if (flags&0x80) { irq_restore(flags);console_write("App run refused: CPU IRQs must be unmasked.\n");return 2; }
     struct page_stats before=pages_stats();struct heap_stats heap=heap_get_stats();unsigned handles=kfile_count();
-    struct service_resources original_services=service_usage();
+    struct background_resources original_background=background_usage();
     __asm__ volatile("mrs %0, ttbr0_el1" : "=r"(kernel_root));
     zero(tasks,PROCESS_LIMIT*sizeof(tasks[0]));++epoch;total=count;current=0;switches=preemptions=yields=idles=0;last_clean=false;bool loaded=true,clean=true;
     children_spawned=children_reaped=0;child_last_code=0;child_cleanup_failed=false;
@@ -2596,13 +2596,13 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
         if (!(loaded && p->status!=UNUSED ? reap_process(p) : release(p))) { clean=false; }
     }
     struct page_stats after=pages_stats();struct heap_stats final=heap_get_stats();
-    /* RAM files created by applications legitimately retain heap storage.
-     * Account for that ownership; private process pages must all be freed. */
-    struct service_resources final_services=service_usage();
-    last_clean=clean && !child_cleanup_failed && !final_services.cleanup_failed &&
-        before.allocated_pages+final.pages+final_services.pages==after.allocated_pages+heap.pages+original_services.pages &&
-        before.free_pages+heap.pages+original_services.pages==after.free_pages+final.pages+final_services.pages &&
-        handles+final_services.handles==kfile_count()+original_services.handles && heap_check() && mmu_dma_compatible();
+    /* Charge heap, service and network pages to their own lifetimes. All
+     * foreground process pages and private descriptors must be released. */
+    struct background_resources final_background=background_usage();
+    last_clean=clean && !child_cleanup_failed && !final_background.cleanup_failed &&
+        before.allocated_pages+final.pages+final_background.pages==after.allocated_pages+heap.pages+original_background.pages &&
+        before.free_pages+heap.pages+original_background.pages==after.free_pages+final.pages+final_background.pages &&
+        handles+final_background.handles==kfile_count()+original_background.handles && heap_check() && mmu_dma_compatible();
     irq_restore(flags);process_info();
     console_write(last_clean ? "App resources restored; monitor ready.\n" : "FAIL: application resource restoration.\n");
     if (vfs_data_failed()) { vfs_data_info();platform_storage_info(); }

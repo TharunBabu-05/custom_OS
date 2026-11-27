@@ -4,6 +4,7 @@
 #include "irq.h"
 #include "cpu.h"
 #include "crypto.h"
+#include "memory.h"
 #include "process.h"
 
 enum worker_state { WORKER_IDLE,WORKER_RUNNING,WORKER_WAITING,WORKER_DONE };
@@ -12,7 +13,8 @@ static struct task_context foreground,worker;
 static void (*entry)(void *);
 static void *argument;
 static uint64_t entry_flags,last_poll;
-static bool stopping;
+static uint64_t dma_page;
+static bool stopping,dma_owned;
 
 static unsigned char *stack(void)
 { return task_stacks[NETWORK_STACK_SLOT]+TASK_GUARD_BYTES; }
@@ -90,6 +92,22 @@ bool network_worker_stop(void)
     return state==WORKER_IDLE;
 }
 
+bool network_worker_dma_alloc(uint64_t *physical)
+{
+    if (state!=WORKER_IDLE || dma_owned || !page_alloc(physical)) { return false; }
+    dma_page=*physical;dma_owned=true;
+    return true;
+}
+
+bool network_worker_dma_free(uint64_t physical)
+{
+    if (!dma_owned || dma_page!=physical || !page_free(physical)) { return false; }
+    dma_owned=false;
+    return true;
+}
+
+unsigned network_worker_dma_pages(void) { return dma_owned; }
+
 static void test_entry(void *context)
 {
     unsigned *stage=context;
@@ -117,4 +135,26 @@ bool network_worker_test(bool with_user)
     bool resumed=with_user ? stage>=10 : stage==2;
     bool stopped=network_worker_stop();
     return suspended && user_ok && resumed && stopped && stage==UINT32_MAX && !network_worker_active();
+}
+
+static void cleanup_test_entry(void *context)
+{
+    uint64_t physical=*(const uint64_t *)context;
+    (void)network_worker_pause();
+    (void)network_worker_dma_free(physical);
+}
+
+bool network_worker_cleanup_test(void)
+{
+    struct app_args args;
+    uint64_t physical;
+    if (!app_args_parse("/boot/SLEEP.ELF 250",&args) || !network_worker_dma_alloc(&physical)) { return false; }
+    if (!network_worker_start(cleanup_test_entry,&physical)) {
+        (void)network_worker_dma_free(physical);
+        return false;
+    }
+    bool success=process_exec(&args)==0;
+    bool released=!network_worker_active() && !network_worker_dma_pages();
+    (void)network_worker_stop();
+    return success && released;
 }

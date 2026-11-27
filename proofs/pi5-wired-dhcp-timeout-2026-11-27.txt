@@ -1,0 +1,61 @@
+Phase 59 Pi 5 UART and Windows PowerShell excerpts reported on 2026-11-27
+
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethdhcp up
+Ethernet link Mbps=100
+Ethernet DHCP activation started. Use ethlease.
+> ethlease
+Ethernet DHCP state=selecting result=6
+DHCP discover=0 request=0 rx=0 ignored=0 malformed=0 other=0 polls=97
+> ethaddr
+Ethernet IPv4 192.0.2.2/30
+> appshell
+Terminal assigned to EL0; shell stays open until exit.
+OurOS EL0 shell. Type help; exit returns to monitor.
+user:/$ netstat
+TCP session=down generation=0 slots=0/3
+  connecting=0 established=0 failed=0 closing=0 time_wait=0
+  segments_tx=0 retransmissions=0 bytes_tx=0 bytes_rx=0
+  fin_acked=0 resets=0 timeouts=0 arp_requests=0 arp_failures=0
+UDP session=down generation=0 slots=0/4
+  datagrams_tx=0 datagrams_rx=0 bytes_tx=0 bytes_rx=0
+  full_drops=0 timeouts=0 arp_requests=0 arp_failures=0
+child exit=0
+user:/$ exit
+EL0 processes: limit=8; private pages; timer preempts users only; runs=2 switches=2 preemptions=0 yields=0 idle_waits=8551 terminal=yes budget_seconds=unlimited children_started=1 children_reaped=1 last_child_code=0 cleanup=not-run/failed
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SHELL.ELF state=exited code=0 syscalls=26 dispatches=6 sleeps=0 wakes=0 input_lines=2 execs=0 heap_live_pages=0 heap_peak_pages=1 heap_allocations=1 heap_free_calls=1
+FAIL: application resource restoration.
+> ethdown
+PHY hold released.
+> ethlease
+Ethernet DHCP state=timeout result=3
+DHCP discover=3 request=0 rx=0 ignored=0 malformed=0 other=0 polls=2232
+> ethstats
+Ethernet tx_submitted=3 tx_completed=3 tx_timeouts=0
+Ethernet rx_frames=0 rx_discarded=0 rx_overruns=0
+Ethernet mac_tx=3 mac_rx=0 mac_stats=ok
+> resinfo
+owner=serial-console kind=mmio start=0x0000001c00030000 length=256
+owner=serial-console kind=gpio domain=0x0000001c000d0000 start=14 length=2
+owner=hat-id kind=gpio domain=0x0000001c000d0000 start=0 length=2
+owner=usb1-xhci kind=mmio start=0x0000001c00300000 length=1048576
+owner=usb1-xhci kind=dma-memory start=0x0000000000149000 length=106496
+owner=gic-timer kind=mmio start=0x000000107fff9000 length=4096
+owner=gic-timer kind=mmio start=0x000000107fffa000 length=8192
+owner=gic-timer kind=irq domain=0x000000107fff9000 start=30 length=1
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+Windows PowerShell, after entering the bare address:
+PS> ping.exe -n 3 $piIp
+Pinging 192.0.2.2 with 32 bytes of data:
+Reply from 192.0.2.1: Destination host unreachable.
+Request timed out.
+Request timed out.

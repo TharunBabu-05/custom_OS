@@ -1,5 +1,10 @@
 # Real Raspberry Pi 5 proof
 
+Phase 59 observed three completed DHCP Discover transmissions, zero
+received frames, and an EL0 resource-accounting failure during DHCP
+teardown. Storage checks and the final resource claim count passed.
+[Phase 59 Pi and Windows capture](pi5-wired-dhcp-timeout-2026-11-27.txt)
+
 Phase 58 verified cancellation and Ethernet resource cleanup. The router
 trial recorded one completed transmission before shutdown and left the
 OFFER and ACK unverified. [Phase 58 Pi capture](pi5-wired-dhcp-probe-2026-11-27.txt)

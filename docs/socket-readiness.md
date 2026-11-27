@@ -551,4 +551,28 @@ The DHCP receiver counts non-DHCP traffic under `other`. `rx`, `ignored`,
 and `malformed` cover DHCP candidates. The native GEM fixtures passed
 acquisition, ARP announcement, duplicate-address refusal and DECLINE,
 early expiry, conflict after activation, and DMA restoration. The Pi
-still needs a complete router exchange and bound-session test.
+sent three Discover frames and received no Ethernet frames in the second
+hardware trial. TCP and UDP stayed down. The DHCP worker released its DMA
+page during the EL0 shell, and the shell reported a resource mismatch.
+[Phase 59 Pi and Windows capture](../proofs/pi5-wired-dhcp-timeout-2026-11-27.txt)
+
+## Phase 60 DHCP wait and resource accounting
+
+`ethdhcp wait` waits for acquisition and address checks to finish, then
+prints the current lease result. Timer interrupts keep the network worker
+and background services moving during the wait. Ctrl+C returns to the
+monitor with the probe still running. A `bound` result identifies an
+address ready for LAN traffic. A timeout with zero DHCP replies calls out
+the need to check the DHCP server on the attached LAN.
+
+`ethaddr` labels whether the displayed address is active. `ethaddr ip`
+prints just the active IPv4 address for a Windows ping. The direct Windows
+cable setup at `192.0.2.1/30` uses the static OurOS session at
+`192.0.2.2/30`. The DHCP test requires a DHCP-enabled LAN.
+
+The scheduler tracks the RP1 worker's DMA page separately from EL0
+process pages. A page released by the worker changes the background
+resource baseline, so a shell can finish after the worker times out.
+`networktest cleanup` runs an EL0 sleeper across a background page
+release and checks that the application cleanup still succeeds. The
+Pi still needs a complete router exchange and bound-session test.

@@ -225,10 +225,15 @@ bool storage_command(const char *line)
         return true;
     }
 #endif
+    if (same(line,"networktest cleanup")) {
+        console_write(network_worker_cleanup_test() ? "PASS: network DMA page released during EL0 with clean app teardown.\n" :
+                      "FAIL: network DMA page accounting.\n");
+        return true;
+    }
     if (same(line,"networktest") || begins(line,"networktest ")) {
         bool el0=same(line,"networktest el0") || same(line,"networktest e10") || same(line,"networktest elO");
         if (!el0 && !same(line,"networktest")) {
-            console_write("Usage: networktest [el0] (e, lowercase L, digit zero)\n");return true;
+            console_write("Usage: networktest [el0] (e, lowercase L, digit zero) or networktest cleanup\n");return true;
         }
         if (network_worker_active()) { console_write("Stop the active network worker first.\n");return true; }
         console_write(network_worker_test(el0) ?

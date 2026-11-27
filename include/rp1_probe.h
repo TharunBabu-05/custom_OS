@@ -81,5 +81,6 @@ void rp1_ethernet_status(void);
 void rp1_ethernet_stats(void);
 void rp1_ethernet_lease(void);
 void rp1_ethernet_dhcp_cancel(void);
+void rp1_ethernet_dhcp_wait(void);
 bool rp1_gpio_command(const char *,uintptr_t dtb,uintptr_t uart);
 #endif
