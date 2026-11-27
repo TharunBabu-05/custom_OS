@@ -99,8 +99,9 @@ drive.
 
 ## Pi acceptance using the spare image
 
-Write `build/rpi5-header/OurOS-Pi5-header-phase32-spare-acceptance.img`
-to a spare USB drive. The image is 128 MiB.
+Write `build/rpi5-header/OurOS-Pi5-header-phase65-storage-acceptance.img`
+to a spare USB drive. The Phase 65 image uses the current kernel and the
+Phase 32 storage fixtures. The image is 128 MiB.
 Flashing erases the selected target. The image contains a v4 demo
 archive, a blank v5 data partition, the signed demo repository,
 and the spare-media interruption marker.
@@ -190,12 +191,21 @@ start prints the revision-two assets. The last file count is zero.
 
 ### Test an interrupted write
 
+For the standalone migration check on freshly flashed media, run `df /data`
+and `cat /boot/CUTTEST.TAG` in the startup shell. Confirm an empty v5 `/data`
+and the spare-media marker. Run `exit`, `datarestore /boot/DEMO.BAK`, and
+`datacheck` at the monitor. Then run `appshell`, `sha256 /data/pattern.bin`,
+and `cat /data/restore.txt`. Check the digest above and the text
+`OurOS verified backup restore.`
+
 At the monitor, run `appshell`. At `user:/$`, prepare two committed
-versions of the dedicated test file.
+versions of the dedicated test file. If the migration check left you in the
+shell, continue there.
 
 ```text
 write /data/cut32.txt older-cut
 write /data/cut32.txt before-cut
+cat /data/cut32.txt
 exit
 datacheck
 datacut
@@ -208,14 +218,24 @@ physically power off the Pi and boot from the spare drive again.
 
 ```text
 cat /data/cut32.txt
+sha256 /data/pattern.bin
+cat /data/restore.txt
 exit
 datacheck
+appshell
 write /data/cut32.txt after-boot
 cat /data/cut32.txt
+exit
+datacheck
+fileinfo
+storagetest
 ```
 
 Expect `before-cut`, one valid mounted bank and one empty bank, and
-then `after-boot` from the new post-remount write.
+then `after-boot` from the new post-remount write. On a fresh Phase 65
+image the import commits generation 2. The two test writes reach
+generation 4. The power-cut remount must keep generation 4 and the
+post-remount write must commit generation 5.
 
 ## Verification
 
@@ -231,6 +251,7 @@ apply, readback, and rollback against a Phase 31 directory copy.
 
 | Artifact | SHA-256 |
 | --- | --- |
+| `OurOS-Pi5-header-phase65-storage-acceptance.img` | `0e34198dc89cc1ece9cea3b230c69dc195590fbb041d8682245176a0e1a3a5f8` |
 | `OurOS-Pi5-header-phase32-spare-acceptance.img` | `e1794c6225a23f6dcd4cd86dffbda0951e16e3b2748dd2020c116c3326c30ce3` |
 | `OurOS-Pi5-header-phase32-storage-apps-boot-update.zip` | `3d333d86afb893d5e372e8c581faed84497e0b4278f31bc8dd9cf89d15f8d07f` |
 
@@ -239,6 +260,13 @@ uninstall, plus signed-package installation, dependency protection, and
 upgrade. After a cold power cycle the SanDisk remounted generation 26.
 Both installed apps ran and the recovered Phase 31 files still read
 `current` and `older`. After removing the test apps, the Pi reported
-zero open files and a matching generation 41. Migration and
-interrupted-write recovery remain to be checked on spare media.
+zero open files and a matching generation 41.
 [Phase 32 capture](../proofs/pi5-storage-apps-2026-11-24.txt)
+
+Phase 65 used the verified spare image to import the v4 archive into an
+empty v5 volume. The Pi committed generation 2 and both restored files
+matched the fixture. After `CUT READY` and physical power removal, the Pi
+remounted generation 4, returned `before-cut`, and reproduced the imported
+file digest and text. The follow-up write committed generation 5, both banks
+validated, and the USB read test passed with zero open files.
+[Phase 65 capture](../proofs/pi5-storage-migration-power-cut-2026-11-27.txt)

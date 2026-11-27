@@ -1,5 +1,16 @@
 # Real Raspberry Pi 5 proof
 
+Phase 65 imported a v4 archive into an empty v5 volume on the spare Pi
+drive. After physical power removal it recovered generation 4 and checked
+both imported files and the last committed test value. A new write committed
+generation 5 with both banks valid. [Phase 65 capture](pi5-storage-migration-power-cut-2026-11-27.txt)
+
+Phase 63 passed simultaneous EL0 execution on three workers, demand paging,
+all five remap stages on four cores, and two cached RP1 DMA transfers.
+The multicore shell reaped all 23 children. Open files returned to zero,
+resource claims returned to 8/16, and USB and `/data` checks passed.
+[Phase 63 capture](pi5-core-smp-vm-dma-2026-11-27.txt)
+
 Phase 62 confirmed the direct-cable `192.0.2.2/30` lease and ARP claim
 on the Pi. Windows logged three distinct T1 renewal requests and ACKs
 25 seconds apart. [Phase 62 capture](pi5-wired-dhcp-bound-2026-11-27.txt)

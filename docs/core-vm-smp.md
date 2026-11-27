@@ -85,8 +85,11 @@ storagetest
 datacheck
 ```
 
-Record the demand-zero PASS, `overlapping_pairs` above zero, the two 124
-timeouts and the contained fault with code 125. Check that all CPUs see
-each step of the shared remap, the cached copy preserves its guards, and
-USB and `/data` checks pass after cleanup. Keep the Pi run open until the
-command sequence completes. The Pi acceptance for this build is pending.
+The Pi passed the demand-zero check from the startup shell and from a
+secondary. The three-worker batch reported 26 overlapping pairs. The fault
+batch reported 98 overlapping pairs, two 124 timeouts and a contained fault
+with code 125. All four CPUs passed every remap stage. The multicore shell
+completed the seven-stage pipeline and reaped all 23 children. Both cached
+DMA copies passed. The workers released their routes and stacks, open files
+returned to zero, and resource claims returned to 8/16. USB reads and the
+mounted v4 data bank passed after cleanup. [Pi serial capture](../proofs/pi5-core-smp-vm-dma-2026-11-27.txt)

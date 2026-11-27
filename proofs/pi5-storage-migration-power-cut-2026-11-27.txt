@@ -1,0 +1,89 @@
+Raspberry Pi 5 spare-media storage acceptance, 2026-11-27
+
+Raspberry Pi Imager wrote the approved SanDisk Cruzer Blade. Windows read
+back the boot files, including the v4 archive and cut-test marker, with
+hashes matching the verified image.
+Phase 65 image SHA-256: 0e34198dc89cc1ece9cea3b230c69dc195590fbb041d8682245176a0e1a3a5f8
+DEMO.BAK magic/version: OUROSBK4 / 4
+DEMO.BAK SHA-256: 6e993ebd525a6dd38ecf90e5759aec76a29e4ee3d3321154dbf3a203de56244d
+
+COM3 excerpts before power removal:
+Firmware boot source: USB mass storage.
+SCSI vendor=SanDisk. product=Cruzer Blade....
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=0 generation=1 valid_banks=1
+user:/$ cat /boot/CUTTEST.TAG
+OurOS spare-media cut test v1
+user:/$ df /data
+/data extents v5 max_file_bytes=32768 nodes=0/32 persistent
+child exit=0
+user:/$ exit
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+> datarestore /boot/DEMO.BAK
+Data restore committed and read back; run datainfo and verify files.
+> datacheck
+Mounted /data bank=1 generation=2
+bank=0 status=valid generation=1
+bank=1 status=valid generation=2 matches_mounted=yes
+> appshell
+user:/$ sha256 /data/pattern.bin
+dc404a613fedaeb54034514bc6505f56b933caa5250299ba7d094377a51caa46  /data/pattern.bin
+user:/$ cat /data/restore.txt
+OurOS verified backup restore.
+user:/$ write /data/cut32.txt older-cut
+user:/$ write /data/cut32.txt before-cut
+user:/$ cat /data/cut32.txt
+before-cut
+user:/$ exit
+App resources restored; monitor ready.
+> datacheck
+Mounted /data bank=1 generation=4
+bank=0 status=valid generation=3
+bank=1 status=valid generation=4 matches_mounted=yes
+> datacut
+CUT READY: new data flushed; index unpublished. Power off the spare-media Pi now.
+
+The operator confirmed disconnecting power and restarting with the same
+spare after CUT READY. The first serial wait timed out. COM3 captured
+the firmware handoff and OurOS after the operator cycled power again.
+
+COM3 excerpts after power was restored:
+OurOS: AArch64 kernel booted
+Firmware boot source: USB mass storage.
+SCSI vendor=SanDisk. product=Cruzer Blade....
+/data: OurOS extents v5; nodes=32 max_file_bytes=32768; writes=synchronous
+partition_start_lba=260096 sectors=2048 bank=1 generation=4 valid_banks=1
+user:/$ cat /boot/CUTTEST.TAG
+OurOS spare-media cut test v1
+user:/$ df /data
+/data extents v5 max_file_bytes=32768 nodes=3/32 persistent
+child exit=0
+user:/$ cat /data/cut32.txt
+before-cut
+user:/$ sha256 /data/pattern.bin
+dc404a613fedaeb54034514bc6505f56b933caa5250299ba7d094377a51caa46  /data/pattern.bin
+user:/$ cat /data/restore.txt
+OurOS verified backup restore.
+user:/$ exit
+App resources restored; monitor ready.
+> datacheck
+Mounted /data bank=1 generation=4
+bank=0 status=empty
+bank=1 status=valid generation=4 matches_mounted=yes
+> appshell
+user:/$ write /data/cut32.txt after-boot
+user:/$ cat /data/cut32.txt
+after-boot
+user:/$ exit
+App resources restored; monitor ready.
+> datacheck
+Mounted /data bank=0 generation=5
+bank=0 status=valid generation=5 matches_mounted=yes
+bank=1 status=valid generation=4
+> fileinfo
+Open files: 0/16; shared readers or one writer; task-owned kernel handles
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc

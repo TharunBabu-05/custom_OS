@@ -7,7 +7,12 @@ baseline scope.
 
 Phase 63 adds opt-in multicore EL0 batches, demand-zero reservations,
 broadcast invalidation for user mapping updates, and a cached RP1 DMA
-copy. [Implementation and acceptance](core-vm-smp.md)
+copy. The Pi passed all four checks, including the multicore serial shell
+and two cached DMA transfers. [Implementation and acceptance](core-vm-smp.md)
+
+Phase 65 passed the v4-to-v5 archive import and the physical power-cut
+test on spare media. The Pi recovered the last committed generation and
+successfully wrote a new one. [Storage acceptance](storage-apps.md)
 
 This is an original AArch64 kernel for the tested Raspberry Pi 5 header-UART
 setup, with a separate QEMU `virt` target. It is not a complete desktop OS.

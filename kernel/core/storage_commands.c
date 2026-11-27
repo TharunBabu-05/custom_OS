@@ -197,7 +197,7 @@ bool storage_command(const char *line)
     }
     if (same(line,"datarestore") || begins(line,"datarestore ")) {
         const char *path=line+11;while (*path==' ') { ++path; }
-        if (!*path) { console_write("Usage: datarestore /boot/DATA.BAK (empty /data, same format only)\n");return true; }
+        if (!*path) { console_write("Usage: datarestore /boot/DATA.BAK (empty /data; v5 accepts v4 backups)\n");return true; }
         enum fs_result r=vfs_data_restore(path);
         console_write(r==FS_OK ? "Data restore committed and read back; run datainfo and verify files.\n" : "Data restore refused/failed: ");
         if (r!=FS_OK) { console_write(ramfs_error(r));console_write("; requires empty healthy /data and a valid compatible boot backup.\n"); }
