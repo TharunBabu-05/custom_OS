@@ -8,6 +8,53 @@
 static uint64_t test_bitmap[PMM_BITMAP_BYTES/8];
 #define INIT(map) pages_init((map),test_bitmap,sizeof(test_bitmap))
 
+void *ouros_memcpy(void *destination, const void *source, size_t count);
+void *ouros_memset(void *destination, int value, size_t count);
+
+static void memory_helpers(void)
+{
+    _Alignas(8) unsigned char source[144], target[144], expected[144];
+    for (size_t i = 0; i < sizeof(source); ++i) { source[i] = (unsigned char)(i * 31); }
+    for (size_t dst = 0; dst < 8; ++dst) {
+        for (size_t length = 0; length <= 128; ++length) {
+            memset(target, 0xa5, sizeof(target));
+            memset(expected, 0xa5, sizeof(expected));
+            int value = length & 1 ? 0x163 : -47;
+            memset(expected + dst, value, length);
+            assert(ouros_memset(target + dst, value, length) == target + dst);
+            assert(!memcmp(target, expected, sizeof(target)));
+            for (size_t src = 0; src < 8; ++src) {
+                memset(target, 0xa5, sizeof(target));
+                memset(expected, 0xa5, sizeof(expected));
+                memcpy(expected + dst, source + src, length);
+                assert(ouros_memcpy(target + dst, source + src, length) == target + dst);
+                assert(!memcmp(target, expected, sizeof(target)));
+            }
+        }
+    }
+
+    SYSTEM_INFO sys;
+    GetSystemInfo(&sys);
+    size_t page = sys.dwPageSize;
+    unsigned char *area = VirtualAlloc(NULL, page * 4, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    assert(area && page > 128);
+    unsigned char *src_end = area + page, *dst_end = area + page * 3;
+    DWORD old;
+    assert(VirtualProtect(src_end, page, PAGE_NOACCESS, &old));
+    assert(VirtualProtect(dst_end, page, PAGE_NOACCESS, &old));
+    for (size_t i = 1; i <= page; ++i) { src_end[-(ptrdiff_t)i] = (unsigned char)(i * 17); }
+    for (size_t length = 0; length <= 96; ++length) {
+        assert(ouros_memset(dst_end - length, 0xc3, length) == dst_end - length);
+        for (size_t i = 0; i < length; ++i) { assert((dst_end - length)[i] == 0xc3); }
+        assert(ouros_memcpy(dst_end - length, src_end - length, length) == dst_end - length);
+        if (length) { assert(!memcmp(dst_end - length, src_end - length, length)); }
+    }
+    assert(ouros_memcpy(dst_end - page, area, page) == dst_end - page);
+    assert(!memcmp(dst_end - page, area, page));
+    assert(VirtualFree(area, 0, MEM_RELEASE));
+    puts("PASS: memory helpers cover every alignment, small length, fill conversion and protected page ends.");
+}
+
 struct builder {
     unsigned char bytes[65536], structure[32768], strings[8192];
     size_t pos, names;
@@ -268,6 +315,7 @@ static void real_dtb(const char *path)
 }
 int main(int argc,char **argv)
 {
+    memory_helpers();
     parser_cases(); allocator_cases();bitmap_cases();run_cases();window_cases();guarded_cases();
     for (int i=1;i<argc;++i) { real_dtb(argv[i]); }
     return 0;

@@ -2,6 +2,16 @@
  * the RP1 firmware contract and references. No PCIe reconfiguration here. */
 #include "board.h"
 #include "console.h"
+
+/* Boot-file verifiers inspect this marker in the stripped raw Image. */
+__attribute__((used, section(".rodata.pi5_console")))
+static const char pi5_console_marker[] =
+#ifdef OUROS_RPI5_HEADER_UART
+    "OUROS_PI5_CONSOLE=header";
+#else
+    "OUROS_PI5_CONSOLE=debug";
+#endif
+
 bool board_init(struct board_info *info, uintptr_t dtb)
 {
     (void)dtb;

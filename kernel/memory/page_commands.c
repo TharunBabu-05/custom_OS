@@ -1,5 +1,7 @@
 #include "console.h"
+#include "cpu.h"
 #include "memory.h"
+#include <string.h>
 
 enum { SLOT_COUNT=16, MAX_RUN_PAGES=256 };
 struct page_slot { uint64_t physical; unsigned count; };
@@ -89,9 +91,74 @@ static void release_pages(const char *args,bool trim)
     else { console_write("Freed slot="); console_u64(i); console_write("\n"); }
 }
 
+static void copy_bytes(volatile unsigned char *out, const unsigned char *in)
+{
+    for (size_t i = 0; i < PAGE_SIZE; ++i) { out[i] = in[i]; }
+}
+
+static void fill_bytes(volatile unsigned char *out, unsigned char value)
+{
+    for (size_t i = 0; i < PAGE_SIZE; ++i) { out[i] = value; }
+}
+
+static bool check_page(const unsigned char *page, const unsigned char *source, unsigned char fill)
+{
+    for (size_t i = 0; i < PAGE_SIZE; ++i) {
+        if (page[i] != (source ? source[i] : fill)) { return false; }
+    }
+    return true;
+}
+
+static void benchmark(void)
+{
+    enum { REPEATS = 128 };
+    uint64_t scratch;
+    if (!page_alloc_run(2, &scratch)) {
+        console_write("membench requires two contiguous scratch pages.\n");
+        return;
+    }
+    unsigned char *source = (void *)(uintptr_t)scratch;
+    unsigned char *target = source + PAGE_SIZE;
+    for (size_t i = 0; i < PAGE_SIZE; ++i) { source[i] = (unsigned char)(i * 17 + i / 256); }
+    memset(target, 0, PAGE_SIZE);
+
+    uint64_t start = timer_ticks();
+    for (unsigned i = 0; i < REPEATS; ++i) { copy_bytes(target, source); }
+    uint64_t byte_copy = timer_ticks() - start;
+    bool valid = check_page(target, source, 0);
+    memset(target, 0, PAGE_SIZE);
+    start = timer_ticks();
+    for (unsigned i = 0; i < REPEATS; ++i) { memcpy(target, source, PAGE_SIZE); }
+    uint64_t word_copy = timer_ticks() - start;
+    valid &= check_page(target, source, 0);
+
+    start = timer_ticks();
+    for (unsigned i = 0; i < REPEATS; ++i) { fill_bytes(target, (unsigned char)i); }
+    uint64_t byte_fill = timer_ticks() - start;
+    valid &= check_page(target, NULL, REPEATS - 1);
+    start = timer_ticks();
+    for (unsigned i = 0; i < REPEATS; ++i) { memset(target, (int)i + 128, PAGE_SIZE); }
+    uint64_t word_fill = timer_ticks() - start;
+    valid &= check_page(target, NULL, 255);
+    bool released = page_free_run(scratch, 2);
+
+    console_write("Memory benchmark bytes_per_case="); console_u64(REPEATS * PAGE_SIZE);
+    console_write(" counter_hz="); console_u64(timer_frequency()); console_write("\n");
+    console_write("copy byte_ticks="); console_u64(byte_copy);
+    console_write(" word_ticks="); console_u64(word_copy); console_write("\n");
+    console_write("fill byte_ticks="); console_u64(byte_fill);
+    console_write(" word_ticks="); console_u64(word_fill); console_write("\n");
+    console_write(valid && released ? "PASS: memory copy and fill verified; scratch pages released.\n" :
+                                     "FAIL: memory benchmark data or page release.\n");
+}
+
 bool page_monitor_command(const char *line)
 {
     if (word(&line,"pagerun")) { allocate(line,false); }
+    else if (word(&line,"membench")) {
+        if (*line) { console_write("Usage: membench\n"); }
+        else { benchmark(); }
+    }
     else if (word(&line,"pagealloc")) { allocate(line,true); }
     else if (word(&line,"pagetrim")) { release_pages(line,true); }
     else if (word(&line,"pagefree")) { release_pages(line,false); }

@@ -1,0 +1,28 @@
+User-supplied Raspberry Pi 5 serial excerpt, received 2026-11-28.
+Board: rpi5-header. USB boot, v5 /data generation 5 with both banks valid.
+The preceding echo commands do not identify the input or display device.
+
+> smpstart
+Secondary CPU 0x0000000000000100 online at EL1, entered EL2.
+Secondary CPU 0x0000000000000200 online at EL1, entered EL2.
+Secondary CPU 0x0000000000000300 online at EL1, entered EL2.
+Secondary CPUs online=3
+> smpirq on
+Secondary SGI routes ready.
+> appmulti /boot/SPIN.ELF /boot/SPIN.ELF /boot/SPIN.ELF /boot/SPIN.ELF
+EL0 timeout test: infinite user loop.
+EL0 timeout test: infinite user loop.
+EL0 timeout test: infinite user loop.
+EL0 timeout test: infinite user loop.
+Multicore EL0 workers=3 peak=4 rounds=68 overlapping_pairs=402 measured_peak=4
+EL0 processes: limit=8; private pages; timer preempts users only; runs=2 switches=271 preemptions=268 yields=0 idle_waits=0 terminal=no budget_seconds=2 children_started=0 children_reaped=0 last_child_code=0 cleanup=restored
+Pipelines: started=0 completed=0 written=0 read=0 reader_waits=0 writer_waits=0 left_exit=0 right_exit=0
+process=0 path=/boot/SPIN.ELF state=timeout code=124 syscalls=1 dispatches=68 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+process=1 path=/boot/SPIN.ELF state=timeout code=124 syscalls=1 dispatches=68 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+process=2 path=/boot/SPIN.ELF state=timeout code=124 syscalls=1 dispatches=68 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+process=3 path=/boot/SPIN.ELF state=timeout code=124 syscalls=1 dispatches=68 sleeps=0 wakes=0 input_lines=0 execs=0 heap_live_pages=0 heap_peak_pages=0 heap_allocations=0 heap_free_calls=0
+App resources restored; monitor ready.
+> smpirq off
+Secondary SGI routes released.
+> smpstop
+Secondary CPU stacks released.

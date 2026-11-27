@@ -113,7 +113,7 @@ OurOS uses a modular monolithic kernel. After `smpstart` and `smpirq on`,
 ordinary ELF launches and the shell can schedule EL0 slices on the boot
 CPU and up to three secondary CPUs. The boot CPU serializes syscalls,
 device drivers, and page ownership. Kernel tasks use cooperative EL1
-scheduling. The four-core scheduler update is tested in QEMU.
+scheduling. A four-process batch overlapped on all four CPUs on the Pi.
 [Multicore scheduling and memory](docs/core-vm-smp.md) ·
 [Kernel tasks](docs/kernel-tasks.md)
 
@@ -239,7 +239,7 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 
 - [x] USB boot to the serial shell with MMU protection, GICv2 timer IRQs, and protected EL0 programs.
 - [x] Eight foreground slots, three supervised service slots, nested processes, named IPC, descriptor passing, and the `CORECHK.ELF` suite.
-- [x] Seven-stage binary pipelines, four background shell jobs, and multicore EL0 execution in `appsmpshell`.
+- [x] Seven-stage binary pipelines, four background shell jobs, and a four-CPU EL0 workload. [Pi capture](proofs/pi5-four-cpu-el0-2026-11-28.txt)
 - [x] Secondary-core bring-up, SGIs and peripheral SPIs, shared work queues, worker page leases, general user-mapping TLB shootdown, demand paging, and cached RP1 DMA diagnostics.
 - [x] USB-backed v5 cold retention, v4 archive import and physical power-cut recovery on spare media, named-app lifecycle, and signed packages with dependencies.
 - [x] WPA3 Wi-Fi and hotspot reconnect, wired DHCP activation, UDP and outbound TCP echo, pinned TLS 1.3 echo, and HTTPS package download.
@@ -247,7 +247,7 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 
 ### Open engineering work
 
-- [ ] Verify the four-CPU scheduler and relocated DTB on the Pi. The current boot layout allows a 31.5 MiB kernel span before the DTB window.
+- [ ] Verify the ordinary shell with routed workers and capture the firmware's DTB load at `0x02000000` on the Pi. The current boot layout allows a 31.5 MiB kernel span before the DTB window.
 - [ ] Verify standalone HDMI and USB keyboard input on the Pi, including reconnect. The display and keyboard paths have QEMU regression tests.
 - [ ] Broaden kernel and driver concurrency, and extend IRQ affinity.
 - [ ] Verify wired Gigabit negotiation, add network route selection, and capture DHCP rebinding and lease-loss cases on hardware.

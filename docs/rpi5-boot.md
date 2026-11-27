@@ -9,17 +9,11 @@ A separate whole-card experimental image is now available via
 and boot-file ZIP described below remain distinct artifacts and must not be
 mistaken for that whole-card image.
 
-The Pi 5 build and local boot-file package are ready for hardware bring-up.
-**The header-console kernel has booted on the user's physical Pi 5 with a
-CP2102**, including working commands and advancing uptime. See the
-[hardware evidence](pi5-hardware-verification.md). The default UART10 build
-described here still needs its own physical test and matching connector cable.
-The new [physical-memory subsystem](memory.md) adds RAM/reservation discovery
-and page allocation, with physical evidence on the header-console build. The
-new [RAM filesystem](ramfs.md) also has physical evidence. The latest
-[storage/mount](storage.md) and [SDIO diagnostic](wifi.md) paths await Pi tests. No HDMI,
-USB keyboard, persistent storage writes, heap or MMU is implemented. The new
-read-only storage driver is a separate hardware-pending candidate.
+The physical Pi 5 captures use the **40-pin RP1 header UART** with a CP2102.
+They cover MMU protection, storage, networking and four-CPU EL0 execution.
+The default UART10 profile in this guide still needs a physical run with its
+matching 3-pin cable. Follow the header guide to reproduce the captured setup.
+[Pi captures](../proofs/) · [Header UART guide](rpi5-header-uart.md)
 
 ## Build and package on Windows
 
@@ -116,9 +110,9 @@ The assumptions about actual EEPROM handoff still need measurement on the board.
 
 ## UART10 and cabling
 
-The selected console is the **dedicated 3-pin connector marked UART between the
-HDMI ports**. The Pi 5's 40-pin header UART belongs to a different peripheral
-path and is not supported by this initial port.
+The UART10 build uses the **dedicated 3-pin connector marked UART between the
+HDMI ports**. The separate header profile selects RP1 UART0 on the 40-pin
+header. [Header UART guide](rpi5-header-uart.md)
 [Official UART configuration](https://www.raspberrypi.com/documentation/computers/configuration.html#configuring-uarts).
 
 `boards/rpi5/board.c` selects CPU physical address `0x107d001000`. Raspberry Pi's
@@ -133,8 +127,8 @@ The new `uart_attach_firmware` path checks that UART and TX are enabled, preserv
 baud divisors, clocks, pin setup and framing, masks UART IRQs, and enables RX.
 It depends on firmware initialization requested by `uart_2ndstage=1` and
 `init_uart_baud=115200`. If UART/TX is disabled, initialization fails and the
-kernel parks; it does not guess clock or pinmux registers. Actual firmware
-setup and electrical I/O are **hardware untested**.
+kernel parks. Firmware setup and electrical I/O for the UART10 connector
+still need their own physical capture.
 
 Use a Raspberry Pi Debug Probe's **U/UART port** and matching 3-pin cable, or
 a 3.3 V TTL USB UART adapter with a correctly wired JST-SH cable. The probe's
@@ -160,7 +154,7 @@ describes its USB UART interface and cables.
    if available. Keep the existing working card untouched while preparing a test.
 2. Identify the intended microSD device and what is on it. Explain and confirm
    the exact formatting/partitioning or file-overwrite operation before making
-   any physical write. No such operation has been performed or authorized yet.
+   any physical write.
 3. After that separate confirmation, prepare a dedicated FAT boot partition and
    place the reviewed bundle files at its root. Use the bundled config, without
    adding an old custom armstub, initramfs or recovery/EEPROM-update image.
@@ -168,8 +162,7 @@ describes its USB UART interface and cables.
    port in PuTTY at the settings above. Enable session logging. Power on the Pi.
 5. Capture firmware messages and the `OurOS: AArch64 kernel booted` banner. Run
    `info`, `cpuinfo`, `uptime`, and `echo pi5-ok`; record both entry and running EL.
-6. Save that capture and exact package hashes. Only then mark Pi UART boot as
-   hardware verified. HDMI remaining blank is expected for this kernel.
+6. Save the capture and exact package hashes to verify the UART10 profile.
 
 No output: first check connector, COM port, ground and settings. Firmware logs
 without our banner: check file-load errors, image/load address and entry-state
@@ -197,6 +190,6 @@ entry also passes. The log reports `entered EL2 running EL1`. This verifies the
 architectural transition, not the Pi image's physical load or its UART10 attach
 path. Logs are under `build/handoff-test/`.
 
-While the hardware test awaits an adapter, the next independent kernel work can
-be timer interrupts and interrupt-controller support on QEMU, followed by memory
-management. The physical boot acceptance criterion remains outstanding.
+See the [Pi capture index](../proofs/) for the separately verified header-UART
+profile and the [local console guide](hdmi-framebuffer.md) for HDMI and USB
+keyboard testing.

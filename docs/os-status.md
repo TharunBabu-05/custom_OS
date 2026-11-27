@@ -1,6 +1,6 @@
 # OurOS: implemented features, required subsystems and drivers
 
-**2026-11-27 status review.** The [extended roadmap](remaining-os-roadmap.md#extended-plan)
+**2026-11-28 status review.** The [extended roadmap](remaining-os-roadmap.md#extended-plan)
 tracks current Pi acceptance, remaining work, and the phase sequence through
 Phase 70. Parts of the subsystem inventory below retain their earlier
 baseline scope.
@@ -8,8 +8,8 @@ baseline scope.
 The Pi verified Phase 63 multicore EL0 batches, demand-zero reservations,
 broadcast invalidation for user mapping updates, and cache-maintained RP1
 DMA. The current scheduler extends normal shell and program execution to the
-boot CPU and all three workers. QEMU measured overlapping EL0 execution on
-all four CPUs. [Implementation and acceptance](core-vm-smp.md)
+boot CPU and all three workers. A four-process batch reached
+`measured_peak=4` on the Pi and released the worker resources. [Implementation and acceptance](core-vm-smp.md)
 
 Phase 65 passed the v4-to-v5 archive import and the physical power-cut
 test on spare media. The Pi recovered the last committed generation and
@@ -66,8 +66,9 @@ The header image selects automatic startup, which mounts storage and sets up
 the MMU and timer before opening the shell. Manual monitor boot is available
 through the firmware command line. [Startup guide](startup.md)
 
-Open hardware checks include the current four-CPU scheduler, relocated
-DTB boot, and the integrated HDMI and USB keyboard console. Broader memory
+Open hardware checks include the ordinary shell with routed secondary
+workers, firmware placement of the DTB at the new address, and the
+integrated HDMI and USB keyboard console. Broader memory
 stress, atomic overwrite test coverage, and installed-shell persistence
 remain tracked in the [extended roadmap](remaining-os-roadmap.md).
 
@@ -83,7 +84,7 @@ remain tracked in the [extended roadmap](remaining-os-roadmap.md).
 | Virtual memory/protection | Pi-verified private pages, dynamic RW/NX allocation, shared memory, file-backed snapshots, demand-zero reservations and broadcast TLB invalidation. [Core VM and SMP](core-vm-smp.md) | Larger address spaces, copy-on-write and broader concurrency and mapping stress tests |
 | Interrupts | Pi-verified GICv2/PPI30, IRQ return and BCM compare channel 3 through the bounded SPI dispatcher and deferred callbacks. [Peripheral IRQs](peripheral-irqs.md) | Additional interrupt-driven drivers, IRQ-safe locks and SMP |
 | Time | Counter, uptime, 100 Hz CNTP IRQ and cooperative sleep verified on Pi. The Pi passed operator-set UTC, the EL0 query, and trust validity preflight. [UTC and trust guide](trust-time.md) | RTC and automatic time synchronization |
-| Scheduling | Cooperative EL1 tasks. Pi-verified weighted EL0 preemption, nested process trees and secondary EL0 batches. Normal shell and ELF runs use all four CPUs in QEMU with the SMP interrupt routes enabled. [Core VM and SMP](core-vm-smp.md) | Pi verification of four-way scheduling and concurrent kernel work |
+| Scheduling | Cooperative EL1 tasks. Pi-verified weighted EL0 preemption, nested process trees and a four-CPU EL0 workload. Normal shell runs with SMP routes enabled passed QEMU. [Core VM and SMP](core-vm-smp.md) | Pi verification of the ordinary shell with SMP routes enabled, and concurrent kernel work |
 | Processes/system calls | Pi-verified descriptor lifecycle, seven-stage pipelines, named IPC, descriptor passing, signals, structured stop reports and shared VM. [Core OS milestones](remaining-os-roadmap.md#core-os-milestones) | Broader process credentials and access control |
 | Programs/runtime | Bounded ELF loader, 94 userland ELF programs, 102 syscall IDs (0–101), 8 foreground process slots and 3 supervised service slots. The Pi verified named app lifecycle, signed packages, and a pinned HTTPS ELF download. [Storage and apps](storage-apps.md) · [Package download test](package-download.md) | General libc, dynamic linking, and repository catalog discovery |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked file handles with path leases, exclusive creation, append, metadata, positioned I/O, and resize. [File handles](file-handles.md#phase-27-el0-file-handles) | General mounts, permissions, pseudo-filesystems and preemptive driver synchronization |

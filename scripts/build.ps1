@@ -141,6 +141,7 @@ try {
             Assert-Rpi5ImageHeader $bytes $dtbAddress
         }
         if ($Target -eq 'rpi5') {
+            if (!(Test-Rpi5KernelConsole $bytes $Console -RequireMarker)) { throw 'Kernel/console profile mismatch' }
             Copy-Item -LiteralPath "$out/kernel.bin" -Destination "$out/ouros-rpi5.img"
             $span=[BitConverter]::ToUInt64($bytes,16)
             Write-Output "Pi 5 kernel span: $span bytes. Space before firmware DTB: $($dtbAddress-0x80000-$span) bytes."

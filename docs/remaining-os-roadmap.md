@@ -1,7 +1,8 @@
 # Remaining operating-system work
 
 OurOS runs a serial shell, protected EL0 applications, and bounded persistent
-storage on the boot CPU. The MMU, exceptions, GIC/timer IRQs, cooperative
+storage. EL0 workloads can use four CPUs while the boot CPU handles syscalls
+and drivers. The MMU, exceptions, GIC/timer IRQs, cooperative
 kernel tasks, preempted user programs, USB writes, ELF loading, and checked
 system calls have Pi evidence. The Pi verified secondary worker startup,
 same-boot recovery, cancellation, shutdown, and interprocessor
@@ -131,12 +132,12 @@ initial single-job acceptance scope.
 
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
-| Scheduling | Cooperative EL1 tasks, eight foreground EL0 slots, and three supervised service slots with startup dependencies. The Pi verified named services, pipelines, and job controls. | Multicore scheduling |
+| Scheduling | Cooperative EL1 tasks, eight foreground EL0 slots, and three supervised service slots with startup dependencies. The Pi verified named services, pipelines, job controls, and four concurrent EL0 slices. | Local preemption timers and ordinary shell acceptance with workers online |
 | Process memory | Private image, stack and heap pages, shared regions and private file snapshots, plus Pi-verified mapping controls | Broader lifecycle checks, copy-on-write and OOM policy |
 | Exceptions | Contained EL0 faults and deadlines, targeted signals, and structured stop records | Debugger integration and extended signal policies |
 | System calls | Checked file, terminal, process, and socket I/O, blocking IPC, local event waits, and Pi-verified inherited process permissions | Asynchronous storage and process credentials |
 | Executables | Static AArch64 ELF subset and compact runtime. The current shell adds command lists and bounded text scripts. [Shell workflows](shell-workflows.md) | Pi broader exec/update validation, stored-shell persistence, larger VM and broader toolchain tests |
-| Concurrency | The boot CPU runs the scheduler and drivers. Three EL1 workers passed shared queues, cancellation, parked remaps and scoped page leases on the Pi. | IRQ affinity for drivers, concurrent drivers and multicore scheduling |
+| Concurrency | The boot CPU brokers traps and drivers. Three secondary CPUs run EL0 slices and passed shared queues, cancellation, parked remaps and scoped page leases on the Pi. | IRQ affinity, subsystem locking and concurrent kernel execution |
 
 Acceptance should keep checking resource restoration, failure containment and
 storage integrity while expanding the scheduler. A larger application runtime
@@ -200,13 +201,10 @@ Pi rotation still needs an AP that rotates keys while the Pi stays online.
 
 ## Extended plan
 
-Reviewed on 2026-11-27 against the Phase 62 Pi capture and Phase 63 code.
-All six original Core OS milestones have Pi evidence. Phase 32
-verified clean v5 retention, the full named-app lifecycle, and signed
-multi-file packages with dependency upgrades. The v4-to-v5 import and
-interrupted-write tests passed on the host and still need the spare drive.
-Secondary EL1 workers have Pi evidence. Phase 63 adds opt-in secondary
-EL0 scheduling. General driver concurrency across CPUs is later work.
+Reviewed on 2026-11-28. The original Core OS milestones, clean v5 retention,
+named-app lifecycle, signed packages, and v4-to-v5 recovery on a spare
+drive have Pi evidence. A four-process EL0 batch now ran concurrently on
+the boot CPU and all three workers. [Four-CPU capture](../proofs/pi5-four-cpu-el0-2026-11-28.txt)
 
 | Next phase | Deliverable | Verification |
 | --- | --- | --- |
@@ -214,7 +212,7 @@ EL0 scheduling. General driver concurrency across CPUs is later work.
 | 63 · Core OS foundations | Move the USB DMA workspace out of the early image and add secondary EL0 batches, demand-zero pages, broadcast TLB invalidation, and a cached RP1 DMA transfer. | Passed on the Pi, including multicore jobs, four-core remaps, two cached copies, and USB and `/data` checks after cleanup. [Core phase](core-vm-smp.md) |
 | 64 · Network interfaces and routing | Add explicit interface and route selection, local and default routes, then wired gateway and DNS support. Track socket behavior when the selected path disappears. | Test an on-link peer and a routed peer. Verify link change, stale route removal, socket outcomes, and Wi-Fi coexistence on the Pi. |
 | 65 · Storage acceptance and recovery | Run the v4-to-v5 archive import and staged interruption on spare media. | Passed on the Pi. The import matched the fixture, the physical cut preserved generation 4, and the next write committed generation 5. [Storage capture](../proofs/pi5-storage-migration-power-cut-2026-11-27.txt) |
-| 66 · Multicore and driver integration | Normal foreground and shell sessions use the boot CPU and routed secondary workers, with ready services eligible during those rounds. IRQ affinity, broader kernel and driver concurrency, and production cache-aware DMA remain open. | QEMU measured four simultaneous EL0 slices and passed pipelines, faults, and cleanup. Repeat the new four-CPU schedule on Pi. [Scheduler](core-vm-smp.md#current-scheduler) |
+| 66 · Multicore and driver integration | Normal foreground and shell sessions use the boot CPU and routed secondary workers, with ready services eligible during those rounds. IRQ affinity, broader kernel and driver concurrency, and production cache-aware DMA remain open. | QEMU passed pipelines, faults, and cleanup. The Pi recorded four simultaneous slices and released the worker resources. The ordinary shell with workers enabled still needs its Pi run. [Scheduler](core-vm-smp.md#current-scheduler) |
 | 67 · Release and installer | Add an install/upgrade recovery path, repository catalog refresh and signer rotation. Extend process credentials and filesystem permissions around that workflow. | Install on a spare drive, verify user isolation and signature failures, and recover a known-good boot after an interrupted or refused update. |
 | 68 · Local input and display | Startup enables firmware HDMI scanout and USB boot-keyboard console input on a spare direct port of the USB storage controller. | QEMU passed shell typing and reconnect, framebuffer rendering, and storage regression checks. Pi acceptance requires a connected display and keyboard. [Local console](hdmi-framebuffer.md) |
 | 69 · Device drivers | Continue the platform sequence with an attached peripheral. Candidate increments include GPIO IRQ and buses, USB hubs and mouse, SD write/flush, Bluetooth HCI, PCIe/NVMe, and RTC alarms, fan and watchdog. | Use the relevant device on the Pi. Exercise its success, detach or failure path and report restored claims. [Platform driver plan](platform-driver-plan.md) |
@@ -224,3 +222,41 @@ Storage and peripheral acceptance can proceed while the network and
 scheduler tracks advance. Each increment records the command output,
 native or emulator checks where applicable, and the Pi result for its
 hardware-facing behavior.
+
+## Core OS expansion sequence
+
+The current kernel switches roots with a full local stage-1 invalidation.
+RAM is mapped non-cacheable except in the scoped RP1 DMA test. The bundled
+ELF build emits one RX load segment. The loader already accepts disjoint
+RX, RO, and RW segments and zero-fills backed pages within a fixed arena.
+Timer readiness already reaches the event wait API through the scheduler's
+checks. Keep these working interfaces and measure gains on specific Pi
+workloads and hardware configurations.
+
+| Order | Work | Acceptance |
+| --- | --- | --- |
+| 1. Memory routines and baseline | Share integer-only copy and fill between the kernel and EL0. Use aligned 64-bit transfers and byte fallbacks. Add a counter-based benchmark. Record boot and ordinary shell measurements on the same Pi revision before comparing later changes. | Guarded host alignment and length checks, unchanged ELFs' load contract, QEMU monitor and app checks, Pi `membench` results. |
+| 2. Tagged address spaces | Start with the broadly supported 8-bit ASID path. Reserve the kernel tag, define process tag allocation and reuse, and distinguish switch, map update, and teardown invalidation. Retain broad invalidation for shared/global mappings. | Different processes use the same virtual address without aliasing. Stress ASID reuse, exec, process exit, remap and permission revocation across CPUs. Compare switch cost under the same workload. |
+| 3. Cacheable RAM and DMA | Inventory DMA mappings and every ownership transfer. Keep shared controller descriptors and buffers in dedicated non-cacheable pools where practical. Add explicit clean/invalidate and ordering for cacheable DMA buffers. Enable cacheable CPU RAM in a separate test profile before changing the default, with consistent attributes for every alias and core. | Exercise USB BOT read, write, flush and recovery, GEM traffic and link recovery, and Wi-Fi transfers. Compare end-to-end checksums and repeat SMP and power-cut tests on the Pi. |
+| 4. Timers and kernel concurrency | Add a local scheduler timer per CPU, then one-shot wakeups and a deadline queue behind the existing timer and event wait APIs. Define lock order and IRQ rules before moving PMM, process and selected syscall work to workers. Keep drivers under their existing owner until their locking is verified. Test RTC alarms and fan control as separate platform increments. | Verify expiry, cancellation, timer races, IRQ nesting and process faults under concurrent load. Measure wake latency and idle interrupts. The counter tick period is distinct from interrupt delivery latency. |
+| 5. VM and applications | Allocate page-table levels on demand. Add a static build profile exercising the loader's RX, RO and RW support and BSS zeroing. Retain compatibility with old ELFs. Add bounded stack growth and reference counts before copy-on-write. Measure allocator scans before choosing a buddy allocator or per-CPU caches, and add larger kernel allocations with quotas. Introduce unified file descriptors with compatibility wrappers, then grow process capacity and the userspace libc subset. | Load old apps and an ELF with writable globals. Reject overlapping segments and writable code, verify read-only sharing and CoW under memory pressure, and stress descriptor lifetime and large process trees. |
+| 6. Terminal | Store screen cells in RAM and render dirty cells to HDMI. Introduce a bounded ANSI parser and then cursor editing, recall and completion. Add input rings with independent UART and USB producer ownership. Extend canonical and raw modes and add Ctrl+Z after process suspension is verified. | Verify old serial sessions, HDMI scroll/rendering, input bursts, reconnect, line editing and escape parser bounds. Confirm both UART and local use on the Pi. |
+| 7. Storage | Add a reusable block cache with explicit flush semantics. Prototype a larger extent-backed format alongside v5 on spare media, with migration and recovery. Test microSD writes on a supported spare card. Develop NVMe after external PCIe enumeration and DMA are stable and an adapter is available. | Exercise large files, full disks, write ordering, interrupted flushes and recovery. Retain a v5 read/import path and measure verified throughput on each transport. |
+
+Pi acceptance can proceed alongside the implementation increments. The
+next boot capture should show the EEPROM's DTB load address and the kernel's
+retained address. `fbinfo` and `usbkbd` identify the display and input paths
+after the keyboard-reconnect check. Wired DHCP rebinding and route selection
+remain in the networking track and do not depend on the memory changes.
+[Arm memory management](https://developer.arm.com/documentation/101811/latest/) ·
+[Arm Generic Timer](https://developer.arm.com/documentation/102379/latest/) ·
+[AArch64 ELF ABI](https://github.com/ARM-software/abi-aa/blob/main/aaelf64/aaelf64.rst)
+
+### Memory benchmark
+
+Run `membench` at the Pi monitor. It compares byte and word paths over
+128 passes of one 4 KiB page per case. It reports the architectural counter
+frequency and elapsed ticks, checks the results, then frees both scratch
+pages. Repeat on the same boot configuration before comparing results.
+QEMU checks verify correctness and cleanup. Use physical counter readings
+for speed claims.

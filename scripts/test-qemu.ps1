@@ -85,7 +85,7 @@ function Run-Case([string]$Name,[string]$Cpu,[int]$MemoryMB,[string[]]$Commands,
     }
 }
 $commands=@('help','mmuinfo','mmuinit','exctest','mmutest','mmuinfo','irqinit','timerstart','schedtest','taskinfo','info','cpuinfo','heapinfo','heaptest','heapalloc 17','heapalloc 33','heapinfo','heapfree 0','heapfree 0','heapfree 1','heapfree 999','heapalloc 4097','heaptest','heapinfo','cryptotest','keytest','nettest','p256test','h2etest','saetest','p256test','h2etest','saetest','rngtest','meminfo','memmap','pagetest','pagealloc','pagealloc','meminfo',
-    'pagefree 0','pagefree 0','pagefree 1','pagefree 999','meminfo',
+    'pagefree 0','pagefree 0','pagefree 1','pagefree 999','membench','meminfo',
     'fsinfo','pwd','ls /','cat /etc/board','cat /README.txt','cd /tmp','mkdir work','cd work','pwd',
     'touch empty.txt','write note.txt filesystem-ok','cat ./note.txt','ls .','cd ..','rmdir work',
     'rm work/note.txt','rm work/empty.txt','rmdir work','cd /','cat /tmp/work/note.txt','usbinfo','usbprobe',
@@ -113,6 +113,7 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
     'Kernel heap ready; type heapinfo or heaptest.','Kernel heap: ready','Heap slot=0 requested=17 capacity=32','Heap slot=1 requested=33 capacity=64',
     'Freed heap slot=0','Freed heap slot=1','Invalid or unallocated heap slot.','Usage: heapalloc <1..4096>',
     'PASS: four distinct pages written/read/freed; counters restored.',
+    'PASS: memory copy and fill verified; scratch pages released.',
     'Allocated slot=0','Allocated slot=1','Freed slot=0','Freed slot=1','Invalid or unallocated page slot.',
     'Root filesystem ready: RAMFS at / (volatile).','rootfs=ramfs (volatile; files disappear after reboot)',
     'heap_buffers=3 capacity_bytes=544',

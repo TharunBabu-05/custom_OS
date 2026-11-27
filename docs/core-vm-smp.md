@@ -12,6 +12,9 @@ workers, the normal launch path uses the existing boot-CPU scheduler.
 
 The kernel reports both assigned `peak` and `measured_peak`, the maximum
 number of slices with at least one millisecond of simultaneous execution.
+On the Pi, four `SPIN.ELF` processes reached `measured_peak=4`. All ended
+with the expected timeout code 124, and shutdown released the GIC routes
+and worker stacks. [Four-CPU batch capture](../proofs/pi5-four-cpu-el0-2026-11-28.txt)
 
 ## Phase 63 multicore EL0 batches
 

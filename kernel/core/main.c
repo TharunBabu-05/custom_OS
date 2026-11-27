@@ -207,7 +207,7 @@ static void command(const char *line)
         console_write("utc | utc set <YYYY-MM-DDTHH:MM:SSZ> | utc clear\n");
         console_write("trustlist trustadd <SHA-256> trustcheck <SHA-256> <from UTC> <to UTC> trustclear\n");
         console_write("startup (mount boot and data, enable MMU and timer, launch the serial shell)\n");
-        console_write("memmap pagealloc pagefree <slot> pagetest pageslots pagetrim <slot> <keep-pages>\npagezone <all|low32|high> | pagerun <pages> <alignment-pages> <boundary-pages|0> <all|low32|high>\n");
+        console_write("memmap membench pagealloc pagefree <slot> pagetest pageslots pagetrim <slot> <keep-pages>\npagezone <all|low32|high> | pagerun <pages> <alignment-pages> <boundary-pages|0> <all|low32|high>\n");
         console_write("mmuinfo mmuinit (enable identity protection; caches off) mmutest\n");
         console_write("fbinfo fbtest fbon fboff (firmware HDMI framebuffer and UART mirror)\n");
         console_write("excinfo exctest irqinit irqinfo irqtest timerstart timerinfo timertest timerstop\n");

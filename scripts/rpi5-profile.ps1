@@ -23,6 +23,17 @@ function Assert-Rpi5ImageHeader([byte[]]$Kernel,[uint64]$DtbAddress) {
     }
 }
 
+function Test-Rpi5KernelConsole([byte[]]$Kernel,[string]$Console,[switch]$RequireMarker) {
+    $image = [Text.Encoding]::ASCII.GetString($Kernel)
+    $header = $image.Contains("OUROS_PI5_CONSOLE=header`0")
+    $debug = $image.Contains("OUROS_PI5_CONSOLE=debug`0")
+    if ($header -or $debug -or $RequireMarker) {
+        return ($header -ne $debug) -and ($header -eq ($Console -eq 'header'))
+    }
+    # Older images used the board name for identification.
+    return $image.Contains("rpi5-header`0") -eq ($Console -eq 'header')
+}
+
 function Get-Rpi5Profile {
     param([ValidateSet('debug','header')][string]$Console = 'debug')
     if ($Console -eq 'header') {

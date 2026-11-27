@@ -118,7 +118,7 @@ of this phase.
 | VS Code + WSL extension | Windows editor with compiler/debugger tasks inside Ubuntu |
 | Git; optional GitHub hosting | Local history and later remote backups/review; no remote created yet |
 | `build-essential` / GNU Make | Build orchestration and host C compiler for future host-side unit tests |
-| `gcc-aarch64-linux-gnu` | Compile freestanding C and preprocess `.S` assembly for both CPUs |
+| `aarch64-none-elf-gcc` | Compile freestanding C and preprocess `.S` assembly for both CPUs |
 | GNU `as`, `ld` | Assemble instructions and link sections using our linker scripts |
 | `objcopy`, `objdump`, `readelf`, `nm` | Extract raw images, disassemble, inspect ELF structure and symbols |
 | Python 3 | Future image packaging and verification scripts |

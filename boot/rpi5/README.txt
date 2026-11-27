@@ -1,4 +1,4 @@
-OurOS Pi 5 UART bring-up candidate - HARDWARE UNTESTED
+OurOS Pi 5 UART10 boot files (dedicated 3-pin debug connector)
 
 This folder is a boot-file bundle, not a partitioned SD-card image.
 ouros-rpi5.img is a raw AArch64 kernel Image, NOT a disk image for Pi Imager.
@@ -10,7 +10,8 @@ bootcode.bin, or EEPROM update/recovery binary is included.
 
 Requires the dedicated 3-pin UART connector between the HDMI ports, a suitable
 3.3 V USB UART adapter/cable, and terminal settings 115200 8N1, no flow control.
-This port does not use the 40-pin header UART. No HDMI output is implemented.
+The dedicated UART10 profile awaits physical acceptance. The separate RP1
+header-UART profile has Pi 5 boot, storage, networking and scheduler captures.
 
 Expected first kernel message: OurOS: AArch64 kernel booted
 Type info to record the entry EL and current EL. New memory commands: meminfo,
@@ -35,7 +36,7 @@ wifiinfo and wifiprobe provide DT/SDIO diagnostics only, not scan/connect/IP.
 wifiinit adds guarded SDIO device selection and CCCR/CIS/CMD53 reads on an
 legacy host, with guarded C0/C1/D0 WLAN power/pin/clock preparation if cold.
 Cold start, SDIO identity and function-1 chip 0x4345 revision 6 have physical
-evidence on the header build. WPA3 remains unfinished.
+evidence on the header build. That profile also has physical WPA3 and IP tests.
 wificores core discovery and 800 KiB RAM sizing now have header-console evidence.
 Complete disk images include pinned Cypress radio assets and WIFILIC.TXT;
 the boot-files-only ZIP does not. wififiles checks their SHA256 pins.
@@ -50,8 +51,8 @@ the country. Physical preparation now passes for IN revision 0.
 wifiscan adds passive discovery and bounded network/security result parsing.
 Physical scanning now passes including an SAE/required-PMF hotspot.
 cryptotest/rngtest add HMAC/HKDF tests and manual RNG200 source checks.
-Native tests pass; physical RNG remains UNTESTED. No authentication or IP.
-See docs/wifi-auth-foundation.md. No password is embedded in this image.
+See docs/os-status.md for the current physical networking evidence. No
+password is embedded in this image.
 The transfer correction sets F1 block size=64 and uses <=64-byte RAM requests,
 with explicit host block counting and retained first-failure diagnostics.
 Dynamic reservation windows are conservatively excluded in full.
@@ -65,9 +66,9 @@ The DTB and license files come unchanged from raspberrypi/firmware at the
 revision recorded in manifest.json. COPYING.linux covers GPL-licensed Linux
 material, including the supplied board description. LICENCE.broadcom is retained
 from the upstream boot assets. No Broadcom firmware blob is bundled here.
-Retain notices; source provenance is recorded in the manifest. Before public
-distribution, establish corresponding source delivery for the exact DTB and
-choose the license for the original OurOS code. This is a local test bundle.
+Retain notices and provide corresponding source for the exact DTB when
+required. OUROSLIC.TXT contains the MIT license for original OurOS code.
+The source repository documents external materials in PROVENANCE.md.
 
 manifest.json and SHA256SUMS record this package's contents. They detect
 accidental corruption; they do not establish hardware boot compatibility.

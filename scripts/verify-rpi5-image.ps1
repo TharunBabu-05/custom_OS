@@ -180,7 +180,6 @@ if ($expected.PSObject.Properties['wifi_revision']) {
     }
 }
 $kernel=[IO.File]::ReadAllBytes((Join-Path $work 'files/OUROS.IMG'))
-$isHeader=[Text.Encoding]::ASCII.GetString($kernel).Contains("rpi5-header`0")
-Require ($isHeader -eq ($console -eq 'header')) 'Kernel/console profile mismatch'
+Require (Test-Rpi5KernelConsole $kernel $console) 'Kernel/console profile mismatch'
 Assert-Rpi5ImageHeader $kernel (Get-Rpi5DtbAddress (Get-Content -LiteralPath (Join-Path $work 'files/CONFIG.TXT')))
 Write-Output 'PASS: MBR, FAT32 geometry/backups/mirrors/free space, independent extraction, all file hashes and boot configuration.'

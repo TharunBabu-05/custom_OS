@@ -1,5 +1,9 @@
 # Real Raspberry Pi 5 proof
 
+The Pi ran four simultaneous EL0 slices across the boot CPU and three
+workers. The spin programs reached the expected timeout and the monitor
+released the SGI routes and secondary stacks. [Four-CPU capture](pi5-four-cpu-el0-2026-11-28.txt)
+
 Phase 65 imported a v4 archive into an empty v5 volume on the spare Pi
 drive. After physical power removal it recovered generation 4 and checked
 both imported files and the last committed test value. A new write committed

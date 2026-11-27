@@ -4,7 +4,9 @@ param([string]$HostCompiler='C:/msys64/mingw64/bin/gcc.exe')
 Push-Location $ProjectRoot
 try {
     New-Item -ItemType Directory -Force build/memory-tests | Out-Null
-    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/memory_host.c kernel/memory/fdt_memory.c kernel/memory/map.c kernel/memory/pages.c -o build/memory-tests/test-memory.exe
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -Dmemcpy=ouros_memcpy -Dmemset=ouros_memset -c lib/memory.c -o build/memory-tests/memory-helpers.o
+    if ($LASTEXITCODE -ne 0) { throw 'Memory helper test compilation failed' }
+    & $HostCompiler -std=c11 -O2 -Wall -Wextra -Werror -Iinclude tests/memory_host.c kernel/memory/fdt_memory.c kernel/memory/map.c kernel/memory/pages.c build/memory-tests/memory-helpers.o -o build/memory-tests/test-memory.exe
     if ($LASTEXITCODE -ne 0) { throw 'Memory host test compilation failed' }
     $dtbs=@('.dist/rpi5-firmware/bcm2712-rpi-5-b.dtb','build/qemu_virt/virt.dtb') | Where-Object { Test-Path -LiteralPath $_ }
     & ./build/memory-tests/test-memory.exe @dtbs

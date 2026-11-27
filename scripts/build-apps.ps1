@@ -13,7 +13,8 @@ try {
         '-fno-tree-loop-distribute-patterns','-ffunction-sections','-fdata-sections',
         '-mcpu=cortex-a53','-Iinclude','-Iuser/runtime')
     Invoke-Tool gcc @('-mcpu=cortex-a53','-c','user/runtime/start.S','-o',"$out/start.o")
-    Invoke-Tool gcc ($flags+@('-c','user/runtime/memory.c','-o',"$out/memory.o"))
+    # Keep the shared helpers inside the existing v4-compatible shell bound.
+    Invoke-Tool gcc ($flags+@('-fno-tree-loop-optimize','-c','lib/memory.c','-o',"$out/memory.o"))
     Invoke-Tool gcc ($flags+@('-c','user/runtime/allocator.c','-o',"$out/allocator.o"))
     Invoke-Tool gcc ($flags+@('-c','user/runtime/allocator_svc.c','-o',"$out/allocator-svc.o"))
     Invoke-Tool gcc ($flags+@('-c','kernel/process/app_args.c','-o',"$out/app_args.o"))

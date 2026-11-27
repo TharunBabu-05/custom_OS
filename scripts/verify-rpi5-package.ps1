@@ -39,8 +39,7 @@ $config=Get-Content -LiteralPath (Join-Path $Directory 'config.txt')
 $dtbAddress=Get-Rpi5DtbAddress $config
 Assert-Rpi5ImageHeader $kernel $dtbAddress
 if ($manifest.dtb_address -ne ('0x{0:x}' -f $dtbAddress)) { throw 'DTB address differs from manifest' }
-$isHeader=[Text.Encoding]::ASCII.GetString($kernel).Contains("rpi5-header`0")
-if ($isHeader -ne ($console -eq 'header') -or $manifest.uart -cne $piProfile.Uart) { throw 'Kernel/console profile mismatch' }
+if (!(Test-Rpi5KernelConsole $kernel $console) -or $manifest.uart -cne $piProfile.Uart) { throw 'Kernel/console profile mismatch' }
 $source=Get-Content -LiteralPath (Join-Path $root $piProfile.Config)
 if (($config -join "`n") -cne ($source -join "`n")) { throw 'Boot config differs from reviewed source' }
 Write-Output 'PASS: Pi 5 package files, hashes, config and Image header; hardware remains UNTESTED.'

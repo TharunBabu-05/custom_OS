@@ -15,7 +15,11 @@ SECTIONS
         . = ALIGN(4096);
     } :code
     __text_end = .;
-    .rodata : { *(.rodata .rodata.*) . = ALIGN(4096); } :code
+    .rodata : {
+        KEEP(*(.rodata.pi5_console))
+        *(.rodata .rodata.*)
+        . = ALIGN(4096);
+    } :code
     __rodata_end = .;
     . = ALIGN(4096);
     .data : { *(.data .data.*) } :data
