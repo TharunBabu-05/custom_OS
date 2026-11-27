@@ -1,5 +1,10 @@
 # OurOS: implemented features, required subsystems and drivers
 
+**2026-11-27 status review.** The [extended roadmap](remaining-os-roadmap.md#extended-plan)
+tracks current Pi acceptance, remaining work, and the phase sequence through
+Phase 70. Parts of the subsystem inventory below retain their earlier
+baseline scope.
+
 This is an original AArch64 kernel for the tested Raspberry Pi 5 header-UART
 setup, with a separate QEMU `virt` target. It is not a complete desktop OS.
 There is no universal list of drivers that every OS needs: a serial embedded

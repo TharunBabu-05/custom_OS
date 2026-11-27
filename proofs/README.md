@@ -1,5 +1,10 @@
 # Real Raspberry Pi 5 proof
 
+Phase 61 booted and timed out after three DHCP Discover attempts. Ctrl+C
+returned from the wait, renewal was refused without a lease, and shutdown
+restored the Ethernet claims. The Windows ping result has no matching Pi
+address evidence. [Phase 61 capture](pi5-wired-renewal-timeout-2026-11-27.txt)
+
 Phase 60 passed the EL0 network DMA cleanup regression and saw non-DHCP
 LAN traffic. No OFFER or ACK was observed. The Windows ping targeted the
 laptop address. [Phase 60 capture](pi5-wired-cleanup-2026-11-27.txt)

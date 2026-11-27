@@ -593,5 +593,37 @@ the lease and closes the sockets. [DHCP renewal and expiry](https://www.rfc-edit
 `ethlease` shows renewal state, requests, rebroadcasts, completions, and
 remaining lease seconds. `scripts/ping-rpi5-ethernet.ps1` rejects IP
 addresses assigned to the Windows PC and counts successful replies from
-the supplied Pi IPv4 address. The Pi still needs a complete router
-exchange, bound-session and renewal test.
+the supplied Pi IPv4 address. The Pi booted Phase 61, negotiated at
+100 Mbps, timed out after three Discover attempts, and refused the
+renewal command with no lease. The same run released Ethernet claims
+and passed the storage checks. [Phase 61 Pi and Windows capture](../proofs/pi5-wired-renewal-timeout-2026-11-27.txt)
+
+## Phase 62 direct-cable DHCP acceptance
+
+Run the fixture on an isolated cable between the laptop Ethernet adapter
+and the Pi. Use the current Phase 61 image and a static `192.0.2.1/30`
+on the chosen Windows adapter. The fixture offers `192.0.2.2/30` to the
+OurOS Ethernet MAC `02:00:00:00:18:02`. It checks the ingress interface,
+source, DHCP transaction and client identifier. Outbound Winsock packet
+information pins the source address and interface. [Winsock packet information](https://learn.microsoft.com/en-us/windows/win32/api/ws2ipdef/ns-ws2ipdef-in_pktinfo)
+
+The fixture advertises an 80-second lease with T1 at 25 seconds and T2 at
+55 seconds. `Ack` accepts normal renewal, `Rebind` leaves unicast renewal
+unanswered and accepts broadcast rebinding, `Nak` rejects renewal, and
+`Silence` leaves subsequent requests unanswered so the lease expires.
+Record the transaction lines on Windows and `ethlease` on the Pi.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rpi5-dhcp-fixture.ps1 -SelfTest
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rpi5-dhcp-fixture.ps1 -InterfaceAlias 'Ethernet 3' -Mode Ack -TemporaryFirewallRule
+```
+
+Run the cable command in Administrator PowerShell when using the
+temporary firewall rule. The fixture waits briefly for link negotiation
+and for `192.0.2.1/30` to reach `Preferred`. It then opens UDP destination
+port 67 with source port 68 on the selected adapter and removes its rule
+on exit. The self-test covers packet handling and an interface-bound Winsock loopback
+round trip. The OurOS C client accepted the fixture's OFFER and ACK and
+decoded the address, mask and lease timers. The Windows fixture accepted
+Discover and Request produced by that client. Phase 62 uses the existing
+Phase 61 kernel. The physical cable run still needs Pi evidence.

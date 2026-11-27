@@ -1,0 +1,48 @@
+Phase 61 Pi 5 UART and Windows excerpts reported on 2026-11-27
+
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethdhcp up
+Ethernet link Mbps=100
+Ethernet DHCP activation started. Use ethlease.
+> ethdhcp wait
+Waiting for DHCP. Ctrl+C returns to the monitor.
+DHCP wait interrupted. The worker is still running.
+Ethernet DHCP state=selecting result=6
+DHCP discover=3 request=0 rx=0 ignored=0 malformed=0 other=0 polls=2173
+> ethlease
+Ethernet DHCP state=timeout result=3
+DHCP discover=3 request=0 rx=0 ignored=0 malformed=0 other=0 polls=2248
+No DHCP replies received. Check the DHCP server on the attached LAN.
+> ethdhcp renew
+No bound wired DHCP lease.
+> ethdown
+PHY hold released.
+> resinfo
+Resource claims: 8/16
+> storagetest
+PASS: read-only storage sectors=512 fnv1a32=0x00000000e4d803dc
+> datacheck
+Mounted /data bank=0 generation=1
+bank=0 status=valid generation=1 matches_mounted=yes
+bank=1 status=empty
+
+Windows boot update:
+Boot directory E:\
+Replace OUROS.IMG
+Verified 1 boot file changes. Safely eject the drive before booting the Pi.
+
+Windows ping results:
+IPv4 printed by ethaddr ip: 192.0.2.2
+Probe 1 status=TimedOut
+Probe 2 status=TimedOut
+Probe 3 status=TimedOut
+No echo reply from the Pi at 192.0.2.2.
+
+IPv4 printed by ethaddr ip: 192.0.1.1
+Reply from 192.0.1.1 in 204 ms
+Reply from 192.0.1.1 in 229 ms
+Reply from 192.0.1.1 in 185 ms
+PASS: 3/3 echo replies from 192.0.1.1.
+
+The Pi capture has no active lease or ethaddr ip reading for 192.0.1.1.
