@@ -468,5 +468,35 @@ address now reports which local IPv4 address Windows needs.
 
 Both QEMU profiles passed the probe retry, mismatched reply, timeout
 and cleanup checks. Windows loopback passed the single and batch echo
-checks, including empty datagrams and duplicate requests. Pi acceptance
-is pending.
+checks, including empty datagrams and duplicate requests. On the Pi,
+all three probes matched on their first attempts. Windows logged twelve
+echoes and three distinct requests, while the Pi counted two ignored
+replies and five full-queue drops. [Phase 56 capture](../proofs/pi5-udp-probes-2026-11-27.txt)
+
+## Phase 57 GEM transmit ring and counters
+
+The wired DMA worker alternates between two transmit descriptors. It
+publishes at most one frame at a time and leaves the next descriptor
+host-owned, including across ring wrap. It checks
+descriptor ownership, wrap placement and frame address before reusing
+the transmit buffer and before releasing the DMA page.
+[Cadence GEM descriptor organization](https://code.googlesource.com/linux/torvalds/linux/%2B/8abc1c8badc11c859bb4ba43211611347e59c55c/drivers/net/ethernet/cadence/macb_main.c)
+
+`ethstats` shows submitted and completed descriptors, TX timeouts, RX
+frames, discarded RX descriptors and RX-overrun observations. It also
+samples and accumulates the GEM good-frame counters for TX and RX while
+the worker owns the MAC. The counts cover all traffic handled by the
+adapter. The worker retains statistics across cable recovery and after
+`ethdown`. A new `ethudpup` or `ethtcpup` run starts a fresh report.
+[GEM counter register definitions](https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/ethernet/cadence/macb.h)
+
+The Windows batch listener prints distinct requests, repeats and total
+echoes. Compare those counts with `netstat` and `ethstats` around an
+otherwise idle three-probe run. The Phase 56 capture established the
+extra datagrams, and the Phase 57 hardware retest will check whether
+they persist with the new transmit ring.
+
+The native RP1 model passed slot rotation, descriptor guards, MAC
+counter sampling and retention across reopen. The Windows loopback
+test counted two repeated arrivals in a three-request batch. Both QEMU
+profiles passed platform command routing and TCP and UDP regressions.

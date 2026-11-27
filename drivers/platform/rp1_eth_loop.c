@@ -6,9 +6,9 @@
 /* Cadence GEM_GXL queue zero registers and legacy descriptor bits. */
 enum {
     NCR=0, NCFGR=4, DMACFG=0x10, TSR=0x14, RBQP=0x18, TBQP=0x1c, RSR=0x20,
-    IMR=0x30, SA1_LOW=0x88, SA1_HIGH=0x8c, MID=0xfc, DCFG6=0x294,
+    IMR=0x30, SA1_LOW=0x88, SA1_HIGH=0x8c, MID=0xfc, TX_FRAMES=0x108, RX_FRAMES=0x158, DCFG6=0x294,
     LOOPBACK=2, RX_ENABLE=4, TX_ENABLE=8, TX_START=1<<9,
-    TX_ACTIVE=1<<3, TX_DONE=1<<5, TX_W1C=0x1f7, RX_W1C=0xf, RX_BUS_ERROR=1<<3,
+    TX_ACTIVE=1<<3, TX_DONE=1<<5, TX_W1C=0x1f7, RX_W1C=0xf, RX_OVERRUN=1<<2, RX_BUS_ERROR=1<<3,
     DMA_IRQS=0xcf6,
     TX_WRAP=1<<30, TX_LAST=1<<15, RX_USED=1, RX_WRAP=2, RX_WHOLE=3<<14
 };
@@ -281,9 +281,38 @@ static uint32_t rx_address(const struct rp1_eth_dma *s,unsigned slot)
     return (s->bus+offsetof(struct rp1_eth_dma_memory,received)+slot*GEM_RX_BYTES)|(slot ? RX_WRAP : 0);
 }
 
+static uint32_t tx_address(const struct rp1_eth_dma *s)
+{ return s->bus+offsetof(struct rp1_eth_dma_memory,frame); }
+
+static bool tx_idle(const struct rp1_eth_dma *s)
+{
+    for (unsigned i=0;i<2;++i) {
+        uint32_t status=s->memory->tx[i].status;
+        if (s->memory->tx[i].address!=tx_address(s) ||
+            (status&(TX_USED|TX_WRAP))!=(TX_USED|(i ? TX_WRAP : 0))) { return false; }
+    }
+    return true;
+}
+
+/* GEM frame counters clear on read. Drain the previous owner on open,
+ * then accumulate samples until this worker releases the MAC. */
+static void sample_frames(struct rp1_eth_dma *s,bool discard)
+{
+    uint32_t tx,rx;
+    void *ctx=s->io->context;
+    bool tx_ok=s->io->read(ctx,TX_FRAMES,&tx) && tx!=UINT32_MAX;
+    bool rx_ok=s->io->read(ctx,RX_FRAMES,&rx) && rx!=UINT32_MAX;
+    if (!tx_ok || !rx_ok) { s->stats->mac_unavailable=true; }
+    if (discard) { return; }
+    if (tx_ok) { s->stats->mac_tx+=tx; }
+    if (rx_ok) { s->stats->mac_rx+=rx; }
+}
+
+void rp1_eth_dma_sample(struct rp1_eth_dma *s) { sample_frames(s,false); }
+
 enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *s,const struct rp1_dma_io *io,
                                          struct rp1_eth_dma_memory *m,uint32_t bus,unsigned speed,
-                                         const struct ethernet_ipv4 *ipv4,bool tcp_enabled)
+                                         const struct ethernet_ipv4 *ipv4,bool tcp_enabled,struct rp1_eth_dma_stats *stats)
 {
     if ((speed!=10 && speed!=100 && speed!=1000) || (bus&63) ||
         bus>UINT32_MAX-(sizeof(*m)-1) || !save_gem(io,&s->saved,NULL,true)) {
@@ -291,18 +320,21 @@ enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *s,const struct rp1
     }
     s->io=io;
     s->memory=m;
+    s->stats=stats;
     s->bus=bus;
     s->head=0;
+    s->tx_head=0;
     s->pending=false;
     s->tcp_enabled=tcp_enabled;
     s->tcp_first=false;
     s->ipv4=*ipv4;
     s->reply_due[0]=s->reply_due[1]=0;
-    m->tx=(struct gem_descriptor){bus+offsetof(struct rp1_eth_dma_memory,frame),TX_USED|TX_WRAP};
     for (unsigned i=0;i<2;++i) {
+        m->tx[i]=(struct gem_descriptor){tx_address(s),TX_USED|(i ? TX_WRAP : 0)};
         m->rx[i]=(struct gem_descriptor){rx_address(s,i),0};
     }
     io->barrier(io->context);
+    sample_frames(s,true);
     if (program_gem(io,&s->saved,NULL,speed,bus+offsetof(struct rp1_eth_dma_memory,tx),
                     bus+offsetof(struct rp1_eth_dma_memory,rx),true) &&
         set(io,NULL,NCR,RP1_GEM_RX_TX|RP1_GEM_MPE)) { return GEM_LOOP_OK; }
@@ -313,10 +345,13 @@ static enum block_result send_frame(struct rp1_eth_dma *s,size_t bytes)
 {
     const struct rp1_dma_io *io=s->io;
     io->barrier(io->context);
-    s->memory->tx.status=TX_LAST|TX_WRAP|(uint32_t)bytes;
+    /* The other descriptor remains USED while GEM owns this slot. */
+    s->memory->tx[s->tx_head].status=TX_LAST|(s->tx_head ? TX_WRAP : 0)|(uint32_t)bytes;
     io->barrier(io->context);
     s->pending=true;
-    return io->write(io->context,NCR,RP1_GEM_RX_TX|RP1_GEM_MPE|TX_START) ? BLOCK_OK : BLOCK_IO;
+    if (!io->write(io->context,NCR,RP1_GEM_RX_TX|RP1_GEM_MPE|TX_START)) { return BLOCK_IO; }
+    ++s->stats->tx_submitted;
+    return BLOCK_OK;
 }
 
 static enum block_result send_udp(void *context,const struct udp_packet *packet)
@@ -363,14 +398,18 @@ enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
         (tx&~s->saved.tx_status&TX_ERRORS) || (rx&~s->saved.rx_status&RX_BUS_ERROR)) { return BLOCK_IO; }
     io->barrier(ctx);
     if (s->pending) {
-        uint32_t status=s->memory->tx.status;
+        uint32_t status=s->memory->tx[s->tx_head].status;
         if ((status&TX_USED) && (tx&(TX_ACTIVE|TX_DONE))==TX_DONE) {
             if ((status&(7u<<27)) || !io->write(ctx,TSR,tx&~s->saved.tx_status&TX_W1C)) { return BLOCK_IO; }
             s->pending=false;
+            s->tx_head^=1;
+            ++s->stats->tx_completed;
         } else if (now_ms-s->submitted>=100) {
+            ++s->stats->tx_timeouts;
             return BLOCK_TIMEOUT;
         }
     }
+    if (!s->pending && !tx_idle(s)) { return BLOCK_IO; }
     for (unsigned i=0;i<2;++i) {
         unsigned slot=s->head;
         volatile struct gem_descriptor *descriptor=&s->memory->rx[slot];
@@ -382,11 +421,12 @@ enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
         uint32_t status=descriptor->status;
         unsigned bytes=status&0xfff;
         if ((status&RX_WHOLE)==RX_WHOLE && bytes<=GEM_RX_BYTES) {
+            ++s->stats->rx_frames;
             const uint8_t *frame=s->memory->received[slot];
             udp_receive(frame,bytes,now_ms);
             if (s->tcp_enabled) { tcp_receive(frame,bytes); }
             if (reply_to_control(s,frame,bytes,now_ms)!=BLOCK_OK) { return BLOCK_IO; }
-        }
+        } else { ++s->stats->rx_discarded; }
         descriptor->status=0;
         io->barrier(ctx);
         descriptor->address=expected;
@@ -395,6 +435,7 @@ enum block_result rp1_eth_dma_service(struct rp1_eth_dma *s,uint64_t now_ms)
     /* Recycle completed descriptors and acknowledge RX overruns after bursts. */
     if (rx&~s->saved.rx_status&RX_W1C) {
         if (!io->write(ctx,RSR,rx&~s->saved.rx_status&RX_W1C)) { return BLOCK_IO; }
+        if (rx&~s->saved.rx_status&RX_OVERRUN) { ++s->stats->rx_overruns; }
     }
     if (!s->pending) { s->submitted=now_ms; }
     /* Give the other protocol first use of the shared TX slot next time. */
@@ -414,6 +455,11 @@ bool rp1_eth_dma_close(struct rp1_eth_dma *s)
     if (!set(io,NULL,NCR,0) || !io->read(ctx,TSR,&tx) || !io->read(ctx,RSR,&rx) ||
         tx==UINT32_MAX || rx==UINT32_MAX || (tx&TX_ACTIVE)) { return false; }
     io->barrier(ctx);
-    return (s->memory->tx.status&TX_USED) && ack_status(io,&s->saved,tx,rx) &&
-           restore_gem(io,&s->saved,NULL,true);
+    rp1_eth_dma_sample(s);
+    if (!tx_idle(s) || !ack_status(io,&s->saved,tx,rx) || !restore_gem(io,&s->saved,NULL,true)) { return false; }
+    if (s->pending && (tx&(TX_DONE|TX_ERRORS))==TX_DONE && !(s->memory->tx[s->tx_head].status&(7u<<27))) {
+        ++s->stats->tx_completed;
+    }
+    s->pending=false;
+    return true;
 }

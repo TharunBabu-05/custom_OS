@@ -1,0 +1,34 @@
+Phase 56 wired UDP probe acceptance excerpt supplied in chat.
+
+> ethtcpup
+Ethernet link Mbps=100
+Ethernet TCP and UDP active at 192.0.2.2/30. Use ethdown to stop.
+> appshell
+user:/$ runio - - /boot/UDPCHK.ELF probe 192.0.2.1 4040 3
+probe=1 attempts=1 elapsed_ms=69
+probe=2 attempts=1 elapsed_ms=40
+probe=3 attempts=1 elapsed_ms=40
+UDP probes matched=3/3 sent=3 ignored=2
+PASS: all UDP probe replies matched.
+child exit=0
+user:/$ netstat
+UDP session=up generation=1 slots=0/4 address=192.0.2.2/30
+  datagrams_tx=3 datagrams_rx=5 bytes_tx=48 bytes_rx=80
+  full_drops=5 timeouts=0 arp_requests=1 arp_failures=0
+child exit=0
+
+Windows PowerShell
+Waiting for 192.0.2.2 on 192.0.2.1:4040
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+Echoed 16 bytes to 192.0.2.2:49152
+PASS: echoed 3 distinct UDP probes.

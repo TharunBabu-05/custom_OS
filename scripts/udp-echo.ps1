@@ -26,6 +26,7 @@ try {
     $clock=[Diagnostics.Stopwatch]::StartNew()
     $batch=$PSBoundParameters.ContainsKey('Count')
     $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $repeats=0
     $end=[double]$TimeoutSeconds
     Write-Output "Waiting for $PeerAddress on ${BindAddress}:$Port"
     while ($clock.Elapsed.TotalSeconds -lt $end) {
@@ -39,12 +40,13 @@ try {
         $known=$seen.Contains($key)
         if (!$known -and $seen.Count -eq $Count) { continue }
         if ($socket.Send($data,$data.Length,$remote) -ne $data.Length) { throw 'Incomplete UDP echo write.' }
-        Write-Output "Echoed $($data.Length) bytes to $remote"
+        if (!$known) { Write-Output "Echoed $($data.Length) bytes to $remote" }
         if (!$batch) { return }
-        if ($known) { continue }
+        if ($known) { ++$repeats;continue }
         $null=$seen.Add($key)
         if ($seen.Count -eq $Count) { $end=[Math]::Min($end,$clock.Elapsed.TotalSeconds+4.5) }
     }
+    Write-Output "UDP batch unique=$($seen.Count) repeats=$repeats echoed=$($seen.Count+$repeats)"
     if ($seen.Count -ne $Count) { throw "Echoed $($seen.Count) of $Count distinct datagrams from $PeerAddress before the timeout." }
     Write-Output "PASS: echoed $Count distinct UDP probes."
 } finally { $socket.Dispose() }

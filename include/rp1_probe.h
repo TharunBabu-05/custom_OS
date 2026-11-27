@@ -78,5 +78,6 @@ void rp1_ethernet_command(uintptr_t dtb,uintptr_t uart,enum rp1_eth_action);
 bool rp1_ethernet_address_command(const char *);
 bool rp1_ethernet_active(void);
 void rp1_ethernet_status(void);
+void rp1_ethernet_stats(void);
 bool rp1_gpio_command(const char *,uintptr_t dtb,uintptr_t uart);
 #endif

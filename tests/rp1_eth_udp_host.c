@@ -6,12 +6,12 @@
 #include <string.h>
 
 enum { NCR=0,NCFGR=4,TSR=0x14,RBQP=0x18,TBQP=0x1c,RSR=0x20,
-       IMR=0x30,MID=0xfc,DCFG6=0x294,BUS=0x800000 };
+       IMR=0x30,MID=0xfc,TX_FRAMES=0x108,RX_FRAMES=0x158,DCFG6=0x294,BUS=0x800000 };
 struct fixture {
     struct rp1_eth_dma_memory memory;
     uint32_t regs[0x2a0/4];
-    unsigned starts;
-    bool drop_setup,drop_stop;
+    unsigned starts,cursor,last;
+    bool pending,drop_setup,drop_stop;
 };
 static const uint8_t peer_mac[]={0x20,0x7b,0xd5,0x1a,0xc0,0x91},peer_ip[]={192,0,2,1};
 
@@ -19,6 +19,7 @@ static bool read(void *context,unsigned reg,uint32_t *value)
 {
     struct fixture *f=context;
     *value=f->regs[reg/4];
+    if (reg==TX_FRAMES || reg==RX_FRAMES) { f->regs[reg/4]=0; }
     return true;
 }
 
@@ -32,13 +33,17 @@ static bool write(void *context,unsigned reg,uint32_t value)
     } else {
         f->regs[reg/4]=reg==NCR ? value&~0x200u : value;
     }
+    if (reg==TBQP) { f->cursor=0;f->pending=false; }
     if (reg==NCR && (value&0x200)) {
         assert(value==(0x200|RP1_GEM_RX_TX|RP1_GEM_MPE));
         struct rp1_eth_dma_memory *m=&f->memory;
         assert(f->regs[RBQP/4]==BUS+offsetof(struct rp1_eth_dma_memory,rx));
         assert(f->regs[TBQP/4]==BUS+offsetof(struct rp1_eth_dma_memory,tx));
-        assert(m->tx.address==BUS+offsetof(struct rp1_eth_dma_memory,frame));
-        assert((m->tx.status&0xc0008000u)==0x40008000u);
+        assert(!f->pending && m->tx[f->cursor].address==BUS+offsetof(struct rp1_eth_dma_memory,frame));
+        assert((m->tx[f->cursor].status&0xc0008000u)==(f->cursor ? 0x40008000u : 0x8000u));
+        assert(m->tx[f->cursor^1].status&0x80000000u);
+        f->last=f->cursor;
+        f->pending=true;
         ++f->starts;
         f->regs[TSR/4]|=8;
     }
@@ -49,7 +54,11 @@ static void barrier(void *context) { (void)context; }
 
 static void complete(struct fixture *f)
 {
-    f->memory.tx.status|=0x80000000u;
+    assert(f->pending);
+    f->memory.tx[f->last].status|=0x80000000u;
+    f->cursor^=1;
+    f->pending=false;
+    ++f->regs[TX_FRAMES/4];
     f->regs[TSR/4]=0x21;
 }
 
@@ -59,6 +68,7 @@ static void receive(struct fixture *f,unsigned slot,size_t n)
     f->memory.rx[slot].status=(uint32_t)n|0xc000;
     f->memory.rx[slot].address|=1;
     f->regs[RSR/4]|=2;
+    ++f->regs[RX_FRAMES/4];
 }
 
 static void reply_to_arp(struct fixture *f,unsigned slot)
@@ -132,7 +142,9 @@ static void test_inbound(const struct rp1_dma_io *io,struct fixture *f,const uin
     assert(!ethernet_ipv4_configure(&local,(const uint8_t[]){192,0,2,7},30));
     assert(local.prefix==30 && !memcmp(local.address,ip,4) && !memcmp(local.mask,mask,4));
     struct rp1_eth_dma s;
-    assert(rp1_eth_dma_open(&s,io,&f->memory,BUS,100,&local,false)==GEM_LOOP_OK);
+    struct rp1_eth_dma_stats stats={0};
+    f->regs[TX_FRAMES/4]=23;f->regs[RX_FRAMES/4]=35;
+    assert(rp1_eth_dma_open(&s,io,&f->memory,BUS,100,&local,false,&stats)==GEM_LOOP_OK);
     assert(!(f->regs[NCFGR/4]&32) && udp_link_up(rp1_eth_mac,local.address,local.mask));
     uint8_t *reply=f->memory.frame;
 
@@ -142,7 +154,7 @@ static void test_inbound(const struct rp1_dma_io *io,struct fixture *f,const uin
     request_arp(f,s.head,&local);
     f->regs[RSR/4]|=5;
     assert(rp1_eth_dma_service(&s,10)==BLOCK_OK && f->starts==1 && !f->regs[RSR/4]);
-    assert((f->memory.tx.status&0x3fff)==60 && !memcmp(reply,peer_mac,6));
+    assert((f->memory.tx[f->last].status&0x3fff)==60 && !memcmp(reply,peer_mac,6));
     assert(!memcmp(reply+6,rp1_eth_mac,6) && net_be16(reply+20)==2);
     assert(!memcmp(reply+22,rp1_eth_mac,6) && !memcmp(reply+28,ip,4));
     assert(!memcmp(reply+32,peer_mac,6) && !memcmp(reply+38,peer,4));
@@ -151,7 +163,7 @@ static void test_inbound(const struct rp1_dma_io *io,struct fixture *f,const uin
     complete(f);
     size_t length=request_ping(f,s.head,&local,513,0x4000);
     assert(rp1_eth_dma_service(&s,20)==BLOCK_OK && f->starts==2 && s.pending);
-    assert((f->memory.tx.status&0x3fff)==length && !memcmp(reply,peer_mac,6));
+    assert((f->memory.tx[f->last].status&0x3fff)==length && !memcmp(reply,peer_mac,6));
     assert(!memcmp(reply+6,rp1_eth_mac,6) && !memcmp(reply+26,ip,4) && !memcmp(reply+30,peer,4));
     assert(net_be16(reply+16)==length-14 && reply[22]==64 && !net_be16(reply+34));
     assert(!net_checksum(reply+14,20,0) && !net_checksum(reply+34,length-34,0));
@@ -168,9 +180,11 @@ static void test_inbound(const struct rp1_dma_io *io,struct fixture *f,const uin
     assert(rp1_eth_dma_service(&s,130)==BLOCK_OK && f->starts==2);
     request_ping(f,s.head,&local,525,0);
     assert(rp1_eth_dma_service(&s,140)==BLOCK_OK && f->starts==2);
+    receive(f,s.head,1600);
+    assert(rp1_eth_dma_service(&s,145)==BLOCK_OK && stats.rx_discarded==1);
     request_ping(f,s.head,&local,3,0);
     assert(rp1_eth_dma_service(&s,150)==BLOCK_OK && f->starts==3 && s.pending);
-    assert((f->memory.tx.status&0x3fff)==60);
+    assert((f->memory.tx[f->last].status&0x3fff)==60);
     complete(f);
     const struct uos_udp_peer old_peer={{192,0,2,1},4040,50000},new_peer={{192,0,2,5},4040,50000};
     assert(udp_open(1,&old_peer)<0);
@@ -181,7 +195,11 @@ static void test_inbound(const struct rp1_dma_io *io,struct fixture *f,const uin
     complete(f);
     f->regs[RSR/4]=8;
     assert(rp1_eth_dma_service(&s,170)==BLOCK_IO);
+    rp1_eth_dma_sample(&s);
+    rp1_eth_dma_sample(&s);
     assert(rp1_eth_dma_close(&s) && !memcmp(original,f->regs,sizeof(f->regs)));
+    assert(stats.tx_submitted==4 && stats.tx_completed==4 && stats.mac_tx==4 && !stats.tx_timeouts);
+    assert(stats.rx_frames==8 && stats.mac_rx==9 && stats.rx_overruns==1 && !stats.mac_unavailable);
     udp_link_down();
     puts("PASS: configured Ethernet IPv4, ARP and ICMP replies, RX overrun recovery, input checks and rate limits.");
 }
@@ -192,7 +210,8 @@ static void test_tcp(const struct rp1_dma_io *io,struct fixture *f,const uint32_
     memcpy(f->regs,original,sizeof(f->regs));
     f->starts=0;
     struct rp1_eth_dma s;
-    assert(rp1_eth_dma_open(&s,io,&f->memory,BUS,100,&rp1_eth_default_ipv4,true)==GEM_LOOP_OK);
+    struct rp1_eth_dma_stats stats={0};
+    assert(rp1_eth_dma_open(&s,io,&f->memory,BUS,100,&rp1_eth_default_ipv4,true,&stats)==GEM_LOOP_OK);
     const uint8_t secret[32]={3};
     assert(tcp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask,secret));
     assert(udp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask));
@@ -262,7 +281,9 @@ static void test_tcp(const struct rp1_dma_io *io,struct fixture *f,const uint32_
     assert(tcp_ready(1,tcp)==UOS_EVENT_HANGUP && udp_ready(1,udp)==UOS_EVENT_HANGUP);
     assert(rp1_eth_dma_close(&s) && !memcmp(original,f->regs,sizeof(f->regs)));
     puts("PASS: shared GEM UDP/TCP transmit order, 16 KiB stream, FIN/EOF, closed handles and DMA restoration.");
-    assert(rp1_eth_dma_open(&s,io,&f->memory,BUS,1000,&rp1_eth_default_ipv4,true)==GEM_LOOP_OK);
+    unsigned submissions=f->starts;
+    assert(rp1_eth_dma_open(&s,io,&f->memory,BUS,1000,&rp1_eth_default_ipv4,true,&stats)==GEM_LOOP_OK);
+    assert(!s.tx_head && stats.tx_submitted==submissions && stats.tx_completed==submissions && stats.mac_tx==submissions);
     assert((f->regs[NCFGR/4]&0x401)==0x400);
     assert(tcp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask,secret));
     assert(udp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask));
@@ -286,13 +307,14 @@ int main(void)
     memcpy(original,f.regs,sizeof(original));
     const struct rp1_dma_io io={&f,read,write,NULL,barrier};
     struct rp1_eth_dma s;
+    struct rp1_eth_dma_stats stats={0};
     f.drop_setup=true;
-    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false)==GEM_LOOP_SETUP);
+    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false,&stats)==GEM_LOOP_SETUP);
     assert(!memcmp(original,f.regs,sizeof(original)));
     f.drop_setup=false;
-    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false)==GEM_LOOP_OK);
+    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false,&stats)==GEM_LOOP_OK);
     assert(f.regs[NCR/4]==(RP1_GEM_RX_TX|RP1_GEM_MPE) && !(f.memory.rx[0].address&3) && (f.memory.rx[1].address&3)==2);
-    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false)==GEM_LOOP_BUSY);
+    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false,&stats)==GEM_LOOP_BUSY);
     assert(udp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask));
     const struct uos_udp_peer peer={{192,0,2,1},4040,50000};
     int64_t handle=udp_open(1,&peer);
@@ -331,15 +353,21 @@ int main(void)
     udp_link_down();
     assert(udp_recv(1,handle,actual,sizeof(actual))==UOS_ENETDOWN);
 
-    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false)==GEM_LOOP_OK);
+    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false,&stats)==GEM_LOOP_OK);
+    f.memory.tx[1].address^=4;
+    assert(rp1_eth_dma_service(&s,0)==BLOCK_IO && !rp1_eth_dma_close(&s));
+    f.memory.tx[1].address^=4;
+    assert(rp1_eth_dma_close(&s));
+    assert(rp1_eth_dma_open(&s,&io,&f.memory,BUS,100,&rp1_eth_default_ipv4,false,&stats)==GEM_LOOP_OK);
     assert(udp_link_up(rp1_eth_mac,rp1_eth_default_ipv4.address,rp1_eth_default_ipv4.mask));
     handle=udp_open(1,&peer);
     assert(handle>0 && udp_send(1,handle,message,sizeof(message),0)==sizeof(message));
     assert(rp1_eth_dma_service(&s,0)==BLOCK_OK && s.pending);
-    assert(rp1_eth_dma_service(&s,100)==BLOCK_TIMEOUT);
+    assert(rp1_eth_dma_service(&s,100)==BLOCK_TIMEOUT && stats.tx_timeouts==1);
     assert(!rp1_eth_dma_close(&s) && f.regs[RBQP/4]!=original[RBQP/4]);
     udp_link_down();
     puts("PASS: persistent GEM UDP ARP/echo, TX and RX wrap, socket cleanup, timeout and DMA retention.");
     test_tcp(&io,&f,original);
     test_inbound(&io,&f,original);
+    puts("PASS: GEM TX ring rotation, idle-slot guards, DMA and MAC counters, and retained stats across reopen.");
 }

@@ -264,6 +264,8 @@ struct eth_dma_page { uint64_t physical,bus; unsigned ticket; };
 enum wired_state { WIRED_DOWN,WIRED_UP,WIRED_WAITING,WIRED_FAILED };
 static struct wired_network {
     struct eth_dma_page page;
+    struct rp1_eth_dma session;
+    struct rp1_eth_dma_stats stats;
     uintptr_t dtb;
     unsigned speed,losses,recoveries,speed_changes;
     enum rp1_eth_loop_result result;
@@ -354,7 +356,7 @@ static bool wired_open(struct rp1_eth_dma *session,unsigned speed)
     struct rp1_eth_dma_memory *memory=(void *)(uintptr_t)wired.page.physical;
     const struct ethernet_ipv4 *ipv4=ethernet_config();
     wired.result=wired.random_failed ? GEM_LOOP_SETUP :
-                 rp1_eth_dma_open(session,&eth_dma_io,memory,(uint32_t)wired.page.bus,speed,ipv4,wired.tcp);
+                 rp1_eth_dma_open(session,&eth_dma_io,memory,(uint32_t)wired.page.bus,speed,ipv4,wired.tcp,&wired.stats);
     bool udp=wired.result==GEM_LOOP_OK && udp_link_up(rp1_eth_mac,ipv4->address,ipv4->mask);
     bool tcp=udp && wired.tcp && tcp_link_up(rp1_eth_mac,ipv4->address,ipv4->mask,secret);
     crypto_wipe(secret,sizeof(secret));
@@ -379,7 +381,7 @@ static void wired_close(struct rp1_eth_dma *session)
 static void wired_worker(void *unused)
 {
     (void)unused;
-    struct rp1_eth_dma session;
+    struct rp1_eth_dma *session=&wired.session;
     const struct rp1_eth_io phy={
         .gem={read_register,eth_dma_io.context,RP1_ETH_SPAN},
         .write=write_register,.ticks=ethernet_ticks,.hz=timer_frequency()
@@ -387,7 +389,7 @@ static void wired_worker(void *unused)
     const uint64_t interval=phy.hz/5;
     uint64_t polled=timer_ticks();
     unsigned candidate=0;
-    if (wired_open(&session,wired.speed)) {
+    if (wired_open(session,wired.speed)) {
         while (network_worker_pause()) {
             uint64_t now=timer_ticks();
             bool online=wired.state==WIRED_UP;
@@ -395,7 +397,7 @@ static void wired_worker(void *unused)
             if (now-polled<interval) {
                 if (!online) { continue; }
                 uint64_t ms=now/phy.hz*1000+now%phy.hz*1000/phy.hz;
-                transfer=rp1_eth_dma_service(&session,ms);
+                transfer=rp1_eth_dma_service(session,ms);
                 if (transfer==BLOCK_OK) { continue; }
             }
             polled=now;
@@ -406,7 +408,7 @@ static void wired_worker(void *unused)
             if (online) {
                 if (speed!=wired.speed) {
                     ++wired.losses;
-                    wired_close(&session);
+                    wired_close(session);
                     wired.state=WIRED_WAITING;
                     if (wired.result!=GEM_LOOP_OK) { break; }
                     candidate=speed;
@@ -416,7 +418,7 @@ static void wired_worker(void *unused)
                 }
             } else if (speed && speed==candidate) {
                 unsigned previous=wired.speed;
-                if (!wired_open(&session,speed)) { break; }
+                if (!wired_open(session,speed)) { break; }
                 ++wired.recoveries;
                 if (previous!=speed) { ++wired.speed_changes; }
                 candidate=0;
@@ -425,7 +427,7 @@ static void wired_worker(void *unused)
             }
         }
     }
-    if (wired.state==WIRED_UP) { wired_close(&session); }
+    if (wired.state==WIRED_UP) { wired_close(session); }
     if (wired.result!=GEM_LOOP_RETAIN) { release_ethernet_dma(&wired.page); }
     wired.state=wired.result==GEM_LOOP_OK && wired.phy_result==RP1_PHY_OK ? WIRED_DOWN : WIRED_FAILED;
 }
@@ -513,6 +515,25 @@ void rp1_ethernet_status(void)
     console_write("\n");
 #else
     console_write("Ethernet status requires a Raspberry Pi 5.\n");
+#endif
+}
+
+void rp1_ethernet_stats(void)
+{
+#ifdef OUROS_PI5
+    if (wired.state==WIRED_UP) { rp1_eth_dma_sample(&wired.session); }
+    const struct rp1_eth_dma_stats *s=&wired.stats;
+    console_write("Ethernet tx_submitted=");console_u64(s->tx_submitted);
+    console_write(" tx_completed=");console_u64(s->tx_completed);
+    console_write(" tx_timeouts=");console_u64(s->tx_timeouts);
+    console_write("\nEthernet rx_frames=");console_u64(s->rx_frames);
+    console_write(" rx_discarded=");console_u64(s->rx_discarded);
+    console_write(" rx_overruns=");console_u64(s->rx_overruns);
+    console_write("\nEthernet mac_tx=");console_u64(s->mac_tx);
+    console_write(" mac_rx=");console_u64(s->mac_rx);
+    console_write(wired.session.io && !s->mac_unavailable ? " mac_stats=ok\n" : " mac_stats=unavailable\n");
+#else
+    console_write("Ethernet statistics require a Raspberry Pi 5.\n");
 #endif
 }
 

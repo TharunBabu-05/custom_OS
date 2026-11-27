@@ -1,5 +1,10 @@
 # Real Raspberry Pi 5 proof
 
+Phase 56 matched all three UDP probes on their first attempts. Windows
+received three distinct requests and logged twelve echoes in total.
+The Pi counted two mismatched replies and five full-queue drops.
+[Phase 56 Pi and Windows capture](pi5-udp-probes-2026-11-27.txt)
+
 Phase 55 recorded one carrier loss and one recovery, followed by a full
 16 KiB TCP half-close. Both transports advanced to generation 2. The
 UDP echo in the same capture timed out.

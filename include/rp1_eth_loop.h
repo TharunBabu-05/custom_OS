@@ -30,25 +30,33 @@ struct gem_registers {
     uint32_t cfg,dma,tx_base,rx_base,tx_status,rx_status,sa_low,sa_high;
 };
 struct rp1_eth_dma_memory {
-    _Alignas(64) volatile struct gem_descriptor tx,rx[2];
+    _Alignas(64) volatile struct gem_descriptor tx[2],rx[2];
     _Alignas(64) uint8_t frame[TCP_FRAME_MAX];
     _Alignas(64) uint8_t received[2][GEM_RX_BYTES];
+};
+struct rp1_eth_dma_stats {
+    uint64_t tx_submitted,tx_completed,tx_timeouts;
+    uint64_t rx_frames,rx_discarded,rx_overruns;
+    uint64_t mac_tx,mac_rx;
+    bool mac_unavailable;
 };
 struct rp1_eth_dma {
     const struct rp1_dma_io *io;
     struct rp1_eth_dma_memory *memory;
     struct gem_registers saved;
     struct ethernet_ipv4 ipv4;
+    struct rp1_eth_dma_stats *stats;
     uint64_t submitted,reply_due[2];
     uint32_t bus;
-    unsigned head;
+    unsigned head,tx_head;
     bool pending,tcp_enabled,tcp_first;
 };
 extern const uint8_t rp1_eth_mac[6];
 extern const struct ethernet_ipv4 rp1_eth_default_ipv4;
 enum rp1_eth_loop_result rp1_eth_dma_open(struct rp1_eth_dma *,const struct rp1_dma_io *,
                                          struct rp1_eth_dma_memory *,uint32_t bus,unsigned speed,
-                                         const struct ethernet_ipv4 *,bool tcp_enabled);
+                                         const struct ethernet_ipv4 *,bool tcp_enabled,struct rp1_eth_dma_stats *);
 enum block_result rp1_eth_dma_service(struct rp1_eth_dma *,uint64_t now_ms);
+void rp1_eth_dma_sample(struct rp1_eth_dma *);
 bool rp1_eth_dma_close(struct rp1_eth_dma *);
 #endif
