@@ -63,6 +63,7 @@ smp_secondary_entry:
     dsb sy
     isb
     msr cpacr_el1, xzr
+    msr tpidrro_el0, xzr
     msr cntp_ctl_el0, xzr
     msr cntv_ctl_el0, xzr
     lsr x1, x1, #2

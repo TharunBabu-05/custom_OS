@@ -23,6 +23,7 @@ _start:
     b .Lzero
 .Lbss_done:
     msr tpidr_el1, xzr
+    msr tpidrro_el0, xzr
     ldr x1, =exception_vectors
     msr vbar_el1, x1
     isb

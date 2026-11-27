@@ -1,7 +1,7 @@
 .section .text, "ax"
 .global process_arch_enter,process_arch_return
 .type process_arch_enter, %function
-process_arch_enter:               /* x0=frame, x1=user SP; IRQs masked */
+process_arch_enter:               /* x0=frame, x1=user SP, x2=thread pointer; IRQs masked */
     stp x19, x20, [sp, #-96]!
     stp x21, x22, [sp, #16]
     stp x23, x24, [sp, #32]
@@ -10,6 +10,7 @@ process_arch_enter:               /* x0=frame, x1=user SP; IRQs masked */
     stp x29, x30, [sp, #80]
     mov x30, x0                 /* complete saved integer frame */
     msr sp_el0, x1
+    msr tpidr_el0, x2
     ldp x2, x3, [x30, #248]
     msr elr_el1, x2
     msr spsr_el1, x3

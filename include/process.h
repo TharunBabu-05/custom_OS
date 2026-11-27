@@ -6,10 +6,12 @@ enum { PROCESS_LIMIT=8, SERVICE_LIMIT=3, SERVICE_NAME_MAX=15 };
 /* Foreground EL0 batch; timer IRQs preempt users, never kernel drivers.
  * 0 = all exited successfully, 1 = contained process failure, 2 = refused. */
 int process_run(const char *const *paths,unsigned count);
+int process_run_multi(const char *const *paths,unsigned count);
 int process_exec(const struct app_args *args);
 int process_terminal(const struct app_args *args,unsigned seconds);
 /* Dedicated boot shell session. An image replacing the shell gets a deadline. */
 int process_shell(void);
+int process_shell_multi(void);
 bool process_tools_test(void);
 void process_info(void);
 /* A null name selects the default monitor service. */

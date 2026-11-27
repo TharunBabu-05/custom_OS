@@ -34,7 +34,7 @@ enum uos_syscall {
     UOS_SYS_PORT_LIST=88,UOS_SYS_CHANNEL_SEND=89,UOS_SYS_CHANNEL_RECV=90,UOS_SYS_EVENT_WAIT=91,
     UOS_SYS_POLICY_GET=92,UOS_SYS_POLICY_RESTRICT=93,UOS_SYS_SPAWN_LIMITED=94,
     UOS_SYS_SYSTEM_STATS=95,UOS_SYS_PROCESS_EVENTS=96,UOS_SYS_TIMER=97,UOS_SYS_TCP_SHUTDOWN=98,
-    UOS_SYS_NET_STATS=99,UOS_SYS_SOCKET_INFO=100
+    UOS_SYS_NET_STATS=99,UOS_SYS_SOCKET_INFO=100,UOS_SYS_VM_RESERVE=101
 };
 enum {
     UOS_SYSTEM_STATS_VERSION=1,
@@ -237,13 +237,13 @@ struct uos_fault_info {
 };
 _Static_assert(sizeof(struct uos_fault_info)==48,"process stop ABI size");
 enum { UOS_VM_MAX_PAGES=32,UOS_VM_MAX_REGIONS=4 };
-enum { UOS_VM_FILE_BACKED=1,UOS_VM_SHARED=2,UOS_VM_PEER=4 };
+enum { UOS_VM_FILE_BACKED=1,UOS_VM_SHARED=2,UOS_VM_PEER=4,UOS_VM_DEMAND=8 };
 struct uos_vm_entry {
     uint64_t token,address,file_offset;
-    uint32_t bytes,pages,rights,ceiling,flags,reserved;
+    uint32_t bytes,pages,rights,ceiling,flags,resident_pages;
 };
 /* PID zero queries the caller. Direct-child queries omit tokens, virtual
- * addresses and file offsets. Unused rows and reserved fields are zero. */
+ * addresses and file offsets. resident_pages is zero for non-demand rows. */
 struct uos_vm_info {
     uint64_t pid;
     uint32_t count,pages,page_limit,reserved;

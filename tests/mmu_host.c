@@ -107,6 +107,22 @@ static void task_guards(void)
     l=layout(true);l.task_count=5;l.task_base=l.text_start+0x90000;assert(mmu_plan_make(&m,MMU_PI5,&l,&p)!=MMU_OK);
     puts("PASS: independent task stack guards unmapped, full stack extents RW/XN, adjacent byte boundaries and invalid/overlapping/out-of-kernel task arenas refused");
 }
+static void dma_scratch(void)
+{
+    struct memory_map m=ram(true);
+    struct mmu_layout l=layout(true);
+    struct mmu_plan p;
+    struct mmu_translation t;
+    l.dma_scratch=l.text_start+0x95000;
+    assert(mmu_plan_make(&m,MMU_PI5,&l,&p)==MMU_OK && mmu_tables_build(tables,l.tables,&p)==MMU_OK);
+    assert(mmu_lookup(tables,l.dma_scratch,&t) && t.level==3 && t.kind==MMU_DMA_WB && t.physical==l.dma_scratch);
+    assert((t.descriptor&~MMU_OUTPUT_MASK)==0x006000000000070bULL);
+    assert(mmu_plan_range(&p,l.dma_scratch-4096,4096,MMU_RW) && mmu_plan_range(&p,l.dma_scratch+4096,4096,MMU_RW));
+    assert(!mmu_plan_range(&p,l.dma_scratch,4096,MMU_RW));
+    l.dma_scratch=l.tables;
+    assert(mmu_plan_make(&m,MMU_PI5,&l,&p)!=MMU_OK);
+    puts("PASS: isolated write-back DMA scratch with non-cacheable neighbors and EL1 RW/XN permissions");
+}
 int main(void)
 {
     /* The SMP alias uses the same EL1-only Normal-NC RO/XN leaf as the boot plan. */
@@ -115,5 +131,5 @@ int main(void)
     assert(!mmu_page_descriptor(0x48000,MMU_NONE));
     SYSTEM_INFO system;GetSystemInfo(&system);size_t rounded=(sizeof(*tables)+4095)&~(size_t)4095;
     unsigned char *allocation=VirtualAlloc(NULL,rounded+4096,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE);assert(allocation && system.dwPageSize==4096);DWORD old;assert(VirtualProtect(allocation+rounded,4096,PAGE_NOACCESS,&old));tables=(struct mmu_tables *)allocation;
-    profiles();invalid();controls_and_faults();task_guards();assert(VirtualFree(allocation,0,MEM_RELEASE));return 0;
+    profiles();invalid();controls_and_faults();task_guards();dma_scratch();assert(VirtualFree(allocation,0,MEM_RELEASE));return 0;
 }

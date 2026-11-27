@@ -3,8 +3,9 @@
 The monitor can use PSCI to start up to three secondary cores from the
 enabled device-tree CPU entries. Each worker enters EL1 with a private
 4 KiB stack, installs the kernel's verified identity mappings, leaves
-its interrupts masked, and waits for work. The boot CPU runs the EL0
-scheduler, device drivers, and physical page allocator.
+its interrupts masked, and waits for work. The boot CPU owns process state,
+device drivers, and the physical page allocator. [Phase 63](core-vm-smp.md)
+adds opt-in EL0 execution on the secondary workers.
 
 ## Phase 41 Pi results
 

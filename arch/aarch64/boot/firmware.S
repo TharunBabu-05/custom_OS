@@ -58,6 +58,7 @@ firmware_entry:
     ldr x1, =__stack_top
     mov sp, x1
     msr cpacr_el1, xzr
+    msr tpidrro_el0, xzr
     ldr x1, =__bss_start
     ldr x2, =__bss_end
 .Lzero:

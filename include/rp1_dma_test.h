@@ -23,4 +23,7 @@ struct rp1_dma_report {
 void rp1_dma_descriptor_init(struct rp1_dma_descriptor *,uint64_t source,uint64_t destination);
 enum rp1_dma_result rp1_dma_copy(const struct rp1_dma_io *,uint64_t descriptor,uint64_t timeout,struct rp1_dma_report *);
 bool rp1_dma_test_command(const char *,uintptr_t dtb,uintptr_t uart);
+#ifdef OUROS_PI5
+uintptr_t rp1_dma_scratch_address(void);
+#endif
 #endif

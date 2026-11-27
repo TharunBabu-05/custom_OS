@@ -36,6 +36,16 @@ mmu_switch_root:
     ret
 .size mmu_switch_root, . - mmu_switch_root
 
+.global mmu_tlb_sync
+.type mmu_tlb_sync, %function
+mmu_tlb_sync:
+    dsb ishst
+    tlbi vmalle1is
+    dsb ish
+    isb
+    ret
+.size mmu_tlb_sync, . - mmu_tlb_sync
+
 .global mmu_probe_read, mmu_probe_read_fault, mmu_probe_read_resume
 .type mmu_probe_read, %function
 mmu_probe_read:

@@ -1,0 +1,35 @@
+Raspberry Pi 5 and Windows direct-cable DHCP capture, 2026-11-27
+Selected lines from the project author's serial and PowerShell output.
+
+> ethprobe
+GEM id=0x0000000000070109 phy=1 id=0x00000000600d84a2 link=up autoneg=complete held=yes
+> ethdhcp
+Ethernet link Mbps=100
+Ethernet DHCP probe started. Use ethlease.
+> ethdhcp up
+Ethernet link Mbps=100
+Ethernet DHCP activation started. Use ethlease.
+> ethdhcp wait
+Waiting for DHCP. Ctrl+C returns to the monitor.
+Ethernet DHCP state=bound result=0
+DHCP discover=1 request=1 rx=2 ignored=0 malformed=0 other=0 polls=120
+ACK address=192.0.2.2 server=192.0.2.1 lease_seconds=80 mask=255.255.255.252 renewal_seconds=25 rebind_seconds=55
+Lease active=yes
+ARP probes=3 announcements=2
+DHCP renewal=idle requests=0 rebroadcasts=0 completed=0 remaining_seconds=71
+
+PS> powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rpi5-dhcp-fixture.ps1 -InterfaceAlias 'Ethernet 3' -Mode Ack -TemporaryFirewallRule
+DHCP fixture on Ethernet 3 (ifIndex=5), Windows=192.0.2.1 Pi=192.0.2.2 mode=Ack
+Lease 80s. T1 25s. T2 55s. Start ethdhcp up on the Pi.
+16.0s xid=ad940162 DISCOVER -> OFFER
+16.0s xid=ad940162 REQUEST -> ACK
+29.3s xid=4ead284e DISCOVER -> OFFER
+29.3s xid=4ead284e REQUEST -> ACK
+54.3s xid=c1cba38b RENEW -> ACK
+79.3s xid=57d21ec3 RENEW -> ACK
+104.3s xid=435e1e3e RENEW -> ACK
+DHCP fixture closed. Offers=2 initial_acks=2 renewal_acks=3 naks=0
+
+The Pi confirmed an active lease after three ARP probes and two announcements.
+Windows ACKed three distinct renewal requests at 25-second intervals. The Pi
+excerpt ends at the initial bound state before its renewal counter updates.

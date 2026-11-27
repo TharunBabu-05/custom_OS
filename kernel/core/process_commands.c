@@ -109,9 +109,11 @@ bool process_command(const char *line)
         same(verb,"runlim") || same(verb,"policy")) {
         console_write("Shell command: use appshell and wait for user:/$ (timerstart first if stopped).\n");return true;
     }
-    if (same(verb,"appshell")) {
-        space(&p);if (*p) { console_write("Usage: appshell\n");return true; }
-        (void)process_shell();return true;
+    if (same(verb,"appshell") || same(verb,"appsmpshell")) {
+        space(&p);if (*p) { console_write("Usage: appshell | appsmpshell\n");return true; }
+        if (same(verb,"appsmpshell")) { (void)process_shell_multi(); }
+        else { (void)process_shell(); }
+        return true;
     }
     if (same(verb,"appterm")) {
         char number[4];unsigned seconds=0;struct app_args args;
@@ -135,7 +137,8 @@ term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");
         else { console_write(process_test() ? "PASS: EL0 applications, isolated memory, checked syscalls, preemption, contained faults/timeouts and resource cleanup.\n" : "FAIL: EL0 application test.\n"); }return true;
     }
     if (app_file_command(verb,p) || package_command(verb,p)) { return true; }
-    if (!same(verb,"apprun")) { return false; }
+    bool multi=same(verb,"appmulti");
+    if (!multi && !same(verb,"apprun")) { return false; }
     char paths[PROCESS_LIMIT][RAMFS_PATH_MAX];const char *arguments[PROCESS_LIMIT];unsigned count=0;
     for (;;) {
         space(&p);if (!*p) { break; }if (count==PROCESS_LIMIT) { goto usage; }
@@ -144,7 +147,11 @@ term_usage:console_write("Usage: appterm <1..300 seconds> <ELF> [arguments]\n");
         if (r!=FS_OK || directory) { failure(r==FS_OK ? FS_IS_DIR : r);return true; }
         arguments[count]=paths[count];++count;
     }
-    if (!count) { goto usage; }(void)process_run(arguments,count);return true;
+    if (!count || (multi && count<2)) { goto usage; }
+    if (multi) { (void)process_run_multi(arguments,count); }
+    else { (void)process_run(arguments,count); }
+    return true;
 usage:
-    console_write("Usage: apprun <ELF path> [additional ELF paths, up to eight total]\n");return true;
+    console_write(multi ? "Usage: appmulti <ELF path> <ELF path> [more paths, up to eight total]\n" :
+                          "Usage: apprun <ELF path> [additional ELF paths, up to eight total]\n");return true;
 }

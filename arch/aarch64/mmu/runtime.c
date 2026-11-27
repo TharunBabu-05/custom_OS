@@ -5,6 +5,9 @@
 #include "irq.h"
 #include "task.h"
 extern unsigned char __text_start[],__text_end[],__rodata_end[],__kernel_end[],__stack_guard[],__stack_bottom[],__stack_top[];
+#ifdef OUROS_PI5
+#include "rp1_dma_test.h"
+#endif
 extern unsigned char mmu_probe_read_fault[],mmu_probe_read_resume[],mmu_probe_write_fault[],mmu_probe_write_resume[],mmu_probe_exec_resume[],mmu_text_marker[],mmu_rodata_marker[];
 extern void mmu_arch_enable(uint64_t root,uint64_t tcr,uint64_t mair);
 extern unsigned mmu_probe_read(uintptr_t address);
@@ -36,6 +39,38 @@ bool mmu_dma_buffer(uint64_t physical,size_t bytes)
     if (!bytes || bytes-1>UINT64_MAX-physical || !mmu_dma_compatible()) { return false; }
     return !mmu_enabled() || mmu_plan_range(&plan,physical,bytes,MMU_RW);
 }
+static void data_cache(uint64_t control)
+{ __asm__ volatile("dsb sy; msr sctlr_el1, %0; isb" :: "r"(control) : "memory"); }
+
+unsigned mmu_dma_cache_begin(uint64_t physical)
+{
+    uint64_t ctr,daif;
+    __asm__ volatile("mrs %0, ctr_el0; mrs %1, daif" : "=r"(ctr),"=r"(daif));
+    unsigned stride=4u<<((ctr>>16)&15);
+    if (!(daif&0x80) || stride>PAGE_SIZE || physical%PAGE_SIZE || !state.active || !readback() ||
+        !mmu_plan_range(&plan,physical,PAGE_SIZE,MMU_DMA_WB)) { return 0; }
+    data_cache(sctlr()|4);
+    return stride;
+}
+
+void mmu_dma_cache_handoff(uint64_t physical,unsigned stride)
+{
+    for (unsigned i=0;i<PAGE_SIZE;i+=stride) { __asm__ volatile("dc civac, %0" :: "r"(physical+i) : "memory"); }
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+
+void mmu_dma_cache_receive(uint64_t physical,unsigned stride)
+{
+    __asm__ volatile("dsb sy" ::: "memory");
+    for (unsigned i=0;i<PAGE_SIZE;i+=stride) { __asm__ volatile("dc ivac, %0" :: "r"(physical+i) : "memory"); }
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+
+void mmu_dma_cache_end(uint64_t physical,unsigned stride)
+{
+    mmu_dma_cache_handoff(physical,stride);
+    data_cache(sctlr()&~4ULL);
+}
 void mmu_setup(const char *board,uintptr_t dtb) { state.board=board;state.dtb=dtb; }
 static void initialize(void)
 {
@@ -52,7 +87,12 @@ static void initialize(void)
     const struct mmu_layout layout={
         (uintptr_t)__text_start,(uintptr_t)__text_end,(uintptr_t)__rodata_end,(uintptr_t)__kernel_end,
         (uintptr_t)__stack_guard,(uintptr_t)__stack_bottom,(uintptr_t)__stack_top,
-        (uintptr_t)tables.entries,state.dtb,map.dtb_size,(uintptr_t)task_stacks,TASK_LIMIT
+        (uintptr_t)tables.entries,state.dtb,map.dtb_size,(uintptr_t)task_stacks,TASK_LIMIT,
+#ifdef OUROS_PI5
+        rp1_dma_scratch_address()
+#else
+        0
+#endif
     };
     state.result=mmu_plan_make(&map,profile,&layout,&plan);if (state.result!=MMU_OK) { goto failed; }
     uint64_t end=plan.regions[plan.count-1].base+plan.regions[plan.count-1].size;
@@ -101,7 +141,8 @@ void mmu_smp_publish(bool second)
     uint64_t base=smp_allocation;
     uint64_t *leaf=(uint64_t *)(uintptr_t)(base+SMP_LEAF*PAGE_SIZE);
     __atomic_store_n(leaf,second ? mmu_page_descriptor(base+SMP_PAGE_B*PAGE_SIZE,MMU_RO) : 0,__ATOMIC_RELEASE);
-    __asm__ volatile("dsb sy" ::: "memory");
+    if (!second) { mmu_tlb_sync(); }
+    else { __asm__ volatile("dsb ishst" ::: "memory"); }
 }
 
 bool mmu_smp_observe(enum mmu_smp_check check)
@@ -112,11 +153,7 @@ bool mmu_smp_observe(enum mmu_smp_check check)
     if (!root) { return false; }
     if (check==MMU_SMP_FIRST && current_root()==tables.physical) { mmu_switch_root(root); }
     if (current_root()!=root) { return false; }
-    if (check==MMU_SMP_UNMAPPED) {
-        __asm__ volatile("dsb sy; tlbi vaae1, %0; dsb sy; isb" :: "r"(va>>12) : "memory");
-    } else {
-        __asm__ volatile("dsb sy; isb" ::: "memory");
-    }
+    __asm__ volatile("dsb ish; isb" ::: "memory");
     __asm__ volatile("at s1e1r, %1; isb; mrs %0, par_el1" : "=r"(par) : "r"(va) : "memory");
     if (check==MMU_SMP_UNMAPPED) { return (par&0x7f)==0x0f; } /* L3 translation fault. */
     bool second=check==MMU_SMP_SECOND;

@@ -22,6 +22,7 @@ _Static_assert(IPI_MAP+MMU_SMP_RESTORE<(1u<<IPI_SHIFT),"IPI operation fits in re
 #define ROUTE_BIT (1ULL<<62)
 #define QUEUE_BIT (1ULL<<61)
 #define MEMORY_BIT (1ULL<<60)
+#define USER_BIT (1ULL<<59)
 #define MAX_SEQUENCE ((MEMORY_BIT>>1)-1)
 #define STACK_CANARY 0x6f75726f73736d70ULL
 #define CPU_LIFECYCLE_CODE __attribute__((section(".text.cpu_lifecycle")))
@@ -59,9 +60,17 @@ static const struct gic_state *ipi_controller;
 static uint8_t ipi_source;
 static uint64_t ipi_sequence;
 static bool ipi_blocked;
+static unsigned user_mask;
+static uint64_t user_sequence;
+static struct {
+    struct smp_user_slice *slice;
+    uint64_t root,request,interrupt;
+} user_jobs[SMP_WORKER_LIMIT];
 enum { IRQ_RESTORE_FAILED=256, IRQ_SETUP_FAILED, IRQ_HANDLER_FAILED };
 extern unsigned char smp_secondary_entry[];
 extern void smp_test_break(void);
+extern void process_arch_enter(const struct exception_frame *,uint64_t,uint64_t);
+extern unsigned char process_arch_return[];
 
 static uint64_t acquire(const uint64_t *value)
 { return __atomic_load_n(value,__ATOMIC_ACQUIRE); }
@@ -148,6 +157,26 @@ static _Noreturn CPU_LIFECYCLE_CODE void worker_poweroff(struct smp_worker *w,en
 CPU_LIFECYCLE_CODE void smp_worker_exception(struct smp_worker *w,struct exception_frame *f)
 {
     if (f->vector==5 && target_mask(acquire(&w->irq_state))) { worker_ipi(w,f);return; }
+    unsigned slot=(unsigned)(w-smp_workers);
+    uint64_t request=acquire(&user_jobs[slot].request);
+    if (request && (f->spsr&15)==0 && (f->vector==8 || f->vector==9)) {
+        struct smp_user_slice *slice=user_jobs[slot].slice;
+        bool irq_ok=true;
+        if (f->vector==9) {
+            uint32_t token;
+            irq_ok=gic_sgi_take(ipi_controller,&token);
+            if (irq_ok && (token&1023)>=1020) { return; }
+            irq_ok=irq_ok && (token&1023)==GIC_WORK_SGI && (1u<<((token>>10)&7))==ipi_source;
+            if (irq_ok && acquire(&user_jobs[slot].interrupt)!=request) { return; }
+        }
+        slice->end=timer_ticks();
+        slice->irq_ok=irq_ok;
+        __asm__ volatile("mrs %0, sp_el0; mrs %1, tpidr_el0" : "=r"(slice->stack),"=r"(slice->thread_pointer));
+        *slice->frame=*f;
+        mmu_switch_root(user_jobs[slot].root);
+        f->elr=(uintptr_t)process_arch_return;f->spsr=0x3c5;
+        return;
+    }
     if (acquire(&w->phase)>=STOPPING) {
         cpu_halt();
         __builtin_unreachable();
@@ -160,6 +189,20 @@ CPU_LIFECYCLE_CODE void smp_worker_exception(struct smp_worker *w,struct excepti
         return;
     }
     worker_poweroff(w,FAULTED);
+}
+
+static void execute_user(struct smp_worker *w,uint64_t request)
+{
+    unsigned slot=(unsigned)(w-smp_workers);
+    uint64_t flags=irq_save();
+    struct smp_user_slice *slice=user_jobs[slot].slice;
+    publish(&user_jobs[slot].request,request);
+    mmu_switch_root(slice->root);
+    publish(&slice->begin,timer_ticks());
+    process_arch_enter(slice->frame,slice->stack,slice->thread_pointer);
+    publish(&user_jobs[slot].request,0);
+    irq_restore(flags);
+    publish(&w->reply,request);
 }
 
 static void execute_checksum(struct smp_worker *w,uint64_t request)
@@ -236,6 +279,7 @@ _Noreturn CPU_LIFECYCLE_CODE void smp_worker_main(struct smp_worker *w,uint64_t 
             w->result=smp_memory_worker((unsigned)(w-smp_workers),w->rounds);
             publish(&w->reply,request);
         }
+        else if (request&USER_BIT) { execute_user(w,request); }
         else { execute_checksum(w,request); }
     }
 }
@@ -636,6 +680,65 @@ static bool ipi_exchange(unsigned mask,unsigned op,unsigned *replies)
     }
     ipi_blocked=!complete;
     return complete && verified;
+}
+
+unsigned smp_user_workers(void)
+{
+    user_mask=0;
+    if (batch_mask || ipi_blocked || !ipi_controller) { return 0; }
+    unsigned mask=online_mask(),count=0,replies;
+    for (unsigned i=0;i<worker_count;++i) {
+        struct smp_worker *w=&smp_workers[i];
+        if ((mask&(1u<<i)) && target_mask(acquire(&w->irq_state)) && stack_intact(w)) {
+            user_mask|=1u<<i;++count;
+        }
+    }
+    if (count<2 || !ipi_exchange(user_mask,IPI_PING,&replies) || replies!=count) { user_mask=0;return 0; }
+    return count;
+}
+
+void smp_user_round(struct smp_user_slice *slices,unsigned count,uint64_t kernel_root)
+{
+    unsigned index=0,pending=0;
+    uint64_t request=USER_BIT|(++user_sequence&(USER_BIT-1));
+    for (unsigned i=0;i<worker_count && index<count;++i) {
+        if (!(user_mask&(1u<<i))) { continue; }
+        user_jobs[i].slice=&slices[index++];
+        user_jobs[i].root=kernel_root;
+        publish(&user_jobs[i].interrupt,0);
+        pending|=1u<<i;
+    }
+    for (unsigned i=0;i<worker_count;++i) {
+        if (pending&(1u<<i)) { publish(&smp_workers[i].request,request); }
+    }
+    wake_workers();
+    uint64_t start=timer_ticks(),hz=timer_frequency(),retry=start;
+    while (pending) {
+        uint64_t now=timer_ticks();
+        uint8_t targets=0;
+        for (unsigned i=0;i<worker_count;++i) {
+            if (!(pending&(1u<<i))) { continue; }
+            struct smp_worker *w=&smp_workers[i];
+            struct smp_user_slice *s=user_jobs[i].slice;
+            if (acquire(&w->reply)==request) {
+                if (!stack_intact(w)) { s->irq_ok=false; }
+                user_jobs[i].slice=NULL;
+                pending&=~(1u<<i);continue;
+            }
+            uint64_t begin=acquire(&s->begin);
+            if (!begin || (int64_t)(now-begin)<0 || now-begin<s->quantum) { continue; }
+            if (acquire(&user_jobs[i].interrupt)!=request || (int64_t)(now-retry)>=0) {
+                publish(&user_jobs[i].interrupt,request);
+                targets|=(uint8_t)acquire(&w->irq_state);
+            }
+        }
+        if (targets) { (void)gic_sgi_send(ipi_controller,targets);retry=now+hz/500+1; }
+        if (pending && now-start>=hz) {
+            console_write("FATAL: secondary EL0 quiescence unverified. App mappings retained. Reboot.\n");
+            cpu_halt();
+        }
+        __asm__ volatile("yield");
+    }
 }
 
 static void test_mapping(unsigned mask)

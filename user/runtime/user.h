@@ -165,6 +165,8 @@ static inline int64_t uos_vm_protect(uint64_t token,unsigned rights)
 static inline int64_t uos_vm_revoke(uint64_t token) { return uos_call2(UOS_SYS_VM_REVOKE,token,0); }
 static inline int64_t uos_vm_info(uint64_t pid,struct uos_vm_info *out)
 { return uos_call2(UOS_SYS_VM_INFO,pid,(uintptr_t)out); }
+static inline int64_t uos_vm_reserve(unsigned pages,unsigned rights,uint64_t *token)
+{ return uos_call4(UOS_SYS_VM_RESERVE,pages,rights,(uintptr_t)token,0); }
 static inline int64_t uos_readline(char *p,size_t n) { return uos_call2(UOS_SYS_READLINE,(uintptr_t)p,n); }
 static inline int64_t uos_mkdir(const char *p) { return uos_call2(UOS_SYS_MKDIR,(uintptr_t)p,uos_length(p)); }
 static inline int64_t uos_remove(const char *p,int directory) { return uos_call4(UOS_SYS_REMOVE,(uintptr_t)p,uos_length(p),(uint64_t)directory,0); }

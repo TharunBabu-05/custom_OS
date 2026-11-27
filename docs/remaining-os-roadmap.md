@@ -100,11 +100,11 @@ passed on Pi using RAMFS. Phase 28 passed its Pi descriptor and exec run.
 
 | Area | Open tasks |
 | --- | --- |
-| Processes and ABI | Eight foreground slots, four background jobs, a process snapshot with scheduler counters, and Pi-verified named IPC channels. Scheduling across CPUs remains open. |
-| Memory and concurrency | The Pi passed file mappings and revocation, worker page leases and subsequent constrained-placement and shutdown checks. Demand paging, out-of-memory policy, ownership beyond worker leases, cache-aware DMA, and shootdown for general mapping updates remain open. [Worker leases](../proofs/pi5-smp-page-leases-2026-11-26.txt) · [Placement and shutdown](../proofs/pi5-page-placement-2026-11-26.txt) |
+| Processes and ABI | Phase 63 adds multicore EL0 batches and an opt-in multicore shell. Physical acceptance and wider adoption remain open. [Core phase](core-vm-smp.md) |
+| Memory and concurrency | Phase 63 adds private demand-zero pages, broadcast invalidation for mapping updates, and cache-aware RP1 DMA. Physical acceptance and wider DMA driver adoption remain open. [Core phase](core-vm-smp.md) |
 | Data and recovery | The Pi verified Phase 31 file recovery and Phase 32 v5 retention after a cold power cycle. Physical v4-to-v5 migration and interrupted-write recovery on spare media remain open. [Storage and apps](storage-apps.md) |
 | Apps and distribution | The Pi passed the named-app lifecycle and signed multi-file installation, dependency upgrade and removal. Remaining work includes repository discovery, key rotation, a general OS installer and boot-update trust. [Storage and apps](storage-apps.md) |
-| Networking | Verify wired DHCP exchange, bound session and renewal on the Pi. Add route selection across Wi-Fi and Ethernet. Test Wi-Fi DHCP broadcast rebinding, AP group-key rotation, and same-boot manual restart after cleanup. Direct wired ARP, ICMP, UDP, TCP, and carrier recovery have passed on the Pi. |
+| Networking | The Pi bound a wired DHCP lease and Windows ACKed three T1 renewals. Capture Pi renewal counters and verify rebinding, NAK and expiry on the direct cable. Add route selection across Wi-Fi and Ethernet. Test Wi-Fi DHCP broadcast rebinding, AP group-key rotation, and same-boot manual restart after cleanup. [Wired lease capture](../proofs/pi5-wired-dhcp-bound-2026-11-27.txt) |
 | Platform maturity | Broaden the libc and ELF/toolchain support, process credentials and filesystem permissions, update and boot trust, CI coverage, driver soak tests, and board bring-up beyond the Pi 5 and QEMU profiles. |
 
 ### Hardware and local UI
@@ -199,21 +199,21 @@ Pi rotation still needs an AP that rotates keys while the Pi stays online.
 
 ## Extended plan
 
-Reviewed on 2026-11-27 against Phase 61 commit `6b7b05f` and its Pi
-capture. All six original Core OS milestones have Pi evidence. Phase 32
+Reviewed on 2026-11-27 against the Phase 62 Pi capture and Phase 63 code.
+All six original Core OS milestones have Pi evidence. Phase 32
 verified clean v5 retention, the full named-app lifecycle, and signed
 multi-file packages with dependency upgrades. The v4-to-v5 import and
 interrupted-write tests passed on the host and still need the spare drive.
-Secondary EL1 workers have Pi evidence. General EL0 scheduling and
-driver concurrency across CPUs are later work.
+Secondary EL1 workers have Pi evidence. Phase 63 adds opt-in secondary
+EL0 scheduling. General driver concurrency across CPUs is later work.
 
 | Next phase | Deliverable | Verification |
 | --- | --- | --- |
 | 62 · Wired DHCP acceptance | The single-client Windows fixture is implemented and passed loopback and OurOS packet interoperability. Use the existing direct cable and Phase 61 kernel. [Fixture](socket-readiness.md#phase-62-direct-cable-dhcp-acceptance) | Match Windows replies with the Pi's lease and address. Confirm echo, renewal, rebinding, and rejection or expiry, then release the Ethernet claims and check storage. |
-| 63 · Kernel image headroom | Measure the linked sections and move suitable runtime-only allocations out of the fixed early image span. Keep the current firmware handoff contract and overlap checks. | Verify both Pi boot profiles and the protected memory layout. Compare memory and resource snapshots before and after affected drivers run. |
+| 63 · Core OS foundations | Move the USB DMA workspace out of the early image and add secondary EL0 batches, demand-zero pages, broadcast TLB invalidation, and a cached RP1 DMA transfer. | Verify simultaneous EL0 execution, first-touch protection and cleanup, cross-core remaps, and cached DMA with USB and `/data` still available. [Core phase](core-vm-smp.md) |
 | 64 · Network interfaces and routing | Add explicit interface and route selection, local and default routes, then wired gateway and DNS support. Track socket behavior when the selected path disappears. | Test an on-link peer and a routed peer. Verify link change, stale route removal, socket outcomes, and Wi-Fi coexistence on the Pi. |
 | 65 · Storage acceptance and recovery | Run the v4-to-v5 import and staged interruption on spare media. Extend recovery diagnostics from the observed results. | Match imported file digests after the first boot, remount after a physical cut at the staged checkpoint, and verify the last committed data. |
-| 66 · Multicore EL0 and caches | Start with per-CPU scheduling and address-space ownership. Extend synchronization, IRQ affinity and TLB shootdown before expanding concurrent drivers and cacheable DMA. | Show independent EL0 execution on multiple CPUs, then verify cancellation, faults, memory reclamation, and USB and Ethernet integrity under load. |
+| 66 · Multicore and driver integration | Extend secondary EL0 execution to services. Add per-CPU run queues and broaden IRQ affinity, synchronization, and cache-aware DMA to production drivers. | Verify interactive cancellation, signal delivery, fault containment, memory reclamation, and USB and Ethernet integrity under concurrent load. |
 | 67 · Release and installer | Add an install/upgrade recovery path, repository catalog refresh and signer rotation. Extend process credentials and filesystem permissions around that workflow. | Install on a spare drive, verify user isolation and signature failures, and recover a known-good boot after an interrupted or refused update. |
 | 68 · Local input and display | Connect the existing boot keyboard reports to the shell, cover reconnect, and verify the HDMI text mirror when a cable is available. | Type and edit commands on a physical keyboard, reconnect it, compare serial and HDMI output, then verify USB boot and data checks. |
 | 69 · Device drivers | Continue the platform sequence with an attached peripheral. Candidate increments include GPIO IRQ and buses, USB hubs and mouse, SD write/flush, Bluetooth HCI, PCIe/NVMe, and RTC alarms, fan and watchdog. | Use the relevant device on the Pi. Exercise its success, detach or failure path and report restored claims. [Platform driver plan](platform-driver-plan.md) |

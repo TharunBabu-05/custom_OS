@@ -1,5 +1,8 @@
 # Private dynamic application pages
 
+[Phase 63 demand paging](core-vm-smp.md#demand-zero-pages) adds a separate
+private reservation API with deferred backing and resident-page accounting.
+
 [Phase 36 file snapshots and shared views](#phase-36-file-snapshots-and-shared-views)
 extends the separate region arena added in Phase 30.
 

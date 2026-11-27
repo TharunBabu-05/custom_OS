@@ -199,7 +199,7 @@ static void command(const char *line)
         console_write("rp1info ethprobe [reset] ethup ethdown ethrecover ethstatus ethstats ethloop etharp ethping ethaddr [ip|IPv4/prefix] ethudpup ethtcpup\n");
         console_write("ethdhcp [up|wait|renew|cancel] | ethlease (wired DHCP)\n");
         console_write("rp1msiinfo (Pi 5 PCIe MSI-X capability and doorbell)\n");
-        console_write("rp1dmatest (Pi 5 DMA scratch copy)\n");
+        console_write("rp1dmatest [cached] (Pi 5 DMA scratch copy)\n");
         console_write("rp1irqtest (GIC edge dispatch on test INTID)\n");
         console_write("gpioinfo <0..27> | gpiotest <0..27> | gpiopull <0..27> | gpioloop\n");
         console_write("utc | utc set <YYYY-MM-DDTHH:MM:SSZ> | utc clear\n");
@@ -210,14 +210,15 @@ static void command(const char *line)
         console_write("fbinfo fbtest fbon fboff (firmware HDMI framebuffer and UART mirror)\n");
         console_write("excinfo exctest irqinit irqinfo irqtest timerstart timerinfo timertest timerstop\n");
         console_write("taskinfo schedtest (three cooperative kernel tasks; requires MMU and timer IRQs)\n");
-        console_write("appinfo apptest apprun <ELF> [up to four more] (EL0; requires MMU/timer)\n");
+        console_write("appinfo apptest apprun <ELF> [more paths] (EL0; requires MMU/timer)\n");
+        console_write("appmulti <ELF> <ELF> [more paths] (secondary EL0; requires smpstart and smpirq on)\n");
         console_write("proclog (recent process lifecycle events)\n");
         console_write("timerobjects (process timer usage)\n");
         console_write("svc | svc list | svc status|stop|restart [NAME]\n");
         console_write("svc start [-n NAME [-d DEPENDENCY]] [-m MASK] ELF [arguments]\n");
         console_write("pkgtrust pkginstall pkglist pkgstart pkgpath pkgremove\n");
         console_write("appexec <ELF> [arguments] tooltest (EL0 utilities and sleeping processes)\n");
-        console_write("appshell | appterm <1..300 seconds> <ELF> [arguments] (interactive EL0 serial session)\n");
+        console_write("appshell | appsmpshell | appterm <1..300 seconds> <ELF> [arguments] (interactive EL0 serial session)\n");
         console_write("appinstall <source ELF> </data/new-file> (validated ELF, no overwrite)\n");
         console_write("appupdate <source ELF> </data/existing-file> (validated atomic update)\n");
         console_write("appadd | appupgrade <name> <version> <ELF>; applist; appstart <name> [arguments]\n");

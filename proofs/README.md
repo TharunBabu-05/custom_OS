@@ -1,5 +1,9 @@
 # Real Raspberry Pi 5 proof
 
+Phase 62 confirmed the direct-cable `192.0.2.2/30` lease and ARP claim
+on the Pi. Windows logged three distinct T1 renewal requests and ACKs
+25 seconds apart. [Phase 62 capture](pi5-wired-dhcp-bound-2026-11-27.txt)
+
 Phase 61 booted and timed out after three DHCP Discover attempts. Ctrl+C
 returned from the wait, renewal was refused without a lease, and shutdown
 restored the Ethernet claims. The Windows ping result has no matching Pi

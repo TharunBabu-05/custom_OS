@@ -3,7 +3,7 @@
 param([string]$Image='image_files/OurOS-Pi5-header-experimental-sd.img',[switch]$Smoke,[switch]$Stdio,[switch]$Pipes,[switch]$Data2,[switch]$Data4,[switch]$Backup,[switch]$Rename,[switch]$Directories,[switch]$TreeRestore,[switch]$Replace,[switch]$Exec,[switch]$Environment,[switch]$Profiles,[switch]$UserMemory,[switch]$UserAllocator,[switch]$ProcessControl,[switch]$ShellJobs,
       [switch]$Data4Backup,[switch]$Startup,[switch]$DataRecovery,[switch]$DataHistory,[switch]$StorageApps,[string]$RepositoryPin,[switch]$LongShell,[switch]$MemoryPressure,[switch]$PeripheralIrq,[switch]$Reboot,[switch]$TwoJobs,[switch]$CommandLists,[switch]$Extents,[switch]$AppLifecycle,[switch]$NetworkWorker,[switch]$UdpSockets,[switch]$TcpSockets,[switch]$TrustTime,[switch]$PinnedCert,[switch]$TlsTranscript,[switch]$PackageDownload,[string]$ExpectedTreeBackup,
       [switch]$TextTools,[switch]$PipelineTools,[switch]$ArchiveTools,[switch]$ExtendedFiles,[switch]$Descriptors,[switch]$PipeChain,[switch]$CoreMilestones,[switch]$ProcessTrees,[switch]$Scheduling,[switch]$ProcessCapacity,[switch]$FileMappings,[switch]$NamedIpc,[switch]$EventWait,[switch]$Services,[switch]$ProcessPolicy,[switch]$StreamSyntax,[switch]$ShellHistory,[switch]$DirectoryTools,[switch]$BinaryTools,[switch]$MediaTools,[switch]$SerialBatch,[switch]$PlatformHealth,[switch]$CpuPlatform,[switch]$SecondaryCores,[switch]$SecondaryIrq,[switch]$SecondaryMap,[switch]$SecondaryQueue,[switch]$SecondaryMemory,[switch]$PagePlacement,[switch]$SystemStats,[switch]$ProcessEvents,[switch]$UserTimers,[string]$Kernel,[string]$RestoreFile='/boot/DEMO.BAK',
-      [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img')
+      [string]$LegacyImage='image_files/OurOS-Pi5-header-data-v1-before-capacity.img',[switch]$CoreVmSmp)
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/windows-tools.ps1"
 $source=(Resolve-Path -LiteralPath $Image).Path
@@ -61,6 +61,39 @@ function Session([string]$Disk,[string]$Name,[string]$Cpu,[string]$Virt,[object[
         if (![regex]::IsMatch($text,'> pwd\r?\n/\r?\n')) { throw "$Name shell changed monitor cwd" }
         Write-Output "PASS: $Name"
     } finally { if ($started -and !$p.HasExited) { $p.Kill();$p.WaitForExit() };$p.Dispose() }
+}
+if ($CoreVmSmp) {
+    foreach ($cpu in @(@('cortex-a53','off'),@('cortex-a76','on'))) {
+        $name="core-vm-smp-$($cpu[0])"
+        $disk=Join-Path $ProjectRoot "build/usb-tests/$name-$([guid]::NewGuid().ToString('N')).img"
+        Copy-Item -LiteralPath $source -Destination $disk
+        try {
+            Session $disk $name $cpu[0] $cpu[1] @(
+                'storageinit','datainit','mmuinit','irqinit','timerstart',
+                'appmulti /boot/BUSY.ELF /boot/BUSY.ELF',
+                @{'Text'='smpstart';Delay=1200},'smpirq on','smptlb map',
+                @{'Text'='appmulti /boot/BUSY.ELF /boot/BUSY.ELF /boot/PAGECHK.ELF';Delay=2800},
+                @{'Text'='appmulti /boot/SPIN.ELF /boot/SPIN.ELF /boot/FAULT.ELF';Delay=3300},
+                'appsmpshell',@{Text='run /boot/PAGECHK.ELF';Delay=1700},
+                @{Text='source -e /boot/PROCS35.OSH';Delay=9000},'exit',
+                'smpirq off','smpstop','fileinfo','storagetest','datacheck','pwd','halt'
+            ) @('Multicore EL0 requires two routed workers',
+                'SMP map CPUs A/unmapped/B/revoked/restored=4/4/4/4/4',
+                'PASS: demand-zero pages, syscall fault-in, quota, protection and cleanup.',
+                'PASS: seven-stage binary pipeline, process inventory and four-job control.',
+                'a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654',
+                'Multicore EL0 workers=3 peak=3', 'Open files: 0/16', 'PASS: read-only storage', 'matches_mounted=yes'
+            ) 3 '' $false $false $false 4 $false 12
+            $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
+            if ([regex]::Matches($log,'PASS: demand-zero pages').Count -ne 2 -or
+                [regex]::Matches($log,'PASS: EL0 busy loop completed').Count -ne 2 -or
+                [regex]::Matches($log,'path=/boot/SPIN\.ELF state=timeout code=124').Count -ne 2 -or
+                $log -notmatch 'path=/boot/FAULT\.ELF state=faulted code=125' -or
+                $log -notmatch 'preemptions=[1-9][0-9]*' -or $log -notmatch 'overlapping_pairs=[1-9][0-9]*' -or
+                (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name concurrency, fault isolation or disk differs" }
+        } finally { Remove-Item -LiteralPath $disk -ErrorAction SilentlyContinue }
+    }
+    return
 }
 if ($UserTimers) {
     foreach ($cpu in @(@('cortex-a53','off'),@('cortex-a76','on'))) {

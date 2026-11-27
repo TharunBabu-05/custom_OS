@@ -11,9 +11,10 @@ static uint64_t up(uint64_t n) { return (n+PAGE_SIZE-1)&~(PAGE_SIZE-1); }
 static uint64_t attributes(enum mmu_kind k)
 {
     if (k==MMU_DEVICE) { return AF|PXN|UXN|(2ULL<<8); }
+    if (k==MMU_DMA_WB) { return AF|PXN|UXN|(3ULL<<8)|(2ULL<<2); }
     return AF|UXN|(3ULL<<8)|(1ULL<<2)|(k==MMU_RW ? PXN : 1ULL<<7)|(k==MMU_RO ? PXN : 0);
 }
-static bool normal(enum mmu_kind k) { return k==MMU_RW || k==MMU_RO || k==MMU_RX; }
+static bool normal(enum mmu_kind k) { return k==MMU_RW || k==MMU_RO || k==MMU_RX || k==MMU_DMA_WB; }
 uint64_t mmu_page_descriptor(uint64_t physical,enum mmu_kind kind)
 {
     if ((physical&~MMU_OUTPUT_MASK) || (!normal(kind) && kind!=MMU_DEVICE)) { return 0; }
@@ -69,6 +70,8 @@ enum mmu_result mmu_plan_make(const struct memory_map *map,enum mmu_profile prof
         if (!aligned(l->task_base) || !span(l->task_base,bytes) || l->task_base<l->rodata_end || l->task_base+bytes>l->guard || !mmu_plan_range(&p,l->task_base,(size_t)bytes,MMU_RW)) { return MMU_ARGUMENT; }
         for (unsigned i=0;i<l->task_count;++i) { if (!change(&p,l->task_base+(uint64_t)i*TASK_STACK_STRIDE,TASK_GUARD_BYTES,MMU_NONE)) { return MMU_RAM; } }
     }
+    if (l->dma_scratch && (profile!=MMU_PI5 || l->dma_scratch<l->rodata_end || l->dma_scratch>=l->guard ||
+        !change(&p,l->dma_scratch,PAGE_SIZE,MMU_DMA_WB))) { return MMU_ARGUMENT; }
     struct memory_range fb=map->framebuffer;
     if (fb.size && !mmu_plan_range(&p,fb.base,(size_t)fb.size,MMU_RW)) {
         if (profile!=MMU_PI5 || fb.base<0x3c000000 || fb.base>=0x40000000 ||
@@ -130,8 +133,8 @@ bool mmu_lookup(const struct mmu_tables *t,uint64_t va,struct mmu_translation *o
         }
         if ((d&3)!=(level==3 ? 3u : 1u)) { return false; }
         uint64_t size=1ULL<<shift,base=d&MMU_OUTPUT_MASK;if (base&(size-1)) { return false; }
-        enum mmu_kind kind=MMU_NONE;const enum mmu_kind candidates[]={MMU_RW,MMU_RX,MMU_RO,MMU_DEVICE};
-        for (unsigned i=0;i<4;++i) { if ((d&~MMU_OUTPUT_MASK)==(attributes(candidates[i])|(level==3 ? 3u : 1u))) { kind=candidates[i]; } }
+        enum mmu_kind kind=MMU_NONE;
+        for (enum mmu_kind k=MMU_RW;k<=MMU_DMA_WB;++k) { if ((d&~MMU_OUTPUT_MASK)==(attributes(k)|(level==3 ? 3u : 1u))) { kind=k; } }
         if (kind==MMU_NONE) { return false; }*out=(struct mmu_translation){base+(va&(size-1)),d,kind,level};return true;
     }return false;
 }
@@ -155,4 +158,4 @@ const char *mmu_result_text(enum mmu_result r)
     return (unsigned)r<sizeof(names)/sizeof(names[0]) ? names[r] : "unknown MMU error";
 }
 const char *mmu_kind_text(enum mmu_kind k)
-{ switch (k) { case MMU_RW:return "Normal-NC EL1 RW XN";case MMU_RX:return "Normal-NC EL1 RO executable";case MMU_RO:return "Normal-NC EL1 RO XN";case MMU_DEVICE:return "Device-nGnRnE EL1 RW XN";default:return "unmapped"; } }
+{ switch (k) { case MMU_RW:return "Normal-NC EL1 RW XN";case MMU_RX:return "Normal-NC EL1 RO executable";case MMU_RO:return "Normal-NC EL1 RO XN";case MMU_DEVICE:return "Device-nGnRnE EL1 RW XN";case MMU_DMA_WB:return "Normal-WB EL1 DMA scratch RW XN";default:return "unmapped"; } }

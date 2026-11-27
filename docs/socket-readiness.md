@@ -625,5 +625,8 @@ port 67 with source port 68 on the selected adapter and removes its rule
 on exit. The self-test covers packet handling and an interface-bound Winsock loopback
 round trip. The OurOS C client accepted the fixture's OFFER and ACK and
 decoded the address, mask and lease timers. The Windows fixture accepted
-Discover and Request produced by that client. Phase 62 uses the existing
-Phase 61 kernel. The physical cable run still needs Pi evidence.
+Discover and Request produced by that client. The direct-cable Pi run
+then bound `192.0.2.2/30` with three ARP probes and two announcements.
+Windows ACKed three distinct renewal requests 25 seconds apart. Capture
+`ethlease` after T1 to record the Pi's completed renewal count. Physical
+rebind, NAK, and expiry tests remain open. [Pi and Windows capture](../proofs/pi5-wired-dhcp-bound-2026-11-27.txt)

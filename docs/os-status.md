@@ -5,6 +5,10 @@ tracks current Pi acceptance, remaining work, and the phase sequence through
 Phase 70. Parts of the subsystem inventory below retain their earlier
 baseline scope.
 
+Phase 63 adds opt-in multicore EL0 batches, demand-zero reservations,
+broadcast invalidation for user mapping updates, and a cached RP1 DMA
+copy. [Implementation and acceptance](core-vm-smp.md)
+
 This is an original AArch64 kernel for the tested Raspberry Pi 5 header-UART
 setup, with a separate QEMU `virt` target. It is not a complete desktop OS.
 There is no universal list of drivers that every OS needs: a serial embedded
