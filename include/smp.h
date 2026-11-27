@@ -32,6 +32,8 @@ struct smp_user_slice {
 /* Preflight routed workers, then run one frame per worker. Every worker
  * returns to the kernel root before the boot CPU may service any frame. */
 unsigned smp_user_workers(void);
-void smp_user_round(struct smp_user_slice *,unsigned count,uint64_t kernel_root);
+void smp_user_round(struct smp_user_slice *,unsigned workers,uint64_t kernel_root,
+                    void (*run_boot)(void *),void *context);
+void smp_user_kick(void);
 #endif
 #endif

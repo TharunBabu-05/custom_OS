@@ -2,6 +2,7 @@
 param([ValidateSet('check','virt','rpi5','handoff-test')][string]$Target = 'check',
       [ValidateSet('debug','header')][string]$Console = 'debug',[switch]$KeepBuildFiles)
 . "$PSScriptRoot/windows-tools.ps1"
+. "$PSScriptRoot/rpi5-profile.ps1"
 if ($Console -eq 'header' -and $Target -ne 'rpi5') { throw '-Console header requires -Target rpi5' }
 Push-Location $ProjectRoot
 try {
@@ -54,7 +55,7 @@ try {
             $cpu='cortex-a76'
             if ($Target -eq 'rpi5') {
                 $boardSource='boards/rpi5/board.c'
-                # Avoid optional instruction padding before the firmware's fixed DTB address.
+                # Keep instruction padding small on the Pi image.
                 $common+=@('-DOUROS_PI5=1','-fno-align-functions','-fno-align-jumps','-fno-align-labels','-fno-align-loops')
             }
             else { $linkOptions=@('--defsym=BOOT_TEST_BASE=0x40080000') }
@@ -89,7 +90,7 @@ try {
         $objects = @()
         foreach ($source in $sources) {
             $object = "$out/" + ($source -replace '[/\\.]','_') + '.o'
-            # Keep the Pi kernel below the firmware DTB boundary.
+            # Favor smaller implementations for bounded kernel paths.
             $optimize=if ($source -in @('kernel/core/trust_time_commands.c','lib/trust_time.c','network/tcp.c','network/netprobe.c','network/udp.c','drivers/storage/brcm_control.c','drivers/storage/brcm_assoc.c','drivers/storage/pi5_wifi_probe.c',
                 'drivers/display/simple_framebuffer.c','drivers/display/framebuffer_terminal.c','kernel/core/framebuffer_commands.c','kernel/core/dt_property.c','kernel/core/main.c',
                 'drivers/platform/pi5_health.c','drivers/platform/pi5_mailbox.c','kernel/core/platform_health_commands.c',
@@ -135,15 +136,14 @@ try {
         Verify-Elf $out 'kernel'
         if ($Target -ne 'virt') {
             $bytes=[IO.File]::ReadAllBytes((Join-Path $ProjectRoot "$out/kernel.bin"))
-            if ($bytes.Length -lt 64 -or [BitConverter]::ToUInt32($bytes,56) -ne 0x644d5241 -or
-                [BitConverter]::ToUInt64($bytes,8) -ne 0x80000 -or
-                [BitConverter]::ToUInt64($bytes,16) -lt $bytes.Length -or
-                [BitConverter]::ToUInt64($bytes,16) -ge 0x180000) { throw 'Invalid AArch64 Image header' }
+            $profile=Get-Rpi5Profile $Console
+            $dtbAddress=Get-Rpi5DtbAddress (Get-Content -LiteralPath $profile.Config)
+            Assert-Rpi5ImageHeader $bytes $dtbAddress
         }
         if ($Target -eq 'rpi5') {
             Copy-Item -LiteralPath "$out/kernel.bin" -Destination "$out/ouros-rpi5.img"
             $span=[BitConverter]::ToUInt64($bytes,16)
-            Write-Output "Pi 5 kernel span: $span bytes. Space before firmware DTB: $(0x180000-$span) bytes."
+            Write-Output "Pi 5 kernel span: $span bytes. Space before firmware DTB: $($dtbAddress-0x80000-$span) bytes."
             if (!$KeepBuildFiles) { & "$PSScriptRoot/clean-build.ps1" }
             Write-Output "Built Pi 5 candidate: $out/ouros-rpi5.img. Console=$Console. Hardware boot remains UNTESTED."
         } else { Write-Output "Built $out/kernel.elf for QEMU only." }

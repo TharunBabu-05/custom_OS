@@ -1,0 +1,51 @@
+name: OurOS verification
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-qemu:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install native test compiler
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+      - name: Locate native test compiler
+        shell: msys2 {0}
+        run: echo "OUROS_HOST_CC=$(cygpath -m /mingw64/bin/gcc.exe)" >> "$GITHUB_ENV"
+      - name: Check documentation and bootstrap target tools
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-doc-sync.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-windows.ps1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build and run the native and QEMU suites
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-ExecutionPolicy -Scope Process Bypass -Force
+          & scripts/build.ps1 -Target check
+          & scripts/build.ps1 -Target virt
+          & scripts/test-qemu.ps1
+          & scripts/build.ps1 -Target handoff-test
+          & scripts/test-qemu.ps1 -Handoff
+          foreach ($test in 'memory','mmu','user-mmu','persist-v5','usb','rp1') {
+              & "scripts/test-$test.ps1" -HostCompiler $env:OUROS_HOST_CC
+          }
+          $result = @(& scripts/image-rpi5.ps1 -Console header -DataVersion 5 -KeepBuildFiles -BuildOnly)
+          $result | Write-Output
+          $image = ($result | Where-Object { $_ -like 'IMAGE: *' } | Select-Object -Last 1) -replace '^IMAGE: ', ''
+          if (!$image) { throw 'Missing verified test image' }
+          & scripts/test-shell-qemu.ps1 -Image $image -CoreVmSmp
+          & scripts/test-usb-qemu.ps1 -Handoff -Storage -ConsoleKeyboard -StorageImage $image
+          & scripts/test-framebuffer.ps1 -HostCompiler $env:OUROS_HOST_CC

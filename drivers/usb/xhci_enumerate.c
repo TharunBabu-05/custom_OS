@@ -16,6 +16,8 @@ struct session {
     bool discarding_slot;
     uint64_t input,output,ep0,data; uint8_t slot;
 };
+struct completion { uint64_t address;uint32_t status,control;unsigned kind; };
+static bool keyboard_event(const struct session *,const struct completion *);
 static bool rd(struct session *t,unsigned offset,uint32_t *value)
 { return offset<=t->io->observer.span-4 && t->io->observer.read32(t->io->observer.context,offset,value) && *value!=UINT32_MAX; }
 static bool wr(struct session *t,unsigned offset,uint32_t value)
@@ -25,19 +27,30 @@ static bool wr64(struct session *t,unsigned offset,uint64_t value)
 static void sync(struct session *t) { t->io->barrier(t->io->observer.context); }
 static bool map(struct session *t,const void *p,size_t n,uint64_t *dma)
 { return t->io->map_dma(t->io->observer.context,p,n,dma) && !(*dma&63) && n-1<=UINT64_MAX-*dma; }
+/* 0 = empty, 1 = consumed, -1 = acknowledgement failed. */
+static int take_event(struct session *t,struct completion *value)
+{
+    unsigned index=*t->event%XHCI_RING_TRBS,cycle=1^((*t->event/XHCI_RING_TRBS)&1);
+    volatile struct xhci_trb *e=&t->m->event[index];uint32_t control=e->control;
+    if ((control&1)!=cycle) { return 0; }
+    sync(t);
+    *value=(struct completion){(uint64_t)e->parameter_hi<<32|e->parameter_lo,e->status,control,(control>>10)&63};
+    t->s->last_event_type=value->kind;t->s->last_completion=value->status>>24;t->s->last_pointer=value->address;
+    ++*t->event;
+    return wr64(t,t->rt+0x38,(t->s->event_dma+(*t->event%XHCI_RING_TRBS)*16)|8) ? 1 : -1;
+}
 static enum xhci_test_result event_for(struct session *t,unsigned type,uint64_t pointer,unsigned endpoint,bool short_ok,uint32_t *result,uint32_t *transfer_status)
 {
     uint64_t start=t->io->ticks(t->io->observer.context);
     uint64_t wait=t->transfer_wait ? t->transfer_wait : t->io->hz*2;
     for (unsigned spin=0;spin<20000000;++spin) {
-        unsigned index=*t->event%XHCI_RING_TRBS,cycle=1^((*t->event/XHCI_RING_TRBS)&1);
-        volatile struct xhci_trb *e=&t->m->event[index]; uint32_t control=e->control;
-        if ((control&1)==cycle) {
-            sync(t); uint64_t address=(uint64_t)e->parameter_hi<<32|e->parameter_lo;
-            uint32_t status=e->status; unsigned code=status>>24,kind=(control>>10)&63;
-            t->s->last_event_type=kind; t->s->last_completion=code; t->s->last_pointer=address;
-            ++*t->event;
-            if (!wr64(t,t->rt+0x38,(t->s->event_dma+(*t->event%XHCI_RING_TRBS)*16)|8)) { return XHCI_TEST_IO; }
+        struct completion entry;
+        int ready=take_event(t,&entry);
+        if (ready<0) { return XHCI_TEST_IO; }
+        if (ready) {
+            if (keyboard_event(t,&entry)) { continue; }
+            uint64_t address=entry.address;
+            uint32_t status=entry.status,control=entry.control;unsigned code=status>>24,kind=entry.kind;
             if (kind==type) {
                 if (address!=pointer ||
                     (type==32 && (((control>>16)&31)!=endpoint || (control>>24)!=t->slot)) ||
@@ -118,6 +131,63 @@ static struct {
     struct pipe in,out; uint64_t cbw,csw;
     unsigned events,clears; bool online,keyboard_blocked;
 } disk={.bot={.error=BLOCK_NOT_READY}};
+
+static struct {
+    unsigned slot,port,endpoint,index,cycle,wraps,selected,seen,read,queued;
+    unsigned char previous[6],input[16];
+    uint64_t ring,report,expected,next_scan;
+    bool enabled,failed,caps,closing;
+} keyboard;
+
+static int key_character(unsigned usage,unsigned modifiers)
+{
+    bool shift=(modifiers&0x22)!=0,ctrl=(modifiers&0x11)!=0;
+    if (modifiers&0xcc) { return -1; }
+    if (usage>=4 && usage<=29) {
+        if (ctrl) { return (int)usage-3; }
+        return (shift!=keyboard.caps ? 'A' : 'a')+(int)usage-4;
+    }
+    if (ctrl) { return -1; }
+    if (usage>=30 && usage<=39) { return (shift ? "!@#$%^&*()" : "1234567890")[usage-30]; }
+    if (usage>=40 && usage<=56) {
+        static const unsigned char plain[]={13,27,8,9,' ','-','=','[',']','\\',0,';','\'', '`',',','.','/'};
+        static const unsigned char upper[]={13,27,8,9,' ','_','+','{','}','|',0,':','"','~','<','>','?'};
+        return (shift ? upper : plain)[usage-40];
+    }
+    return -1;
+}
+
+static void key_report(const unsigned char *report)
+{
+    if (report[1]) { return; }
+    for (unsigned i=2;i<8;++i) { if (report[i] && report[i]<4) { return; } }
+    for (unsigned i=2;i<8;++i) {
+        unsigned usage=report[i];bool repeated=false;
+        if (!usage) { continue; }
+        for (unsigned j=0;j<6;++j) { repeated|=keyboard.previous[j]==usage; }
+        for (unsigned j=2;j<i;++j) { repeated|=report[j]==usage; }
+        if (repeated) { continue; }
+        if (usage==57) { keyboard.caps=!keyboard.caps;continue; }
+        int c=key_character(usage,report[0]);
+        if (c>0 && keyboard.queued<sizeof(keyboard.input)) {
+            keyboard.input[(keyboard.read+keyboard.queued++)%sizeof(keyboard.input)]=(unsigned char)c;
+        }
+    }
+    for (unsigned i=0;i<6;++i) { keyboard.previous[i]=report[i+2]; }
+}
+
+static bool keyboard_event(const struct session *t,const struct completion *entry)
+{
+    if (!keyboard.slot || t->m!=disk.t.m || entry->kind!=32 || (entry->control>>24)!=keyboard.slot ||
+        ((entry->control>>16)&31)!=keyboard.endpoint) { return false; }
+    unsigned code=entry->status>>24;
+    if (!keyboard.closing) {
+        if (!keyboard.expected || keyboard.expected!=entry->address || (code!=1 && code!=13)) { keyboard.failed=true; }
+        else if (!(entry->status&0xffffff)) { key_report(t->m->key_report); }
+    }
+    keyboard.expected=0;
+    return true;
+}
 
 static struct {
     struct usb_device_info device;
@@ -483,8 +553,8 @@ enum xhci_test_result xhci_enumerate(const struct xhci_test_io *io,struct xhci_t
     return storage ? XHCI_TEST_NO_BOT : XHCI_TEST_UNSUPPORTED;
 }
 
-static enum xhci_test_result keyboard_input(struct session *t,const struct usb_device_info *info,
-                                            const struct usb_boot_keyboard *key,unsigned *usage,unsigned *modifiers)
+static enum xhci_test_result keyboard_configure(struct session *t,const struct usb_device_info *info,
+                                               const struct usb_boot_keyboard *key,uint64_t *ring_dma,uint64_t *buffer_dma)
 {
     unsigned ep=(key->endpoint&15)*2+1,cs=t->snapshot->context64 ? 64 : 32;
     unsigned interval=key->interval-1;
@@ -495,8 +565,7 @@ static enum xhci_test_result keyboard_input(struct session *t,const struct usb_d
     } else if (interval>15) { return XHCI_TEST_UNSUPPORTED; }
     struct xhci_trb *ring=t->m->key_interrupt;
     unsigned char *buffer=t->m->key_report;
-    uint64_t ring_dma,buffer_dma;
-    if (!map(t,ring,sizeof(t->m->key_interrupt),&ring_dma) || !map(t,buffer,sizeof(t->m->key_report),&buffer_dma)) {
+    if (!map(t,ring,sizeof(t->m->key_interrupt),ring_dma) || !map(t,buffer,sizeof(t->m->key_report),buffer_dma)) {
         return XHCI_TEST_DMA;
     }
     clear_input(t);
@@ -505,14 +574,24 @@ static enum xhci_test_result keyboard_input(struct session *t,const struct usb_d
     for (unsigned i=0;i<cs;++i) { slot[i]=t->output_context[i]; }
     slot[3]=(slot[3]&7)|(unsigned char)(ep<<3);
     unsigned char *context=t->m->input+(ep+1)*cs;
-    endpoint_context(context,7,key->packet,ring_dma);
+    endpoint_context(context,7,key->packet,*ring_dma);
     put32(context,interval<<16);
     put32(context+16,8u|((unsigned)key->packet<<16));
     enum xhci_test_result r=command(t,12,t->input,(uint32_t)t->slot<<24,NULL);
     if (r==XHCI_TEST_OK) { r=request(t,0,9,info->configuration,0); }
     if (r==XHCI_TEST_OK) { r=request_index(t,0x21,11,0,key->interface,0); }
-    if (r!=XHCI_TEST_OK) { return r; }
+    return r;
+}
 
+static enum xhci_test_result keyboard_input(struct session *t,const struct usb_device_info *info,
+                                            const struct usb_boot_keyboard *key,unsigned *usage,unsigned *modifiers)
+{
+    uint64_t ring_dma,buffer_dma;
+    enum xhci_test_result r=keyboard_configure(t,info,key,&ring_dma,&buffer_dma);
+    if (r!=XHCI_TEST_OK) { return r; }
+    unsigned ep=(key->endpoint&15)*2+1;
+    struct xhci_trb *ring=t->m->key_interrupt;
+    unsigned char *buffer=t->m->key_report;
     console_write("USB keyboard ready. Press a key within 8 seconds.\n");
     uint64_t start=t->io->ticks(t->io->observer.context),budget=t->io->hz*8;
     /* One completed report at a time. The temporary ring is discarded with its slot. */
@@ -563,18 +642,13 @@ static void report_accessory(const struct xhci_accessory *accessory,unsigned usa
     console_write(" modifiers="); console_hex(modifiers); console_write("; keyboard slot released.\n");
 }
 
-void xhci_accessory_active(const struct xhci_accessory *accessory)
+static bool accessory_session(struct session *out,unsigned port)
 {
-    unsigned port=accessory->port;
-    if (!disk.online || !disk.bot.ready || disk.keyboard_blocked || disk.io.hz>UINT64_MAX/8) {
-        console_write("USB keyboard test unavailable in this storage session.\n"); return;
-    }
+    if (!disk.online || !disk.bot.ready || disk.keyboard_blocked || disk.io.hz>UINT64_MAX/8 || keyboard.slot) { return false; }
     struct session t=disk.t;
     uint32_t status;
     if (!port || port>t.snapshot->ports || port==disk.info.port || t.snapshot->port[port-1].protocol_major!=2 ||
-        !rd(&t,t.op+0x400+(port-1)*16,&status) || !(status&1)) {
-        console_write("USB keyboard test requires a connected spare USB2 port. See usbports.\n"); return;
-    }
+        !rd(&t,t.op+0x400+(port-1)*16,&status) || !(status&1)) { return false; }
     t.slot=0;
     t.ep=t.ep_wraps=0;
     t.ep_cycle=1;
@@ -583,28 +657,140 @@ void xhci_accessory_active(const struct xhci_accessory *accessory)
     /* An output context occupies 32 entries of at most 64 bytes. */
     t.output_context=t.m->output+2048;
     if (!map(&t,(const void *)t.output_context,2048,&t.output) ||
-        !map(&t,t.control_ring,sizeof(t.m->key_control),&t.ep0)) {
-        console_write("USB keyboard DMA mapping failed.\n"); return;
-    }
+        !map(&t,t.control_ring,sizeof(t.m->key_control),&t.ep0)) { return false; }
     for (unsigned i=0;i<2048;++i) { t.output_context[i]=0; }
     for (unsigned i=0;i<XHCI_KEY_TRBS;++i) {
         t.control_ring[i]=(struct xhci_trb){0};
         t.m->key_interrupt[i]=(struct xhci_trb){0};
     }
+    *out=t;
+    return true;
+}
 
+static void accessory_finish(const struct session *t,enum xhci_test_phase phase)
+{
+    disk.t.command=t->command;
+    disk.t.command_cycle=t->command_cycle;
+    disk.t.command_wraps=t->command_wraps;
+    t->s->phase=phase;
+}
+
+void xhci_accessory_active(const struct xhci_accessory *accessory)
+{
+    if (!disk.online || !disk.bot.ready || disk.keyboard_blocked || disk.io.hz>UINT64_MAX/8 || keyboard.slot) {
+        console_write("USB keyboard test unavailable in this storage session.\n");return;
+    }
+    struct session t;
+    if (!accessory_session(&t,accessory->port)) {
+        console_write("USB keyboard test requires a connected spare USB2 port and a free accessory slot. See usbports.\n");return;
+    }
     enum xhci_test_phase storage_phase=t.s->phase;
     unsigned usage=0,modifiers=0;
     enum xhci_test_result result=accessory_request(&t,accessory,disk.t.slot,&usage,&modifiers);
     enum xhci_test_phase failed_phase=t.s->phase;
     if (!release_slot(&t)) { disk.keyboard_blocked=true; }
-    disk.t.command=t.command;
-    disk.t.command_cycle=t.command_cycle;
-    disk.t.command_wraps=t.command_wraps;
-    t.s->phase=storage_phase;
+    accessory_finish(&t,storage_phase);
     if (disk.keyboard_blocked) { console_write("USB keyboard slot cleanup unverified. Reboot before another test.\n"); return; }
     if (result!=XHCI_TEST_OK) {
         console_write("USB keyboard test ended: "); console_write(xhci_test_error(result));
         console_write(" phase="); console_u64(failed_phase); console_write("\n"); return;
     }
     report_accessory(accessory,usage,modifiers);
+}
+
+static bool keyboard_attach(unsigned port)
+{
+    struct session t;
+    if (!accessory_session(&t,port)) { return false; }
+    enum xhci_test_phase phase=t.s->phase;
+    struct usb_device_info info={0};struct usb_boot_keyboard key;
+    unsigned length;
+    enum xhci_test_result result=enumerate_port(&t,port,disk.t.slot,&info,&length);
+    if (result==XHCI_TEST_OK) {
+        result=usb_find_boot_keyboard(t.m->data,length,&key) ?
+            keyboard_configure(&t,&info,&key,&keyboard.ring,&keyboard.report) : XHCI_TEST_UNSUPPORTED;
+    }
+    if (result==XHCI_TEST_OK) {
+        keyboard.slot=t.slot;keyboard.port=port;keyboard.endpoint=(key.endpoint&15)*2+1;
+        keyboard.index=keyboard.wraps=0;keyboard.cycle=1;
+    } else if (!release_slot(&t)) { disk.keyboard_blocked=true; }
+    accessory_finish(&t,phase);
+    return result==XHCI_TEST_OK;
+}
+
+static void keyboard_detach(void)
+{
+    if (keyboard.slot && disk.online) {
+        struct session t=disk.t;t.slot=(uint8_t)keyboard.slot;
+        keyboard.closing=true;
+        if (!release_slot(&t)) { disk.keyboard_blocked=true; }
+        accessory_finish(&t,disk.t.s->phase);
+    }
+    keyboard.slot=keyboard.port=keyboard.queued=keyboard.read=0;
+    keyboard.expected=0;
+    keyboard.failed=keyboard.caps=keyboard.closing=false;
+    for (unsigned i=0;i<6;++i) { keyboard.previous[i]=0; }
+}
+
+void xhci_keyboard_enable(bool enabled,unsigned port)
+{
+    keyboard_detach();
+    keyboard.enabled=enabled;keyboard.selected=port;keyboard.seen=0;keyboard.next_scan=0;
+}
+
+void xhci_keyboard_info(void)
+{
+    console_write("USB keyboard console=");
+    if (disk.keyboard_blocked) { console_write("cleanup unverified; reboot required\n"); }
+    else if (!keyboard.enabled) { console_write("off\n"); }
+    else if (!keyboard.slot) { console_write("waiting on storage controller USB2 root port\n"); }
+    else { console_write("active port=");console_u64(keyboard.port);console_write("\n"); }
+}
+
+int xhci_keyboard_getc(void)
+{
+    if (!keyboard.enabled || !disk.online || !disk.bot.ready || disk.keyboard_blocked) { return CONSOLE_NO_INPUT; }
+    struct session *t=&disk.t;
+    uint64_t now=t->io->ticks(t->io->observer.context);
+    if ((int64_t)(now-keyboard.next_scan)>=0 || !keyboard.next_scan) {
+        keyboard.next_scan=now+t->io->hz/4;
+        for (unsigned i=0;i<t->snapshot->ports;++i) {
+            unsigned port=i+1;
+            if (port==disk.info.port || t->snapshot->port[i].protocol_major!=2 ||
+                (keyboard.selected && port!=keyboard.selected)) { continue; }
+            unsigned mask=1u<<i;
+            uint32_t status;
+            if (!rd(t,t->op+0x400+i*16,&status) || !(status&1)) {
+                keyboard.seen&=~mask;
+                if (port==keyboard.port) { keyboard_detach(); }
+            } else if (!keyboard.slot && !(keyboard.seen&mask) && !disk.keyboard_blocked) {
+                keyboard.seen|=mask;
+                if (keyboard_attach(port)) { break; }
+            }
+        }
+    }
+    if (!keyboard.slot || disk.keyboard_blocked) { return CONSOLE_NO_INPUT; }
+    for (unsigned i=0;i<8;++i) {
+        struct completion event;
+        int ready=take_event(t,&event);
+        if (!ready) { break; }
+        if (ready<0 || (!keyboard_event(t,&event) && event.kind!=34)) {
+            stop_storage();return CONSOLE_RX_ERROR;
+        }
+    }
+    if (keyboard.failed) { keyboard_detach();return CONSOLE_NO_INPUT; }
+    if (!keyboard.expected && keyboard.queued<=sizeof(keyboard.input)-6) {
+        struct xhci_trb *ring=t->m->key_interrupt;
+        reserve_ring(t,ring,keyboard.ring,&keyboard.index,&keyboard.cycle,&keyboard.wraps,1,XHCI_KEY_TRBS);
+        unsigned at=keyboard.index++;
+        keyboard.expected=keyboard.ring+at*16;
+        publish(t,&ring[at],(struct xhci_trb){(uint32_t)keyboard.report,(uint32_t)(keyboard.report>>32),8,
+                (1u<<10)|(1u<<5)|(1u<<2)|keyboard.cycle});
+        sync(t);
+        if (!wr(t,t->db+keyboard.slot*4,keyboard.endpoint)) { keyboard_detach();return CONSOLE_NO_INPUT; }
+    }
+    if (!keyboard.queued) { return CONSOLE_NO_INPUT; }
+    int c=keyboard.input[keyboard.read];--keyboard.queued;
+    keyboard.read=(keyboard.read+1)%sizeof(keyboard.input);
+    return c;
 }

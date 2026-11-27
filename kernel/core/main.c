@@ -30,6 +30,7 @@
 #include "network_worker.h"
 #include "trust_time.h"
 #include "framebuffer.h"
+#include "xhci_test.h"
 #include "platform_health.h"
 #include "pi5_pcie.h"
 static struct board_info board;
@@ -127,6 +128,7 @@ static void startup(void)
     if (!storage_mount_data()) { console_write("Startup stopped at /data.\n");return; }
     if (!mmu_ensure_enabled()) { console_write("Startup stopped at MMU setup.\n");return; }
     if (!irq_ensure_periodic()) { console_write("Startup stopped at timer setup.\n");return; }
+    if (framebuffer_console_start()) { xhci_keyboard_enable(true,0); }
     if (process_shell()!=0) { console_write("Startup shell could not run or ended unsuccessfully.\n"); }
 }
 static void command(const char *line)
@@ -256,7 +258,7 @@ static void command(const char *line)
         console_write("wifiassoc <SSID> (hidden password, verified SAE/M3, key-install/live-M4 test; then DOWN/delete)\n");
         console_write("usbinfo usbprobe (discovery diagnostics)\n");
         console_write("usbdevices (cached descriptors) usbports (live USB ports)\n");
-        console_write("usbidentify | usbkeytest [usb0|usb1] <USB2 port>\n");
+        console_write("usbidentify | usbkeytest [usb0|usb1] <USB2 port> | usbkbd [auto|off|USB2 port]\n");
         console_write("usbcheck (after storageinit; read-only ring reuse and disk check)\n");
         console_write("mv <source-file> <new-path> (same filesystem; no overwrite) | stat <path>\n");
         console_write("replace <source-file> <target> (atomic publication; consumes source)\n");

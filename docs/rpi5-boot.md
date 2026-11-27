@@ -49,6 +49,7 @@ not a partitioned image either. Its extracted contents are:
 | `config.txt` | Explicit Pi 5 load addresses and debug-UART setup |
 | `bcm2712-rpi-5-b.dtb` | Official board description for firmware to patch |
 | `COPYING.linux`, `LICENCE.broadcom` | Retained upstream license notices |
+| `OUROSLIC.TXT` | MIT license for original OurOS source |
 | `README.txt` | Bundle scope, hardware requirements and deployment limits |
 | `manifest.json`, `SHA256SUMS` | File lengths, hashes and upstream revision |
 
@@ -63,7 +64,8 @@ The installed EEPROM revision is unknown and must be recorded during bring-up;
 pinning a DTB does not prove compatibility with every EEPROM revision. No vendor
 firmware binaries or Linux kernel are bundled. The DTB comes from Linux-derived
 sources; retain its license and establish exact corresponding-source delivery
-before distributing the bundle publicly. Original OurOS licensing remains undecided.
+before distributing the bundle publicly. Original OurOS source uses the MIT
+License. [Provenance](../PROVENANCE.md)
 
 ## Entry contract and memory layout
 
@@ -80,10 +82,18 @@ and [Raspberry Pi boot configuration](https://www.raspberrypi.com/documentation/
 | Below `0x80000` | Left untouched for firmware/secure monitor |
 | `0x80000` | Kernel Image and entry point, explicitly set in config.txt |
 | After code/data | BSS and a 64 KiB, 16-byte-aligned kernel stack |
-| `0x200000` through `0x2fffff` | Explicit DTB allocation window |
+| `0x02000000` through `0x021fffff` | Firmware DTB window, with up to 2 MiB reserved for placement |
 
-The linker asserts that code, data, BSS and stack end before the DTB window.
-The image header advertises the full in-memory footprint, including BSS/stack.
+The linker allows up to 31.5 MiB for code, data, BSS and stack below the DTB.
+The image header advertises that full footprint. Before clearing BSS, startup
+checks the firmware DTB alignment, magic and size, and copies it to the high
+window when firmware supplied it elsewhere. The allocator reserves and the
+MMU protects the relocated blob. The boot updater accepts the exact legacy
+2 MiB config when the new kernel still fits below its old DTB address. To use
+the larger space on media with that config, use the new whole-disk image or
+update the config to the current profile before installing a larger kernel.
+[Firmware device tree placement](https://github.com/raspberrypi/documentation/blob/master/documentation/asciidoc/computers/configuration/reference.adoc)
+
 The new memory reader discovers root RAM banks and reservations independently
 of the QEMU UART parser. It protects kernel/BSS/stack/bitmap, DTB, boot guard and
 firmware regions before offering 4 KiB pages below 32 GiB. See [memory.md](memory.md)

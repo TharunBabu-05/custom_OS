@@ -1,6 +1,19 @@
 # Phase 63 Core OS foundations
 
-## Multicore EL0 batches
+## Current scheduler
+
+With routed secondary workers online, normal foreground launches and the
+shell use a shared ready queue across the boot CPU and up to three secondary
+CPUs. Ready services participate in those rounds. A timer drives preemption
+on the boot CPU and SGIs stop worker slices. Workers and the boot CPU return
+to kernel mappings before the boot CPU handles the round's traps and syscalls.
+Each process appears at most once per round. When there are no routed
+workers, the normal launch path uses the existing boot-CPU scheduler.
+
+The kernel reports both assigned `peak` and `measured_peak`, the maximum
+number of slices with at least one millisecond of simultaneous execution.
+
+## Phase 63 multicore EL0 batches
 
 `appmulti` runs two to eight ELF paths within the existing two-second
 noninteractive batch budget. It requires at least two online workers with

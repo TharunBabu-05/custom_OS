@@ -73,8 +73,9 @@ if ($CoreVmSmp) {
                 'appmulti /boot/BUSY.ELF /boot/BUSY.ELF',
                 @{'Text'='smpstart';Delay=1200},'smpirq on','smptlb map',
                 @{'Text'='appmulti /boot/BUSY.ELF /boot/BUSY.ELF /boot/PAGECHK.ELF';Delay=2800},
-                @{'Text'='appmulti /boot/SPIN.ELF /boot/SPIN.ELF /boot/FAULT.ELF';Delay=3300},
-                'appsmpshell',@{Text='run /boot/PAGECHK.ELF';Delay=1700},
+                @{'Text'='appmulti /boot/SPIN.ELF /boot/SPIN.ELF /boot/SPIN.ELF /boot/SPIN.ELF';Delay=3300},
+                @{'Text'='appmulti /boot/BUSY.ELF /boot/FAULT.ELF';Delay=3000},
+                'appshell',@{Text='run /boot/PAGECHK.ELF';Delay=1700},
                 @{Text='source -e /boot/PROCS35.OSH';Delay=9000},'exit',
                 'smpirq off','smpstop','fileinfo','storagetest','datacheck','pwd','halt'
             ) @('Multicore EL0 requires two routed workers',
@@ -82,12 +83,12 @@ if ($CoreVmSmp) {
                 'PASS: demand-zero pages, syscall fault-in, quota, protection and cleanup.',
                 'PASS: seven-stage binary pipeline, process inventory and four-job control.',
                 'a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654',
-                'Multicore EL0 workers=3 peak=3', 'Open files: 0/16', 'PASS: read-only storage', 'matches_mounted=yes'
-            ) 3 '' $false $false $false 4 $false 12
+                'Multicore EL0 workers=3 peak=4', 'measured_peak=4', 'Open files: 0/16', 'PASS: read-only storage', 'matches_mounted=yes'
+            ) 4 '' $false $false $false 4 $false 12
             $log=Get-Content -Raw -LiteralPath (Join-Path $out "$name.log")
             if ([regex]::Matches($log,'PASS: demand-zero pages').Count -ne 2 -or
-                [regex]::Matches($log,'PASS: EL0 busy loop completed').Count -ne 2 -or
-                [regex]::Matches($log,'path=/boot/SPIN\.ELF state=timeout code=124').Count -ne 2 -or
+                [regex]::Matches($log,'PASS: EL0 busy loop completed').Count -ne 3 -or
+                [regex]::Matches($log,'path=/boot/SPIN\.ELF state=timeout code=124').Count -ne 4 -or
                 $log -notmatch 'path=/boot/FAULT\.ELF state=faulted code=125' -or
                 $log -notmatch 'preemptions=[1-9][0-9]*' -or $log -notmatch 'overlapping_pairs=[1-9][0-9]*' -or
                 (Get-FileHash -LiteralPath $disk).Hash -ne $original) { throw "$name concurrency, fault isolation or disk differs" }

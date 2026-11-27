@@ -182,8 +182,5 @@ if ($expected.PSObject.Properties['wifi_revision']) {
 $kernel=[IO.File]::ReadAllBytes((Join-Path $work 'files/OUROS.IMG'))
 $isHeader=[Text.Encoding]::ASCII.GetString($kernel).Contains("rpi5-header`0")
 Require ($isHeader -eq ($console -eq 'header')) 'Kernel/console profile mismatch'
-Require ($kernel.Length -ge 64 -and [BitConverter]::ToUInt32($kernel,56) -eq 0x644d5241 -and
-    [BitConverter]::ToUInt64($kernel,8) -eq 0x80000 -and
-    [BitConverter]::ToUInt64($kernel,16) -ge $kernel.Length -and
-    [BitConverter]::ToUInt64($kernel,16) -lt 0x180000) 'Kernel Image header invalid'
+Assert-Rpi5ImageHeader $kernel (Get-Rpi5DtbAddress (Get-Content -LiteralPath (Join-Path $work 'files/CONFIG.TXT')))
 Write-Output 'PASS: MBR, FAT32 geometry/backups/mirrors/free space, independent extraction, all file hashes and boot configuration.'

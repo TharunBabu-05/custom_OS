@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/disk-image-backups.ps1"
 . "$PSScriptRoot/rpi5-update-files.ps1"
+. "$PSScriptRoot/rpi5-profile.ps1"
 $project=Split-Path $PSScriptRoot -Parent
 $boot=(Get-Item -LiteralPath $BootDirectory).FullName
 $bootPrefix=$boot.TrimEnd('\','/')+'\'
@@ -63,9 +64,25 @@ try {
 
     $config=Get-BootFile 'CONFIG.TXT'
     if (!(Test-Path -LiteralPath $config -PathType Leaf) -or
-        (Get-Rpi5ConfigHash $config) -cne $manifest.config_sha256 -or
         (Get-InstalledHash (Get-BootFile 'PI5.DTB')) -cne $manifest.dtb_sha256) {
         throw "CONFIG.TXT or PI5.DTB on $boot differs from the supported Pi 5 header boot profile"
+    }
+    $installedConfigHash=Get-Rpi5ConfigHash $config
+    if ($installedConfigHash -cne $manifest.config_sha256) {
+        # A boot file update can keep the exact legacy profile when the new
+        # Image still fits below its firmware DTB. Reject other config edits.
+        $original=Get-Content -Raw -LiteralPath $config
+        $upgraded=$original -creplace '(?m)^device_tree_address=0x200000(?=\r?$)', 'device_tree_address=0x02000000' `
+            -creplace '(?m)^device_tree_end=0x300000(?=\r?$)', 'device_tree_end=0x02200000'
+        if ($RestoreFrom -or $upgraded -ceq $original) {
+            throw "CONFIG.TXT or PI5.DTB on $boot differs from the supported Pi 5 header boot profile"
+        }
+        $candidate=Join-Path $work 'profile-check.txt'
+        [IO.File]::WriteAllText($candidate,$upgraded,[Text.Encoding]::ASCII)
+        if ((Get-Rpi5ConfigHash $candidate) -cne $manifest.config_sha256) {
+            throw "CONFIG.TXT or PI5.DTB on $boot differs from the supported Pi 5 header boot profile"
+        }
+        Assert-Rpi5ImageHeader ([IO.File]::ReadAllBytes((Join-Path $source 'OUROS.IMG'))) 0x200000
     }
     if (!$RestoreFrom -and !(Test-Path -LiteralPath (Get-BootFile 'OUROS.IMG') -PathType Leaf)) {
         throw 'Existing OUROS.IMG required for an update. Use the previous backup if recovering an interrupted update.'
@@ -98,7 +115,7 @@ try {
         }
         $rollback=[ordered]@{
             format='OurOS boot rollback v1'; board='rpi5-header'
-            config_sha256=$manifest.config_sha256; dtb_sha256=$manifest.dtb_sha256
+            config_sha256=$installedConfigHash; dtb_sha256=$manifest.dtb_sha256
             files=@($plan | ForEach-Object { @{ name=$_.Name; sha256=$_.Before } })
         }
         $rollbackPath=Join-Path $work 'rollback.json'

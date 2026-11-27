@@ -30,13 +30,14 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 Copy-Item -LiteralPath (Join-Path $out 'ouros-rpi5.img') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $ProjectRoot $piProfile.Config) -Destination (Join-Path $stage 'config.txt')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot $piProfile.Readme) -Destination (Join-Path $stage 'README.txt')
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSE') -Destination (Join-Path $stage 'OUROSLIC.TXT')
 foreach ($asset in $assets.files) { Copy-Item -LiteralPath (Join-Path $cache $asset.name) -Destination $stage }
 $records=@(Get-ChildItem -LiteralPath $stage -File | Sort-Object Name | ForEach-Object {
     [ordered]@{name=$_.Name; bytes=$_.Length; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}
 })
 $manifest=[ordered]@{
     board='Raspberry Pi 5 Model B'; hardware_status='UNTESTED'; format='boot-files-not-disk-image'
-    kernel_load_address='0x80000'; dtb_address='0x200000'; uart=$piProfile.Uart; console=$Console
+    kernel_load_address='0x80000'; dtb_address=('0x{0:x}' -f (Get-Rpi5DtbAddress (Get-Content -LiteralPath (Join-Path $stage 'config.txt')))); uart=$piProfile.Uart; console=$Console
     asset_repository=$assets.repository; asset_revision=$assets.revision
     asset_source_url="https://github.com/raspberrypi/firmware/tree/$($assets.revision)/boot"
     files=$records

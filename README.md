@@ -17,6 +17,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/TharunBabu-05/custom_OS/actions/workflows/verify.yml"><img src="https://github.com/TharunBabu-05/custom_OS/actions/workflows/verify.yml/badge.svg" alt="OurOS verification workflow" /></a>
   <a href="https://github.com/TharunBabu-05/custom_OS/commits/main"><img src="https://img.shields.io/github/last-commit/TharunBabu-05/custom_OS?style=flat-square&amp;color=65e6bb&amp;labelColor=111f30" alt="Latest repository commit" /></a>
   <a href="https://github.com/TharunBabu-05/custom_OS/stargazers"><img src="https://img.shields.io/github/stars/TharunBabu-05/custom_OS?style=flat-square&amp;color=ffd17d&amp;labelColor=111f30" alt="GitHub stars" /></a>
   <a href="https://github.com/TharunBabu-05/custom_OS"><img src="https://img.shields.io/github/languages/top/TharunBabu-05/custom_OS?style=flat-square&amp;color=62c1f1&amp;labelColor=111f30" alt="Most used repository language" /></a>
@@ -108,11 +109,11 @@ later storage, networking, and user-mode tests.
   <img src="docs/assets/boot-path.svg" width="100%" alt="Implemented boot path: firmware, AArch64 entry, board initialization, kernel services and serial monitor." />
 </p>
 
-OurOS uses a modular monolithic kernel. The monitor and device drivers run
-on the boot CPU. The normal serial shell schedules EL0 there. After
-`smpstart` and `smpirq on`, `appmulti` and `appsmpshell` run EL0 slices on
-secondary CPUs, with syscalls, drivers, and page ownership serialized on
-the boot CPU. Kernel tasks use cooperative EL1 scheduling.
+OurOS uses a modular monolithic kernel. After `smpstart` and `smpirq on`,
+ordinary ELF launches and the shell can schedule EL0 slices on the boot
+CPU and up to three secondary CPUs. The boot CPU serializes syscalls,
+device drivers, and page ownership. Kernel tasks use cooperative EL1
+scheduling. The four-core scheduler update is tested in QEMU.
 [Multicore scheduling and memory](docs/core-vm-smp.md) ·
 [Kernel tasks](docs/kernel-tasks.md)
 
@@ -125,7 +126,7 @@ the boot CPU. Kernel tasks use cooperative EL1 scheduling.
 | Filesystems and storage | Writable RAMFS at `/`, read-only FAT32 at `/boot`, and USB-backed v5 extents at `/data` with up to 32 nodes and 32 KiB per file. The kernel also supports older data formats and explicit v4 archive import into v5. |
 | Networking | WPA3/SAE station sessions, RP1 Ethernet, DHCP, ARP, IPv4, ICMP and DNS, UDP sockets, and bounded outbound TCP with half-close. User applications exercise pinned P-256 TLS 1.3 and HTTPS downloads. |
 | Packages | Managed ELF versions with rollback, and a signed multi-file repository with dependency validation and installer commands |
-| Platform drivers | PL011, timer and GICv2, USB xHCI/BOT and boot-keyboard reports, microSD reads, GPIO diagnostics, PCIe and RP1 diagnostics, and an opt-in HDMI framebuffer console |
+| Platform drivers | PL011, timer and GICv2, USB xHCI/BOT, microSD reads, GPIO, PCIe and RP1 diagnostics. The local console combines the firmware framebuffer and USB boot-keyboard input. |
 
 ### Source map
 
@@ -203,6 +204,7 @@ SD card after checking the target, since flashing replaces the drive contents.
 <summary><strong>Run the available verification checks</strong></summary>
 
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-doc-sync.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-qemu.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-gdb.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-fdt.ps1
@@ -245,11 +247,11 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 
 ### Open engineering work
 
-- [ ] Extend multicore scheduling to services and broader driver concurrency, with per-CPU run queues and IRQ affinity.
-- [ ] Expand kernel image headroom beyond the current firmware handoff layout.
-- [ ] Wire USB HID input into the shell and verify the HDMI console on a physical display.
+- [ ] Verify the four-CPU scheduler and relocated DTB on the Pi. The current boot layout allows a 31.5 MiB kernel span before the DTB window.
+- [ ] Verify standalone HDMI and USB keyboard input on the Pi, including reconnect. The display and keyboard paths have QEMU regression tests.
+- [ ] Broaden kernel and driver concurrency, and extend IRQ affinity.
 - [ ] Verify wired Gigabit negotiation, add network route selection, and capture DHCP rebinding and lease-loss cases on hardware.
-- [ ] Automate host and QEMU regression tests in GitHub Actions.
+- [x] GitHub Actions workflow for documentation, host tests, and QEMU builds and checks.
 - [ ] Continue remaining peripheral drivers and Pi Zero 2 W bring-up.
 
 [Detailed roadmap](docs/remaining-os-roadmap.md) · [Hardware driver plan](docs/platform-driver-plan.md)
@@ -270,11 +272,9 @@ QEMU virt tests shared code and does not emulate the Pi 5's RP1 hardware.
 - [OS, CPU architectures and portability explained](docs/os-and-cpu-architectures.md)
 - [Asset sources and regeneration](docs/assets/README.md)
 
-The original kernel and artwork do not yet have a selected public license.
-Availability of the source is not an unrestricted-use grant. Downloaded vendor
-assets retain their upstream notices and are excluded from this Git repository.
-The boot DTB is Linux-derived; retain its GPL notices and address corresponding
-source requirements before publicly distributing a binary boot bundle.
+Original OurOS source code is available under the MIT License. Vendor firmware,
+the boot DTB, and third-party assets retain their upstream terms.
+[License](LICENSE) · [Architecture and provenance](PROVENANCE.md)
 
 The animated replay is an original illustration of captured output. Hardware
 proof images in `proofs/` are the original user-supplied screenshots. Live commit,

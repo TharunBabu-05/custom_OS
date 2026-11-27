@@ -5,6 +5,7 @@
 static const unsigned char *input;
 static size_t at,bytes;
 static unsigned reads;
+int xhci_keyboard_getc(void) { return CONSOLE_NO_INPUT; }
 int uart_getc(void)
 {
     assert(++reads<10000); /* A missing terminator must fail instead of hang. */

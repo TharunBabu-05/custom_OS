@@ -62,6 +62,8 @@ static uint64_t ipi_sequence;
 static bool ipi_blocked;
 static unsigned user_mask;
 static uint64_t user_sequence;
+static unsigned user_pending;
+static uint64_t user_request,user_retry;
 static struct {
     struct smp_user_slice *slice;
     uint64_t root,request,interrupt;
@@ -693,11 +695,32 @@ unsigned smp_user_workers(void)
             user_mask|=1u<<i;++count;
         }
     }
-    if (count<2 || !ipi_exchange(user_mask,IPI_PING,&replies) || replies!=count) { user_mask=0;return 0; }
+    if (!count || !ipi_exchange(user_mask,IPI_PING,&replies) || replies!=count) { user_mask=0;return 0; }
     return count;
 }
 
-void smp_user_round(struct smp_user_slice *slices,unsigned count,uint64_t kernel_root)
+/* Called either by the boot CPU's lower-EL IRQ or its quiescence loop. */
+void smp_user_kick(void)
+{
+    uint64_t now=timer_ticks();
+    uint8_t targets=0;
+    for (unsigned i=0;i<worker_count;++i) {
+        if (!(user_pending&(1u<<i))) { continue; }
+        struct smp_worker *w=&smp_workers[i];
+        if (acquire(&w->reply)==user_request) { continue; }
+        const struct smp_user_slice *s=user_jobs[i].slice;
+        uint64_t begin=acquire(&s->begin);
+        if (!begin || (int64_t)(now-begin)<0 || now-begin<s->quantum) { continue; }
+        if (acquire(&user_jobs[i].interrupt)!=user_request || (int64_t)(now-user_retry)>=0) {
+            publish(&user_jobs[i].interrupt,user_request);
+            targets|=(uint8_t)acquire(&w->irq_state);
+        }
+    }
+    if (targets) { (void)gic_sgi_send(ipi_controller,targets);user_retry=now+timer_frequency()/500+1; }
+}
+
+void smp_user_round(struct smp_user_slice *slices,unsigned count,uint64_t kernel_root,
+                    void (*run_boot)(void *),void *context)
 {
     unsigned index=0,pending=0;
     uint64_t request=USER_BIT|(++user_sequence&(USER_BIT-1));
@@ -711,11 +734,12 @@ void smp_user_round(struct smp_user_slice *slices,unsigned count,uint64_t kernel
     for (unsigned i=0;i<worker_count;++i) {
         if (pending&(1u<<i)) { publish(&smp_workers[i].request,request); }
     }
+    uint64_t start=timer_ticks(),hz=timer_frequency();
+    user_request=request;user_pending=pending;user_retry=start;
     wake_workers();
-    uint64_t start=timer_ticks(),hz=timer_frequency(),retry=start;
+    run_boot(context);
     while (pending) {
-        uint64_t now=timer_ticks();
-        uint8_t targets=0;
+        smp_user_kick();
         for (unsigned i=0;i<worker_count;++i) {
             if (!(pending&(1u<<i))) { continue; }
             struct smp_worker *w=&smp_workers[i];
@@ -725,15 +749,9 @@ void smp_user_round(struct smp_user_slice *slices,unsigned count,uint64_t kernel
                 user_jobs[i].slice=NULL;
                 pending&=~(1u<<i);continue;
             }
-            uint64_t begin=acquire(&s->begin);
-            if (!begin || (int64_t)(now-begin)<0 || now-begin<s->quantum) { continue; }
-            if (acquire(&user_jobs[i].interrupt)!=request || (int64_t)(now-retry)>=0) {
-                publish(&user_jobs[i].interrupt,request);
-                targets|=(uint8_t)acquire(&w->irq_state);
-            }
         }
-        if (targets) { (void)gic_sgi_send(ipi_controller,targets);retry=now+hz/500+1; }
-        if (pending && now-start>=hz) {
+        user_pending=pending;
+        if (pending && timer_ticks()-start>=hz) {
             console_write("FATAL: secondary EL0 quiescence unverified. App mappings retained. Reboot.\n");
             cpu_halt();
         }

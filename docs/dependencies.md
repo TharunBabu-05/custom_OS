@@ -16,8 +16,8 @@ test it on the relevant target before claiming support.
 | Unity | Optional host-side tests for pure C allocators/parsers; later target tests | Test runner/output; target hardware code still needs emulation or boards | MIT; [upstream](https://github.com/ThrowTheSwitch/Unity). Simple C assertions suffice initially. |
 | QEMU | Host emulator for the separate `qemu_virt` board | Our kernel needs a QEMU board port; QEMU is not linked into it | GPLv2 with component-specific licenses; [license](https://www.qemu.org/docs/master/about/license.html). Physical testing complements emulation; writing an emulator is outside scope. |
 
-Host compilers/debuggers are development tools, not kernel runtime dependencies.
-Raspberry Pi vendor firmware is a separate boot dependency with its own licensing;
-verify the selected release's redistribution terms before packaging it. No firmware
-blobs are included now. The original project code's distribution license is not
-chosen in this scaffold; select it before public release.
+Host compilers, debuggers, and OpenSSL fixtures are development tools. The
+kernel and bundled EL0 applications use the in-tree freestanding runtime.
+Original OurOS source uses the MIT License. The Pi device tree, radio firmware,
+and other external assets retain their upstream terms.
+[License](../LICENSE) · [Provenance](../PROVENANCE.md)

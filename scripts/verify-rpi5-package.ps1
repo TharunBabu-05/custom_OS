@@ -8,7 +8,7 @@ $manifest=Get-Content -Raw (Join-Path $Directory 'manifest.json') | ConvertFrom-
 # Packages produced before console variants existed use the debug connector.
 $console=if ($manifest.PSObject.Properties['console']) { $manifest.console } else { 'debug' }
 $piProfile=Get-Rpi5Profile $console
-$required=@('COPYING.linux','LICENCE.broadcom','README.txt','bcm2712-rpi-5-b.dtb','config.txt','ouros-rpi5.img')
+$required=@('COPYING.linux','LICENCE.broadcom','OUROSLIC.TXT','README.txt','bcm2712-rpi-5-b.dtb','config.txt','ouros-rpi5.img')
 if ($manifest.asset_revision -ne $assets.revision -or $manifest.hardware_status -ne 'UNTESTED' -or
     $manifest.format -ne 'boot-files-not-disk-image') { throw 'Unexpected package identity' }
 $names=@($manifest.files | ForEach-Object { $_.name })
@@ -35,11 +35,10 @@ $sums=@(Get-Content -LiteralPath (Join-Path $Directory 'SHA256SUMS'))
 $expected=@($manifest.files | ForEach-Object { "$($_.sha256.ToLowerInvariant())  $($_.name)" })
 if ($sums.Count -ne $expected.Count -or (Compare-Object $sums $expected)) { throw 'SHA256SUMS mismatch' }
 $kernel=[IO.File]::ReadAllBytes((Join-Path (Resolve-Path $Directory).Path 'ouros-rpi5.img'))
-if ($kernel.Length -lt 64 -or [BitConverter]::ToUInt32($kernel,56) -ne 0x644d5241 -or
-    [BitConverter]::ToUInt64($kernel,8) -ne 0x80000 -or
-    [BitConverter]::ToUInt64($kernel,16) -lt $kernel.Length -or
-    [BitConverter]::ToUInt64($kernel,16) -ge 0x180000) { throw 'Invalid kernel Image header' }
 $config=Get-Content -LiteralPath (Join-Path $Directory 'config.txt')
+$dtbAddress=Get-Rpi5DtbAddress $config
+Assert-Rpi5ImageHeader $kernel $dtbAddress
+if ($manifest.dtb_address -ne ('0x{0:x}' -f $dtbAddress)) { throw 'DTB address differs from manifest' }
 $isHeader=[Text.Encoding]::ASCII.GetString($kernel).Contains("rpi5-header`0")
 if ($isHeader -ne ($console -eq 'header') -or $manifest.uart -cne $piProfile.Uart) { throw 'Kernel/console profile mismatch' }
 $source=Get-Content -LiteralPath (Join-Path $root $piProfile.Config)

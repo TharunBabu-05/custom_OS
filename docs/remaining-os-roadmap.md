@@ -153,7 +153,7 @@ partition. The Pi verified v5 retention through a clean power cycle.
 | Area | Implemented foundation | Work remaining |
 | --- | --- | --- |
 | Writable storage | USB2 writes with checked flushes, nested directories, atomic publication and Pi-verified v4/v5 retention | Larger volumes, richer metadata, a general writable filesystem and more block-device drivers |
-| Recovery | SHA-256 and two commit banks, native interrupted-I/O tests, serial export and restore, and explicit v4-to-v5 migration | Physical v4-to-v5 import and a staged power cut on spare media, plus richer repair tools |
+| Recovery | SHA-256 and two commit banks, serial export and restore, plus Pi-verified v4-to-v5 archive import and staged power-cut recovery on spare media. [Physical capture](../proofs/pi5-storage-migration-power-cut-2026-11-27.txt) | Richer repair tools and broader interruption tests |
 | Local installation | Pi-verified named app staging, launch, upgrade, rollback and uninstall. [Local app lifecycle](app-lifecycle.md) | A general OS installer, partition layout planning and an end-to-end recovery workflow |
 | Packages | Signed local repository, digest checks, transactional multi-file install and exact-version dependency upgrades on the Pi | Network catalog discovery, signer rotation and broader dependency resolution |
 | Downloads | Pi-verified pinned TLS and hash-checked ELF download. A signed archive can be fetched with the existing bounded transport. [Package download](package-download.md) | General repository transport, online trust policy and a Pi end-to-end signed catalog refresh |
@@ -165,9 +165,10 @@ empty destination; automatic preservation, merging and in-place migration remain
 
 ## Local hardware and UI
 
-The header UART provides input and diagnostics. The opt-in HDMI text
-mirror is ready for physical scanout testing. Keep UART available
-during that test and the later USB input work. [HDMI test](hdmi-framebuffer.md)
+The header build can start a local shell on a firmware framebuffer with
+a direct USB2 boot keyboard. QEMU verified keyboard input and reconnect
+alongside boot storage. Physical HDMI scanout and the integrated local
+shell are ready for Pi testing. [HDMI test](hdmi-framebuffer.md)
 
 | Layer | Next implementation and acceptance |
 | --- | --- |
@@ -213,9 +214,9 @@ EL0 scheduling. General driver concurrency across CPUs is later work.
 | 63 · Core OS foundations | Move the USB DMA workspace out of the early image and add secondary EL0 batches, demand-zero pages, broadcast TLB invalidation, and a cached RP1 DMA transfer. | Passed on the Pi, including multicore jobs, four-core remaps, two cached copies, and USB and `/data` checks after cleanup. [Core phase](core-vm-smp.md) |
 | 64 · Network interfaces and routing | Add explicit interface and route selection, local and default routes, then wired gateway and DNS support. Track socket behavior when the selected path disappears. | Test an on-link peer and a routed peer. Verify link change, stale route removal, socket outcomes, and Wi-Fi coexistence on the Pi. |
 | 65 · Storage acceptance and recovery | Run the v4-to-v5 archive import and staged interruption on spare media. | Passed on the Pi. The import matched the fixture, the physical cut preserved generation 4, and the next write committed generation 5. [Storage capture](../proofs/pi5-storage-migration-power-cut-2026-11-27.txt) |
-| 66 · Multicore and driver integration | Extend secondary EL0 execution to services. Add per-CPU run queues and broaden IRQ affinity, synchronization, and cache-aware DMA to production drivers. | Verify interactive cancellation, signal delivery, fault containment, memory reclamation, and USB and Ethernet integrity under concurrent load. |
+| 66 · Multicore and driver integration | Normal foreground and shell sessions use the boot CPU and routed secondary workers, with ready services eligible during those rounds. IRQ affinity, broader kernel and driver concurrency, and production cache-aware DMA remain open. | QEMU measured four simultaneous EL0 slices and passed pipelines, faults, and cleanup. Repeat the new four-CPU schedule on Pi. [Scheduler](core-vm-smp.md#current-scheduler) |
 | 67 · Release and installer | Add an install/upgrade recovery path, repository catalog refresh and signer rotation. Extend process credentials and filesystem permissions around that workflow. | Install on a spare drive, verify user isolation and signature failures, and recover a known-good boot after an interrupted or refused update. |
-| 68 · Local input and display | Connect the existing boot keyboard reports to the shell, cover reconnect, and verify the HDMI text mirror when a cable is available. | Type and edit commands on a physical keyboard, reconnect it, compare serial and HDMI output, then verify USB boot and data checks. |
+| 68 · Local input and display | Startup enables firmware HDMI scanout and USB boot-keyboard console input on a spare direct port of the USB storage controller. | QEMU passed shell typing and reconnect, framebuffer rendering, and storage regression checks. Pi acceptance requires a connected display and keyboard. [Local console](hdmi-framebuffer.md) |
 | 69 · Device drivers | Continue the platform sequence with an attached peripheral. Candidate increments include GPIO IRQ and buses, USB hubs and mouse, SD write/flush, Bluetooth HCI, PCIe/NVMe, and RTC alarms, fan and watchdog. | Use the relevant device on the Pi. Exercise its success, detach or failure path and report restored claims. [Platform driver plan](platform-driver-plan.md) |
 | 70 · Media and additional boards | Add an actual audio path, then evaluate camera and DSI/GPU work against available hardware. Expand beyond the Pi 5 and QEMU after the relevant boot and driver paths are defined. | Play and capture known samples, verify display or camera frames, and repeat boot, timer, memory and storage tests on each new board. |
 

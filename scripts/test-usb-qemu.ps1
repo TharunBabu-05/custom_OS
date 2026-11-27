@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Handoff,[switch]$Enumerate,[switch]$Keyboard,[switch]$Storage,[switch]$WifiFiles,[switch]$Hotplug,[switch]$BootWithKeyboard,
+param([switch]$Handoff,[switch]$Enumerate,[switch]$Keyboard,[switch]$Storage,[switch]$WifiFiles,[switch]$Hotplug,[switch]$BootWithKeyboard,[switch]$ConsoleKeyboard,
       [string]$StorageImage='build/rpi5-header/OurOS-Pi5-header-experimental-sd.img')
 . "$PSScriptRoot/windows-tools.ps1"
 $out=Join-Path $ProjectRoot $(if ($Handoff) { 'build/handoff-test' } else { 'build/qemu_virt' })
@@ -13,6 +13,7 @@ if (@($Enumerate,$Keyboard,$Storage).Where({ $_ }).Count -gt 1) { throw 'Choose 
 if ($WifiFiles -and !$Storage) { throw '-WifiFiles requires -Storage' }
 if ($Hotplug -and (!$Storage -or $WifiFiles)) { throw '-Hotplug requires -Storage alone' }
 if ($BootWithKeyboard -and (!$Storage -or $Hotplug -or $WifiFiles)) { throw '-BootWithKeyboard requires -Storage alone' }
+if ($ConsoleKeyboard -and (!$Storage -or $Hotplug -or $WifiFiles -or $BootWithKeyboard)) { throw '-ConsoleKeyboard requires -Storage alone' }
 if ($Enumerate -or $Storage) {
     $storagePath=(Resolve-Path -LiteralPath $StorageImage).Path
     $storageHash=(Get-FileHash -LiteralPath $storagePath -Algorithm SHA256).Hash
@@ -25,11 +26,20 @@ if ($BootWithKeyboard) {
 }
 $xhciDevice=if ($Enumerate -or $Keyboard -or $Storage) { 'qemu-xhci,id=xhci,p3=0' } else { 'qemu-xhci,id=xhci' }
 $start.Arguments="-machine virt-9.2,virtualization=$virt,secure=off -cpu cortex-a76 -accel tcg -smp 1 -m 128 -display none -monitor none -serial stdio -net none -device $xhciDevice -kernel `"$kernel`"$storageOptions"
-if ($Hotplug) {
+if ($Hotplug -or $ConsoleKeyboard) {
     $listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
     $listener.Start()
     try { $qmpPort=$listener.LocalEndpoint.Port } finally { $listener.Stop() }
     $start.Arguments+=" -qmp tcp:127.0.0.1:${qmpPort},server=on,wait=off"
+}
+if ($ConsoleKeyboard) {
+    $plain=Join-Path $out 'usb-console-plain.dtb'
+    $display=Join-Path $out 'usb-console-display.dtb'
+    & $QemuExe -machine "virt-9.2,virtualization=$virt,secure=off,dumpdtb=$plain" -cpu cortex-a76 -smp 1 -m 128 -display none -monitor none -serial null -net none
+    if ($LASTEXITCODE) { throw 'USB console DTB generation failed' }
+    & node (Join-Path $ProjectRoot 'tests/framebuffer_dtb.mjs') $plain $display valid
+    if ($LASTEXITCODE) { throw 'USB console framebuffer fixture generation failed' }
+    $start.Arguments+=" -dtb `"$display`""
 }
 $start.UseShellExecute=$false; $start.CreateNoWindow=$true
 $start.RedirectStandardInput=$true; $start.RedirectStandardOutput=$true; $start.RedirectStandardError=$true
@@ -53,7 +63,7 @@ try {
     if (!$process.Start()) { throw 'Cannot start QEMU' }; $started=$true
     $stdout=$process.StandardOutput.ReadToEndAsync(); $stderr=$process.StandardError.ReadToEndAsync()
     Start-Sleep -Milliseconds 1000
-    if ($Hotplug) {
+    if ($Hotplug -or $ConsoleKeyboard) {
         if ($process.HasExited) { throw $stderr.Result }
         $qmp=[Net.Sockets.TcpClient]::new('127.0.0.1',$qmpPort)
         $net=$qmp.GetStream()
@@ -73,11 +83,16 @@ try {
             'usbkeytest 2','keyboard-timeout','usbkeytest 2','qmp-key-a','usbkeytest 2','qmp-key-b',
             'storagetest','qmp-remove','usbports')+$commands[7..($commands.Count-1)]
     }
+    if ($ConsoleKeyboard) {
+        $commands=$commands[0..6]+@('qmp-add','startup',
+            'qmp-type echo keyboard-ready','qmp-remove','qmp-add','qmp-type echo keyboard-back','qmp-type exit',
+            'fbinfo','usbkbd','usbkbd off')+$commands[7..($commands.Count-1)]
+    }
     if ($WifiFiles) { $commands=@('usbdevices','storageinit','cryptotest','keytest','nettest','p256test','h2etest','saetest','rngtest','wififiles','wifiload','wifistart','wificontrol','wificaps','wifiprepare IN','wifiscan',"wifitarget Jack's","wifiauthprep Jack's","wifijoinprobe Jack's","wifisaeprobe Jack's","wifisaeauth Jack's","wifiassoc Jack's","wifidhcp Jack's","wifiping Jack's","wificonnect Jack's",'netinfo')+$commands[1..($commands.Count-1)] }
     $commands=@('mmuinit','exctest','mmutest','irqinit','timerstart','schedtest','taskinfo','timertest','irqinfo')+$commands[0..($commands.Count-2)]+@('schedtest','taskinfo','timertest','timerinfo','timerstop','exctest','halt')
     foreach ($line in $commands) {
         if ($process.HasExited) { throw $stderr.Result }
-        if ($line -eq 'qmp-add') { Invoke-Qmp @{execute='device_add';arguments=@{driver='usb-kbd';bus='xhci.0';port='2';id='test-keyboard'}}; continue }
+        if ($line -eq 'qmp-add') { Invoke-Qmp @{execute='device_add';arguments=@{driver='usb-kbd';bus='xhci.0';port='2';id='test-keyboard'}}; Start-Sleep -Milliseconds 500; continue }
         if ($line -eq 'qmp-mouse') { Invoke-Qmp @{execute='device_add';arguments=@{driver='usb-mouse';bus='xhci.0';port='2';id='test-keyboard'}}; continue }
         if ($line -eq 'keyboard-timeout') { Start-Sleep -Seconds 9; continue }
         if ($line -eq 'qmp-key-a' -or $line -eq 'qmp-key-b') {
@@ -85,7 +100,16 @@ try {
             Start-Sleep -Milliseconds 900
             continue
         }
-        if ($line -eq 'qmp-remove') { Invoke-Qmp @{execute='device_del';arguments=@{id='test-keyboard'}} $true; continue }
+        if ($line -like 'qmp-type *') {
+            foreach ($character in $line.Substring(9).ToCharArray()+@("`r")) {
+                $key=switch ($character) { ' ' {'spc'} '-' {'minus'} "`r" {'ret'} default {[string]$character} }
+                Invoke-Qmp @{execute='send-key';arguments=@{keys=@(@{type='qcode';data=$key});'hold-time'=30}}
+                Start-Sleep -Milliseconds 85
+            }
+            Start-Sleep -Milliseconds 750
+            continue
+        }
+        if ($line -eq 'qmp-remove') { Invoke-Qmp @{execute='device_del';arguments=@{id='test-keyboard'}} $true; Start-Sleep -Milliseconds 500; continue }
         foreach ($character in ($line+"`r`n").ToCharArray()) {
             $process.StandardInput.Write($character); $process.StandardInput.Flush()
             Start-Sleep -Milliseconds 8
@@ -105,6 +129,7 @@ try {
     if ($Storage) { $name=$name.Replace('ring','storage') }
     if ($Hotplug) { $name=$name.Replace('storage','hotplug') }
     if ($BootWithKeyboard) { $name=$name.Replace('storage','storage-keyboard') }
+    if ($ConsoleKeyboard) { $name=$name.Replace('storage','keyboard-console') }
     if ($WifiFiles) { $name=$name.Replace('storage','wifi-files') }
     $text | Set-Content -Encoding ASCII (Join-Path $out "$name.log")
     $stderr.Result | Set-Content -Encoding ASCII (Join-Path $out "$name.stderr.log")
@@ -180,6 +205,14 @@ try {
             throw "USB storage inventory differs before and after reads; see $out/$name.log"
         }
         if ($text -match 'Storage attachment failed|FAT mount failed|Storage read test failed|fs:') { throw 'USB storage operation failed' }
+        if ($ConsoleKeyboard) {
+            $expectedLines=@('USB keyboard console=active port=2','USB keyboard console=off',
+                'Framebuffer: firmware 320x192','mirror=on','App resources restored; monitor ready.')
+            foreach ($fragment in $expectedLines) { if (!$text.Contains($fragment)) { throw "$name missing '$fragment'" } }
+            if ($text -notmatch '(?m)^keyboard-ready\r?$' -or $text -notmatch '(?m)^keyboard-back\r?$' -or
+                $text -notmatch '(?m)^user:/\$ exit\r?$') { throw "$name did not deliver the shell commands through HID" }
+            Write-Output 'PASS: local console startup enabled the framebuffer and USB keyboard. Input and storage worked after reconnect.'
+        }
         if ($BootWithKeyboard) {
             if ($text -notmatch 'USB root port=2 protocol=2 present=yes enabled=yes [^\r\n]+owner=usb-bot' -or
                 !$text.Contains('kind=hid-boot-keyboard') -or !$text.Contains('PASS: USB accessory descriptors read.') -or

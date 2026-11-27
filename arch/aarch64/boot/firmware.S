@@ -57,6 +57,53 @@ firmware_entry:
     isb
     ldr x1, =__stack_top
     mov sp, x1
+    /* Preserve the validated firmware blob before clearing BSS, including
+     * legacy boots whose original DTB lay inside the runtime span. */
+    cbz x20, .Lclear
+    tst x20, #7
+    b.ne .Lbad_dtb
+    ldr x6, =__image_file_end
+    adr x7, _start
+    cmp x20, x7
+    b.lo .Lread_dtb
+    cmp x20, x6
+    b.lo .Lbad_dtb
+.Lread_dtb:
+    ldr w1, [x20]
+    ldr w2, =0xedfe0dd0           /* FDT magic stored big-endian. */
+    cmp w1, w2
+    b.ne .Lbad_dtb
+    ldr w1, [x20, #4]
+    rev w1, w1
+    cmp w1, #40
+    b.lo .Lbad_dtb
+    cmp w1, #0x200000
+    b.hi .Lbad_dtb
+    adds x2, x20, x1
+    b.cs .Lbad_dtb
+    ldr x3, =__boot_dtb_start
+    cmp x20, x3
+    b.eq .Lclear
+    mov x4, x20
+    mov x20, x3
+    cmp x3, x4
+    b.lo .Lcopy_forward
+    add x3, x3, x1
+.Lcopy_back:
+    ldrb w5, [x2, #-1]!
+    strb w5, [x3, #-1]!
+    subs x1, x1, #1
+    b.ne .Lcopy_back
+    b .Lclear
+.Lcopy_forward:
+    ldrb w5, [x4], #1
+    strb w5, [x3], #1
+    subs x1, x1, #1
+    b.ne .Lcopy_forward
+    b .Lclear
+.Lbad_dtb:
+    mov x20, xzr
+.Lclear:
     msr cpacr_el1, xzr
     msr tpidrro_el0, xzr
     ldr x1, =__bss_start

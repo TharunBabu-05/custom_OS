@@ -94,27 +94,15 @@ the newest available Ubuntu release.
 Run in **Ubuntu WSL**, after entering `wsl -d Ubuntu-24.04`:
 
 ```bash
-cd /mnt/c/Users/tharu/operating_system
+cd /mnt/c/Users/tharu/custom_OS
 bash scripts/install-deps-ubuntu.sh
 ```
 
-The script executes these exact package commands:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y \
-  build-essential git python3 ca-certificates \
-  gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-  qemu-system-arm gdb-multiarch \
-  device-tree-compiler dosfstools mtools parted file
-```
-
-One cross-compiler serves **both** confirmed targets. We use Ubuntu's packaged
-`aarch64-linux-gnu-gcc` in freestanding mode and invoke the linker directly,
-without Linux headers, CRT, libc, or a Linux kernel in the generated artifact.
-The compiler's name does not require the resulting freestanding code to run Linux.
-An `aarch64-none-elf-` GNU toolchain can later be used via `CROSS_COMPILE`.
-Do not use the host's plain `gcc` for target code.
+One cross-compiler serves both targets. The Ubuntu installer verifies the
+Arm GNU bare-metal archive and extracts it into the project-local `.dist/`.
+The checks use `aarch64-none-elf-` by default. Set `CROSS_COMPILE` to select
+another compatible tool prefix. Target probes link directly as freestanding
+executables. [Arm GNU toolchain](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads)
 
 No ARM32 compiler is needed for the Zero 2 W. If an **original** Zero is added
 later, its separate toolchain would be installed with `sudo apt-get install
@@ -191,14 +179,15 @@ make check-toolchain
 Useful independent inspection commands:
 
 ```bash
-aarch64-linux-gnu-gcc -dumpmachine
+source scripts/arm-toolchain.sh
+aarch64-none-elf-gcc -dumpmachine
 qemu-system-aarch64 --version
 qemu-system-aarch64 -machine help
 qemu-system-aarch64 -cpu help
 gdb-multiarch --version
-aarch64-linux-gnu-readelf -h -l -d build/toolchain/rpi5/probe.elf
-aarch64-linux-gnu-objdump -d build/toolchain/rpi_zero2w/probe.elf
-aarch64-linux-gnu-nm -u build/toolchain/rpi5/probe.elf
+aarch64-none-elf-readelf -h -l -d build/toolchain/rpi5/probe.elf
+aarch64-none-elf-objdump -d build/toolchain/rpi_zero2w/probe.elf
+aarch64-none-elf-nm -u build/toolchain/rpi5/probe.elf
 ```
 
 Expected successful check output includes:

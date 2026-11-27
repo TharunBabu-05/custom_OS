@@ -5,10 +5,11 @@ tracks current Pi acceptance, remaining work, and the phase sequence through
 Phase 70. Parts of the subsystem inventory below retain their earlier
 baseline scope.
 
-Phase 63 adds opt-in multicore EL0 batches, demand-zero reservations,
-broadcast invalidation for user mapping updates, and a cached RP1 DMA
-copy. The Pi passed all four checks, including the multicore serial shell
-and two cached DMA transfers. [Implementation and acceptance](core-vm-smp.md)
+The Pi verified Phase 63 multicore EL0 batches, demand-zero reservations,
+broadcast invalidation for user mapping updates, and cache-maintained RP1
+DMA. The current scheduler extends normal shell and program execution to the
+boot CPU and all three workers. QEMU measured overlapping EL0 execution on
+all four CPUs. [Implementation and acceptance](core-vm-smp.md)
 
 Phase 65 passed the v4-to-v5 archive import and the physical power-cut
 test on spare media. The Pi recovered the last committed generation and
@@ -21,16 +22,11 @@ system can run without display, audio, Wi-Fi or even a disk. Our target is a
 usable, networked Pi OS with persistent files and applications, so those
 capabilities are tracked below.
 
-**Status as of 2026-11-21:** an early single-core OS with protected user
-applications, a serial shell, bounded persistent storage and foreground
-networking. The original monitor-only stage is behind us. No percentage of a
-complete OS is assigned: the remaining features have very different scopes.
-
-**Current development** reports physical, kernel and per-process memory
+Memory diagnostics report physical, kernel and per-process memory
 pressure. Private heap diagnostics distinguish quota, fragmentation and
 backing-page failures. [Memory pressure](memory-pressure.md)
 
-**Latest verified hardware path** covers private heap quota, fragmentation
+The Pi verified private heap quota, fragmentation
 and reuse. Page, heap and open-file counts returned to their baselines.
 [Pi capture](../proofs/pi5-memory-pressure-2026-11-21.txt)
 
@@ -70,13 +66,10 @@ The header image selects automatic startup, which mounts storage and sets up
 the MMU and timer before opening the shell. Manual monitor boot is available
 through the firmware command line. [Startup guide](startup.md)
 
-Open hardware evidence includes interrupted-write recovery on physical
-media, broader memory lifecycle/concurrency, atomic overwrite/appupdate,
-and installed-shell persistence.
-The [publication excerpt](../proofs/pi5-file-publication-2026-11-15.txt) used
-a different destination spelling and does not establish replacement of the
-original file. These gaps are tracked without requiring old passing tests
-to be repeated at every development step.
+Open hardware checks include the current four-CPU scheduler, relocated
+DTB boot, and the integrated HDMI and USB keyboard console. Broader memory
+stress, atomic overwrite test coverage, and installed-shell persistence
+remain tracked in the [extended roadmap](remaining-os-roadmap.md).
 
 ## Core OS subsystems
 
@@ -87,32 +80,25 @@ to be repeated at every development step.
 | Exceptions | Common 288-byte frame; EL1 return and contained EL0 faults/syscalls/IRQ switching Pi verified | Richer signal/fault policy and emergency stack |
 | Physical memory | Pi-verified 4 KiB bitmap allocator, worker page leases, allocation windows, boundary constraints and per-zone fragmentation reports. | Pi USB accessory DMA placement and ownership beyond worker leases |
 | Kernel heap | Zeroed 16..4096-byte buffers, calloc/realloc/free, page sharing/reclamation; Pi self-tests verified | Large allocations, IRQ/SMP synchronization and additional consumers |
-| Virtual memory/protection | Pi verified identity/private pages and single-process dynamic RW/NX allocation; guarded arena and checked copies | Broader Pi dynamic lifecycle/concurrent checks, larger VM, shared/file mappings and cache acceleration |
+| Virtual memory/protection | Pi-verified private pages, dynamic RW/NX allocation, shared memory, file-backed snapshots, demand-zero reservations and broadcast TLB invalidation. [Core VM and SMP](core-vm-smp.md) | Larger address spaces, copy-on-write and broader concurrency and mapping stress tests |
 | Interrupts | Pi-verified GICv2/PPI30, IRQ return and BCM compare channel 3 through the bounded SPI dispatcher and deferred callbacks. [Peripheral IRQs](peripheral-irqs.md) | Additional interrupt-driven drivers, IRQ-safe locks and SMP |
 | Time | Counter, uptime, 100 Hz CNTP IRQ and cooperative sleep verified on Pi. The Pi passed operator-set UTC, the EL0 query, and trust validity preflight. [UTC and trust guide](trust-time.md) | RTC and automatic time synchronization |
-| Scheduling | Cooperative EL1 tasks; preempted EL0, sleep/wake/spawn/wait/pipes/process control; Pi bg/jobs/stop responsiveness and cleanup | Pi fg/bgio and broader lifecycle checks, multiple jobs/process trees, broader blocking I/O, SMP and indefinite services |
-| Processes/system calls | Pi-verified descriptor lifecycle, four-stage pipelines, timed IPC, descriptor passing, signals, structured stop reports, shared VM, and a supervised service. [Core OS milestones](remaining-os-roadmap.md#core-os-milestones) | Broader process credentials and access control |
-| Programs/runtime | Bounded ELF loader, 60 sample/test ELFs, Pi PS/memory/allocator checks, and QEMU-verified app upgrades and rollback. The Pi downloaded and verified an ELF over pinned HTTPS, installed it and ran it. [Local app lifecycle](app-lifecycle.md) · [Package download test](package-download.md) | Pi upgrade and rollback checks, larger VM, general libc/dynamic linking and package catalog |
+| Scheduling | Cooperative EL1 tasks. Pi-verified weighted EL0 preemption, nested process trees and secondary EL0 batches. Normal shell and ELF runs use all four CPUs in QEMU with the SMP interrupt routes enabled. [Core VM and SMP](core-vm-smp.md) | Pi verification of four-way scheduling and concurrent kernel work |
+| Processes/system calls | Pi-verified descriptor lifecycle, seven-stage pipelines, named IPC, descriptor passing, signals, structured stop reports and shared VM. [Core OS milestones](remaining-os-roadmap.md#core-os-milestones) | Broader process credentials and access control |
+| Programs/runtime | Bounded ELF loader, 94 userland ELF programs, 102 syscall IDs (0–101), 8 foreground process slots and 3 supervised service slots. The Pi verified named app lifecycle, signed packages, and a pinned HTTPS ELF download. [Storage and apps](storage-apps.md) · [Package download test](package-download.md) | General libc, dynamic linking, and repository catalog discovery |
 | Filesystem namespace | RAMFS `/`, read-only FAT32 `/boot`, opt-in `/data`; 16 owned generation-checked file handles with path leases, exclusive creation, append, metadata, positioned I/O, and resize. [File handles](file-handles.md#phase-27-el0-file-handles) | General mounts, permissions, pseudo-filesystems and preemptive driver synchronization |
-| Persistent files | Pi-verified v4 retention and v5 startup. Optional v5 raises the limits to 32 nodes and 32 KiB files and imports v4 backups. [Storage prototype](data-v5.md) | Physical v5 migration, retention and power-cut checks, and richer metadata |
-| Shell | Pi-verified files/run/runio/pipes/exec/env/profiles/expansion, two jobs, PID selection, command lists, `source`, and `>>`. Phase 29 supports up to four stages with `;`, `&&`, and `||`. [Shell workflows](shell-workflows.md) | Pi acceptance of longer pipelines |
-| Networking | WPA3/SAE, DHCP, ARP, IPv4, ICMP, UDP DNS, local EL0 UDP and outbound TCP. Pi UDP echo and the checksummed 16 KiB TCP file exchange with Windows passed. [Background Wi-Fi](background-networking.md) · [UDP sockets](udp-sockets.md) · [TCP sockets](tcp-sockets.md) | Pi UDP peer timeout and recovery, group key rotation, DHCP rebinding and HTTP/TLS |
+| Persistent files | The Pi verified v4 archive import into v5, cold-power retention and staged-write recovery on spare media. V5 supports 32 nodes and 32 KiB files. [Storage and apps](storage-apps.md) | Larger volumes, richer metadata and repair tools |
+| Shell | Pi-verified redirection, command lists, PID selection, `source`, four background jobs and seven-stage binary pipelines. [Shell workflows](shell-workflows.md) | Pi verification of the integrated local console |
+| Networking | WPA3/SAE, DHCP, ARP, IPv4, ICMP, DNS, UDP and outbound TCP. The Pi passed wired UDP echo, a checksummed 16 KiB TCP exchange with half-close, and a wired DHCP bind. [Background Wi-Fi](background-networking.md) · [TCP sockets](tcp-sockets.md) · [Wired DHCP](../proofs/pi5-wired-dhcp-bound-2026-11-27.txt) | Group key rotation, broader DHCP renewal/rebinding coverage and general HTTP |
 | Security | Reservation-aware allocation, hidden volatile credentials, kernel/user page isolation, RW/NX and checked user copies. The Pi passed pinned certificate, TLS transcript and live TLS 1.3 encrypted echo checks. [Live TLS test](tls-live.md) | Credentials/permissions, broader access control, syscall/driver hardening, secure update/boot design and independent review |
-| Multicore/concurrency | The Pi verified shared queues, cancellation and remaps with parked workers. Phase 46 brokers worker page leases through the boot CPU, which runs scheduling and device drivers. [Secondary CPU workers](secondary-cpus.md) | Final shutdown counts from the Phase 46 lease run, IRQ affinity, concurrent drivers and multicore scheduling |
-| Diagnostics/testing | UART logs, self-tests, independent native fixtures, guard/mutation tests, QEMU A53/A76/EL1/EL2 and image checks | Continuous integration, longer hardware soak/failure/recovery tests, coverage and debugging tools |
-| Build/update/install | Windows-native build, FAT packaging, hashes and archived full IMG/ZIP files; boot-file update can retain older data formats; explicit backup conversion | General update policy, on-device installer/rollback, package format/manager and application repository |
+| Multicore/concurrency | The Pi verified three EL1 workers, SGIs, cancellation, page leases, and TLB invalidation on four CPUs. The boot CPU brokers kernel work. [Secondary CPU workers](secondary-cpus.md) | Broader interrupt affinity, concurrent drivers and kernel synchronization |
+| Diagnostics/testing | UART logs, self-tests, native fixtures, QEMU A53/A76/EL1/EL2 and image checks. A GitHub Actions workflow runs verification on pushes and pull requests. [Workflow](../.github/workflows/verify.yml) | Hosted CI result, longer hardware tests, coverage and debugging tools |
+| Build/update/install | Windows-native build, FAT image and checked boot updates, explicit backup conversion, and an on-device signed multi-file package installer. [Storage and apps](storage-apps.md) | General OS installer, automated upgrade recovery and online catalog discovery |
 
-The system has five process slots, a 64 KiB dynamic page arena per process,
-and bounded foreground sessions. The default v4 format supports 16 persistent
-nodes and 16 KiB files. The optional v5 image supports 32 persistent nodes
-and 32 KiB files. The volatile root `/` uses RAMFS. Persistent files live
-under mounted `/data`. A general persistent root and startup service remain
-open work.
-
-Creating `/dev`, `/proc` and `/sys` directories does not implement device nodes
-or kernel information files. DNS and `ping` do not supply sockets, TCP or a
-package installer. Allocator tests, protection tests and process tests provide
-different evidence; no individual self-test proves the entire OS.
+The v4 format supports 16 persistent nodes and 16 KiB files. The v5 format
+supports 32 persistent nodes and 32 KiB files. The volatile root `/` uses
+RAMFS. Persistent files live under `/data`. A persistent root and general
+device and process namespaces remain open work.
 
 ## Drivers and platform support
 
@@ -127,12 +113,12 @@ different evidence; no individual self-test proves the entire OS.
 | xHCI USB host | Experimental polled controller ownership/DMA, direct USB2 enumeration and transfers; verified with the test pendrive |
 | USB mass storage | BOT + SCSI sectors/capacity, WRITE10 and WCE=0 synchronous `/data` writes verified on Pi; no UAS or general USB3/hub support |
 | QEMU virtio block | Read-only block path tested in QEMU; not a Pi hardware driver |
-| Pi SDHCI storage | Limited firmware-selected SDHC/SDXC handoff, read-only; no complete cold card initialization; not verified without an SD card |
+| Pi SDHCI storage | Pi-verified read-only microSD initialization and reads at the first and last sectors. [MicroSD capture](../proofs/pi5-microsd-tail-2026-11-24.txt) |
 | Wi-Fi SDIO | Pi power/pins/400 kHz SDIO/F1/F2/backplane/firmware/FullMAC control implemented and verified |
 | Wi-Fi station/authentication | WPA3-Personal SAE + required PMF and data key setup, foreground DHCP/DNS/ping verified on Jack's; not general long-lived station management |
 | GPIO/pin control | Limited WLAN power/mux setup and firmware-initialized UART; no general user GPIO API |
-| USB keyboard/mouse (HID) | Needed for local interactive use; not implemented |
-| HDMI/display/framebuffer | Firmware framebuffer discovery, color bars and UART text mirroring implemented. Physical HDMI verification is pending. [HDMI test](hdmi-framebuffer.md) |
+| USB keyboard/mouse (HID) | Pi-verified direct boot-keyboard reports. Integrated shell input and reconnect passed QEMU with USB boot storage. General HID and mouse input remain open. [Keyboard capture](../proofs/pi5-usb-keyboard-live-sd-host-2026-11-24.txt) · [Local console](hdmi-framebuffer.md) |
+| HDMI/display/framebuffer | Firmware framebuffer discovery, text rendering and keyboard-driven shell startup. Physical HDMI verification is pending. [HDMI test](hdmi-framebuffer.md) |
 | Graphics/GPU acceleration | Optional later desktop capability; not implemented |
 | Ethernet | Pi 5 PHY, GEM DMA, UDP, TCP, configurable IPv4 and inbound ARP and ICMP replies verified on a direct cable. [Platform driver plan](platform-driver-plan.md#phase-18-configurable-ethernet-ipv4-and-inbound-reachability) |
 | Bluetooth | Optional; not implemented |
@@ -150,11 +136,5 @@ still needs its own boot, interrupt, peripheral and device implementations.
 
 ## Development order
 
-The Pi passed the shell workflows and safe reboot with persisted data.
-The Pi booted the Phase 5 v5 image and reported the expected storage limits.
-Migration and recovery passed native and emulator tests. [Storage prototype](data-v5.md) · [Implementation plan](implementation-plan.md)
-
-The Pi verified the Phase 6 managed-app listing. The full lifecycle passed
-QEMU on v4 and v5. The first Phase 7 worker increment passed native and
-QEMU checks and is ready for live Pi verification.
-[Local app lifecycle](app-lifecycle.md) · [Background networking](background-networking.md)
+The [extended roadmap](remaining-os-roadmap.md#extended-plan) tracks the
+next stages for local hardware, system installation, networking and drivers.

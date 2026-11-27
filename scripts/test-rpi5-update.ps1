@@ -38,6 +38,24 @@ try {
     Assert ($preview -contains 'Replace OUROS.IMG' -and $preview -contains 'Add CMDLINE.TXT') 'Update preview differs'
     Assert ((Get-Inventory) -ceq $original) 'Preview changed the boot directory'
 
+    $legacy=$config.Replace('device_tree_address=0x02000000','device_tree_address=0x200000').
+        Replace('device_tree_end=0x02200000','device_tree_end=0x300000')
+    if ($legacy -cne $config -and $manifest.config_sha256 -ceq (Get-Rpi5ConfigHash (Join-Path $boot 'CONFIG.TXT'))) {
+        Write-Fixture 'CONFIG.TXT' $legacy
+        $legacyInventory=Get-Inventory
+        $kernel=[IO.File]::ReadAllBytes((Join-Path $stage 'OUROS.IMG'))
+        if ([BitConverter]::ToUInt64($kernel,16) -le 0x180000) {
+            $legacyPreview=& "$PSScriptRoot/update-rpi5-boot.ps1" -BootDirectory $boot -Package $packagePath
+            Assert ($legacyPreview -contains 'Replace OUROS.IMG') 'Safe legacy DTB address was rejected'
+        } else {
+            $errorText=try { & "$PSScriptRoot/update-rpi5-boot.ps1" -BootDirectory $boot -Package $packagePath }
+                catch { $_.Exception.Message }
+            Assert ($errorText -like '*image overlaps the configured DTB*') 'Legacy DTB accepted an overlapping kernel'
+        }
+        Assert ((Get-Inventory) -ceq $legacyInventory) 'Legacy preview changed the boot directory'
+        Write-Fixture 'CONFIG.TXT' $config
+    }
+
     Write-Fixture 'CONFIG.TXT' 'wrong profile'
     $errorText=try { & "$PSScriptRoot/update-rpi5-boot.ps1" -BootDirectory $boot -Package $packagePath -Apply }
         catch { $_.Exception.Message }

@@ -3,7 +3,8 @@ set -euo pipefail
 export LC_ALL=C
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
-prefix="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+source "$root/scripts/arm-toolchain.sh"
+prefix="$arm_prefix"
 for suffix in gcc ld readelf nm objdump objcopy; do
     if ! command -v "${prefix}${suffix}" >/dev/null 2>&1; then
         printf 'ERROR: missing %s%s. Install the AArch64 cross-toolchain in Ubuntu WSL.\n' "$prefix" "$suffix" >&2

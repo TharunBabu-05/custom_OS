@@ -1,5 +1,6 @@
 #include "console.h"
 #include "crypto.h"
+#include "xhci_test.h"
 static bool previous_cr,damaged_line;
 int console_getc(void)
 {
@@ -9,7 +10,7 @@ int console_getc(void)
         previous_cr=false;
         return CONSOLE_NO_INPUT;
     }
-    if (c==CONSOLE_NO_INPUT) { return c; }
+    if (c==CONSOLE_NO_INPUT) { return damaged_line ? c : xhci_keyboard_getc(); }
     if (c=='\n' && previous_cr) { previous_cr=false;return CONSOLE_NO_INPUT; }
     previous_cr=c=='\r';
     if (damaged_line) {

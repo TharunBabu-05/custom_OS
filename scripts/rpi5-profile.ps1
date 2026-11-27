@@ -1,3 +1,28 @@
+function Get-Rpi5DtbAddress([string[]]$Config) {
+    $values = @($Config | Where-Object { $_ -match '^device_tree_address\s*=' })
+    if ($values.Count -ne 1 -or $values[0] -notmatch '^device_tree_address\s*=\s*0x([0-9a-fA-F]+)$') {
+        throw 'Missing or invalid device_tree_address'
+    }
+    $address = [Convert]::ToUInt64($Matches[1], 16)
+    $limits = @($Config | Where-Object { $_ -match '^device_tree_end\s*=' })
+    if ($limits.Count -ne 1 -or $limits[0] -notmatch '^device_tree_end\s*=\s*0x([0-9a-fA-F]+)$') {
+        throw 'Missing or invalid device_tree_end'
+    }
+    $end = [Convert]::ToUInt64($Matches[1], 16)
+    if (!(($address -eq 0x200000 -and $end -eq 0x300000) -or
+          ($address -eq 0x02000000 -and $end -eq 0x02200000))) { throw 'Unsupported Pi 5 DTB window' }
+    $address
+}
+
+function Assert-Rpi5ImageHeader([byte[]]$Kernel,[uint64]$DtbAddress) {
+    if ($Kernel.Length -lt 64 -or [BitConverter]::ToUInt32($Kernel,56) -ne 0x644d5241 -or
+        [BitConverter]::ToUInt64($Kernel,8) -ne 0x80000 -or
+        [BitConverter]::ToUInt64($Kernel,16) -lt $Kernel.Length -or
+        [BitConverter]::ToUInt64($Kernel,16) -gt ($DtbAddress-0x80000)) {
+        throw 'Invalid AArch64 Image header or image overlaps the configured DTB'
+    }
+}
+
 function Get-Rpi5Profile {
     param([ValidateSet('debug','header')][string]$Console = 'debug')
     if ($Console -eq 'header') {

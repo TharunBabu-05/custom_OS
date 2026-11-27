@@ -28,4 +28,5 @@ void framebuffer_boot_init(const void *dtb,size_t bytes,struct memory_map *);
 bool framebuffer_command(const char *);
 void framebuffer_console_putc(char);
 void framebuffer_console_clear(void);
+bool framebuffer_console_start(void);
 #endif

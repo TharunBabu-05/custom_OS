@@ -22,6 +22,7 @@ if ($basePath) {
     Copy-Item -LiteralPath (Join-Path $out 'ouros-rpi5.img') -Destination (Join-Path $stage 'OUROS.IMG')
     [IO.File]::WriteAllText((Join-Path $stage 'CMDLINE.TXT'),"ouros.startup=shell`n",[Text.Encoding]::ASCII)
 }
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSE') -Destination (Join-Path $stage 'OUROSLIC.TXT') -Force
 Get-ChildItem -LiteralPath (Join-Path $work 'apps') -File -Filter '*.ELF' |
     Copy-Item -Destination $stage -Force
 Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'user/shell') -File -Filter '*.OSH' |

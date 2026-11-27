@@ -55,7 +55,7 @@ Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'user/shell') -File -Filter '
     Copy-Item -Destination $files
 # Explicit 8.3 names avoid dependence on a custom long-filename implementation.
 $map=[ordered]@{'OUROS.IMG'='ouros-rpi5.img';'PI5.DTB'='bcm2712-rpi-5-b.dtb';
-    'COPYING.TXT'='COPYING.linux';'LICENSE.TXT'='LICENCE.broadcom'}
+    'COPYING.TXT'='COPYING.linux';'LICENSE.TXT'='LICENCE.broadcom';'OUROSLIC.TXT'='OUROSLIC.TXT'}
 foreach ($name in $map.Keys) { Copy-Item -LiteralPath (Join-Path $bundle $map[$name]) -Destination (Join-Path $files $name) }
 . "$PSScriptRoot/wifi-assets.ps1"
 foreach ($asset in $WifiAssets.files) { Copy-Item -LiteralPath (Join-Path $WifiCache $asset.name) -Destination (Join-Path $files $asset.name) }
@@ -181,7 +181,8 @@ Open files pin paths; conflicting edits report busy until handles close.
 
 BOOT ASSETS: OUROS.IMG kernel, *.ELF original user programs, PI5.DTB official
 board DTB renamed only, CONFIG.TXT configuration. COPYING.TXT/LICENSE.TXT/
-WIFILIC.TXT retain notices; SOURCE.TXT pinned provenance. No Linux kernel.
+WIFILIC.TXT retain vendor notices. OUROSLIC.TXT carries the OurOS MIT license.
+SOURCE.TXT records pinned provenance.
 Building creates regular project files, flashes no physical drive and pushes
 nothing to GitHub. Filesystem validation does not establish hardware boot.
 '@

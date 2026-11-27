@@ -67,6 +67,9 @@ void xhci_storage_ports(void);
 unsigned xhci_storage_port(uintptr_t controller);
 void xhci_report_ports(const struct xhci_observer *,const struct xhci_snapshot *);
 void xhci_accessory_active(const struct xhci_accessory *);
+void xhci_keyboard_enable(bool enabled,unsigned port);
+void xhci_keyboard_info(void);
+int xhci_keyboard_getc(void);
 #ifdef OUROS_PI5
 void pi5_usb_accessory(uintptr_t dtb,uintptr_t uart,unsigned host,const struct xhci_accessory *);
 #endif

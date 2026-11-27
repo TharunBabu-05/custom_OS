@@ -107,7 +107,7 @@ $expected=@('OurOS: AArch64 kernel booted','clock_hz=24000000','board=qemu_virt 
     'PASS: SAE commit/confirm, key derivation, bad-confirm rejection and gated key export.',
     "Cached self-test result from this boot; append ' force' to rerun.",
     'No Pi RNG200 source on QEMU virt; randomness unavailable.',
-    'help info cpuinfo meminfo uptime','timer_hz=',"`r`nnative-windows-ok`r`n", "`r`nbackspace`r`n",'uptime_seconds=',
+    'help info uartinfo cpuinfo meminfo uptime','timer_hz=',"`r`nnative-windows-ok`r`n", "`r`nbackspace`r`n",'uptime_seconds=',
     'Unknown command. Type help.','Input too long; command discarded.',"`r`nrecovered`r`n",'CPU halted.',
     'Memory: ready','reason=kernel/BSS/stack','reason=DTB','reason=physical page bitmap','Bitmap arena=',
     'Kernel heap ready; type heapinfo or heaptest.','Kernel heap: ready','Heap slot=0 requested=17 capacity=32','Heap slot=1 requested=33 capacity=64',
@@ -149,6 +149,9 @@ if ($StorageImage) {
 }
 $commands=$commands[0..($commands.Count-2)]+@('timertest','timerinfo','timerstop','exctest','halt')
 if ($Handoff) {
+    $image=[IO.File]::ReadAllBytes($kernel)
+    if ([BitConverter]::ToUInt64($image,16) -le 0x180000) { throw 'Handoff test must exceed the former image span' }
+    $expected+=@('Firmware DTB pointer=0x0000000042000000')
     Run-Case 'handoff-el1' 'cortex-a76' 128 $commands ($expected+@('entered EL1 running EL1','Reported RAM: 134.217 MB (128.000 MiB)'))
     Run-Case 'handoff-el2' 'cortex-a76' 128 $commands ($expected+@('entered EL2 running EL1','Reported RAM: 134.217 MB (128.000 MiB)')) $true
     Run-Case 'fault-el2' 'cortex-a76' 128 @('fault') @('entered EL2 running EL1','FATAL exception vector=4','ESR=0x00000000f2000042') $true

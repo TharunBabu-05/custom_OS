@@ -99,6 +99,7 @@ static struct vm_region regions[USER_VM_REGIONS];
 static uint64_t region_sequence;
 static bool running,last_clean,child_cleanup_failed;
 static bool remote_dispatch;
+static struct smp_user_slice *boot_slice;
 static unsigned current,total;
 static uint64_t epoch,kernel_root,started,switches,preemptions,yields,idles;
 static uint64_t pid_sequence,children_spawned,children_reaped;static int child_last_code;
@@ -2452,6 +2453,18 @@ bool process_exception(struct exception_frame *f,bool timer_tick,bool irq_ok)
 {
     if (!running || current>=scheduled_slots() || !task_at(current) || (f->spsr&15)!=0 ||
         (f->vector!=8 && f->vector!=9)) { return false; }
+    if (boot_slice) {
+        if (f->vector==9 && irq_ok) {
+            if (timer_tick) { smp_user_kick(); }
+            if (!timer_tick || timer_ticks()-boot_slice->begin<boot_slice->quantum) { return true; }
+        }
+        *boot_slice->frame=*f;
+        boot_slice->end=timer_ticks();
+        boot_slice->irq_ok=irq_ok;
+        __asm__ volatile("mrs %0, sp_el0; mrs %1, tpidr_el0" : "=r"(boot_slice->stack),"=r"(boot_slice->thread_pointer));
+        mmu_switch_root(kernel_root);f->elr=(uintptr_t)process_arch_return;f->spsr=0x3c5;
+        return true;
+    }
     /* All lower-EL kernel work uses the verified identity root. This also
      * makes allocator/DMA policy checks valid and keeps active user tables
      * out of the child teardown path. User copies walk explicit private maps. */
@@ -2640,20 +2653,33 @@ void process_info(void)
         console_write("\n");
     }
 }
+static void run_boot_slice(void *context)
+{
+    struct smp_user_slice *slice=context;
+    uint64_t flags=irq_save();
+    boot_slice=slice;
+    mmu_switch_root(slice->root);
+    slice->begin=timer_ticks();
+    process_arch_enter(slice->frame,slice->stack,slice->thread_pointer);
+    boot_slice=NULL;
+    irq_restore(flags);
+}
+
 static void run_remote(unsigned workers,uint64_t flags)
 {
-    unsigned cursor=0,peak=0,overlaps=0;
+    enum { LANES=SMP_WORKER_LIMIT+1 };
+    unsigned cursor=0,peak=0,overlaps=0,measured_peak=0;
     uint64_t rounds=0,hz=timer_frequency();
     while (foreground_live()) {
         network_worker_service();
         refresh();
         if (!foreground_live()) { break; }
-        struct exception_frame frames[SMP_WORKER_LIMIT];
-        struct smp_user_slice slices[SMP_WORKER_LIMIT];
-        unsigned slots[SMP_WORKER_LIMIT],count=0,selected=0;
-        for (unsigned step=0;step<total && count<workers;++step) {
-            unsigned slot=(cursor+step)%total;
-            struct process *p=&tasks[slot];
+        struct exception_frame frames[LANES];
+        struct smp_user_slice slices[LANES];
+        unsigned slots[LANES],count=0,selected=0,capacity=scheduled_slots();
+        for (unsigned step=0;step<capacity && count<=workers;++step) {
+            unsigned slot=(cursor+step)%capacity;
+            struct process *p=task_at(slot);
             if (!live(p) || p->status!=READY) { continue; }
             dispatch(slot,false);
             frames[count]=p->context;
@@ -2663,29 +2689,36 @@ static void run_remote(unsigned workers,uint64_t flags)
             selected|=1u<<slot;
         }
         if (count) {
+            current=slots[0];
             irq_restore(flags);
-            smp_user_round(slices,count,kernel_root);
+            smp_user_round(slices+1,count-1,kernel_root,run_boot_slice,slices);
             (void)irq_save();
             ++rounds;
             if (count>peak) { peak=count; }
-            cursor=(slots[count-1]+1)%total;
+            cursor=(slots[count-1]+1)%capacity;
             uint64_t longest=0;
             for (unsigned i=0;i<count;++i) {
                 uint64_t elapsed=slices[i].end-slices[i].begin;
                 if (elapsed>longest) { longest=elapsed; }
-                struct process *p=&tasks[slots[i]];
+                struct process *p=task_at(slots[i]);
                 uint64_t ticks=elapsed*100+p->user_tick_remainder;
                 p->user_ticks+=ticks/hz;
                 p->user_tick_remainder=ticks%hz;
+                unsigned concurrent=0;
+                for (unsigned j=0;j<count;++j) {
+                    if (slices[j].begin<=slices[i].begin && slices[j].end>slices[i].begin &&
+                        slices[j].end-slices[i].begin>=hz/1000) { ++concurrent; }
+                }
+                if (concurrent>measured_peak) { measured_peak=concurrent; }
                 for (unsigned j=0;j<i;++j) {
                     uint64_t first=slices[i].begin>slices[j].begin ? slices[i].begin : slices[j].begin;
                     uint64_t last=slices[i].end<slices[j].end ? slices[i].end : slices[j].end;
                     if (last>first && last-first>=hz/1000) { ++overlaps; }
                 }
             }
-            for (unsigned i=0;i<total;++i) {
-                struct process *p=&tasks[i];
-                if (!(selected&(1u<<i)) && p->status==READY) {
+            for (unsigned i=0;i<capacity;++i) {
+                struct process *p=task_at(i);
+                if (!(selected&(1u<<i)) && live(p) && p->status==READY) {
                     uint64_t ticks=longest*100+p->ready_tick_remainder;
                     p->ready_ticks+=ticks/hz;
                     p->ready_tick_remainder=ticks%hz;
@@ -2693,7 +2726,7 @@ static void run_remote(unsigned workers,uint64_t flags)
             }
             remote_dispatch=true;
             for (unsigned i=0;i<count;++i) {
-                struct process *p=&tasks[slots[i]];
+                struct process *p=task_at(slots[i]);
                 if (!live(p) || p->status!=READY) { continue; }
                 current=slots[i];
                 if (!slices[i].irq_ok) {
@@ -2709,23 +2742,14 @@ static void run_remote(unsigned workers,uint64_t flags)
                 }
             }
             remote_dispatch=false;
-        }
-        /* Supervised services keep their existing boot-CPU execution path. */
-        unsigned service=next_ready(service_cursor,PROCESS_LIMIT,SERVICE_LIMIT);
-        if (service<SCHEDULE_LIMIT) {
-            service_slice=true;
-            service_cursor=(service-PROCESS_LIMIT+1)%SERVICE_LIMIT;
-            dispatch(service,false);
-            struct process *p=task_at(service);
-            mmu_switch_root(p->tables->physical);process_arch_enter(&p->context,p->sp,p->thread_pointer);
-            service_slice=false;
-        } else if (!count) {
+        } else {
             ++idles;irq_restore(flags);__asm__ volatile("wfi" ::: "memory");(void)irq_save();
         }
     }
     console_write("Multicore EL0 workers=");console_u64(workers);
     console_write(" peak=");console_u64(peak);console_write(" rounds=");console_u64(rounds);
-    console_write(" overlapping_pairs=");console_u64(overlaps);console_write("\n");
+    console_write(" overlapping_pairs=");console_u64(overlaps);
+    console_write(" measured_peak=");console_u64(measured_peak);console_write("\n");
 }
 
 static int run(const char *const *paths,unsigned count,const struct app_args *args,bool terminal,unsigned seconds,bool multicore)
@@ -2733,7 +2757,7 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
     if (!paths || !count || count>PROCESS_LIMIT || (terminal && count!=1) || running || !mmu_enabled() || !mmu_dma_compatible() || !irq_timer_running() || epoch>=(1ULL<<60)-2) {
         console_write("App run refused: require mmuinit, irqinit, timerstart and 1..8 valid paths.\n");return 2;
     }
-    unsigned workers=multicore ? smp_user_workers() : 0;
+    unsigned workers=smp_user_workers();
     if (multicore && workers<2) {
         console_write("Multicore EL0 requires two routed workers. Use smpstart and smpirq on.\n");return 2;
     }
@@ -2758,7 +2782,7 @@ static int run(const char *const *paths,unsigned count,const struct app_args *ar
         started=timer_ticks();running=true;network_checkpoint=false;
         __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
         bool first=true;
-        if (multicore) { run_remote(workers,flags); }
+        if (workers) { run_remote(workers,flags); }
         else for (;;) {
             network_worker_service();
             refresh();

@@ -24,6 +24,16 @@ void framebuffer_console_putc(char c)
 void framebuffer_console_clear(void)
 { if (mirrored) { fb_terminal_clear(&terminal); } }
 
+bool framebuffer_console_start(void)
+{
+    if (mirrored) { return true; }
+    if (status!=FB_READY || !mmu_dma_buffer(mode.base,(size_t)mode.size) || !mmu_enabled() ||
+        !fb_terminal_attach(&terminal,&mode,(void *)(uintptr_t)mode.base)) { return false; }
+    fb_terminal_clear(&terminal);
+    mirrored=true;
+    return true;
+}
+
 static bool same(const char *a,const char *b)
 { while (*a && *a==*b) { ++a;++b; }return *a==*b; }
 
@@ -55,16 +65,14 @@ bool framebuffer_command(const char *line)
     if (!mmu_enabled() || !mmu_dma_buffer(mode.base,(size_t)mode.size)) {
         console_write("Framebuffer requires the verified MMU mapping. Use mmuinit.\n");return true;
     }
-    if (!fb_terminal_attach(&terminal,&mode,(void *)(uintptr_t)mode.base)) { return true; }
-    mirrored=false;
     if (pattern) {
+        if (!fb_terminal_attach(&terminal,&mode,(void *)(uintptr_t)mode.base)) { return true; }
+        mirrored=false;
         fb_terminal_pattern(&terminal);
         __asm__ volatile("dsb oshst" ::: "memory");
         console_write("Framebuffer test drawn. Look for red, green, blue and white bars.\n");
-    } else {
-        fb_terminal_clear(&terminal);
-        mirrored=true;
-        console_write("OurOS HDMI console mirror on. Input stays on UART.\n");
+    } else if (framebuffer_console_start()) {
+        console_write("OurOS HDMI console mirror on.\n");
     }
     return true;
 }

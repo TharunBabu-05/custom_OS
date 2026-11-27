@@ -68,6 +68,17 @@ static void print_snapshot(const struct xhci_snapshot *s)
 #endif
 bool usb_command(const char *line)
 {
+    if (same(line,"usbkbd")) { xhci_keyboard_info();return true; }
+    if (same(line,"usbkbd off")) { xhci_keyboard_enable(false,0);xhci_keyboard_info();return true; }
+    if (same(line,"usbkbd auto")) { xhci_keyboard_enable(true,0);xhci_keyboard_info();return true; }
+    const char *port_text=line,*command="usbkbd ";
+    while (*command && *port_text==*command) { ++command;++port_text; }
+    if (!*command) {
+        unsigned port=0;
+        while (*port_text>='0' && *port_text<='9' && port<=USB_MAX_PORTS) { port=port*10+(unsigned)(*port_text++-'0'); }
+        if (*port_text || !port || port>USB_MAX_PORTS) { console_write("Usage: usbkbd [auto|off|USB2 root port]\n");return true; }
+        xhci_keyboard_enable(true,port);xhci_keyboard_info();return true;
+    }
     if (same(line,"usbdevices")) { xhci_device_inventory(); return true; }
     if (same(line,"usbports")) {
 #ifdef OUROS_PI5
